@@ -180,7 +180,7 @@ pub enum WalkOrder {
 #[serde(rename_all = "camelCase")]
 pub struct WalkOptions {
     /// Commits per page, clamped to `1..=500`.
-    pub page_size: usize,
+    pub page_size: u32,
     /// Ordering; see [`WalkOrder`].
     pub order: WalkOrder,
 }

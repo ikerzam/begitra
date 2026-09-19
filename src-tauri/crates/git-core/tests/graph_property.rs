@@ -104,7 +104,10 @@ fn build_dag(seed: u64, ties: bool) -> Fixture {
 }
 
 fn walk_all(engine: &Git2Engine, page_size: usize, order: WalkOrder) -> Vec<CommitNode> {
-    let options = WalkOptions { page_size, order };
+    let options = WalkOptions {
+        page_size: u32::try_from(page_size).expect("page size"),
+        order,
+    };
     let mut walk = engine
         .walk(&WalkScope::All, &options, &Cancel::never())
         .expect("start walk");

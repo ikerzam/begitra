@@ -67,7 +67,9 @@ pub(super) fn start(
     Ok(Box::new(Walk::new(
         repo,
         options.order,
-        options.page_size.clamp(1, MAX_PAGE_SIZE),
+        usize::try_from(options.page_size)
+            .unwrap_or(MAX_PAGE_SIZE)
+            .clamp(1, MAX_PAGE_SIZE),
         seeds,
         exclude,
         decorations,

@@ -33,7 +33,10 @@ fn walk_pages(
     page_size: usize,
     order: WalkOrder,
 ) -> Vec<Page> {
-    let options = WalkOptions { page_size, order };
+    let options = WalkOptions {
+        page_size: u32::try_from(page_size).expect("page size"),
+        order,
+    };
     let mut walk = engine
         .walk(scope, &options, &Cancel::never())
         .expect("start walk");
