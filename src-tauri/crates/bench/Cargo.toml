@@ -1,0 +1,22 @@
+[package]
+name = "bench"
+description = "Benchmark repositories (synthetic generator, real repository fetch) and criterion benches for Begira"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+git-core.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bin]]
+name = "bench"
+path = "src/main.rs"
+
+[[bench]]
+name = "engine"
+harness = false

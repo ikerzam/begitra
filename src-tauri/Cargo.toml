@@ -1,0 +1,65 @@
+[workspace]
+members = [".", "crates/git-core", "crates/repo-index", "crates/bench"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/ikerzam/begira"
+
+[workspace.dependencies]
+git-core = { path = "crates/git-core" }
+repo-index = { path = "crates/repo-index" }
+# Local operations only: no OpenSSL or libssh2 build; network goes through the git CLI.
+git2 = { version = "0.21", default-features = false }
+rusqlite = { version = "0.40", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "process", "macros"] }
+tokio-util = "0.7"
+similar = "3"
+shell-words = "1"
+criterion = "0.8"
+tempfile = "3"
+
+[package]
+name = "begira"
+description = "Desktop Git client for reading and reviewing large volumes of AI-generated code on standard Git"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+# The `_lib` suffix keeps the library name distinct from the binary name (a Windows linker issue).
+name = "begira_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-store = "2"
+tauri-plugin-dialog = "2"
+git-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+shell-words.workspace = true
+
+# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

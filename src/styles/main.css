@@ -1,0 +1,28 @@
+@import "tailwindcss";
+@import "./tokens.css";
+@import "./tailwind-theme.css";
+
+@layer base {
+  html,
+  body,
+  #app {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg-app);
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: var(--text-md);
+    line-height: var(--leading);
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  /* Focus ring is always visible on keyboard focus and never removed. */
+  :focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 0;
+  }
+}

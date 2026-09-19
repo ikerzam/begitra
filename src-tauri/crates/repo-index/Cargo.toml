@@ -1,0 +1,16 @@
+[package]
+name = "repo-index"
+description = "Repository discovery index, review-state store and caches for Begira, on SQLite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+rusqlite.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

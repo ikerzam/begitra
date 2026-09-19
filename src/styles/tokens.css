@@ -1,0 +1,148 @@
+/*
+ * Design tokens; design/tokens.json is the machine-readable copy that the token
+ * test compares with this file. Dark theme is the default; [data-theme="light"] is a placeholder
+ * remap for v2. Components never use literal colours: only these properties.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --bg-app: #000000;
+  --bg-raised: #0a0a0a;
+  --bg-hover: #ffffff0f;
+  --bg-selected: #ffffff1a;
+  --bg-active: #ffffff24;
+  --border: #222222;
+  --border-strong: #333333;
+
+  /* Text */
+  --text: #ededed;
+  --text-secondary: #a1a1a1;
+  --text-muted: #757575;
+  --text-disabled: #444444;
+  --white: #ffffff;
+
+  /* Accent: selection and focus only */
+  --accent: #0070f3;
+  --accent-text: #52a8ff;
+  --focus-ring: #52a8ff;
+
+  /* Buttons */
+  --btn-primary-hover: #cccccc;
+  --btn-primary-active: #b3b3b3;
+  --danger-hover: #ff6961;
+  --danger-active: #d9463f;
+
+  /* Semantic */
+  --diff-add-bg: #2ea0432e;
+  --diff-add-fg: #3fb950;
+  --diff-add-emphasis: #2ea04366;
+  --diff-del-bg: #f851492e;
+  --diff-del-fg: #f85149;
+  --diff-del-emphasis: #f8514966;
+  --warn: #d29922;
+  --danger: #f85149;
+  --ok: #3fb950;
+  --info: #52a8ff;
+  --reviewed: #3fb950;
+  --shadow-color: #00000099;
+
+  /* Graph lanes: the one vivid palette */
+  --lane-1: #ff7a45;
+  --lane-2: #3ddc97;
+  --lane-3: #38bdf8;
+  --lane-4: #c084fc;
+  --lane-5: #f472b6;
+  --lane-6: #2dd4bf;
+  --lane-7: #facc15;
+  --lane-8: #94a3b8;
+
+  /* Ref badges */
+  --ref-local: #333333;
+  --ref-current: #0070f3;
+  --ref-remote: #c084fc;
+  --ref-tag: #facc15;
+  --ref-head: #ededed;
+  --ref-stash: #94a3b8;
+
+  /* Typography */
+  --font-ui: "Geist Variable", "Geist", system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-lg: 14px;
+  --text-xl: 16px;
+  --leading: 1.45;
+  --code-size: 13px;
+  --code-leading: 1.54;
+  --mono-sm: 12px;
+
+  /* Spacing and shape */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --icon: 16px;
+  --shadow-overlay: 0 8px 24px var(--shadow-color);
+
+  /* Rows and shell metrics */
+  --row-graph: 28px;
+  --row-list: 30px;
+  --row-tree: 26px;
+  --row-diff: 20px;
+  --row-hunk: 28px;
+  --row-sidebar: 30px;
+  --panel-header: 32px;
+  --control: 28px;
+  --bar-top: 40px;
+  --bar-status: 24px;
+  --sidebar-w: 240px;
+  --rail-w: 48px;
+  --detail-min: 360px;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg-app: #ffffff;
+  --bg-raised: #fafafa;
+  --bg-hover: #0000000a;
+  --bg-selected: #00000014;
+  --bg-active: #0000001f;
+  --border: #ebebeb;
+  --border-strong: #d4d4d4;
+
+  --text: #171717;
+  --text-secondary: #666666;
+  --text-muted: #8a8a8a;
+  --text-disabled: #c2c2c2;
+
+  --accent-text: #0062d1;
+  --focus-ring: #0070f3;
+
+  --btn-primary-hover: #383838;
+  --btn-primary-active: #4f4f4f;
+  --danger-hover: #b91c1c;
+  --danger-active: #991b1b;
+
+  --diff-add-fg: #1a7f37;
+  --diff-del-fg: #cf222e;
+  --warn: #9a6700;
+  --danger: #cf222e;
+  --ok: #1a7f37;
+  --info: #0062d1;
+  --reviewed: #1a7f37;
+  --shadow-color: #00000033;
+
+  --ref-local: #d4d4d4;
+  --ref-remote: #7c3aed;
+  --ref-tag: #b45309;
+  --ref-head: #171717;
+  --ref-stash: #64748b;
+}
