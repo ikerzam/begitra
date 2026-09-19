@@ -35,6 +35,15 @@ pub fn run(out: &Path, url: &str) -> Result<Outcome> {
                 .to_owned();
             return Ok(Outcome::Verified { head });
         }
+        // Only an interrupted clone (a `.git` folder without commits) is started over;
+        // anything else at that path is someone's data and stays.
+        let interrupted = out.join(".git").is_dir();
+        if !interrupted {
+            return Err(Error::Usage(format!(
+                "{} exists and is not a git clone; remove it or pass another --out",
+                out.display()
+            )));
+        }
         std::fs::remove_dir_all(out)
             .map_err(|source| Error::io(format!("remove {}", out.display()), source))?;
     }
@@ -83,7 +92,7 @@ mod tests {
     }
 
     #[test]
-    fn clones_from_a_local_source_and_replaces_a_broken_folder() {
+    fn clones_from_a_local_source_and_replaces_an_interrupted_clone() {
         let dir = tempfile::tempdir().expect("temp dir");
         let source = dir.path().join("source");
         let repo = git2::Repository::init(&source).expect("init");
@@ -94,10 +103,19 @@ mod tests {
             .commit(Some("HEAD"), &sig, &sig, "init", &tree, &[])
             .expect("commit");
 
-        let out = dir.path().join("real");
-        std::fs::create_dir_all(&out).expect("broken folder");
-        std::fs::write(out.join("garbage"), b"x").expect("garbage");
         let url = source.to_str().expect("utf-8");
+
+        // A folder with anything but an interrupted clone is left alone.
+        let out = dir.path().join("real");
+        std::fs::create_dir_all(&out).expect("folder");
+        std::fs::write(out.join("garbage"), b"x").expect("garbage");
+        assert!(matches!(run(&out, url), Err(Error::Usage(_))));
+        assert!(out.join("garbage").exists());
+
+        // An interrupted clone (a `.git` without commits) is started over.
+        std::fs::remove_file(out.join("garbage")).expect("remove");
+        git2::Repository::init(&out).expect("empty clone");
+        std::fs::write(out.join("leftover"), b"x").expect("leftover");
         let outcome = run(&out, url).expect("cloned");
         assert_eq!(
             outcome,
@@ -105,6 +123,6 @@ mod tests {
                 head: head.to_string()
             }
         );
-        assert!(!out.join("garbage").exists());
+        assert!(!out.join("leftover").exists());
     }
 }

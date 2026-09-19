@@ -18,8 +18,9 @@ use git_core::types::{DiffOptions, DiffTarget, StatusOptions, WalkOptions, WalkO
 struct Target {
     name: &'static str,
     path: PathBuf,
-    /// Two revisions with shared history, for `merge_base`.
-    merge_base_pair: (String, String),
+    /// Two revisions diverged by about 2,000 commits, for `merge_base`; `None` when the
+    /// repository has no such pair (the group is skipped rather than measuring a wrong one).
+    merge_base_pair: Option<(String, String)>,
     /// The commit whose diff is dominated by one very large file.
     large_diff: Option<String>,
     /// A typical small commit.
@@ -59,10 +60,11 @@ fn present() -> Vec<Target> {
 
 /// Two revisions whose histories diverge by about 2,000 commits (the budget scenario of the
 /// branch comparison): on the real repository two release candidates of one cycle, on the
-/// synthetic one the branch whose distance to `main` is closest to that.
-fn merge_base_pair(name: &str, path: &Path) -> (String, String) {
+/// synthetic one the branch whose distance to `main` is closest to that. `None`, with a
+/// message, when no candidate can be measured (missing tags, a git without `ahead-behind`).
+fn merge_base_pair(name: &str, path: &Path) -> Option<(String, String)> {
     const WANTED: i64 = 2_000;
-    match name {
+    let pair = match name {
         "real" => {
             let candidates = [
                 "v6.11-rc2",
@@ -73,7 +75,7 @@ fn merge_base_pair(name: &str, path: &Path) -> (String, String) {
                 "v6.11-rc7",
                 "v6.11",
             ];
-            let best = candidates
+            candidates
                 .iter()
                 .filter_map(|tag| {
                     let range = format!("v6.11-rc1...{tag}");
@@ -82,40 +84,37 @@ fn merge_base_pair(name: &str, path: &Path) -> (String, String) {
                     Some(((count - WANTED).abs(), (*tag).to_owned()))
                 })
                 .min_by_key(|(distance, _)| *distance)
-                .map(|(_, tag)| tag)
-                .unwrap_or_else(|| "master".to_owned());
-            ("v6.11-rc1".to_owned(), best)
+                .map(|(_, tag)| ("v6.11-rc1".to_owned(), tag))
         }
-        _ => {
-            let out = run_git(
-                path,
-                &[
-                    "for-each-ref",
-                    "--format=%(refname:short) %(ahead-behind:main)",
-                    "refs/heads",
-                ],
-            )
-            .ok();
-            let best = out
-                .and_then(|out| {
-                    out.stdout
-                        .lines()
-                        .filter_map(|line| {
-                            let mut parts = line.split_whitespace();
-                            let branch = parts.next()?;
-                            let ahead: i64 = parts.next()?.parse().ok()?;
-                            let behind: i64 = parts.next()?.parse().ok()?;
-                            let total = ahead + behind;
-                            (branch != "main" && total > 0)
-                                .then(|| ((total - WANTED).abs(), branch.to_owned()))
-                        })
-                        .min_by_key(|(distance, _)| *distance)
-                        .map(|(_, branch)| branch)
+        _ => run_git(
+            path,
+            &[
+                "for-each-ref",
+                "--format=%(refname:short) %(ahead-behind:main)",
+                "refs/heads",
+            ],
+        )
+        .ok()
+        .and_then(|out| {
+            out.stdout
+                .lines()
+                .filter_map(|line| {
+                    let mut parts = line.split_whitespace();
+                    let branch = parts.next()?;
+                    let ahead: i64 = parts.next()?.parse().ok()?;
+                    let behind: i64 = parts.next()?.parse().ok()?;
+                    let total = ahead + behind;
+                    (branch != "main" && total > 0)
+                        .then(|| ((total - WANTED).abs(), branch.to_owned()))
                 })
-                .unwrap_or_else(|| "main".to_owned());
-            ("main".to_owned(), best)
-        }
+                .min_by_key(|(distance, _)| *distance)
+                .map(|(_, branch)| ("main".to_owned(), branch))
+        }),
+    };
+    if pair.is_none() {
+        eprintln!("merge_base/{name}: no pair diverged by about 2,000 commits (tags missing, or git older than 2.41)");
     }
+    pair
 }
 
 /// The commit that rewrites a large text file (about 10,000 changed lines of `MAINTAINERS` on
@@ -297,8 +296,11 @@ fn diff_typical(c: &mut Criterion) {
 fn merge_base(c: &mut Criterion) {
     let mut group = c.benchmark_group("merge_base");
     for target in present() {
+        let Some((a, b_rev)) = target.merge_base_pair.clone() else {
+            eprintln!("skipping merge_base/{}: no pair", target.name);
+            continue;
+        };
         let engine = engine(&target.path);
-        let (a, b_rev) = target.merge_base_pair.clone();
         group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
             b.iter(|| e.merge_base(&a, &b_rev).expect("merge base"));
         });

@@ -1,7 +1,6 @@
 //! Where the benchmark repositories live.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 use crate::Error;
 
@@ -45,7 +44,8 @@ pub fn is_repository(path: &Path) -> bool {
 
 /// Branch with one commit on top of HEAD that rewrites a large text file, created on demand
 /// by [`ensure_large_file_branch`] for the large-file diff benchmark. The benchmark
-/// repositories are the project's own fixtures, so the bench may add a ref to them.
+/// repositories are the project's own fixtures (`bench/repos` or `BEGIRA_BENCH_REPOS`), so
+/// the bench may add a ref to them; nothing points it at a user repository.
 pub const LARGE_FILE_BRANCH: &str = "bench/large-file";
 
 /// Makes sure [`LARGE_FILE_BRANCH`] exists and returns `(parent, commit)`: the commit changes
@@ -65,34 +65,42 @@ pub fn ensure_large_file_branch(
         None => largest_text_file(path)?,
     };
     let head = git(path, &["rev-parse", "HEAD"], &[])?;
-    let content = git(path, &["show", &format!("HEAD:{file}")], &[])?;
-    let rewritten: String = content
-        .lines()
-        .enumerate()
-        .map(|(index, line)| {
-            if index % 3 == 0 {
-                format!("{line} // bench\n")
-            } else {
-                format!("{line}\n")
-            }
-        })
-        .collect();
-    let temp = std::env::temp_dir().join(format!("begira-bench-{}", std::process::id()));
-    std::fs::create_dir_all(&temp).map_err(|source| Error::Io {
-        context: format!("create {}", temp.display()),
-        source,
-    })?;
-    let blob_file = temp.join("blob");
+    // Raw blob bytes: `cat-file blob` applies no filters and the content is not trimmed, so
+    // line endings and whitespace survive and only every third line changes.
+    let content = git_bytes(path, &["cat-file", "blob", &format!("HEAD:{file}")])?;
+    let mut rewritten = Vec::with_capacity(content.len() + content.len() / 3);
+    for (index, line) in content.split_inclusive(|byte| *byte == b'\n').enumerate() {
+        let (body, ending) = match line.strip_suffix(b"\r\n") {
+            Some(body) => (body, &b"\r\n"[..]),
+            None => match line.strip_suffix(b"\n") {
+                Some(body) => (body, &b"\n"[..]),
+                None => (line, &b""[..]),
+            },
+        };
+        rewritten.extend_from_slice(body);
+        if index % 3 == 0 {
+            rewritten.extend_from_slice(b" // bench");
+        }
+        rewritten.extend_from_slice(ending);
+    }
+    let temp = TempDir::new()?;
+    let blob_file = temp.path().join("blob");
     std::fs::write(&blob_file, rewritten).map_err(|source| Error::Io {
         context: format!("write {}", blob_file.display()),
         source,
     })?;
     let blob = git(
         path,
-        &["hash-object", "-w", &blob_file.to_string_lossy()],
+        &[
+            "hash-object",
+            "-w",
+            "--no-filters",
+            "--",
+            &blob_file.to_string_lossy(),
+        ],
         &[],
     )?;
-    let index = temp.join("index");
+    let index = temp.path().join("index");
     let index_env = [("GIT_INDEX_FILE", index.to_string_lossy().into_owned())];
     git(path, &["read-tree", "HEAD"], &index_env)?;
     git(
@@ -120,8 +128,31 @@ pub fn ensure_large_file_branch(
         &identity,
     )?;
     git(path, &["update-ref", &full_ref, &commit], &[])?;
-    let _ = std::fs::remove_dir_all(&temp);
     Ok((head, commit))
+}
+
+/// A temporary folder removed on drop, also when a plumbing step fails.
+struct TempDir(PathBuf);
+
+impl TempDir {
+    fn new() -> Result<Self, Error> {
+        let path = std::env::temp_dir().join(format!("begira-bench-{}", std::process::id()));
+        std::fs::create_dir_all(&path).map_err(|source| Error::Io {
+            context: format!("create {}", path.display()),
+            source,
+        })?;
+        Ok(Self(path))
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
 
 /// The largest blob of HEAD with a source-like extension.
@@ -156,14 +187,22 @@ fn largest_text_file(path: &Path) -> Result<String, Error> {
 
 /// Runs git with `args` in `path` and extra environment variables, returning trimmed stdout.
 fn git(path: &Path, args: &[&str], env: &[(&str, String)]) -> Result<String, Error> {
-    let mut command = Command::new("git");
-    command
-        .args(args)
-        .current_dir(path)
-        .stdin(Stdio::null())
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_INDEX_FILE");
+    let output = git_bytes_with_env(path, args, env)?;
+    Ok(String::from_utf8_lossy(&output).trim().to_owned())
+}
+
+/// Runs git with `args` in `path` and returns its raw stdout.
+fn git_bytes(path: &Path, args: &[&str]) -> Result<Vec<u8>, Error> {
+    git_bytes_with_env(path, args, &[])
+}
+
+/// The engine's git runner (argv, redirecting variables scrubbed) plus `env`, raw stdout.
+fn git_bytes_with_env(
+    path: &Path,
+    args: &[&str],
+    env: &[(&str, String)],
+) -> Result<Vec<u8>, Error> {
+    let mut command = git_core::cli::command(path, args);
     for (key, value) in env {
         command.env(key, value);
     }
@@ -177,5 +216,5 @@ fn git(path: &Path, args: &[&str], env: &[(&str, String)]) -> Result<String, Err
             source: std::io::Error::other(String::from_utf8_lossy(&output.stderr).into_owned()),
         });
     }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+    Ok(output.stdout)
 }
