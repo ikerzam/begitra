@@ -12,9 +12,11 @@ import EmptyState from "@/components/EmptyState.vue";
 import HunkRow from "@/components/HunkRow.vue";
 import IconButton from "@/components/IconButton.vue";
 import { statusOf } from "@/detail/groupFiles";
-import type { DiffLine, FileChange, Hunk } from "@/ipc/schemas";
+import type { FileChange } from "@/ipc/schemas";
 import { useShortcut } from "@/shortcuts/useShortcut";
 import { useReviewStore } from "@/stores/review";
+
+import { MAX_LINES, buildRows, hunkRange, hunkSymbol, lineKind, segments } from "./diffRows";
 
 const props = withDefaults(
   defineProps<{
@@ -26,9 +28,6 @@ const props = withDefaults(
 );
 const emit = defineEmits<{ showOverview: [] }>();
 
-// Lines rendered before the diff is cut, so a huge file never stalls the panel.
-const MAX_LINES = 1_500;
-
 const { t } = useI18n();
 const review = useReviewStore();
 const body = ref<HTMLElement | null>(null);
@@ -39,64 +38,7 @@ const guarded = computed(
   () => props.file !== null && (props.file.isLarge || props.file.isGenerated) && !revealed.value,
 );
 
-interface Segment {
-  text: string;
-  emphasis: boolean;
-}
-
-/** Splits a line into plain and emphasised segments from its byte spans. */
-function segments(line: DiffLine): Segment[] {
-  if (line.spans.length === 0) return [{ text: line.text, emphasis: false }];
-  const bytes = new TextEncoder().encode(line.text);
-  const decoder = new TextDecoder();
-  const result: Segment[] = [];
-  let at = 0;
-  for (const span of line.spans) {
-    if (span.start > at)
-      result.push({ text: decoder.decode(bytes.slice(at, span.start)), emphasis: false });
-    result.push({ text: decoder.decode(bytes.slice(span.start, span.end)), emphasis: true });
-    at = span.end;
-  }
-  if (at < bytes.length) result.push({ text: decoder.decode(bytes.slice(at)), emphasis: false });
-  return result;
-}
-
-interface Row {
-  key: string;
-  hunk?: Hunk;
-  line?: DiffLine;
-}
-
-const rows = computed<Row[]>(() => {
-  if (!props.file) return [];
-  const result: Row[] = [];
-  let lines = 0;
-  for (const [h, hunk] of props.file.hunks.entries()) {
-    result.push({ key: `h${h}`, hunk });
-    for (const [l, line] of hunk.lines.entries()) {
-      if (lines >= MAX_LINES) return result;
-      result.push({ key: `h${h}-l${l}`, line });
-      lines += 1;
-    }
-  }
-  return result;
-});
-const truncated = computed(
-  () => (props.file?.hunks.reduce((n, hunk) => n + hunk.lines.length, 0) ?? 0) > MAX_LINES,
-);
-
-function lineKind(line: DiffLine): "context" | "add" | "del" {
-  return line.kind === "added" ? "add" : line.kind === "removed" ? "del" : "context";
-}
-
-function hunkRange(hunk: Hunk): string {
-  const match = /^@@[^@]*@@/.exec(hunk.header);
-  return match ? match[0] : hunk.header;
-}
-
-function hunkSymbol(hunk: Hunk): string {
-  return hunk.header.replace(/^@@[^@]*@@\s*/, "");
-}
+const diff = computed(() => buildRows(props.file?.hunks ?? []));
 
 function moveHunk(step: number): void {
   const element = body.value;
@@ -196,7 +138,7 @@ useShortcut("mark-reviewed", () => {
         </div>
       </div>
       <template v-else>
-        <template v-for="row in rows" :key="row.key">
+        <template v-for="row in diff.rows" :key="row.key">
           <HunkRow
             v-if="row.hunk"
             data-hunk
@@ -221,7 +163,11 @@ useShortcut("mark-reviewed", () => {
             </template>
           </DiffRow>
         </template>
-        <p v-if="truncated" class="px-3 py-2 text-sm text-fg-muted" data-testid="diff-truncated">
+        <p
+          v-if="diff.truncated"
+          class="px-3 py-2 text-sm text-fg-muted"
+          data-testid="diff-truncated"
+        >
           {{ t("review.truncated", { n: MAX_LINES }) }}
         </p>
       </template>
