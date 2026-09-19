@@ -20,6 +20,8 @@ const props = withDefaults(
     /** Files inside a folder. */
     count?: number;
     generated?: boolean;
+    /** A binary file: "binary" replaces the line stats. */
+    binary?: boolean;
     reviewed?: boolean;
     selected?: boolean;
   }>(),
@@ -32,6 +34,7 @@ const props = withDefaults(
     removed: undefined,
     count: undefined,
     generated: false,
+    binary: false,
     reviewed: false,
     selected: false,
   },
@@ -45,7 +48,8 @@ const { t, n } = useI18n();
 const isFolder = computed(() => props.kind === "folder");
 
 const hasStats = computed(
-  () => !isFolder.value && (props.added !== undefined || props.removed !== undefined),
+  () =>
+    !isFolder.value && !props.binary && (props.added !== undefined || props.removed !== undefined),
 );
 
 const indent = computed(() => ({
@@ -126,6 +130,13 @@ function onKeydown(event: KeyboardEvent): void {
       data-testid="tree-row-generated"
     >
       {{ t("treeRow.generated") }}
+    </span>
+    <span
+      v-if="props.binary && !isFolder"
+      class="shrink-0 text-sm text-fg-muted"
+      data-testid="tree-row-binary"
+    >
+      {{ t("treeRow.binary") }}
     </span>
     <DiffStat v-if="hasStats" :added="props.added ?? 0" :removed="props.removed ?? 0" />
     <Check

@@ -71,6 +71,15 @@ describe("TreeRow", () => {
     expect(wrapper.get("[data-testid='diff-stat-added']").text()).toBe("+12,400");
   });
 
+  it("shows binary in the stats column of a binary file", () => {
+    const wrapper = mountWithI18n(TreeRow, {
+      props: { name: "tiles-worker.png", status: "added", binary: true },
+    });
+    expect(wrapper.get("[data-testid='tree-row-binary']").text()).toBe("binary");
+    expect(wrapper.get("[data-testid='tree-row-binary']").classes()).toContain("text-fg-muted");
+    expect(wrapper.find("[data-testid='diff-stat-added']").exists()).toBe(false);
+  });
+
   it("dims reviewed files and adds the check", () => {
     const wrapper = mountWithI18n(TreeRow, {
       props: { name: "worker.ts", status: "modified", added: 12, removed: 9, reviewed: true },

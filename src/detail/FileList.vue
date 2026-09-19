@@ -2,7 +2,6 @@
 // The change set as a tree grouped by folder, with status letters and stats per file.
 
 import { computed, ref } from "vue";
-import { useI18n } from "vue-i18n";
 
 import TreeRow from "@/components/TreeRow.vue";
 import type { FileChange } from "@/ipc/schemas";
@@ -19,7 +18,6 @@ const props = withDefaults(
 );
 const emit = defineEmits<{ select: [file: FileChange] }>();
 
-const { t } = useI18n();
 const collapsed = ref(new Set<string>());
 const groups = computed(() => groupFiles(props.files));
 
@@ -52,9 +50,10 @@ function toggle(folder: string): void {
           :added="entry.file.isBinary ? undefined : entry.file.additions"
           :removed="entry.file.isBinary ? undefined : entry.file.deletions"
           :generated="entry.file.isGenerated"
+          :binary="entry.file.isBinary"
           :selected="entry.file.path === props.selectedPath"
           :data-path="entry.file.path"
-          :title="entry.file.isBinary ? t('detail.binary') : entry.file.path"
+          :title="entry.file.path"
           @select="emit('select', entry.file)"
           @activate="emit('select', entry.file)"
         />
