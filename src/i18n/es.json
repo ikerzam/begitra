@@ -1,9 +1,4 @@
 {
-  "common": {
-    "cancel": "Cancelar",
-    "close": "Cerrar",
-    "loading": "Cargando"
-  },
   "refBadge": {
     "head": "HEAD",
     "worktree": "Activa en un worktree",
@@ -44,9 +39,6 @@
   },
   "toast": {
     "showGitOutput": "Ver la salida de git"
-  },
-  "skeleton": {
-    "loading": "Cargando"
   },
   "errorBanner": {
     "showGitOutput": "Ver la salida de git",
