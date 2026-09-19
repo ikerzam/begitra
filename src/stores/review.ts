@@ -5,7 +5,8 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 
-import type { FileFilters } from "@/detail/groupFiles";
+import { isLockfile, type FileFilters } from "@/detail/groupFiles";
+import type { FileChange } from "@/ipc/schemas";
 
 export const useReviewStore = defineStore("review", () => {
   const filters = ref<FileFilters>({ hideGenerated: true, hideLockfiles: true, hideTests: false });
@@ -34,6 +35,19 @@ export const useReviewStore = defineStore("review", () => {
     revealed.value = new Set();
   }
 
+  /** Opens `hash` for review, on `file` when given, lifting the filter that would hide it. */
+  function open(hash: string, file: FileChange | null): void {
+    forCommit(hash);
+    if (!file) return;
+    if (isLockfile(file.path)) {
+      if (filters.value.hideLockfiles) setFilter("hideLockfiles", false);
+    } else if (file.isGenerated && filters.value.hideGenerated) {
+      setFilter("hideGenerated", false);
+    }
+    if (file.isTest && filters.value.hideTests) setFilter("hideTests", false);
+    selectedPath.value = file.path;
+  }
+
   function toggleReviewed(path: string): void {
     const next = new Set(reviewed.value);
     if (next.has(path)) next.delete(path);
@@ -55,6 +69,7 @@ export const useReviewStore = defineStore("review", () => {
     setFilter,
     select,
     forCommit,
+    open,
     toggleReviewed,
     reveal,
   };

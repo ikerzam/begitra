@@ -9,44 +9,20 @@ import EmptyState from "@/components/EmptyState.vue";
 import PanelHeader from "@/components/PanelHeader.vue";
 import SkeletonRow from "@/components/SkeletonRow.vue";
 import FileList from "@/detail/FileList.vue";
-import { applyFilters, groupFiles } from "@/detail/groupFiles";
+import { applyFilters } from "@/detail/groupFiles";
 import type { FileChange } from "@/ipc/schemas";
-import { useListNavigation } from "@/shortcuts/useListNavigation";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
 
 const { t } = useI18n();
 const repo = useRepoStore();
 const review = useReviewStore();
-const tree = ref<HTMLElement | null>(null);
+const list = ref<{ focus(): void } | null>(null);
 
 const files = computed<FileChange[]>(() =>
   repo.detail ? applyFilters(repo.detail.files, review.filters) : [],
 );
 const count = computed(() => files.value.length);
-
-/** Files in the order the tree shows them (grouped by folder), which j/k follow. */
-const displayed = computed(() =>
-  groupFiles(files.value).flatMap((group) => group.files.map((entry) => entry.file)),
-);
-
-const selectedIndex = computed({
-  get: () => displayed.value.findIndex((file) => file.path === review.selectedPath),
-  set: (index: number) => review.select(displayed.value[index]?.path ?? null),
-});
-
-function attributeSelector(path: string): string {
-  return `[data-path="${path.replace(/["\\]/g, "\\$&")}"]`;
-}
-
-const navigation = useListNavigation({
-  count,
-  selected: selectedIndex,
-  rowElement: (index) => {
-    const path = displayed.value[index]?.path;
-    return path ? tree.value?.querySelector(attributeSelector(path)) : null;
-  },
-});
 
 // Open the first file when the change set arrives and nothing is open yet.
 watch(
@@ -59,7 +35,7 @@ watch(
   { immediate: true },
 );
 
-defineExpose({ focus: () => tree.value?.focus(), navigation });
+defineExpose({ focus: () => list.value?.focus() });
 </script>
 
 <template>
@@ -82,17 +58,13 @@ defineExpose({ focus: () => tree.value?.focus(), navigation });
         @update:model-value="review.setFilter('hideTests', $event)"
       />
     </div>
-    <div
-      ref="tree"
-      tabindex="0"
-      class="min-h-0 flex-1 overflow-y-auto outline-none"
-      @keydown="navigation.onKeydown"
-    >
+    <div class="min-h-0 flex-1 overflow-y-auto">
       <template v-if="repo.detail?.loading && repo.detail.files.length === 0">
         <SkeletonRow v-for="n in 8" :key="n" :index="n" height="tree" />
       </template>
       <FileList
         v-else-if="repo.detail"
+        ref="list"
         :files="files"
         :selected-path="review.selectedPath"
         @select="(file) => review.select(file.path)"

@@ -4,10 +4,12 @@
 
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
+import type { FileChange } from "@/ipc/schemas";
 import { baseName } from "@/shell/format";
 import PaletteOverlay from "@/palette/PaletteOverlay.vue";
 import { installShortcuts, useShortcut } from "@/shortcuts/useShortcut";
 import { useRepoStore } from "@/stores/repo";
+import { useReviewStore } from "@/stores/review";
 import { useShellStore } from "@/stores/shell";
 
 import GraphFocusLayout from "./GraphFocusLayout.vue";
@@ -20,9 +22,11 @@ import { useOpenFolder } from "./useOpenFolder";
 
 const shell = useShellStore();
 const repo = useRepoStore();
+const reviewStore = useReviewStore();
 const { openFolder } = useOpenFolder();
 const external = useExternal();
 const graphLayout = ref<{ focusRows(): void } | null>(null);
+const reviewLayout = ref<{ focusFiles(): void } | null>(null);
 
 const repositoryName = computed(() => (repo.repo ? baseName(repo.repo.root) : null));
 const reviewMode = computed(() => shell.layoutMode === "review" && repo.state.kind === "ready");
@@ -67,8 +71,15 @@ watch(
   },
 );
 
-async function review(): Promise<void> {
+// Review focus starts on the files list, so j/k work at once (the status bar says so).
+watch(reviewMode, (on) => {
+  if (on) void nextTick(() => reviewLayout.value?.focusFiles());
+});
+
+/** Switches to review focus, on `file` when the detail tree chose one. */
+async function review(file?: FileChange): Promise<void> {
   if (repo.state.kind !== "ready") return;
+  if (repo.detail) reviewStore.open(repo.detail.hash, file ?? null);
   await shell.setLayoutMode("review");
 }
 
@@ -86,12 +97,12 @@ async function removeFromList(): Promise<void> {
       @open-palette="shell.openPalette()"
       @set-layout-mode="(mode) => void shell.setLayoutMode(mode)"
     />
-    <ReviewFocusLayout v-if="reviewMode" />
+    <ReviewFocusLayout v-if="reviewMode" ref="reviewLayout" />
     <GraphFocusLayout
       v-else
       ref="graphLayout"
       @open-folder="() => void openFolder()"
-      @review="() => void review()"
+      @review="(file) => void review(file)"
       @remove-from-list="() => void removeFromList()"
     />
     <StatusBar />

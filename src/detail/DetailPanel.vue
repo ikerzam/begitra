@@ -2,7 +2,7 @@
 // The detail panel of graph focus: commit header, summary, stats line and the file tree.
 
 import { Copy, FileDiff } from "@lucide/vue";
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Button from "@/components/Button.vue";
@@ -18,7 +18,7 @@ import { shortHash } from "@/shell/format";
 import { useRepoStore } from "@/stores/repo";
 
 import CommitSummary from "./CommitSummary.vue";
-import FileList from "./FileList.vue";
+import FileList, { type SelectTrigger } from "./FileList.vue";
 import { totals } from "./groupFiles";
 
 const emit = defineEmits<{ review: [file?: FileChange] }>();
@@ -50,6 +50,20 @@ async function copyHash(): Promise<void> {
 function selectParent(hash: string): void {
   const index = repo.commits.findIndex((c) => c.hash === hash);
   if (index >= 0) repo.select(index);
+}
+
+/* The keys move a selection through the tree; a click or Enter opens the file in review. */
+const selectedPath = ref<string | null>(null);
+watch(
+  () => detail.value?.hash,
+  () => {
+    selectedPath.value = null;
+  },
+);
+
+function onSelect(file: FileChange, trigger: SelectTrigger): void {
+  selectedPath.value = file.path;
+  if (trigger === "pointer") emit("review", file);
 }
 </script>
 
@@ -96,7 +110,13 @@ function selectParent(hash: string): void {
         <div v-if="detailError" class="p-3">
           <ErrorBanner :message="detailError" :output="detail?.error?.detail" />
         </div>
-        <FileList v-if="detail" :files="detail.files" @select="(file) => emit('review', file)" />
+        <FileList
+          v-if="detail"
+          :files="detail.files"
+          :selected-path="selectedPath"
+          @select="onSelect"
+          @activate="(file) => emit('review', file)"
+        />
       </div>
     </template>
     <EmptyState

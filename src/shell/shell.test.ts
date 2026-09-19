@@ -8,6 +8,7 @@ import type { CommitNode, Repo } from "@/ipc/schemas";
 import { ShortcutRegistry, setShortcutRegistry } from "@/shortcuts/registry";
 import { useOperationsStore } from "@/stores/operations";
 import { useRepoStore } from "@/stores/repo";
+import { useReviewStore } from "@/stores/review";
 import { memoryStorage, useSettingsStore } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
 import { useToastsStore } from "@/stores/toasts";
@@ -305,6 +306,7 @@ describe("AppShell", () => {
     expect(shell.layoutMode).toBe("review");
     expect(wrapper.find('[data-testid="review-focus"]').exists()).toBe(true);
     expect(wrapper.get('[data-testid="diff-path"]').text()).toBe("src/app.ts");
+    expect(document.activeElement?.getAttribute("data-path")).toBe("src/app.ts");
     expect(wrapper.find('[data-testid="review-rail"]').exists()).toBe(true);
     expect(wrapper.get('[data-testid="review-files"]').text()).not.toContain("pnpm-lock.yaml");
     shell.setWindowWidth(1024);
@@ -315,6 +317,53 @@ describe("AppShell", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "1", ctrlKey: true }));
     await settle();
     expect(wrapper.find('[data-testid="graph-focus"]').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("moves through the detail tree with j and opens review on the chosen file with Enter", async () => {
+    backend();
+    const shell = useShellStore();
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    shell.setWindowWidth(1440);
+    await useRepoStore().open("/r");
+    await settle();
+    const tree = wrapper.get('[data-testid="detail-panel"] [data-testid="file-list"]');
+    const rows = tree.findAll("[data-path]");
+    expect(rows.map((row) => row.attributes("data-path"))).toEqual([
+      "src/app.ts",
+      "pnpm-lock.yaml",
+    ]);
+    expect(rows.map((row) => row.attributes("tabindex"))).toEqual(["0", "-1"]);
+    expect(rows.map((row) => row.attributes("aria-selected"))).toEqual(["false", "false"]);
+    (rows[0]?.element as HTMLElement).focus();
+    await rows[0]!.trigger("keydown", { key: "j" });
+    await rows[0]!.trigger("keydown", { key: "j" });
+    expect(rows[1]?.attributes("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(rows[1]?.element);
+    expect(shell.layoutMode).toBe("graph");
+    await rows[1]!.trigger("keydown", { key: "Enter" });
+    await settle();
+    expect(shell.layoutMode).toBe("review");
+    const review = useReviewStore();
+    expect(review.selectedPath).toBe("pnpm-lock.yaml");
+    expect(review.filters.hideLockfiles).toBe(false);
+    expect(wrapper.get('[data-testid="diff-path"]').text()).toBe("pnpm-lock.yaml");
+    expect(document.activeElement?.getAttribute("data-path")).toBe("pnpm-lock.yaml");
+    wrapper.unmount();
+  });
+
+  it("opens review on the file clicked in the detail tree", async () => {
+    backend();
+    const shell = useShellStore();
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    shell.setWindowWidth(1440);
+    await useRepoStore().open("/r");
+    await settle();
+    await wrapper.get('[data-testid="detail-panel"] [data-path="src/app.ts"]').trigger("click");
+    await settle();
+    expect(shell.layoutMode).toBe("review");
+    expect(useReviewStore().selectedPath).toBe("src/app.ts");
+    expect(wrapper.get('[data-testid="diff-path"]').text()).toBe("src/app.ts");
     wrapper.unmount();
   });
 
