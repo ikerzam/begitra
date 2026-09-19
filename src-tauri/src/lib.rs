@@ -11,6 +11,8 @@ mod fixtures;
 pub mod ops;
 pub mod state;
 
+use tauri::Manager;
+
 use state::AppState;
 
 /// Installs the tracing subscriber: `RUST_LOG` when set, otherwise info for the app and the
@@ -25,6 +27,26 @@ fn init_tracing() {
         .try_init();
 }
 
+/// Drops walk handles idle for longer than [`state::WALK_IDLE_LIMIT`] once a minute, off the
+/// async runtime, so an abandoned walk on a large repository does not keep its maps for the
+/// whole session.
+fn spawn_walk_eviction(state: AppState) {
+    tauri::async_runtime::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            let sweeper = state.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                let evicted = sweeper.evict_idle_walks(state::WALK_IDLE_LIMIT);
+                if !evicted.is_empty() {
+                    tracing::debug!(count = evicted.len(), "evicted idle walks");
+                }
+            })
+            .await;
+        }
+    });
+}
+
 /// Builds and runs the Tauri application.
 ///
 /// Exits the process with status 1 if the runtime fails to start; there is no UI to report to
@@ -36,6 +58,10 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
+        .setup(|app| {
+            spawn_walk_eviction(app.state::<AppState>().inner().clone());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::system::ping,
             commands::system::cancel_operation,

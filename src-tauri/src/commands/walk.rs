@@ -93,7 +93,6 @@ pub async fn walk_commits(
     on_page: Channel<StreamMessage<WalkPage>>,
 ) -> Result<(), AppError> {
     let app = state.inner().clone();
-    app.evict_idle_walks(WALK_IDLE_LIMIT);
     let worker = app.clone();
     let timeout = DEFAULT_TIMEOUT * max_pages.clamp(1, 64);
     run_stream(
@@ -102,6 +101,8 @@ pub async fn walk_commits(
         timeout,
         on_page,
         move |cancel, stream| {
+            // Idle handles are dropped here, on the blocking thread, never on the runtime.
+            drop(worker.evict_idle_walks(WALK_IDLE_LIMIT));
             let engine = worker.open(&repo)?;
             let root = engine.repo().root.clone();
             let mut walk = engine.walk(&scope, &options, &cancel)?;
