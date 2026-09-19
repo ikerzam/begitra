@@ -186,47 +186,121 @@ struct Tracking {
     behind: Option<u32>,
 }
 
-/// Tracking branches from which the counts are computed on several threads, each with its
-/// own repository handle; below it the handles cost more than they save.
-const PARALLEL_TRACKING_FROM: usize = 16;
+/// Ahead/behind walks from which the counts run on several threads, each with its own
+/// repository handle; below it the handles cost more than they save.
+const PARALLEL_WALKS_FROM: usize = 16;
 
-/// Most threads used for the tracking counts.
+/// Most threads used for the ahead/behind walks.
 const TRACKING_THREADS: usize = 8;
 
 /// The tracking information of every branch in `pending`, in order.
 ///
-/// Each count is a revision walk (about 2 ms on a long history), so with many tracking
-/// branches the walks run on [`TRACKING_THREADS`] threads, each on its own `Repository`
+/// The upstream of each branch is resolved inline (configuration and reference reads, cheap);
+/// the ahead/behind counts are revision walks (about 2 ms each on a long history), so with
+/// many of them they run on [`TRACKING_THREADS`] threads, each on its own `Repository`
 /// (libgit2 objects are not shared between threads). Errors and cancellation propagate.
 fn trackings(
     repo: &Repository,
     pending: &[(usize, String, Oid)],
     cancel: &Cancel,
 ) -> GitResult<Vec<Tracking>> {
-    if pending.len() < PARALLEL_TRACKING_FROM {
-        return pending
-            .iter()
-            .map(|(_, full_name, local)| tracking(repo, full_name, *local))
-            .collect();
+    let mut trackings = Vec::with_capacity(pending.len());
+    // (index in `trackings`, local tip, upstream tip) of the branches whose counts are walked.
+    let mut walks: Vec<(usize, Oid, Oid)> = Vec::new();
+    for (index, (_, full_name, local)) in pending.iter().enumerate() {
+        cancel.check()?;
+        let (tracking, upstream_tip) = upstream_of(repo, full_name)?;
+        if let Some(upstream_tip) = upstream_tip {
+            walks.push((index, *local, upstream_tip));
+        }
+        trackings.push(tracking);
     }
-    let path = repo.workdir().unwrap_or_else(|| repo.path()).to_path_buf();
+    let counts = if walks.len() < PARALLEL_WALKS_FROM {
+        walks
+            .iter()
+            .map(|(_, local, upstream)| {
+                cancel.check()?;
+                ahead_behind(repo, *local, *upstream)
+            })
+            .collect::<GitResult<Vec<_>>>()?
+    } else {
+        parallel_ahead_behind(repo, &walks, cancel)?
+    };
+    for ((index, _, _), (ahead, behind)) in walks.iter().zip(counts) {
+        if let Some(tracking) = trackings.get_mut(*index) {
+            tracking.ahead = Some(ahead);
+            tracking.behind = Some(behind);
+        }
+    }
+    Ok(trackings)
+}
+
+/// The upstream short name of `full_name` and, when the upstream ref exists and points at a
+/// commit, its tip. No upstream gives `(none, None)`; a gone upstream (deleted on the remote,
+/// the `[gone]` marker of `git branch -vv`) keeps its name without a tip.
+fn upstream_of(repo: &Repository, full_name: &str) -> GitResult<(Tracking, Option<Oid>)> {
+    let none = Tracking {
+        upstream: None,
+        ahead: None,
+        behind: None,
+    };
+    let upstream = match repo.branch_upstream_name(full_name) {
+        Ok(buf) => match buf.as_str() {
+            Ok(name) => name.to_owned(),
+            Err(_) => return Ok((none, None)),
+        },
+        Err(error) if error.code() == ErrorCode::NotFound => return Ok((none, None)),
+        Err(error) => return Err(error.into()),
+    };
+    let short = upstream
+        .strip_prefix(REMOTES)
+        .or_else(|| upstream.strip_prefix(HEADS))
+        .unwrap_or(&upstream)
+        .to_owned();
+    let gone = Tracking {
+        upstream: Some(short),
+        ahead: None,
+        behind: None,
+    };
+    let upstream_ref = match repo.find_reference(&upstream) {
+        Ok(reference) => reference,
+        Err(error) if error.code() == ErrorCode::NotFound => return Ok((gone, None)),
+        Err(error) => return Err(error.into()),
+    };
+    let tip = resolve(repo, &upstream_ref)?.map(|target| target.peeled);
+    Ok((gone, tip))
+}
+
+/// The counts of `git rev-list --left-right --count local...upstream`.
+fn ahead_behind(repo: &Repository, local: Oid, upstream: Oid) -> GitResult<(u32, u32)> {
+    let (ahead, behind) = repo.graph_ahead_behind(local, upstream)?;
+    Ok((count(ahead), count(behind)))
+}
+
+/// [`ahead_behind`] for every pair in `walks`, in order, on up to [`TRACKING_THREADS`]
+/// threads with one repository handle each; the first error wins.
+fn parallel_ahead_behind(
+    repo: &Repository,
+    walks: &[(usize, Oid, Oid)],
+    cancel: &Cancel,
+) -> GitResult<Vec<(u32, u32)>> {
     let threads = std::thread::available_parallelism()
         .map_or(1, std::num::NonZero::get)
         .clamp(1, TRACKING_THREADS);
-    let chunk = pending.len().div_ceil(threads).max(1);
-    let results: Vec<GitResult<Vec<Tracking>>> = std::thread::scope(|scope| {
-        let workers: Vec<_> = pending
+    let chunk = walks.len().div_ceil(threads).max(1);
+    // Repository handles do not cross threads: each worker reopens the gitdir.
+    let gitdir = repo.path().to_path_buf();
+    let results: Vec<GitResult<Vec<(u32, u32)>>> = std::thread::scope(|scope| {
+        let workers: Vec<_> = walks
             .chunks(chunk)
             .map(|part| {
-                let path = path.clone();
-                scope.spawn(move || -> GitResult<Vec<Tracking>> {
-                    let repo = Repository::open(&path)?;
+                let gitdir = gitdir.clone();
+                scope.spawn(move || -> GitResult<Vec<(u32, u32)>> {
+                    let repo = super::reopen_gitdir(&gitdir)?;
                     let mut out = Vec::with_capacity(part.len());
-                    for (index, (_, full_name, local)) in part.iter().enumerate() {
-                        if index % 8 == 0 {
-                            cancel.check()?;
-                        }
-                        out.push(tracking(&repo, full_name, *local)?);
+                    for (_, local, upstream) in part {
+                        cancel.check()?;
+                        out.push(ahead_behind(&repo, *local, *upstream)?);
                     }
                     Ok(out)
                 })
@@ -241,54 +315,11 @@ fn trackings(
             })
             .collect()
     });
-    let mut all = Vec::with_capacity(pending.len());
+    let mut all = Vec::with_capacity(walks.len());
     for result in results {
         all.extend(result?);
     }
     Ok(all)
-}
-
-/// The upstream short name and the counts of `git rev-list --left-right --count`. The counts
-/// are `None` when the upstream ref is gone (deleted on the remote), like the `[gone]` marker
-/// of `git branch -vv`.
-fn tracking(repo: &Repository, full_name: &str, local: Oid) -> GitResult<Tracking> {
-    let none = Tracking {
-        upstream: None,
-        ahead: None,
-        behind: None,
-    };
-    let upstream = match repo.branch_upstream_name(full_name) {
-        Ok(buf) => match buf.as_str() {
-            Ok(name) => name.to_owned(),
-            Err(_) => return Ok(none),
-        },
-        Err(error) if error.code() == ErrorCode::NotFound => return Ok(none),
-        Err(error) => return Err(error.into()),
-    };
-    let short = upstream
-        .strip_prefix(REMOTES)
-        .or_else(|| upstream.strip_prefix(HEADS))
-        .unwrap_or(&upstream)
-        .to_owned();
-    let gone = Tracking {
-        upstream: Some(short.clone()),
-        ahead: None,
-        behind: None,
-    };
-    let upstream_ref = match repo.find_reference(&upstream) {
-        Ok(reference) => reference,
-        Err(error) if error.code() == ErrorCode::NotFound => return Ok(gone),
-        Err(error) => return Err(error.into()),
-    };
-    let Some(target) = resolve(repo, &upstream_ref)? else {
-        return Ok(gone);
-    };
-    let (ahead, behind) = repo.graph_ahead_behind(local, target.peeled)?;
-    Ok(Tracking {
-        upstream: Some(short),
-        ahead: Some(count(ahead)),
-        behind: Some(count(behind)),
-    })
 }
 
 fn count(n: usize) -> u32 {

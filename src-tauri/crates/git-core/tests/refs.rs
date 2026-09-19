@@ -392,3 +392,24 @@ fn many_tracking_branches_report_the_same_counts_as_rev_list() {
         );
     }
 }
+
+/// Many local branches without an upstream stay on the inline path: no counts, no threads,
+/// and the tracking branches among them still get their counts.
+#[test]
+fn branches_without_upstream_have_no_counts_however_many_there_are() {
+    let f = Fixture::basic().with_remote();
+    for n in 0..40 {
+        f.git(&["branch", "-q", &format!("plain-{n:02}"), "main"]);
+    }
+    let refs = refs_at(&f.root);
+    let plain: Vec<&Ref> = refs
+        .iter()
+        .filter(|r| r.name.starts_with("plain-"))
+        .collect();
+    assert_eq!(plain.len(), 40);
+    assert!(plain
+        .iter()
+        .all(|r| r.upstream.is_none() && r.ahead.is_none() && r.behind.is_none()));
+    let develop = find(&refs, "refs/heads/develop");
+    assert_eq!((develop.ahead, develop.behind), (Some(2), Some(3)));
+}
