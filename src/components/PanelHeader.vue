@@ -25,10 +25,12 @@ const { n } = useI18n();
     >
       {{ n(props.count) }}
     </span>
-    <!-- At most two icon actions, per the design. -->
+    <!-- Extra text after the title, such as the commit hash of the detail panel. -->
+    <slot />
+    <!-- At most two icon actions, per the design; 24px buttons on a 32px pitch. -->
     <div
       v-if="$slots.actions"
-      class="ml-auto flex items-center gap-1"
+      class="ml-auto flex items-center gap-2"
       data-testid="panel-header-actions"
     >
       <slot name="actions" />

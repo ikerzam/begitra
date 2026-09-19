@@ -57,10 +57,10 @@ function selectParent(hash: string): void {
   <aside class="flex min-w-0 flex-col" data-testid="detail-panel">
     <template v-if="repo.state.kind === 'ready' && commit">
       <PanelHeader :title="t('detail.commit')">
+        <span class="truncate font-mono text-mono-sm text-fg-secondary" data-testid="detail-hash">
+          {{ shortHash(commit.hash) }}
+        </span>
         <template #actions>
-          <span class="mr-2 font-mono text-mono-sm text-fg-secondary" data-testid="detail-hash">
-            {{ shortHash(commit.hash) }}
-          </span>
           <IconButton :label="t('detail.copyHash')" :icon="Copy" @click="copyHash" />
           <IconButton :label="t('detail.review')" :icon="FileDiff" @click="emit('review')" />
         </template>
@@ -69,7 +69,7 @@ function selectParent(hash: string): void {
         <CommitSummary :commit="commit" :refs="repo.refs" @select-parent="selectParent" />
         <div
           v-if="stats && detail"
-          class="flex items-center gap-4 border-t border-b border-line px-3 py-2 text-md"
+          class="flex h-panel-header shrink-0 items-center gap-4 border-t border-b border-line px-3 text-md"
           data-testid="detail-stats"
         >
           <span class="font-medium text-fg">
