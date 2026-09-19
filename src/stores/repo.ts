@@ -15,6 +15,7 @@ import type {
   Ref as GitRef,
   Repo,
   WalkPage,
+  Worktree,
 } from "@/ipc/schemas";
 import type { StreamHandle } from "@/ipc/stream";
 
@@ -57,6 +58,8 @@ export const useRepoStore = defineStore("repo", () => {
   const walkError = ref<AppError | null>(null);
   const selectedIndex = ref(-1);
   const detail = ref<Detail | null>(null);
+  const worktrees = ref<Worktree[]>([]);
+  const worktreesError = ref<AppError | null>(null);
 
   let walkHandle: StreamHandle | null = null;
   let diffHandle: StreamHandle | null = null;
@@ -85,6 +88,24 @@ export const useRepoStore = defineStore("repo", () => {
     walkError.value = null;
     selectedIndex.value = -1;
     detail.value = null;
+    worktrees.value = [];
+    worktreesError.value = null;
+  }
+
+  /** Lists the worktrees of the open repository (the sidebar tab asks for it). */
+  async function loadWorktrees(): Promise<void> {
+    const root = repo.value?.root;
+    if (!root) return;
+    const myGeneration = generation;
+    try {
+      const list = await ipc.listWorktrees(root);
+      if (myGeneration !== generation) return;
+      worktrees.value = list;
+      worktreesError.value = null;
+    } catch (error) {
+      if (myGeneration !== generation) return;
+      worktreesError.value = toAppError(error);
+    }
   }
 
   /** Opens the repository at `path`: description, refs, then the first commit pages. */
@@ -229,10 +250,13 @@ export const useRepoStore = defineStore("repo", () => {
     selectedIndex,
     selectedCommit,
     detail,
+    worktrees,
+    worktreesError,
     canLoadMore,
     currentBranch,
     open,
     loadMore,
+    loadWorktrees,
     select,
     close,
     retry,

@@ -298,5 +298,6 @@ export const commandArgs = {
   }),
   close_walk: v.object({ walkId: v.string() }),
   diff: v.object({ repo: path, target: DiffTargetSchema, options: DiffOptionsSchema, opId }),
+  open_external: v.object({ templates: v.pipe(v.array(v.string()), v.minLength(1)), path }),
 } as const;
 export type CommandName = keyof typeof commandArgs;

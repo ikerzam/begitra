@@ -114,3 +114,8 @@ export function diff(
 ): StreamHandle {
   return stream("diff", { repo, target, options }, DiffPageSchema, onPage, opId);
 }
+
+/** Opens `path` with the first template that spawns; resolves with the argv that ran. */
+export function openExternal(templates: string[], path: string) {
+  return call("open_external", { templates, path }, v.array(v.string()));
+}

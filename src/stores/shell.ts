@@ -22,11 +22,14 @@ export function clampPane(pane: keyof PaneSizes, px: number): number {
   return Math.round(Math.min(Math.max(px, min), max));
 }
 
+export type SidebarTab = "repos" | "branches" | "worktrees";
+
 export const useShellStore = defineStore("shell", () => {
   const settings = useSettingsStore();
   const windowWidth = ref(1440);
   const reviewRailShown = ref(false);
   const paletteOpen = ref(false);
+  const sidebarTab = ref<SidebarTab>("branches");
 
   const layoutMode = computed<LayoutMode>(() => settings.values.layoutMode);
   const sidebarCollapsed = computed(() => settings.values.sidebarCollapsed);
@@ -74,8 +77,21 @@ export const useShellStore = defineStore("shell", () => {
     paletteOpen.value = !paletteOpen.value;
   }
 
+  function setSidebarTab(tab: SidebarTab): void {
+    sidebarTab.value = tab;
+  }
+
+  /** Expands the sidebar on `tab` (the rail icons do this). */
+  async function expandSidebar(tab: SidebarTab): Promise<void> {
+    sidebarTab.value = tab;
+    if (settings.values.sidebarCollapsed) await settings.update("sidebarCollapsed", false);
+  }
+
   return {
     windowWidth,
+    sidebarTab,
+    setSidebarTab,
+    expandSidebar,
     layoutMode,
     sidebarCollapsed,
     paneSizes,
