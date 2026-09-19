@@ -49,7 +49,10 @@ export const settingsKeys = Object.keys(schemas) as (keyof Settings)[];
 export function platformDefaults(platform: Platform): { terminal: string[]; editor: string[] } {
   switch (platform) {
     case "windows":
-      return { terminal: ["wt -d {path}", "cmd /K cd /d {path}"], editor: ["code {path}"] };
+      // `cmd /K` starts in the working directory the spawner sets, so the path never goes
+      // through cmd's own parsing (`&`, `^`, `%` in a folder name would break it). VS Code's
+      // launcher on PATH is `code.cmd`, and a bare `code` only resolves to `code.exe`.
+      return { terminal: ["wt -d {path}", "cmd /K"], editor: ["code.cmd {path}"] };
     case "macos":
       return { terminal: ["open -a Terminal {path}"], editor: ["code {path}"] };
     default:
@@ -106,33 +109,71 @@ export function memoryStorage(initial: Partial<Record<string, unknown>> = {}): S
   };
 }
 
+/** Quiet time after the last update before the pending values are written to disk. */
+export const FLUSH_DELAY_MS = 200;
+
 export const useSettingsStore = defineStore("settings", () => {
   const platform = ref<Platform>(detectPlatform());
   const values = ref<Settings>(defaultSettings(platform.value));
   const loaded = ref(false);
   let storage: SettingsStorage | undefined;
+  /** Values changed since the last write, by key; kept until `init` when it has not run. */
+  const pending = new Map<keyof Settings, unknown>();
+  let flushTimer: ReturnType<typeof setTimeout> | undefined;
+  let flushing: Promise<void> | undefined;
+  let settle: (() => void) | undefined;
 
-  /** Reads every key from `backend`; invalid or missing keys keep their default. */
+  /** Reads every key from `backend`; invalid or missing keys keep their default. Values
+   * updated before the read finished win over the stored ones and are written through. */
   async function init(backend: SettingsStorage, forPlatform = platform.value): Promise<void> {
     platform.value = forPlatform;
     const next = defaultSettings(forPlatform);
-    for (const key of settingsKeys) {
-      const stored = await backend.get<unknown>(key);
-      const parsed = v.safeParse(schemas[key], stored);
+    const stored = await Promise.all(settingsKeys.map((key) => backend.get<unknown>(key)));
+    settingsKeys.forEach((key, index) => {
+      const parsed = v.safeParse(schemas[key], stored[index]);
       if (parsed.success) (next as unknown as Record<string, unknown>)[key] = parsed.output;
-    }
+    });
+    for (const [key, value] of pending) (next as unknown as Record<string, unknown>)[key] = value;
     values.value = next;
     storage = backend;
     loaded.value = true;
+    if (pending.size > 0) await flush();
   }
 
-  /** Changes one setting and writes it through. */
-  async function update<K extends keyof Settings>(key: K, value: Settings[K]): Promise<void> {
-    values.value = { ...values.value, [key]: value };
-    if (storage) {
-      await storage.set(key, value);
-      await storage.save();
+  /** Writes every pending value and saves once; a no-op until `init` provided the storage. */
+  async function flush(): Promise<void> {
+    if (flushTimer !== undefined) {
+      clearTimeout(flushTimer);
+      flushTimer = undefined;
     }
+    if (!storage || pending.size === 0) return;
+    const batch = [...pending];
+    pending.clear();
+    const backend = storage;
+    for (const [key, value] of batch) await backend.set(key, value);
+    await backend.save();
+    settle?.();
+    settle = undefined;
+    flushing = undefined;
+  }
+
+  /**
+   * Changes one setting now and writes it through after a short quiet time, so a drag that
+   * updates a pane size on every mouse move ends in one write. Resolves once the value is
+   * on disk (at once when there is no storage yet).
+   */
+  function update<K extends keyof Settings>(key: K, value: Settings[K]): Promise<void> {
+    values.value = { ...values.value, [key]: value };
+    pending.set(key, value);
+    if (!storage) return Promise.resolve();
+    if (!flushing) {
+      flushing = new Promise<void>((resolve) => {
+        settle = resolve;
+      });
+    }
+    if (flushTimer !== undefined) clearTimeout(flushTimer);
+    flushTimer = setTimeout(() => void flush(), FLUSH_DELAY_MS);
+    return flushing;
   }
 
   /** The configured terminal template first, then the platform fallbacks. */
@@ -146,5 +187,5 @@ export const useSettingsStore = defineStore("settings", () => {
     ...platformDefaults(platform.value).editor.filter((t) => t !== values.value.editorCommand),
   ]);
 
-  return { platform, values, loaded, init, update, terminalTemplates, editorTemplates };
+  return { platform, values, loaded, init, update, flush, terminalTemplates, editorTemplates };
 });
