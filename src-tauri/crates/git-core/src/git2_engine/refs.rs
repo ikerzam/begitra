@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use git2::{ErrorCode, ObjectType, Oid, Reference, ReferenceType, Repository};
 
-use super::{not_implemented, worktrees, Git2Engine};
+use super::{worktrees, Git2Engine};
 use crate::engine::Cancel;
 use crate::error::{GitError, GitResult};
 use crate::types::{Ref, RefKind};
@@ -27,9 +27,34 @@ pub(super) fn list(engine: &Git2Engine, cancel: &Cancel) -> GitResult<Vec<Ref>> 
 }
 
 /// Merge base of two revisions; see [`crate::engine::GitEngine::merge_base`].
+#[tracing::instrument(level = "debug", skip_all, fields(a = a, b = b))]
 pub(super) fn merge_base(engine: &Git2Engine, a: &str, b: &str) -> GitResult<String> {
-    let _ = (engine, a, b);
-    Err(not_implemented("merge_base"))
+    engine.with_repo(|repo| {
+        let one = commit_id(repo, a)?;
+        let two = commit_id(repo, b)?;
+        match repo.merge_base(one, two) {
+            Ok(base) => Ok(base.to_string()),
+            Err(error) if error.code() == ErrorCode::NotFound => {
+                Err(GitError::UnrelatedHistories {
+                    a: a.to_owned(),
+                    b: b.to_owned(),
+                })
+            }
+            Err(error) => Err(error.into()),
+        }
+    })
+}
+
+/// Resolves a revision to a commit id, peeling tags; [`GitError::RefNotFound`] when it does
+/// not name a commit.
+fn commit_id(repo: &Repository, revision: &str) -> GitResult<Oid> {
+    let object = repo
+        .revparse_single(revision)
+        .map_err(|error| GitError::revision(revision, error))?;
+    let commit = object
+        .peel_to_commit()
+        .map_err(|error| GitError::revision(revision, error))?;
+    Ok(commit.id())
 }
 
 fn collect(repo: &Repository, cancel: &Cancel) -> GitResult<Vec<Ref>> {
