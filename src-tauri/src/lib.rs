@@ -5,6 +5,7 @@ pub mod channels;
 pub mod commands;
 pub mod error;
 pub mod events;
+pub mod external;
 #[cfg(test)]
 mod fixtures;
 pub mod ops;
@@ -39,6 +40,7 @@ pub fn run() {
             commands::system::ping,
             commands::system::cancel_operation,
             commands::system::debug_emit_repo_changed,
+            commands::external::open_external,
             commands::repo::open_repository,
             commands::repo::close_repository,
             commands::repo::list_refs,
