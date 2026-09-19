@@ -9,8 +9,10 @@ const props = withDefaults(
     /** For toggle buttons (layout modes, rail tabs): renders `aria-pressed` and the selected fill. */
     pressed?: boolean;
     disabled?: boolean;
+    /** 24px square by default; `lg` is the 32px hit area of the sidebar rail. */
+    size?: "md" | "lg";
   }>(),
-  { icon: undefined, pressed: undefined, disabled: false },
+  { icon: undefined, pressed: undefined, disabled: false, size: "md" },
 );
 </script>
 
@@ -21,8 +23,11 @@ const props = withDefaults(
     :aria-label="props.label"
     :aria-pressed="props.pressed"
     :title="props.label"
-    class="inline-flex size-5 shrink-0 items-center justify-center rounded-sm enabled:hover:bg-hover enabled:hover:text-fg enabled:active:bg-active disabled:text-fg-disabled"
-    :class="props.pressed ? 'bg-selected text-fg' : 'text-fg-secondary'"
+    class="inline-flex shrink-0 items-center justify-center rounded-sm enabled:hover:bg-hover enabled:hover:text-fg enabled:active:bg-active disabled:text-fg-disabled"
+    :class="[
+      props.size === 'lg' ? 'size-6' : 'size-5',
+      props.pressed ? 'bg-selected text-fg' : 'text-fg-secondary',
+    ]"
   >
     <component
       :is="props.icon"

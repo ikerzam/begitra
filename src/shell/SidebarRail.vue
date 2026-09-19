@@ -28,6 +28,7 @@ const tabs: { id: SidebarTab; icon: typeof FolderGit2; label: string }[] = [
       :label="t(tab.label)"
       :icon="tab.icon"
       :pressed="props.active === tab.id"
+      size="lg"
       :data-testid="`rail-${tab.id}`"
       @click="emit('select', tab.id)"
     />
