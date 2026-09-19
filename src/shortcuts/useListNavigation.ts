@@ -1,6 +1,7 @@
 // Keyboard navigation for lists: arrows and j/k move the selection, Home/End jump, Enter
-// activates, and the selected row is scrolled into view. The list owns the selection index;
-// the composable only moves it and tells the list which row to reveal.
+// activates, and the selected row is scrolled into view and focused (roving tabindex: the
+// container is not a tab stop, the selected row is). The list owns the selection index; the
+// composable only moves it and tells the list which row to reveal.
 
 import { type Ref } from "vue";
 
@@ -20,9 +21,11 @@ export interface ListNavigationOptions {
 export interface ListNavigation {
   /** Handles a keydown from the list container; returns whether it was consumed. */
   onKeydown: (event: KeyboardEvent) => boolean;
-  /** Selects `index` (clamped) and scrolls it into view. */
+  /** Selects `index` (clamped), scrolls it into view and focuses it. */
   select: (index: number) => void;
   moveBy: (delta: number) => void;
+  /** Focuses the selected row, or the first one while nothing is selected. */
+  focus: () => void;
 }
 
 const nextKeys = new Set(["ArrowDown", "j"]);
@@ -36,13 +39,21 @@ export function useListNavigation(options: ListNavigationOptions): ListNavigatio
     return Math.min(Math.max(index, 0), count - 1);
   };
 
+  const focusRow = (index: number): void => {
+    const element = options.rowElement?.(index);
+    element?.scrollIntoView?.({ block: "nearest" });
+    if (element instanceof HTMLElement) element.focus({ preventScroll: true });
+  };
+
   const select = (index: number): void => {
     const next = clamp(index);
     options.selected.value = next;
-    if (next >= 0) {
-      const element = options.rowElement?.(next);
-      element?.scrollIntoView?.({ block: "nearest" });
-    }
+    if (next >= 0) focusRow(next);
+  };
+
+  const focus = (): void => {
+    if (options.count.value <= 0) return;
+    focusRow(Math.max(0, options.selected.value));
   };
 
   const moveBy = (delta: number): void => {
@@ -51,7 +62,8 @@ export function useListNavigation(options: ListNavigationOptions): ListNavigatio
   };
 
   const onKeydown = (event: KeyboardEvent): boolean => {
-    if (event.ctrlKey || event.metaKey || event.altKey) return false;
+    // A focused row that handled the key itself (Enter, folder arrows) has prevented it.
+    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return false;
     if (nextKeys.has(event.key)) {
       moveBy(1);
     } else if (previousKeys.has(event.key)) {
@@ -69,5 +81,5 @@ export function useListNavigation(options: ListNavigationOptions): ListNavigatio
     return true;
   };
 
-  return { onKeydown, select, moveBy };
+  return { onKeydown, select, moveBy, focus };
 }

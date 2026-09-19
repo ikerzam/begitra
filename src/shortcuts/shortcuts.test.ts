@@ -174,6 +174,35 @@ describe("useListNavigation", () => {
     expect(nav.onKeydown(key("j", { ctrl: true }))).toBe(false);
   });
 
+  it("focuses the row it selects, the first one on focus(), and skips handled events", () => {
+    const rows = Array.from({ length: 3 }, () => {
+      const element = document.createElement("div");
+      element.tabIndex = -1;
+      document.body.append(element);
+      return element;
+    });
+    const selected = ref(-1);
+    const nav = useListNavigation({
+      count: ref(rows.length),
+      selected,
+      rowElement: (i) => rows[i],
+    });
+    nav.focus();
+    expect(document.activeElement).toBe(rows[0]);
+    expect(selected.value).toBe(-1);
+    nav.onKeydown(key("j"));
+    nav.onKeydown(key("j"));
+    expect(selected.value).toBe(1);
+    expect(document.activeElement).toBe(rows[1]);
+    nav.focus();
+    expect(document.activeElement).toBe(rows[1]);
+    const handled = key("j");
+    handled.preventDefault();
+    expect(nav.onKeydown(handled)).toBe(false);
+    expect(selected.value).toBe(1);
+    for (const row of rows) row.remove();
+  });
+
   it("starts from the first row when nothing is selected and can loop", () => {
     const selected = ref(-1);
     const nav = useListNavigation({ count: ref(3), selected, loop: true });

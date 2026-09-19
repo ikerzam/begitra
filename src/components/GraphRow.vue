@@ -9,8 +9,10 @@ const props = withDefaults(
     /** Short hash in mono. */
     hash?: string;
     selected?: boolean;
+    /** Roving tab stop; defaults to the selected row. Lists without a selection pass it to the first row. */
+    tabStop?: boolean;
   }>(),
-  { author: "", date: "", hash: "", selected: false },
+  { author: "", date: "", hash: "", selected: false, tabStop: undefined },
 );
 
 /** `select` on click; `activate` on double click or Enter. Arrow and j/k moves belong to the list. */
@@ -28,7 +30,7 @@ function onKeydown(event: KeyboardEvent): void {
   <div
     role="option"
     :aria-selected="props.selected"
-    :tabindex="props.selected ? 0 : -1"
+    :tabindex="(props.tabStop ?? props.selected) ? 0 : -1"
     data-testid="graph-row"
     class="flex h-row-graph items-center border-l-2 pr-3 text-md whitespace-nowrap"
     :class="[

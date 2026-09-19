@@ -24,6 +24,8 @@ const props = withDefaults(
     binary?: boolean;
     reviewed?: boolean;
     selected?: boolean;
+    /** Roving tab stop; defaults to the selected row. Lists without a selection pass it to the first row. */
+    tabStop?: boolean;
   }>(),
   {
     kind: "file",
@@ -37,6 +39,7 @@ const props = withDefaults(
     binary: false,
     reviewed: false,
     selected: false,
+    tabStop: undefined,
   },
 );
 
@@ -88,7 +91,7 @@ function onKeydown(event: KeyboardEvent): void {
     :aria-selected="props.selected"
     :aria-expanded="isFolder ? props.expanded : undefined"
     :aria-level="props.depth + 1"
-    :tabindex="props.selected ? 0 : -1"
+    :tabindex="(props.tabStop ?? props.selected) ? 0 : -1"
     data-testid="tree-row"
     class="flex h-row-tree items-center gap-2 border-l-2 pr-2 text-md whitespace-nowrap"
     :class="props.selected ? 'border-accent bg-selected' : 'border-transparent hover:bg-hover'"

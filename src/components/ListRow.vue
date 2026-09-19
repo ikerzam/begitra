@@ -18,6 +18,8 @@ const props = withDefaults(
     /** Trailing muted text, such as a count. */
     meta?: string;
     selected?: boolean;
+    /** Roving tab stop; defaults to the selected row. Lists without a selection pass it to the first row. */
+    tabStop?: boolean;
   }>(),
   {
     lane: 0,
@@ -27,6 +29,7 @@ const props = withDefaults(
     behind: undefined,
     meta: "",
     selected: false,
+    tabStop: undefined,
   },
 );
 
@@ -46,7 +49,7 @@ function onKeydown(event: KeyboardEvent): void {
   <div
     role="option"
     :aria-selected="props.selected"
-    :tabindex="props.selected ? 0 : -1"
+    :tabindex="(props.tabStop ?? props.selected) ? 0 : -1"
     data-testid="list-row"
     class="flex h-row-list items-center gap-2 border-l-2 px-3 text-md whitespace-nowrap"
     :class="props.selected ? 'border-accent bg-selected' : 'border-transparent hover:bg-hover'"
