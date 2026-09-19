@@ -16,6 +16,7 @@ import type { FileChange } from "@/ipc/schemas";
 import { errorText } from "@/shell/errorMessage";
 import { shortHash } from "@/shell/format";
 import { useRepoStore } from "@/stores/repo";
+import { useToastsStore } from "@/stores/toasts";
 
 import CommitSummary from "./CommitSummary.vue";
 import FileList, { type SelectTrigger } from "./FileList.vue";
@@ -25,6 +26,7 @@ const emit = defineEmits<{ review: [file?: FileChange] }>();
 
 const { t } = useI18n();
 const repo = useRepoStore();
+const toasts = useToastsStore();
 
 const commit = computed(() => repo.selectedCommit);
 const detail = computed(() => repo.detail);
@@ -50,6 +52,7 @@ async function copyHash(): Promise<void> {
 function selectParent(hash: string): void {
   const index = repo.commits.findIndex((c) => c.hash === hash);
   if (index >= 0) repo.select(index);
+  else toasts.push({ kind: "info", message: t("detail.parentNotLoaded") });
 }
 
 /* The keys move a selection through the tree; a click or Enter opens the file in review. */

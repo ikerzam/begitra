@@ -6,11 +6,13 @@ import { useI18n } from "vue-i18n";
 
 import Checkbox from "@/components/Checkbox.vue";
 import EmptyState from "@/components/EmptyState.vue";
+import ErrorBanner from "@/components/ErrorBanner.vue";
 import PanelHeader from "@/components/PanelHeader.vue";
 import SkeletonRow from "@/components/SkeletonRow.vue";
 import FileList from "@/detail/FileList.vue";
 import { applyFilters } from "@/detail/groupFiles";
 import type { FileChange } from "@/ipc/schemas";
+import { errorText } from "@/shell/errorMessage";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
 
@@ -23,6 +25,12 @@ const files = computed<FileChange[]>(() =>
   repo.detail ? applyFilters(repo.detail.files, review.filters) : [],
 );
 const count = computed(() => files.value.length);
+const detailError = computed(() => {
+  const error = repo.detail?.error;
+  if (!error) return "";
+  const text = errorText(error);
+  return t(text.key, text.params);
+});
 
 // Open the first file when the change set arrives and nothing is open yet.
 watch(
@@ -62,8 +70,11 @@ defineExpose({ focus: () => list.value?.focus() });
       <template v-if="repo.detail?.loading && repo.detail.files.length === 0">
         <SkeletonRow v-for="n in 8" :key="n" :index="n" height="tree" />
       </template>
+      <div v-if="detailError" class="p-3" data-testid="review-error">
+        <ErrorBanner :message="detailError" :output="repo.detail?.error?.detail" />
+      </div>
       <FileList
-        v-else-if="repo.detail"
+        v-if="repo.detail"
         ref="list"
         :files="files"
         :selected-path="review.selectedPath"

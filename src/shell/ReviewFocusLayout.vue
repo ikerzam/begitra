@@ -24,6 +24,10 @@ const review = useReviewStore();
 const filesPanel = ref<{ focus(): void } | null>(null);
 
 const files = computed(() => (repo.detail ? applyFilters(repo.detail.files, review.filters) : []));
+// The rail counts what it lists: reviewed files hidden by a filter are not part of its total.
+const reviewedShown = computed(
+  () => files.value.filter((file) => review.reviewed.has(file.path)).length,
+);
 const openFile = computed(
   () => files.value.find((file) => file.path === review.selectedPath) ?? null,
 );
@@ -79,7 +83,7 @@ defineExpose({ focusFiles: () => filesPanel.value?.focus() });
         class="shrink-0"
         :style="{ width: railWidth }"
         :files="files"
-        :reviewed-count="review.reviewedCount"
+        :reviewed-count="reviewedShown"
         @hide="shell.hideReviewRail()"
       />
     </template>

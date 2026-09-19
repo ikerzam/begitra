@@ -73,9 +73,6 @@
     "markReviewed": "Marcar como revisado",
     "reviewed": "Revisado"
   },
-  "app": {
-    "name": "Begira"
-  },
   "date": {
     "now": "ahora mismo",
     "minutes": "hace {n} min",
@@ -103,7 +100,6 @@
     "local": "Locales",
     "remote": "Remotas",
     "tags": "Etiquetas",
-    "stashes": "Stashes",
     "noRepository": "Ningún repositorio abierto",
     "noBranches": "Todavía no hay ramas",
     "noWorktrees": "No hay worktrees enlazados",
@@ -120,7 +116,6 @@
     "hunks": "hunks",
     "markReviewed": "marcar revisado",
     "open": "abrir",
-    "unborn": "sin commits todavía",
     "detached": "HEAD separado"
   },
   "operations": {
@@ -132,7 +127,8 @@
     "title": "Repositorios",
     "subtitle": "Abre una carpeta para leer su historial.",
     "openFolder": "Abrir carpeta…",
-    "empty": "Todavía no hay repositorios. Abre una carpeta para empezar."
+    "empty": "Todavía no hay repositorios. Abre una carpeta para empezar.",
+    "pickerFailed": "No se ha podido abrir el selector de carpetas."
   },
   "graph": {
     "searchCommits": "Buscar commits",
@@ -143,7 +139,6 @@
     "noCommits": "Todavía no hay commits",
     "noMatches": "Ningún commit coincide con el filtro",
     "clearFilter": "Quitar el filtro",
-    "loadMore": "Cargar más commits",
     "removeFromList": "Quitar de la lista",
     "historyStopped": "El historial se detiene aquí: {message}"
   },
@@ -162,9 +157,7 @@
     "test": "{n} test",
     "binary": "binario",
     "generatedLabel": "generado",
-    "loadingFiles": "Cargando ficheros",
-    "author": "{name} es el autor",
-    "committer": "{name} hizo el commit"
+    "parentNotLoaded": "Ese padre está más abajo de lo que se ha cargado del historial."
   },
   "review": {
     "files": "Ficheros",
@@ -223,7 +216,6 @@
     "empty": "Nada coincide con \"{query}\". Prueba con un comando, una rama, un fichero o un repositorio.",
     "move": "mover",
     "run": "ejecutar",
-    "close": "Cerrar",
     "commandsById": {
       "open-folder": "Abrir carpeta…",
       "graph-focus": "Cambiar a la vista de grafo",

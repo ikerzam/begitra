@@ -73,9 +73,6 @@
     "markReviewed": "Mark reviewed",
     "reviewed": "Reviewed"
   },
-  "app": {
-    "name": "Begira"
-  },
   "date": {
     "now": "just now",
     "minutes": "{n}m ago",
@@ -103,7 +100,6 @@
     "local": "Local",
     "remote": "Remote",
     "tags": "Tags",
-    "stashes": "Stashes",
     "noRepository": "No repository open",
     "noBranches": "No branches yet",
     "noWorktrees": "No linked worktrees",
@@ -120,7 +116,6 @@
     "hunks": "hunks",
     "markReviewed": "mark reviewed",
     "open": "open",
-    "unborn": "no commits yet",
     "detached": "detached HEAD"
   },
   "operations": {
@@ -132,7 +127,8 @@
     "title": "Repositories",
     "subtitle": "Open a folder to read its history.",
     "openFolder": "Open folder…",
-    "empty": "No repositories yet. Open a folder to start."
+    "empty": "No repositories yet. Open a folder to start.",
+    "pickerFailed": "The folder picker could not be opened."
   },
   "graph": {
     "searchCommits": "Search commits",
@@ -143,7 +139,6 @@
     "noCommits": "No commits yet",
     "noMatches": "No commits match the filter",
     "clearFilter": "Clear filter",
-    "loadMore": "Load more commits",
     "removeFromList": "Remove from list",
     "historyStopped": "History stops here: {message}"
   },
@@ -162,9 +157,7 @@
     "test": "{n} test",
     "binary": "binary",
     "generatedLabel": "generated",
-    "loadingFiles": "Loading files",
-    "author": "{name} authored",
-    "committer": "{name} committed"
+    "parentNotLoaded": "That parent is further down than the history loaded so far."
   },
   "review": {
     "files": "Files",
@@ -223,7 +216,6 @@
     "empty": "No matches for \"{query}\". Try a command, branch, file or repository.",
     "move": "move",
     "run": "run",
-    "close": "Close",
     "commandsById": {
       "open-folder": "Open folder…",
       "graph-focus": "Switch to graph focus",

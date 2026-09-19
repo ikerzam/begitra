@@ -52,6 +52,8 @@ function backend(
     failExternal?: boolean;
     /** The first commit page waits for this promise. */
     walkGate?: Promise<void>;
+    /** Every diff ends with this error instead of pages. */
+    failDiff?: boolean;
   } = {},
 ) {
   const calls: string[] = [];
@@ -118,6 +120,15 @@ function backend(
         );
         return null;
       case "diff":
+        if (options.failDiff) {
+          send([
+            {
+              kind: "error",
+              error: { code: "op.timeout", message: "The operation timed out", detail: "diff" },
+            },
+          ]);
+          return null;
+        }
         send([
           {
             kind: "page",
@@ -504,6 +515,72 @@ describe("Sidebar", () => {
 });
 
 describe("useExternal", () => {
+  it("shows the diff error in review focus too", async () => {
+    backend({ failDiff: true });
+    const shell = useShellStore();
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    shell.setWindowWidth(1440);
+    await useRepoStore().open("/r");
+    await settle();
+    await shell.setLayoutMode("review");
+    await settle();
+    const banner = wrapper.get('[data-testid="review-error"]');
+    expect(banner.text()).toContain("took too long");
+    wrapper.unmount();
+  });
+
+  it("counts reviewed files among the files the rail lists", async () => {
+    backend();
+    const shell = useShellStore();
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    shell.setWindowWidth(1440);
+    await useRepoStore().open("/r");
+    await settle();
+    await shell.setLayoutMode("review");
+    await settle();
+    const review = useReviewStore();
+    review.toggleReviewed("src/app.ts");
+    review.toggleReviewed("pnpm-lock.yaml");
+    await settle();
+    // Lockfiles are hidden by default: one file listed, one of the two marks counts.
+    const rail = wrapper.get('[data-testid="review-rail"]');
+    expect(rail.text()).toContain("1 of 1 files reviewed");
+    review.setFilter("hideLockfiles", false);
+    await settle();
+    expect(rail.text()).toContain("2 of 2 files reviewed");
+    wrapper.unmount();
+  });
+
+  it("says so when a parent is not among the loaded commits", async () => {
+    backend();
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    await useRepoStore().open("/r");
+    await settle();
+    // Commit 2 is the last loaded row; its parent (commit 3) never arrived.
+    useRepoStore().select(2);
+    await settle();
+    await wrapper.get('[data-testid="parent-link"]').trigger("click");
+    const toasts = useToastsStore();
+    expect(toasts.toasts.map((toast) => toast.message)).toEqual([
+      "That parent is further down than the history loaded so far.",
+    ]);
+    expect(useRepoStore().selectedIndex).toBe(2);
+    wrapper.unmount();
+  });
+
+  it("shows a toast when the folder picker cannot open", async () => {
+    backend();
+    dialogOpen.mockImplementationOnce(() => Promise.reject(new Error("no portal")));
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    await wrapper.get('[data-testid="home-empty-open"]').trigger("click");
+    await settle();
+    const toasts = useToastsStore();
+    expect(toasts.toasts[0]?.message).toBe("The folder picker could not be opened.");
+    expect(toasts.toasts[0]?.output).toContain("no portal");
+    expect(useRepoStore().state.kind).toBe("empty");
+    wrapper.unmount();
+  });
+
   it("shows a toast with the command when the editor cannot be spawned", async () => {
     backend({ failExternal: true });
     const wrapper = mountWithI18n({
