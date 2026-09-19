@@ -1,0 +1,56 @@
+[
+  {
+    "path": "src/new.rs",
+    "oldPath": null,
+    "staged": "added",
+    "unstaged": null,
+    "untracked": false,
+    "ignored": false,
+    "conflicted": false
+  },
+  {
+    "path": "README.md",
+    "oldPath": null,
+    "staged": null,
+    "unstaged": "modified",
+    "untracked": false,
+    "ignored": false,
+    "conflicted": false
+  },
+  {
+    "path": "src/core.rs",
+    "oldPath": "src/lib.rs",
+    "staged": "renamed",
+    "unstaged": null,
+    "untracked": false,
+    "ignored": false,
+    "conflicted": false
+  },
+  {
+    "path": "notes.txt",
+    "oldPath": null,
+    "staged": null,
+    "unstaged": null,
+    "untracked": true,
+    "ignored": false,
+    "conflicted": false
+  },
+  {
+    "path": "build.log",
+    "oldPath": null,
+    "staged": null,
+    "unstaged": null,
+    "untracked": false,
+    "ignored": true,
+    "conflicted": false
+  },
+  {
+    "path": "src/conflict.rs",
+    "oldPath": null,
+    "staged": null,
+    "unstaged": "unmerged",
+    "untracked": false,
+    "ignored": false,
+    "conflicted": true
+  }
+]

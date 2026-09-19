@@ -1,0 +1,35 @@
+[
+  {
+    "path": "/home/iker/code/begira",
+    "name": null,
+    "head": "0000000000000000000000000000000000000001",
+    "branch": "main",
+    "detached": false,
+    "isMain": true,
+    "locked": false,
+    "lockReason": null,
+    "prunable": false
+  },
+  {
+    "path": "/wt/claude-auth",
+    "name": "claude-auth",
+    "head": "0000000000000000000000000000000000000004",
+    "branch": "claude/fix-auth",
+    "detached": false,
+    "isMain": false,
+    "locked": true,
+    "lockReason": "agent running",
+    "prunable": false
+  },
+  {
+    "path": "/wt/gone",
+    "name": "gone",
+    "head": "0000000000000000000000000000000000000005",
+    "branch": null,
+    "detached": true,
+    "isMain": false,
+    "locked": false,
+    "lockReason": null,
+    "prunable": true
+  }
+]

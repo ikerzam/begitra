@@ -1,0 +1,12 @@
+[
+  {
+    "includeIgnored": false,
+    "includeUntracked": true,
+    "renames": true
+  },
+  {
+    "includeIgnored": true,
+    "includeUntracked": false,
+    "renames": false
+  }
+]

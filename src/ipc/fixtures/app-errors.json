@@ -1,0 +1,64 @@
+[
+  {
+    "code": "repo.not_found",
+    "message": "Sample message for repo.not_found"
+  },
+  {
+    "code": "repo.invalid",
+    "message": "Sample message for repo.invalid"
+  },
+  {
+    "code": "repo.corrupt_object",
+    "message": "Sample message for repo.corrupt_object",
+    "detail": "fatal: raw output"
+  },
+  {
+    "code": "refs.not_found",
+    "message": "Sample message for refs.not_found"
+  },
+  {
+    "code": "refs.unrelated_histories",
+    "message": "Sample message for refs.unrelated_histories"
+  },
+  {
+    "code": "diff.blob_missing",
+    "message": "Sample message for diff.blob_missing"
+  },
+  {
+    "code": "worktree.missing_folder",
+    "message": "Sample message for worktree.missing_folder"
+  },
+  {
+    "code": "git.cli_failed",
+    "message": "Sample message for git.cli_failed",
+    "detail": "fatal: raw output"
+  },
+  {
+    "code": "ipc.invalid_argument",
+    "message": "Sample message for ipc.invalid_argument"
+  },
+  {
+    "code": "op.cancelled",
+    "message": "Sample message for op.cancelled"
+  },
+  {
+    "code": "op.timeout",
+    "message": "Sample message for op.timeout"
+  },
+  {
+    "code": "op.unknown_walk",
+    "message": "Sample message for op.unknown_walk"
+  },
+  {
+    "code": "external.spawn_failed",
+    "message": "Sample message for external.spawn_failed"
+  },
+  {
+    "code": "settings.io",
+    "message": "Sample message for settings.io"
+  },
+  {
+    "code": "internal",
+    "message": "Sample message for internal"
+  }
+]

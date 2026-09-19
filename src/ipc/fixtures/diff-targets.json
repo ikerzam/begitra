@@ -1,0 +1,28 @@
+[
+  {
+    "kind": "commit",
+    "hash": "0000000000000000000000000000000000000001"
+  },
+  {
+    "kind": "commits",
+    "from": "0000000000000000000000000000000000000002",
+    "to": "0000000000000000000000000000000000000001"
+  },
+  {
+    "kind": "range",
+    "from": "main",
+    "to": "feature",
+    "threeDot": true
+  },
+  {
+    "kind": "working-tree",
+    "base": "head"
+  },
+  {
+    "kind": "working-tree",
+    "base": "index"
+  },
+  {
+    "kind": "index"
+  }
+]

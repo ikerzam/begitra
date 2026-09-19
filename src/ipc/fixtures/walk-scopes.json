@@ -1,0 +1,14 @@
+[
+  {
+    "kind": "all"
+  },
+  {
+    "kind": "ref",
+    "name": "main"
+  },
+  {
+    "kind": "range",
+    "exclude": "v1.0",
+    "include": "main"
+  }
+]

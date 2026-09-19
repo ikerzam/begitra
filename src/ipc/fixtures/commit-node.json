@@ -1,0 +1,40 @@
+{
+  "hash": "0000000000000000000000000000000000000001",
+  "parents": [
+    "0000000000000000000000000000000000000002",
+    "0000000000000000000000000000000000000003"
+  ],
+  "author": {
+    "name": "Iker",
+    "email": "iker@example.com",
+    "time": 1704067260,
+    "offsetMinutes": 120
+  },
+  "committer": {
+    "name": "Iker",
+    "email": "iker@example.com",
+    "time": 1704067320,
+    "offsetMinutes": 120
+  },
+  "subject": "feat: commit 1",
+  "body": "",
+  "refs": [
+    "HEAD",
+    "main",
+    "origin/main"
+  ],
+  "lane": 0,
+  "edges": [
+    {
+      "fromLane": 0,
+      "toLane": 0,
+      "parent": "0000000000000000000000000000000000000002"
+    },
+    {
+      "fromLane": 0,
+      "toLane": 1,
+      "parent": "0000000000000000000000000000000000000003"
+    }
+  ],
+  "overflow": 0
+}

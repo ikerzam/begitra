@@ -1,0 +1,10 @@
+{
+  "repo": "/home/iker/code/begira",
+  "kinds": [
+    "refs",
+    "status"
+  ],
+  "paths": [
+    "src/main.rs"
+  ]
+}

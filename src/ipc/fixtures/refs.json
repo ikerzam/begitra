@@ -1,0 +1,62 @@
+[
+  {
+    "name": "main",
+    "fullName": "refs/heads/main",
+    "kind": "local-branch",
+    "target": "0000000000000000000000000000000000000001",
+    "isCurrent": true,
+    "upstream": "origin/main",
+    "ahead": 2,
+    "behind": 3,
+    "worktree": "/home/iker/code/begira",
+    "message": null
+  },
+  {
+    "name": "origin/main",
+    "fullName": "refs/remotes/origin/main",
+    "kind": "remote-branch",
+    "target": "0000000000000000000000000000000000000001",
+    "isCurrent": false,
+    "upstream": null,
+    "ahead": null,
+    "behind": null,
+    "worktree": null,
+    "message": null
+  },
+  {
+    "name": "v1.0",
+    "fullName": "refs/tags/v1.0",
+    "kind": "tag",
+    "target": "0000000000000000000000000000000000000002",
+    "isCurrent": false,
+    "upstream": null,
+    "ahead": null,
+    "behind": null,
+    "worktree": null,
+    "message": "Release 1.0"
+  },
+  {
+    "name": "stash@{0}",
+    "fullName": "refs/stash",
+    "kind": "stash",
+    "target": "0000000000000000000000000000000000000003",
+    "isCurrent": false,
+    "upstream": null,
+    "ahead": null,
+    "behind": null,
+    "worktree": null,
+    "message": "WIP on main: tidy"
+  },
+  {
+    "name": "HEAD",
+    "fullName": "HEAD",
+    "kind": "head",
+    "target": "0000000000000000000000000000000000000001",
+    "isCurrent": true,
+    "upstream": null,
+    "ahead": null,
+    "behind": null,
+    "worktree": null,
+    "message": null
+  }
+]

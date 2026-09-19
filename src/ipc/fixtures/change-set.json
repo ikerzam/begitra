@@ -1,0 +1,118 @@
+{
+  "files": [
+    {
+      "status": "renamed",
+      "path": "src/core.rs",
+      "oldPath": "src/lib.rs",
+      "similarity": 92,
+      "additions": 2,
+      "deletions": 1,
+      "hunks": [
+        {
+          "oldStart": 10,
+          "oldLines": 3,
+          "newStart": 10,
+          "newLines": 4,
+          "header": "@@ -10,3 +10,4 @@ fn main()",
+          "lines": [
+            {
+              "kind": "context",
+              "oldNumber": 10,
+              "newNumber": 10,
+              "text": "fn main() {",
+              "spans": [],
+              "noNewline": false
+            },
+            {
+              "kind": "removed",
+              "oldNumber": 11,
+              "newNumber": null,
+              "text": "    let x = 1;",
+              "spans": [
+                {
+                  "start": 12,
+                  "end": 13
+                }
+              ],
+              "noNewline": false
+            },
+            {
+              "kind": "added",
+              "oldNumber": null,
+              "newNumber": 11,
+              "text": "    let x = 2;",
+              "spans": [
+                {
+                  "start": 12,
+                  "end": 13
+                }
+              ],
+              "noNewline": false
+            },
+            {
+              "kind": "added",
+              "oldNumber": null,
+              "newNumber": 12,
+              "text": "    let y = x;",
+              "spans": [],
+              "noNewline": false
+            },
+            {
+              "kind": "context",
+              "oldNumber": 12,
+              "newNumber": 13,
+              "text": "}",
+              "spans": [],
+              "noNewline": true
+            }
+          ]
+        }
+      ],
+      "isBinary": false,
+      "isLarge": false,
+      "isGenerated": false,
+      "isTest": false
+    },
+    {
+      "status": "added",
+      "path": "assets/logo.png",
+      "oldPath": null,
+      "similarity": null,
+      "additions": 0,
+      "deletions": 0,
+      "hunks": [],
+      "isBinary": true,
+      "isLarge": false,
+      "isGenerated": false,
+      "isTest": false
+    },
+    {
+      "status": "modified",
+      "path": "pnpm-lock.yaml",
+      "oldPath": null,
+      "similarity": null,
+      "additions": 6000,
+      "deletions": 5900,
+      "hunks": [],
+      "isBinary": false,
+      "isLarge": true,
+      "isGenerated": true,
+      "isTest": false
+    },
+    {
+      "status": "deleted",
+      "path": "tests/old.test.ts",
+      "oldPath": null,
+      "similarity": null,
+      "additions": 0,
+      "deletions": 40,
+      "hunks": [],
+      "isBinary": false,
+      "isLarge": false,
+      "isGenerated": false,
+      "isTest": true
+    }
+  ],
+  "additions": 6002,
+  "deletions": 5941
+}

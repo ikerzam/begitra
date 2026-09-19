@@ -1,0 +1,8 @@
+{
+  "kind": "error",
+  "error": {
+    "code": "repo.corrupt_object",
+    "message": "object abc is corrupt",
+    "detail": "zlib: incorrect header check"
+  }
+}

@@ -138,7 +138,11 @@ pub struct Page {
 
 /// Which commits a walk covers.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
+#[serde(
+    tag = "kind",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
 pub enum WalkScope {
     /// Every commit reachable from any ref (branches, remotes, tags, stashes and HEAD).
     All,
@@ -254,7 +258,11 @@ impl Default for StatusOptions {
 
 /// What to compare in a diff.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
+#[serde(
+    tag = "kind",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
 pub enum DiffTarget {
     /// One commit against its first parent (the empty tree for a root commit).
     Commit {

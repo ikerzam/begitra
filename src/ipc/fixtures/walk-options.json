@@ -1,0 +1,10 @@
+[
+  {
+    "pageSize": 500,
+    "order": "date-topo"
+  },
+  {
+    "pageSize": 100,
+    "order": "lazy"
+  }
+]
