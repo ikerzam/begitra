@@ -772,3 +772,58 @@ fn a_truncated_head_makes_working_tree_diffs_corrupt() {
         other => panic!("unexpected error {other:?}"),
     }
 }
+
+/// The pruned tree diff must list exactly what git lists: changes deep in the tree, whole
+/// directories added or removed, a directory rename, a mode change on an unchanged blob and a
+/// blob replaced by a directory.
+#[test]
+fn pruned_tree_diffs_match_git_name_status() {
+    let mut f = Fixture::basic();
+    f.write("deep/a/b/c/d/e/leaf.txt", "leaf\n");
+    f.write("deep/a/b/c/d/e/other.txt", "other\n");
+    f.write("gone/one.txt", "1\n");
+    f.write("gone/two.txt", "2\n");
+    f.write("moved/x.txt", "x\n");
+    f.write("moved/y.txt", "y\n");
+    f.write("plain.txt", "plain\n");
+    f.write("swap", "file\n");
+    f.commit("layout");
+    f.write("deep/a/b/c/d/e/leaf.txt", "leaf changed\n");
+    f.write("added/p/q.txt", "q\n");
+    f.write("added/r.txt", "r\n");
+    f.git(&["rm", "-r", "-q", "gone"]);
+    f.git(&["mv", "moved", "renamed"]);
+    f.git(&["update-index", "--chmod=+x", "plain.txt"]);
+    f.git(&["rm", "-q", "swap"]);
+    f.write("swap/inner.txt", "inner\n");
+    f.git(&["add", "-A"]);
+    f.commit("everything at once");
+    let set = diff(&f, &commit("HEAD"));
+    assert_eq!(
+        engine_name_status(&set),
+        git_name_status(&f, &["diff", "-M", "--name-status", "HEAD~1", "HEAD"])
+    );
+    let range = diff(
+        &f,
+        &DiffTarget::Range {
+            from: "HEAD~1".to_owned(),
+            to: "HEAD".to_owned(),
+            three_dot: false,
+        },
+    );
+    assert_eq!(engine_name_status(&range), engine_name_status(&set));
+}
+
+/// A root commit (no parent) and two identical trees take the unpruned path.
+#[test]
+fn root_and_identical_trees_diff_like_git() {
+    let f = Fixture::basic();
+    let root = f.git(&["rev-list", "--max-parents=0", "HEAD"]);
+    let set = diff(&f, &commit(&root));
+    assert_eq!(
+        engine_name_status(&set),
+        git_name_status(&f, &["show", "--format=", "--name-status", &root])
+    );
+    let same = diff(&f, &commits("HEAD", "HEAD"));
+    assert!(same.files.is_empty());
+}

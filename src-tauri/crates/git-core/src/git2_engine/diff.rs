@@ -17,12 +17,13 @@
 //!   checked out), not from the compared commit;
 //! - an unborn HEAD counts as the empty tree, where `git diff HEAD` fails.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use git2::{
     AttrCheckFlags, AttrValue, Commit, Delta, Diff, DiffDelta, DiffFindOptions, DiffHunk,
     DiffLine as Git2DiffLine, DiffLineType, DiffOptions as Git2DiffOptions, ErrorCode, FileMode,
-    Patch, Repository, Tree,
+    ObjectType, Oid, Patch, Repository, Tree,
 };
 
 use super::Git2Engine;
@@ -78,7 +79,7 @@ fn build_diff<'r>(
             let commit = resolve_commit(repo, hash)?;
             let old = parent_tree(repo, &commit)?;
             let new = commit_tree(&commit)?;
-            repo.diff_tree_to_tree(old.as_ref(), Some(&new), Some(&mut git_options))
+            tree_diff(repo, old.as_ref(), &new, &mut git_options)
         }
         DiffTarget::Commits { from, to }
         | DiffTarget::Range {
@@ -88,7 +89,7 @@ fn build_diff<'r>(
         } => {
             let old = commit_tree(&resolve_commit(repo, from)?)?;
             let new = commit_tree(&resolve_commit(repo, to)?)?;
-            repo.diff_tree_to_tree(Some(&old), Some(&new), Some(&mut git_options))
+            tree_diff(repo, Some(&old), &new, &mut git_options)
         }
         DiffTarget::Range {
             from,
@@ -111,7 +112,7 @@ fn build_diff<'r>(
                 .map_err(|error| GitError::object(&base_id.to_string(), error))?;
             let old = commit_tree(&base)?;
             let new = commit_tree(&to_commit)?;
-            repo.diff_tree_to_tree(Some(&old), Some(&new), Some(&mut git_options))
+            tree_diff(repo, Some(&old), &new, &mut git_options)
         }
         DiffTarget::WorkingTree {
             base: WorkingTreeBase::Head,
@@ -137,6 +138,108 @@ fn resolve_commit<'r>(repo: &'r Repository, revision: &str) -> GitResult<Commit<
     let oid = super::resolve_commit(repo, revision)?;
     repo.find_commit(oid)
         .map_err(|error| GitError::object(&oid.to_string(), error))
+}
+
+/// Changed paths above which a tree diff runs unpruned: a pathspec that long costs more than
+/// the walk it saves, and such a diff is dominated by its deltas anyway.
+const PRUNE_LIMIT: usize = 2_000;
+
+/// A tree-to-tree diff limited to the paths that differ.
+///
+/// libgit2 walks both trees completely, which costs tens of milliseconds on a tree of fifty
+/// thousand files even for a one-line commit. The changed paths are found first by comparing
+/// the entries of both trees and descending only into subtrees whose ids differ, and the diff
+/// is then limited to those paths with a literal pathspec, which libgit2's iterators prune
+/// on. A directory present on one side only is listed as `dir/`, which libgit2 expands.
+fn tree_diff<'r>(
+    repo: &'r Repository,
+    old: Option<&Tree<'r>>,
+    new: &Tree<'r>,
+    git_options: &mut Git2DiffOptions,
+) -> Result<Diff<'r>, git2::Error> {
+    if let Some(old) = old {
+        if let Some(paths) = changed_paths(repo, old, new, PRUNE_LIMIT)? {
+            git_options.disable_pathspec_match(true);
+            for path in paths {
+                git_options.pathspec(path);
+            }
+        }
+    }
+    repo.diff_tree_to_tree(old, Some(new), Some(git_options))
+}
+
+/// One entry of a tree, as needed to compare two trees.
+struct Entry {
+    id: Oid,
+    kind: Option<ObjectType>,
+    mode: i32,
+}
+
+/// The paths that differ between `old` and `new`, descending only into subtrees whose ids
+/// differ; `None` once more than `limit` paths are found. Trees present on one side only, or
+/// replacing a blob, are listed as `dir/` so a literal pathspec covers their content; a blob
+/// replaced by a tree is listed as both `path` and `path/`.
+fn changed_paths(
+    repo: &Repository,
+    old: &Tree<'_>,
+    new: &Tree<'_>,
+    limit: usize,
+) -> Result<Option<Vec<Vec<u8>>>, git2::Error> {
+    let mut paths: Vec<Vec<u8>> = Vec::new();
+    let mut pending: Vec<(Vec<u8>, Oid, Oid)> = vec![(Vec::new(), old.id(), new.id())];
+    while let Some((prefix, old_id, new_id)) = pending.pop() {
+        let old_tree = repo.find_tree(old_id)?;
+        let new_tree = repo.find_tree(new_id)?;
+        let mut old_entries: BTreeMap<Vec<u8>, Entry> = BTreeMap::new();
+        for entry in old_tree.iter() {
+            old_entries.insert(
+                entry.name_bytes().to_vec(),
+                Entry {
+                    id: entry.id(),
+                    kind: entry.kind(),
+                    mode: entry.filemode(),
+                },
+            );
+        }
+        for entry in new_tree.iter() {
+            let name = entry.name_bytes();
+            let new_is_tree = entry.kind() == Some(ObjectType::Tree);
+            match old_entries.remove(name) {
+                Some(before) if before.id == entry.id() && before.mode == entry.filemode() => {}
+                Some(before) if before.kind == Some(ObjectType::Tree) && new_is_tree => {
+                    pending.push((join(&prefix, name, true), before.id, entry.id()));
+                }
+                Some(before) => {
+                    let old_is_tree = before.kind == Some(ObjectType::Tree);
+                    if !old_is_tree || !new_is_tree {
+                        paths.push(join(&prefix, name, false));
+                    }
+                    if old_is_tree || new_is_tree {
+                        paths.push(join(&prefix, name, true));
+                    }
+                }
+                None => paths.push(join(&prefix, name, new_is_tree)),
+            }
+        }
+        for (name, before) in old_entries {
+            paths.push(join(&prefix, &name, before.kind == Some(ObjectType::Tree)));
+        }
+        if paths.len() > limit {
+            return Ok(None);
+        }
+    }
+    Ok(Some(paths))
+}
+
+/// `prefix/name`, with a trailing slash for a directory.
+fn join(prefix: &[u8], name: &[u8], directory: bool) -> Vec<u8> {
+    let mut path = Vec::with_capacity(prefix.len() + name.len() + 1);
+    path.extend_from_slice(prefix);
+    path.extend_from_slice(name);
+    if directory {
+        path.push(b'/');
+    }
+    path
 }
 
 fn commit_tree<'r>(commit: &Commit<'r>) -> GitResult<Tree<'r>> {
