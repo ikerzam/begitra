@@ -15,12 +15,14 @@ describe("TabsItem", () => {
     expect(wrapper.classes()).toContain("text-fg-secondary");
     expect(wrapper.classes()).toContain("border-transparent");
     expect(wrapper.classes()).toContain("h-panel-header");
+    expect(wrapper.attributes("tabindex")).toBe("-1");
     expect(wrapper.classes().some((c) => /^p[xlr]-/.test(c))).toBe(false);
   });
 
   it("underlines the active tab in --text, never in the accent", () => {
     const wrapper = mountWithI18n(TabsItem, { props: { label: "Branches", selected: true } });
     expect(wrapper.attributes("aria-selected")).toBe("true");
+    expect(wrapper.attributes("tabindex")).toBe("0");
     expect(wrapper.classes()).toContain("border-fg");
     expect(wrapper.classes()).toContain("text-fg");
     expect(wrapper.classes()).not.toContain("border-accent");

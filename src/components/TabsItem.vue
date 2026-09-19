@@ -23,6 +23,7 @@ const emit = defineEmits<{ select: [] }>();
     role="tab"
     :aria-selected="props.selected"
     :aria-controls="props.controls"
+    :tabindex="props.selected ? 0 : -1"
     class="inline-flex h-panel-header shrink-0 items-center border-b-2 text-md font-medium whitespace-nowrap"
     :class="
       props.selected ? 'border-fg text-fg' : 'border-transparent text-fg-secondary hover:text-fg'

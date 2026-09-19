@@ -191,7 +191,30 @@ function backend(options: { failOpen?: boolean; failExternal?: boolean } = {}) {
         }
         return ["code", "/r"];
       case "list_worktrees":
-        return [];
+        return [
+          {
+            path: "/r",
+            name: null,
+            head: commit(0).hash,
+            branch: "main",
+            detached: false,
+            isMain: true,
+            locked: false,
+            lockReason: null,
+            prunable: false,
+          },
+          {
+            path: "/wt/claude-auth",
+            name: "claude-auth",
+            head: commit(1).hash,
+            branch: "claude/fix-auth",
+            detached: false,
+            isMain: false,
+            locked: false,
+            lockReason: null,
+            prunable: false,
+          },
+        ];
       default:
         return null;
     }
@@ -323,6 +346,78 @@ describe("AppShell", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true }));
     await settle();
     expect(wrapper.find('[data-testid="palette-overlay"]').exists()).toBe(true);
+    wrapper.unmount();
+  });
+});
+
+describe("Sidebar", () => {
+  async function openShell() {
+    backend();
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    await useRepoStore().open("/r");
+    await settle();
+    return wrapper;
+  }
+
+  it("selects no branch on load and moves the selection and the focus with j and k", async () => {
+    const wrapper = await openShell();
+    const rows = wrapper.get('[data-testid="branch-list"]').findAll('[data-testid="list-row"]');
+    expect(rows.map((row) => row.text())).toEqual(["main20", "origin/main"]);
+    expect(rows.map((row) => row.attributes("aria-selected"))).toEqual(["false", "false"]);
+    expect(wrapper.get('[data-testid="branch-list"]').attributes("tabindex")).toBeUndefined();
+    expect(rows.map((row) => row.attributes("tabindex"))).toEqual(["0", "-1"]);
+    (rows[0]?.element as HTMLElement).focus();
+    await rows[0]!.trigger("keydown", { key: "j" });
+    expect(rows[0]?.attributes("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(rows[0]?.element);
+    await rows[0]!.trigger("keydown", { key: "j" });
+    expect(rows.map((row) => row.attributes("aria-selected"))).toEqual(["false", "true"]);
+    expect(rows.map((row) => row.attributes("tabindex"))).toEqual(["-1", "0"]);
+    expect(document.activeElement).toBe(rows[1]?.element);
+    await rows[1]!.trigger("keydown", { key: "ArrowUp" });
+    expect(rows[0]?.attributes("aria-selected")).toBe("true");
+    wrapper.unmount();
+  });
+
+  it("gives the repos and worktrees lists a tab stop and arrow navigation", async () => {
+    const wrapper = await openShell();
+    await wrapper.get('[data-testid="tab-repos"]').trigger("click");
+    const repoRow = wrapper.get('[data-testid="repo-list"] [data-testid="list-row"]');
+    expect(repoRow.attributes("tabindex")).toBe("0");
+    expect(repoRow.attributes("aria-selected")).toBe("true");
+
+    await wrapper.get('[data-testid="tab-worktrees"]').trigger("click");
+    await settle();
+    const rows = wrapper.get('[data-testid="worktree-list"]').findAll('[data-testid="list-row"]');
+    expect(rows.map((row) => row.text())).toEqual([
+      "main worktreemain",
+      "claude-authclaude/fix-auth",
+    ]);
+    expect(rows.map((row) => row.attributes("tabindex"))).toEqual(["0", "-1"]);
+    await rows[0]!.trigger("keydown", { key: "ArrowDown" });
+    await rows[0]!.trigger("keydown", { key: "ArrowDown" });
+    expect(rows.map((row) => row.attributes("aria-selected"))).toEqual(["false", "true"]);
+    expect(document.activeElement).toBe(rows[1]?.element);
+    await rows[1]!.trigger("keydown", { key: "k" });
+    expect(rows[0]?.attributes("aria-selected")).toBe("true");
+    wrapper.unmount();
+  });
+
+  it("moves between the tabs with the arrow keys", async () => {
+    const wrapper = await openShell();
+    const shell = useShellStore();
+    expect(shell.sidebarTab).toBe("branches");
+    expect(wrapper.get('[data-testid="tab-branches"]').attributes("tabindex")).toBe("0");
+    expect(wrapper.get('[data-testid="tab-repos"]').attributes("tabindex")).toBe("-1");
+    await wrapper.get('[data-testid="tab-branches"]').trigger("keydown", { key: "ArrowRight" });
+    expect(shell.sidebarTab).toBe("worktrees");
+    expect(document.activeElement).toBe(wrapper.get('[data-testid="tab-worktrees"]').element);
+    await wrapper.get('[data-testid="tab-worktrees"]').trigger("keydown", { key: "ArrowRight" });
+    expect(shell.sidebarTab).toBe("repos");
+    await wrapper.get('[data-testid="tab-repos"]').trigger("keydown", { key: "End" });
+    expect(shell.sidebarTab).toBe("worktrees");
+    await wrapper.get('[data-testid="tab-worktrees"]').trigger("keydown", { key: "ArrowLeft" });
+    expect(shell.sidebarTab).toBe("branches");
     wrapper.unmount();
   });
 });
