@@ -5,13 +5,23 @@ import prettier from "eslint-config-prettier";
 export default defineConfigWithVueTs(
   {
     name: "begira/ignores",
-    ignores: ["dist/**", "node_modules/**", "src-tauri/**", "coverage/**", "bench/**"],
+    ignores: [
+      "dist/**",
+      "node_modules/**",
+      "src-tauri/**",
+      "coverage/**",
+      "bench/**",
+      "src/ipc/fixtures/**",
+    ],
   },
   pluginVue.configs["flat/recommended"],
   vueTsConfigs.recommendedTypeChecked,
   {
     name: "begira/rules",
     files: ["**/*.{ts,vue,js,mjs}"],
+    languageOptions: {
+      parserOptions: { tsconfigRootDir: import.meta.dirname },
+    },
     rules: {
       "@typescript-eslint/no-explicit-any": "error",
       "@typescript-eslint/consistent-type-imports": ["error", { prefer: "type-imports" }],

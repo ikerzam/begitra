@@ -7,3 +7,4 @@ bench/repos
 design
 pnpm-lock.yaml
 *.md
+src/ipc/fixtures/
