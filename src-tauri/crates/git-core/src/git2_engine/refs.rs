@@ -186,53 +186,78 @@ struct Tracking {
     behind: Option<u32>,
 }
 
-/// Ahead/behind walks from which the counts run on several threads, each with its own
-/// repository handle; below it the handles cost more than they save.
-const PARALLEL_WALKS_FROM: usize = 16;
+/// Tracking branches from which their upstreams and counts are resolved on several threads,
+/// each with its own repository handle; below it the handles cost more than they save.
+const PARALLEL_TRACKING_FROM: usize = 16;
 
-/// Most threads used for the ahead/behind walks.
+/// Most threads used for the tracking counts.
 const TRACKING_THREADS: usize = 8;
 
 /// The tracking information of every branch in `pending`, in order.
 ///
-/// The upstream of each branch is resolved inline (configuration and reference reads, cheap);
-/// the ahead/behind counts are revision walks (about 2 ms each on a long history), so with
-/// many of them they run on [`TRACKING_THREADS`] threads, each on its own `Repository`
+/// Which branches track anything is read from one configuration snapshot (libgit2 stats the
+/// configuration files on every live read, which adds up over hundreds of branches); only
+/// those go through the upstream lookup and the ahead/behind walk (about 2 ms each on a long
+/// history), on [`TRACKING_THREADS`] threads with one `Repository` each when there are many
 /// (libgit2 objects are not shared between threads). Errors and cancellation propagate.
 fn trackings(
     repo: &Repository,
     pending: &[(usize, String, Oid)],
     cancel: &Cancel,
 ) -> GitResult<Vec<Tracking>> {
-    let mut trackings = Vec::with_capacity(pending.len());
-    // (index in `trackings`, local tip, upstream tip) of the branches whose counts are walked.
-    let mut walks: Vec<(usize, Oid, Oid)> = Vec::new();
-    for (index, (_, full_name, local)) in pending.iter().enumerate() {
-        cancel.check()?;
-        let (tracking, upstream_tip) = upstream_of(repo, full_name)?;
-        if let Some(upstream_tip) = upstream_tip {
-            walks.push((index, *local, upstream_tip));
-        }
-        trackings.push(tracking);
-    }
-    let counts = if walks.len() < PARALLEL_WALKS_FROM {
-        walks
+    let config = repo.config()?.snapshot()?;
+    let candidates: Vec<usize> = pending
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, full_name, _))| {
+            let short = full_name.strip_prefix(HEADS).unwrap_or(full_name);
+            config.get_entry(&format!("branch.{short}.merge")).is_ok()
+        })
+        .map(|(index, _)| index)
+        .collect();
+    let mut trackings: Vec<Tracking> = pending
+        .iter()
+        .map(|_| Tracking {
+            upstream: None,
+            ahead: None,
+            behind: None,
+        })
+        .collect();
+    let resolved = if candidates.len() < PARALLEL_TRACKING_FROM {
+        candidates
             .iter()
-            .map(|(_, local, upstream)| {
+            .map(|&index| {
                 cancel.check()?;
-                ahead_behind(repo, *local, *upstream)
+                let (_, full_name, local) = &pending[index];
+                tracking(repo, full_name, *local)
             })
             .collect::<GitResult<Vec<_>>>()?
     } else {
-        parallel_ahead_behind(repo, &walks, cancel)?
+        let work: Vec<(String, Oid)> = candidates
+            .iter()
+            .map(|&index| (pending[index].1.clone(), pending[index].2))
+            .collect();
+        parallel_trackings(repo, &work, cancel)?
     };
-    for ((index, _, _), (ahead, behind)) in walks.iter().zip(counts) {
-        if let Some(tracking) = trackings.get_mut(*index) {
-            tracking.ahead = Some(ahead);
-            tracking.behind = Some(behind);
+    for (index, tracking) in candidates.into_iter().zip(resolved) {
+        if let Some(slot) = trackings.get_mut(index) {
+            *slot = tracking;
         }
     }
     Ok(trackings)
+}
+
+/// The upstream short name and the counts of `git rev-list --left-right --count`. The counts
+/// are `None` when the upstream ref is gone (deleted on the remote), like the `[gone]` marker
+/// of `git branch -vv`.
+fn tracking(repo: &Repository, full_name: &str, local: Oid) -> GitResult<Tracking> {
+    let (mut tracking, tip) = upstream_of(repo, full_name)?;
+    if let Some(tip) = tip {
+        let (ahead, behind) = ahead_behind(repo, local, tip)?;
+        tracking.ahead = Some(ahead);
+        tracking.behind = Some(behind);
+    }
+    Ok(tracking)
 }
 
 /// The upstream short name of `full_name` and, when the upstream ref exists and points at a
@@ -277,30 +302,30 @@ fn ahead_behind(repo: &Repository, local: Oid, upstream: Oid) -> GitResult<(u32,
     Ok((count(ahead), count(behind)))
 }
 
-/// [`ahead_behind`] for every pair in `walks`, in order, on up to [`TRACKING_THREADS`]
-/// threads with one repository handle each; the first error wins.
-fn parallel_ahead_behind(
+/// [`tracking`] for every `(full name, tip)` in `work`, in order, on up to
+/// [`TRACKING_THREADS`] threads with one repository handle each; the first error wins.
+fn parallel_trackings(
     repo: &Repository,
-    walks: &[(usize, Oid, Oid)],
+    work: &[(String, Oid)],
     cancel: &Cancel,
-) -> GitResult<Vec<(u32, u32)>> {
+) -> GitResult<Vec<Tracking>> {
     let threads = std::thread::available_parallelism()
         .map_or(1, std::num::NonZero::get)
         .clamp(1, TRACKING_THREADS);
-    let chunk = walks.len().div_ceil(threads).max(1);
+    let chunk = work.len().div_ceil(threads).max(1);
     // Repository handles do not cross threads: each worker reopens the gitdir.
     let gitdir = repo.path().to_path_buf();
-    let results: Vec<GitResult<Vec<(u32, u32)>>> = std::thread::scope(|scope| {
-        let workers: Vec<_> = walks
+    let results: Vec<GitResult<Vec<Tracking>>> = std::thread::scope(|scope| {
+        let workers: Vec<_> = work
             .chunks(chunk)
             .map(|part| {
                 let gitdir = gitdir.clone();
-                scope.spawn(move || -> GitResult<Vec<(u32, u32)>> {
+                scope.spawn(move || -> GitResult<Vec<Tracking>> {
                     let repo = super::reopen_gitdir(&gitdir)?;
                     let mut out = Vec::with_capacity(part.len());
-                    for (_, local, upstream) in part {
+                    for (full_name, local) in part {
                         cancel.check()?;
-                        out.push(ahead_behind(&repo, *local, *upstream)?);
+                        out.push(tracking(&repo, full_name, *local)?);
                     }
                     Ok(out)
                 })
@@ -315,7 +340,7 @@ fn parallel_ahead_behind(
             })
             .collect()
     });
-    let mut all = Vec::with_capacity(walks.len());
+    let mut all = Vec::with_capacity(work.len());
     for result in results {
         all.extend(result?);
     }
