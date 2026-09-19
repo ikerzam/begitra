@@ -7,6 +7,8 @@ import * as v from "valibot";
 
 const int = v.pipe(v.number(), v.integer());
 const count = v.pipe(v.number(), v.integer(), v.minValue(0));
+/** Pages one walk call may stream; the backend clamps at the same bound. */
+const maxPages = v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(64));
 
 // --- Errors and streams -------------------------------------------------------------------
 
@@ -231,7 +233,8 @@ export type DiffTarget = v.InferOutput<typeof DiffTargetSchema>;
 export const DiffOptionsSchema = v.object({
   renames: v.boolean(),
   similarity: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(100)),
-  context: count,
+  /** Context lines around each change; the engine clamps at 1,000. */
+  context: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(1_000)),
   intraLine: v.boolean(),
 });
 export type DiffOptions = v.InferOutput<typeof DiffOptionsSchema>;
@@ -287,13 +290,13 @@ export const commandArgs = {
     repo: path,
     scope: WalkScopeSchema,
     options: WalkOptionsSchema,
-    maxPages: v.pipe(v.number(), v.integer(), v.minValue(1)),
+    maxPages,
     opId,
   }),
   walk_continue: v.object({
     walkId: v.string(),
     nextIndex: count,
-    maxPages: v.pipe(v.number(), v.integer(), v.minValue(1)),
+    maxPages,
     opId,
   }),
   close_walk: v.object({ walkId: v.string() }),

@@ -14,7 +14,10 @@ export interface StreamHandle {
   readonly done: Promise<void>;
   /** The operation id, for logs and for `cancel`. */
   readonly opId: string;
-  /** Asks the backend to stop; `done` then rejects with `op.cancelled`. */
+  /**
+   * Ends the stream here and now (`done` rejects with `op.cancelled`, later pages are
+   * dropped) and asks the backend to stop; a backend that cannot be reached is not an error.
+   */
   cancel(): Promise<void>;
 }
 
@@ -98,7 +101,8 @@ export function stream<TCommand extends StreamCommand, TPage extends v.GenericSc
     opId,
     cancel: async () => {
       if (ended) return;
-      await invoke("cancel_operation", { opId });
+      finish(new AppError("op.cancelled", "The operation was cancelled"));
+      await invoke("cancel_operation", { opId }).catch(() => undefined);
     },
   };
 }

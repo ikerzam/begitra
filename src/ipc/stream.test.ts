@@ -119,26 +119,37 @@ describe("stream", () => {
     expect((error as AppError).detail).toMatch(/^commits: /);
   });
 
-  it("cancel asks the backend to stop and the stream ends with op.cancelled", async () => {
-    let cancelled = false;
+  it("cancel ends the stream at once, drops later pages and asks the backend to stop", async () => {
+    let late: (() => void) | undefined;
     const calls = mockStream((send) => {
       send({ kind: "page", seq: 0, data: page(0, 1, false) });
-      const wait = () => {
-        if (cancelled)
-          send({ kind: "error", error: { code: "op.cancelled", message: "Cancelled" } });
-        else setTimeout(wait, 1);
+      // The backend keeps going for a while after the cancel request.
+      late = () => {
+        send({ kind: "page", seq: 1, data: page(1, 1, false) });
+        send({ kind: "done" });
       };
-      wait();
     });
-    const handle = walkCommits("/r", { kind: "all" }, () => {});
+    const pages: number[] = [];
+    const handle = walkCommits("/r", { kind: "all" }, (p) => pages.push(p.index));
     await new Promise((resolve) => setTimeout(resolve, 5));
     await handle.cancel();
-    cancelled = true;
+    late?.();
     const error = await handle.done.catch((e: unknown) => e as AppError);
     expect((error as AppError).code).toBe("op.cancelled");
+    expect(pages).toEqual([0]);
     expect(calls.some((c) => c.cmd === "cancel_operation" && c.args["opId"] === handle.opId)).toBe(
       true,
     );
+  });
+
+  it("cancel does not fail when the backend cannot be reached", async () => {
+    mockIPC((cmd) => {
+      if (cmd === "cancel_operation") return Promise.reject(new Error("gone"));
+      return null;
+    });
+    const handle = walkCommits("/r", { kind: "all" }, () => {});
+    await expect(handle.cancel()).resolves.toBeUndefined();
+    await expect(handle.done).rejects.toMatchObject({ code: "op.cancelled" });
   });
 
   it("rejects when the command itself fails before any message", async () => {
