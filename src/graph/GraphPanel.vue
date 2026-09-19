@@ -68,17 +68,28 @@ defineExpose({ focus: () => rows.value?.focus() });
 
 <template>
   <section class="flex min-w-0 flex-1 flex-col" data-testid="graph-panel">
-    <div class="flex h-panel-header shrink-0 items-center gap-2 border-b border-line px-3">
-      <div class="graph-search">
+    <!-- A failed open has no filter bar: the banner takes the whole area. -->
+    <div
+      v-if="repo.state.kind !== 'error'"
+      class="flex h-bar-top shrink-0 items-center gap-2 border-b border-line px-3"
+      data-testid="graph-filters"
+    >
+      <div class="graph-search shrink-0">
         <Input v-model="search" :placeholder="t('graph.searchCommits')" :icon="Search" />
       </div>
-      <Select :options="disabledOptions(t('graph.allBranches'))" disabled />
-      <Select :options="disabledOptions(t('graph.anyone'))" disabled />
-      <Select :options="disabledOptions(t('graph.anyDate'))" disabled />
+      <div class="graph-scope shrink-0">
+        <Select :options="disabledOptions(t('graph.allBranches'))" disabled />
+      </div>
+      <div class="graph-author shrink-0">
+        <Select :options="disabledOptions(t('graph.anyone'))" disabled />
+      </div>
+      <div class="graph-date shrink-0">
+        <Select :options="disabledOptions(t('graph.anyDate'))" disabled />
+      </div>
       <Button variant="ghost" :icon="Folder" disabled>{{ t("graph.path") }}</Button>
     </div>
 
-    <div v-if="repo.state.kind === 'error'" class="p-4" data-testid="graph-error">
+    <div v-if="repo.state.kind === 'error'" class="p-5" data-testid="graph-error">
       <ErrorBanner
         :message="errorMessage"
         :output="repo.state.error.detail"
@@ -117,8 +128,18 @@ defineExpose({ focus: () => rows.value?.focus() });
 </template>
 
 <style scoped>
-/* The search control is 200px wide. */
+/* Control widths of the filter bar: search 200, then the three selects
+   sized to their content (124, 104, 104). None is on the spacing scale. */
 .graph-search {
   width: 200px;
+}
+
+.graph-scope {
+  width: 124px;
+}
+
+.graph-author,
+.graph-date {
+  width: 104px;
 }
 </style>
