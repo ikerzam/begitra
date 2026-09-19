@@ -377,6 +377,20 @@ fn cancelled_status_stops_with_cancelled() {
 }
 
 #[test]
+fn intent_to_add_matches_porcelain_v2() {
+    let f = Fixture::basic();
+    f.write("ita.txt", "intent\n");
+    f.git(&["add", "-N", "ita.txt"]);
+    let options = StatusOptions::default();
+    assert_eq!(observed(&f, &options), porcelain(&f, false));
+    let entries = engine_status(&f, &options);
+    let entry = entries.iter().find(|e| e.path == "ita.txt").expect("entry");
+    assert_eq!(entry.staged, None);
+    assert_eq!(entry.unstaged, Some(ChangeKind::Added));
+    assert!(!entry.untracked);
+}
+
+#[test]
 fn a_truncated_head_is_reported_as_corrupt() {
     let f = Fixture::basic();
     let hash = f.truncate_object("HEAD");

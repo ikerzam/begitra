@@ -48,18 +48,37 @@ pub(super) fn list(
             .sort_case_sensitively(true);
         super::check_head(repo)?;
         let statuses = repo.statuses(Some(&mut git_options))?;
+        let index_file = repo.index()?;
         let mut entries = Vec::with_capacity(statuses.len());
         for (index, entry) in statuses.iter().enumerate() {
             if index % CANCEL_EVERY == 0 {
                 cancel.check()?;
             }
-            if let Some(mapped) = map_entry(&entry) {
+            if let Some(mut mapped) = map_entry(&entry) {
+                // `git add -N` records an intent to add: git shows the path as an unstaged
+                // addition (`.A`), while libgit2 reports INDEX_NEW plus WT_MODIFIED.
+                if mapped.staged == Some(ChangeKind::Added)
+                    && intent_to_add(&index_file, &mapped.path)
+                {
+                    mapped.staged = None;
+                    mapped.unstaged = Some(ChangeKind::Added);
+                }
                 entries.push(mapped);
             }
         }
         entries.sort_unstable_by(|a, b| a.path.as_bytes().cmp(b.path.as_bytes()));
         Ok(entries)
     })
+}
+
+/// Whether the index entry of `path` carries the intent-to-add flag (`git add -N`).
+fn intent_to_add(index: &git2::Index, path: &str) -> bool {
+    index
+        .get_path(std::path::Path::new(path), 0)
+        .is_some_and(|entry| {
+            git2::IndexEntryExtendedFlag::from_bits_truncate(entry.flags_extended)
+                .contains(git2::IndexEntryExtendedFlag::INTENT_TO_ADD)
+        })
 }
 
 /// Which side of a delta a path is read from.
