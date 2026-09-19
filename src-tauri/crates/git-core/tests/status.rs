@@ -329,10 +329,10 @@ fn paths_with_spaces_and_unicode_are_reported_as_git_prints_them() {
 }
 
 #[test]
-fn a_deleted_file_reappearing_untracked_is_paired_as_an_unstaged_rename() {
-    // libgit2 pairs a deleted tracked file with a similar untracked file when
-    // index-to-workdir rename detection is on; `git status` prints `D` plus `??` instead.
-    // The test pins the behaviour so a change in either direction is a conscious one.
+fn a_deleted_file_reappearing_untracked_is_a_deletion_plus_an_untracked_path() {
+    // `git status` never pairs a deleted tracked file with a similar untracked file (rename
+    // detection only runs between HEAD and the index), so the engine reports `D` plus `??`
+    // and the path set stays equal to git's.
     let mut f = Fixture::basic();
     let lines: Vec<String> = (1..=20).map(|i| format!("line {i}")).collect();
     f.write("notes.txt", &(lines.join("\n") + "\n"));
@@ -340,14 +340,28 @@ fn a_deleted_file_reappearing_untracked_is_paired_as_an_unstaged_rename() {
     f.remove("notes.txt");
     f.write("moved.txt", &(lines.join("\n") + "\n"));
     let entries = engine_status(&f, &StatusOptions::default());
+    let deleted = entries
+        .iter()
+        .find(|e| e.path == "notes.txt")
+        .expect("deleted entry");
+    assert_eq!(deleted.unstaged, Some(ChangeKind::Deleted));
+    assert_eq!(deleted.old_path, None);
     let moved = entries
         .iter()
         .find(|e| e.path == "moved.txt")
-        .expect("moved entry");
-    assert_eq!(moved.unstaged, Some(ChangeKind::Renamed));
-    assert_eq!(moved.old_path.as_deref(), Some("notes.txt"));
-    assert!(!moved.untracked);
-    assert!(entries.iter().all(|e| e.path != "notes.txt"), "{entries:?}");
+        .expect("untracked entry");
+    assert!(moved.untracked);
+    assert_eq!(moved.unstaged, None);
+    let porcelain = f.git(&["status", "--porcelain=v2", "--untracked-files=all"]);
+    assert!(
+        porcelain
+            .lines()
+            .any(|l| l.starts_with("1 .D") && l.ends_with("notes.txt")),
+        "{porcelain}"
+    );
+    assert!(porcelain.lines().any(|l| l == "? moved.txt"), "{porcelain}");
+    let ours: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
+    assert_eq!(ours, vec!["moved.txt", "notes.txt"]);
 }
 
 #[test]

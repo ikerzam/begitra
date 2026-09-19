@@ -4,9 +4,9 @@
 //! this module maps its flags to [`StatusEntry`] and sorts the result by path. Known differences
 //! from `git status --porcelain=v2 --untracked-files=all`:
 //!
-//! - with `renames` on, libgit2 also pairs a tracked file deleted from the working tree with a
-//!   similar untracked file and reports one unstaged rename, where git prints a deletion plus an
-//!   untracked path;
+//! - rename detection runs between HEAD and the index only, as in `git status`: libgit2 could
+//!   also pair a tracked file deleted from the working tree with a similar untracked file, which
+//!   git reports as a deletion plus an untracked path, so that option stays off;
 //! - rename decisions rest on libgit2's line-signature similarity, which can differ from git's
 //!   byte-based score by a few points (66% against 80% on a three-line file in the tests), so a
 //!   rename close to the 50% threshold can be judged differently;
@@ -42,7 +42,9 @@ pub(super) fn list(
             .include_ignored(options.include_ignored)
             .recurse_ignored_dirs(options.include_ignored)
             .renames_head_to_index(options.renames)
-            .renames_index_to_workdir(options.renames)
+            // `git status` never pairs a deleted tracked file with an untracked one; keeping
+            // libgit2's index-to-workdir detection off keeps the path set equal to git's.
+            .renames_index_to_workdir(false)
             .sort_case_sensitively(true);
         let statuses = repo.statuses(Some(&mut git_options))?;
         let mut entries = Vec::with_capacity(statuses.len());
