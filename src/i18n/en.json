@@ -219,7 +219,7 @@
     "placeholder": "Search or run a command…",
     "recent": "Recent",
     "commands": "Commands",
-    "empty": "Nothing matches. Try another word.",
+    "empty": "No matches for \"{query}\". Try a command, branch, file or repository.",
     "move": "move",
     "run": "run",
     "close": "Close",

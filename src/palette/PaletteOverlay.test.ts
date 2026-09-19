@@ -48,8 +48,9 @@ describe("PaletteOverlay", () => {
     const input = wrapper.get('[data-testid="palette-input"]');
     await input.setValue("zzzz");
     expect(wrapper.get('[data-testid="palette-empty"]').text()).toBe(
-      "Nothing matches. Try another word.",
+      'No matches for "zzzz". Try a command, branch, file or repository.',
     );
+    expect(wrapper.findAll('[data-testid="palette-row"]')).toHaveLength(0);
     await input.trigger("keydown", { key: "Escape" });
     expect(shell.paletteOpen).toBe(false);
     wrapper.unmount();

@@ -102,7 +102,7 @@ watch(
 
 <template>
   <div
-    class="absolute inset-0 z-40 flex justify-center pt-6"
+    class="absolute inset-0 z-40 flex justify-center"
     data-testid="palette-overlay"
     @click.self="shell.closePalette()"
   >
@@ -137,14 +137,14 @@ watch(
         data-testid="palette-list"
       >
         <template v-for="section in sections" :key="section.id">
-          <p class="px-2 pt-3 pb-1 text-sm text-fg-muted">{{ section.label }}</p>
+          <p class="palette-section text-sm text-fg-muted">{{ section.label }}</p>
           <div
             v-for="(row, index) in section.rows"
             :key="`${section.id}-${row.command.id}`"
             role="option"
             :aria-selected="palette.cursor.value === section.offset + index"
             :data-index="section.offset + index"
-            class="flex h-row-list cursor-default items-center gap-3 rounded-sm px-2 text-md text-fg"
+            class="flex h-control cursor-default items-center gap-3 rounded-sm px-2 text-md text-fg"
             :class="
               palette.cursor.value === section.offset + index ? 'bg-selected' : 'hover:bg-hover'
             "
@@ -165,15 +165,17 @@ watch(
         </template>
         <p
           v-if="palette.isEmpty.value"
-          class="px-2 py-4 text-md text-fg-secondary"
+          class="palette-empty flex items-center justify-center px-3 text-center text-md text-fg-secondary"
           data-testid="palette-empty"
         >
-          {{ t("palette.empty") }}
+          {{ t("palette.empty", { query: palette.query.value.trim() }) }}
         </p>
       </div>
-      <div class="flex items-center gap-4 border-t border-line px-3 py-2 text-sm text-fg-muted">
-        <span class="flex items-center gap-1"><Kbd keys="↑↓" /> {{ t("palette.move") }}</span>
-        <span class="flex items-center gap-1"><Kbd keys="↵" /> {{ t("palette.run") }}</span>
+      <div
+        class="flex h-panel-header shrink-0 items-center gap-3 border-t border-line px-3 text-sm text-fg-muted"
+      >
+        <span class="flex items-center gap-2"><Kbd keys="↑↓" /> {{ t("palette.move") }}</span>
+        <span class="flex items-center gap-2"><Kbd keys="↵" /> {{ t("palette.run") }}</span>
       </div>
     </div>
   </div>
@@ -185,5 +187,19 @@ watch(
   width: 640px;
   margin-top: 40px;
   max-height: calc(100% - 80px);
+}
+
+/* Section labels sit 8px under the previous rows (4px for the first) and about 2px above theirs. */
+.palette-section {
+  padding: var(--space-2) var(--space-2) 2px;
+}
+
+.palette-section:first-child {
+  padding-top: var(--space-1);
+}
+
+/* The empty sentence is centred in a 135px area. */
+.palette-empty {
+  height: 135px;
 }
 </style>

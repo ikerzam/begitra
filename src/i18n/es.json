@@ -219,7 +219,7 @@
     "placeholder": "Buscar o ejecutar un comando…",
     "recent": "Recientes",
     "commands": "Comandos",
-    "empty": "Nada coincide. Prueba con otra palabra.",
+    "empty": "Nada coincide con \"{query}\". Prueba con un comando, una rama, un fichero o un repositorio.",
     "move": "mover",
     "run": "ejecutar",
     "close": "Cerrar",
