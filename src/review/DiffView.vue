@@ -17,6 +17,7 @@ import { useShortcut } from "@/shortcuts/useShortcut";
 import { useReviewStore } from "@/stores/review";
 
 import { MAX_LINES, buildRows, hunkRange, hunkSymbol, lineKind, segments } from "./diffRows";
+import { useHunkNavigation } from "./useHunkNavigation";
 
 const props = withDefaults(
   defineProps<{
@@ -40,25 +41,7 @@ const guarded = computed(
 
 const diff = computed(() => buildRows(props.file?.hunks ?? []));
 
-function moveHunk(step: number): void {
-  const element = body.value;
-  if (!element) return;
-  const headers = [...element.querySelectorAll<HTMLElement>("[data-hunk]")];
-  if (headers.length === 0) return;
-  const top = element.scrollTop;
-  let index = headers.findIndex((header) => header.offsetTop > top + 1);
-  if (step < 0) {
-    index = headers.findIndex((header) => header.offsetTop >= top) - 1;
-    if (index < 0) index = headers.length - 1;
-    while (index > 0 && headers[index] && headers[index]!.offsetTop >= top) index -= 1;
-  } else if (index < 0) {
-    index = 0;
-  }
-  headers[index]?.scrollIntoView({ block: "start" });
-}
-
-useShortcut("next-hunk", () => moveHunk(1));
-useShortcut("previous-hunk", () => moveHunk(-1));
+useHunkNavigation(body);
 useShortcut("mark-reviewed", () => {
   if (props.file) review.toggleReviewed(props.file.path);
 });
@@ -109,7 +92,8 @@ useShortcut("mark-reviewed", () => {
       />
     </header>
 
-    <div ref="body" class="min-h-0 flex-1 overflow-auto" data-testid="diff-body">
+    <!-- `relative` makes the body the offset parent of the hunk headers n and p scroll to. -->
+    <div ref="body" class="relative min-h-0 flex-1 overflow-auto" data-testid="diff-body">
       <EmptyState v-if="!props.file" :message="t('review.noFile')" />
       <div v-else-if="props.file.isBinary" class="p-4">
         <div class="rounded-md border border-line p-4 text-md text-fg-secondary">
