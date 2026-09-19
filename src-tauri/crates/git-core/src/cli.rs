@@ -33,11 +33,18 @@ const REDIRECTING_VARS: [&str; 9] = [
 ];
 
 /// The command `git <args>` in `cwd`, with the redirecting variables removed and stdin closed.
+/// On Windows the process gets no console, so a GUI caller never flashes a black window.
 pub fn command(cwd: &Path, args: &[&str]) -> Command {
     let mut command = Command::new("git");
     command.args(args).current_dir(cwd).stdin(Stdio::null());
     for var in REDIRECTING_VARS {
         command.env_remove(var);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
     }
     command
 }
