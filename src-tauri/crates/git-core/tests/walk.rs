@@ -481,6 +481,31 @@ fn lanes_and_edges_do_not_depend_on_the_page_size() {
 }
 
 #[test]
+fn walks_from_a_linked_worktree_root() {
+    let f = Fixture::basic().with_linked_worktree();
+    let engine = Git2Engine::open(&f.worktree_path()).expect("open the linked worktree");
+    assert!(engine.repo().is_linked_worktree);
+    let nodes = walk_all(&engine, &WalkScope::All, 500, WalkOrder::DateTopo);
+    let expected: Vec<String> = f
+        .git_in(
+            &f.worktree_path(),
+            &["log", "--all", "--date-order", "--format=%H"],
+        )
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(hashes(&nodes), expected);
+    // HEAD is the worktree's: it decorates the commit together with its branch and `main`.
+    let head = nodes
+        .iter()
+        .find(|node| node.refs.contains(&"HEAD".to_owned()))
+        .expect("HEAD decorates a commit");
+    let mut refs = head.refs.clone();
+    refs.sort();
+    assert_eq!(refs, ["HEAD", "feature/wt", "main"]);
+}
+
+#[test]
 fn page_size_is_clamped() {
     let f = Fixture::basic();
     let engine = open(&f);
