@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_MANIFEST: src-tauri/Cargo.toml
+
+jobs:
+  check:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install the Linux packages Tauri needs (webkit2gtk and friends)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint (ESLint)
+        run: pnpm lint
+
+      - name: Format check (Prettier)
+        run: pnpm format:check
+
+      - name: Type check (vue-tsc)
+        run: pnpm typecheck
+
+      - name: Frontend tests (Vitest)
+        run: pnpm test:run
+
+      - name: Frontend build (Vite)
+        run: pnpm build
+
+      - name: Rust format check
+        run: cargo fmt --all --manifest-path ${{ env.CARGO_MANIFEST }} --check
+
+      - name: Rust lint (clippy)
+        run: cargo clippy --workspace --all-targets --manifest-path ${{ env.CARGO_MANIFEST }} -- -D warnings
+
+      - name: Rust tests
+        run: cargo test --workspace --manifest-path ${{ env.CARGO_MANIFEST }}
