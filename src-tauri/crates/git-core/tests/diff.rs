@@ -827,3 +827,44 @@ fn root_and_identical_trees_diff_like_git() {
     let same = diff(&f, &commits("HEAD", "HEAD"));
     assert!(same.files.is_empty());
 }
+
+/// The UI addresses commits by hash: a truncated commit named by its raw hash, full or short,
+/// is `repo.corrupt_object`, and so is a `~1` step from a ref whose tip is unreadable.
+#[test]
+fn a_truncated_commit_named_by_hash_is_a_corrupt_object() {
+    let f = Fixture::basic();
+    let hash = f.truncate_object("HEAD~1");
+    let engine = engine(&f);
+    for revision in [hash.clone(), hash[..7].to_owned(), "main~1".to_owned()] {
+        let error = engine
+            .diff(
+                &commit(&revision),
+                &DiffOptions::default(),
+                &Cancel::never(),
+            )
+            .expect_err("must fail");
+        assert_eq!(error.code(), "repo.corrupt_object", "{revision}: {error:?}");
+    }
+    let error = engine
+        .diff(&commit("main~1"), &DiffOptions::default(), &Cancel::never())
+        .expect_err("must fail");
+    assert!(
+        matches!(&error, GitError::CorruptObject { hash: reported, .. } if *reported == hash),
+        "{error:?}"
+    );
+}
+
+/// A revision with an absurd ancestor count fails as not found, without allocating or
+/// walking anything the size of the count.
+#[test]
+fn an_absurd_ancestor_count_is_just_not_found() {
+    let f = Fixture::basic();
+    let error = engine(&f)
+        .diff(
+            &commit("HEAD~4000000000"),
+            &DiffOptions::default(),
+            &Cancel::never(),
+        )
+        .expect_err("must fail");
+    assert_eq!(error.code(), "refs.not_found", "{error:?}");
+}

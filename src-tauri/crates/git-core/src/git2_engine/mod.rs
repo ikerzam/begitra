@@ -12,7 +12,7 @@ mod worktrees;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use git2::{ErrorCode, Oid, Repository};
+use git2::{ErrorClass, ErrorCode, Oid, Repository};
 
 use crate::engine::{Cancel, CommitWalk, GitEngine};
 use crate::error::{GitError, GitResult};
@@ -63,14 +63,48 @@ impl Git2Engine {
 
     /// Runs `f` with the underlying libgit2 repository, serialised by the mutex.
     ///
-    /// Operation modules and benchmarks use this; the handle must not escape the closure.
+    /// Operation modules and benchmarks use this; the handle must not escape the closure. A
+    /// panic in an earlier closure poisons the mutex, but the repository handle itself is
+    /// still usable, so the lock is recovered rather than failing every later operation.
     pub fn with_repo<T>(&self, f: impl FnOnce(&Repository) -> GitResult<T>) -> GitResult<T> {
         let repo = self
             .repo
             .lock()
-            .map_err(|_| GitError::Git("repository lock poisoned".to_owned()))?;
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         f(&repo)
     }
+
+    /// The repository description with the current HEAD state, read now rather than at open
+    /// time, so a branch switched outside the app is reported on the next open.
+    pub fn describe_now(&self) -> GitResult<Repo> {
+        self.with_repo(|repo| {
+            let (current_branch, detached) = head_state(repo)?;
+            Ok(Repo {
+                current_branch,
+                detached,
+                ..self.info.clone()
+            })
+        })
+    }
+}
+
+/// Opens a second handle on the repository `repo` was opened from, for work that must not
+/// hold the engine's mutex (walks, parallel counts). The gitdir is what libgit2 opened, so
+/// linked worktrees and repositories whose working tree lives elsewhere (`core.worktree`)
+/// reopen as themselves.
+pub(crate) fn reopen(repo: &Repository) -> GitResult<Repository> {
+    reopen_gitdir(repo.path())
+}
+
+/// [`reopen`] from a gitdir path, for threads that cannot borrow the handle.
+pub(crate) fn reopen_gitdir(gitdir: &Path) -> GitResult<Repository> {
+    Repository::open(gitdir).map_err(|error| match error.code() {
+        ErrorCode::NotFound => GitError::NotFound(gitdir.to_path_buf()),
+        _ => GitError::Invalid {
+            path: gitdir.to_path_buf(),
+            reason: error.message().to_owned(),
+        },
+    })
 }
 
 impl GitEngine for Git2Engine {
@@ -171,20 +205,33 @@ pub(crate) fn resolve_commit(repo: &Repository, revision: &str) -> GitResult<Oid
     }
 }
 
-/// A `revparse_single` failure is corruption when the revision names a ref whose target
-/// object cannot be read, or an ancestor (`~N`, `^N`) that cannot be read; otherwise the
-/// revision itself is at fault.
+/// A `revparse_single` failure is corruption when the revision names a ref, a hash or an
+/// ancestor (`~N`, `^N`) whose object cannot be read; otherwise the revision itself is at
+/// fault. When the damaged object cannot be named but libgit2 reports an object store
+/// failure (a short hash of a truncated object), the revision stands in for the hash.
 fn classify_revision_error(repo: &Repository, revision: &str, error: git2::Error) -> GitError {
     let unreadable = ref_target(repo, revision)
+        .or_else(|| Oid::from_str(revision).ok())
         .and_then(|oid| unreadable_behind(repo, oid))
         .or_else(|| unreadable_ancestor(repo, revision));
-    match unreadable {
-        Some(oid) => GitError::CorruptObject {
+    if let Some(oid) = unreadable {
+        return GitError::CorruptObject {
             hash: oid.to_string(),
             reason: error.message().to_owned(),
-        },
-        None => GitError::revision(revision, error),
+        };
     }
+    let store_failure = error.code() != ErrorCode::NotFound
+        && matches!(
+            error.class(),
+            ErrorClass::Odb | ErrorClass::Object | ErrorClass::Zlib
+        );
+    if store_failure {
+        return GitError::CorruptObject {
+            hash: revision.to_owned(),
+            reason: error.message().to_owned(),
+        };
+    }
+    GitError::revision(revision, error)
 }
 
 /// Maps a failure to peel a reference or a tag whose direct target is `oid`: libgit2 reports a
@@ -223,11 +270,15 @@ fn unreadable_behind(repo: &Repository, mut oid: Oid) -> Option<Oid> {
 
 /// Follows the `~N` and `^N` suffixes of `revision` by hand and names the first commit on
 /// the way that cannot be read; `None` when the revision has another shape (`^{type}`,
-/// `:path`, ...) or when everything on the way reads fine.
+/// `:path`, ...) or when everything on the way reads fine. The base may itself be a ref
+/// whose tip is unreadable (`main~1` with a truncated `main`).
 fn unreadable_ancestor(repo: &Repository, revision: &str) -> Option<Oid> {
     let split = revision.find(['~', '^'])?;
     let (base, suffix) = revision.split_at(split);
-    let mut oid = repo.revparse_single(base).ok()?.peel_to_commit().ok()?.id();
+    let mut oid = match repo.revparse_single(base) {
+        Ok(object) => object.peel_to_commit().ok()?.id(),
+        Err(_) => ref_target(repo, base).or_else(|| Oid::from_str(base).ok())?,
+    };
     let mut chars = suffix.chars().peekable();
     while let Some(op) = chars.next() {
         if chars.peek() == Some(&'{') {
@@ -242,13 +293,14 @@ fn unreadable_ancestor(repo: &Repository, revision: &str) -> Option<Oid> {
         } else {
             digits.parse().ok()?
         };
-        let steps = match op {
-            '~' => vec![0; count],
-            '^' if count == 0 => Vec::new(),
-            '^' => vec![count - 1],
+        // `~N` walks N first parents; `^N` takes the Nth parent once (`^0` is the commit).
+        let (steps, parent) = match op {
+            '~' => (count, 0),
+            '^' if count == 0 => (0, 0),
+            '^' => (1, count - 1),
             _ => return None,
         };
-        for parent in steps {
+        for _ in 0..steps {
             oid = match repo.find_commit(oid) {
                 Ok(commit) => commit.parent_id(parent).ok()?,
                 Err(_) => return Some(oid),

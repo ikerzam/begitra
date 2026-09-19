@@ -27,12 +27,11 @@
 use std::cmp::Reverse;
 use std::collections::hash_map::Entry as MapEntry;
 use std::collections::{BinaryHeap, HashMap, HashSet};
-use std::path::Path;
 
 use git2::{ErrorCode, Oid, ReferenceType, Repository};
 
 use super::Git2Engine;
-use crate::engine::{Cancel, CommitWalk, GitEngine};
+use crate::engine::{Cancel, CommitWalk};
 use crate::error::{GitError, GitResult};
 use crate::graph::LaneLayout;
 use crate::types::{CommitNode, Page, Signature, WalkOptions, WalkOrder, WalkScope};
@@ -59,7 +58,7 @@ pub(super) fn start(
     options: &WalkOptions,
     cancel: &Cancel,
 ) -> GitResult<Box<dyn CommitWalk>> {
-    let repo = open_again(&engine.repo().root)?;
+    let repo = engine.with_repo(super::reopen)?;
     let refs = load_refs(&repo, cancel)?;
     let head = head_commit(&repo)?;
     let (seeds, exclude) = resolve_scope(&repo, scope, &refs, head)?;
@@ -417,17 +416,6 @@ impl CommitWalk for Walk {
             done: self.finished,
         })
     }
-}
-
-/// Opens the repository at `root` again, for the walk's own use.
-fn open_again(root: &Path) -> GitResult<Repository> {
-    Repository::open(root).map_err(|error| match error.code() {
-        ErrorCode::NotFound => GitError::NotFound(root.to_path_buf()),
-        _ => GitError::Invalid {
-            path: root.to_path_buf(),
-            reason: error.message().to_owned(),
-        },
-    })
 }
 
 /// Every ref under `refs/` that peels to a commit, sorted by full name.
