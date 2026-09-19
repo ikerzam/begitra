@@ -128,6 +128,8 @@ function mockBackend(options: { openFails?: boolean } = {}): Call[] {
       }
       case "close_repository":
         return true;
+      case "close_walk":
+        return true;
       case "cancel_operation":
         return true;
       default:

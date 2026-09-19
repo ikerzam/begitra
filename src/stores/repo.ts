@@ -78,6 +78,7 @@ export const useRepoStore = defineStore("repo", () => {
     generation += 1;
     void walkHandle?.cancel();
     void diffHandle?.cancel();
+    if (walk.value && !walk.value.done) void ipc.closeWalk(walk.value.walkId);
     walkHandle = null;
     diffHandle = null;
     repo.value = null;

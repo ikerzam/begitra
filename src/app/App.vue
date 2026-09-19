@@ -1,9 +1,29 @@
 <script setup lang="ts">
-// Placeholder root: the app renders the product name so the scaffold can be smoke-tested.
+// Root: loads the settings (falling back to memory outside Tauri), applies the locale, then
+// renders the shell.
+
+import { onMounted, ref } from "vue";
+
+import { setLocale } from "@/i18n";
+import AppShell from "@/shell/AppShell.vue";
+import { memoryStorage, tauriStorage, useSettingsStore } from "@/stores/settings";
+
+const settings = useSettingsStore();
+const ready = ref(false);
+
+onMounted(async () => {
+  try {
+    await settings.init(await tauriStorage());
+  } catch {
+    await settings.init(memoryStorage());
+  }
+  setLocale(settings.values.locale);
+  ready.value = true;
+});
 </script>
 
 <template>
-  <main class="flex h-full items-center justify-center bg-app text-fg" data-testid="app-root">
-    <span class="text-lg font-semibold">Begira</span>
-  </main>
+  <div class="h-full bg-app text-fg" data-testid="app-root">
+    <AppShell v-if="ready" />
+  </div>
 </template>
