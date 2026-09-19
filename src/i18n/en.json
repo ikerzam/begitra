@@ -38,7 +38,8 @@
     }
   },
   "toast": {
-    "showGitOutput": "Show git output"
+    "showGitOutput": "Show git output",
+    "dismiss": "Dismiss"
   },
   "errorBanner": {
     "showGitOutput": "Show git output",
@@ -70,5 +71,167 @@
   "hunkRow": {
     "markReviewed": "Mark reviewed",
     "reviewed": "Reviewed"
+  },
+  "app": {
+    "name": "Begira"
+  },
+  "date": {
+    "now": "just now",
+    "minutes": "{n}m ago",
+    "hours": "{n}h ago",
+    "days": "{n}d ago",
+    "weeks": "{n}w ago",
+    "months": "{n}mo ago",
+    "years": "{n}y ago"
+  },
+  "topBar": {
+    "noRepository": "No repository open",
+    "switchRepository": "Open another folder",
+    "search": "Search or run a command…",
+    "settings": "Settings",
+    "graphFocus": "Graph focus",
+    "reviewFocus": "Review focus"
+  },
+  "sidebar": {
+    "repos": "Repos",
+    "branches": "Branches",
+    "worktrees": "Worktrees",
+    "filterRepos": "Filter repositories",
+    "filterBranches": "Filter branches",
+    "filterWorktrees": "Filter worktrees",
+    "local": "Local",
+    "remote": "Remote",
+    "tags": "Tags",
+    "stashes": "Stashes",
+    "noRepository": "No repository open",
+    "noBranches": "No branches yet",
+    "noWorktrees": "No linked worktrees",
+    "notFound": "not found",
+    "mainWorktree": "main worktree",
+    "expand": "Expand the sidebar"
+  },
+  "statusBar": {
+    "noRepositories": "No repositories",
+    "commits": "commits",
+    "review": "review",
+    "commands": "commands",
+    "files": "files",
+    "hunks": "hunks",
+    "markReviewed": "mark reviewed",
+    "open": "open",
+    "unborn": "no commits yet",
+    "detached": "detached HEAD"
+  },
+  "operations": {
+    "opening": "Opening {name}",
+    "loadingHistory": "Loading history",
+    "loadingDiff": "Computing diff for {hash}"
+  },
+  "home": {
+    "title": "Repositories",
+    "subtitle": "Open a folder to read its history.",
+    "openFolder": "Open folder…",
+    "empty": "No repositories yet. Open a folder to start."
+  },
+  "graph": {
+    "searchCommits": "Search commits",
+    "allBranches": "All branches",
+    "anyone": "Anyone",
+    "anyDate": "Any date",
+    "path": "Path",
+    "noCommits": "No commits yet",
+    "noMatches": "No commits match the filter",
+    "clearFilter": "Clear filter",
+    "loadMore": "Load more commits",
+    "removeFromList": "Remove from list",
+    "historyStopped": "History stops here: {message}"
+  },
+  "detail": {
+    "commit": "Commit",
+    "copyHash": "Copy the full hash",
+    "review": "Review",
+    "selectCommit": "Select a commit to see what changed",
+    "nothingUntilOpen": "Nothing to show until the repository opens",
+    "parent": "Parent",
+    "parents": "Parents",
+    "files": "{n} files",
+    "file": "{n} file",
+    "generated": "{n} generated",
+    "tests": "{n} tests",
+    "test": "{n} test",
+    "binary": "binary",
+    "generatedLabel": "generated",
+    "loadingFiles": "Loading files",
+    "author": "{name} authored",
+    "committer": "{name} committed"
+  },
+  "review": {
+    "files": "Files",
+    "hideGenerated": "Hide generated",
+    "hideLockfiles": "Hide lockfiles",
+    "hideTests": "Hide tests",
+    "noFile": "Select a file to see its diff",
+    "noCommit": "Select a commit in graph focus to review it",
+    "overview": "Change overview",
+    "showOverview": "Show overview",
+    "hideOverview": "Hide overview",
+    "byType": "By type",
+    "largest": "Largest changes",
+    "generatedVsHand": "Generated vs hand-written",
+    "handWritten": "{n} hand-written",
+    "generated": "{n} generated",
+    "testsTouched": "{n} tests touched",
+    "added": "{n} added",
+    "modified": "{n} modified",
+    "deleted": "{n} deleted",
+    "progress": "Review progress",
+    "reviewed": "{done} of {total} files reviewed",
+    "largeFile": "This file changes {n} lines. Showing it all can be slow.",
+    "binaryFile": "Binary file, {status}.",
+    "generatedFile": "Generated file.",
+    "showAnyway": "Show anyway",
+    "truncated": "Showing the first {n} lines of this diff.",
+    "nextFile": "next or previous file",
+    "nextHunk": "next or previous hunk",
+    "markReviewed": "mark reviewed",
+    "unified": "Unified",
+    "sideBySide": "Side by side",
+    "other": "Other"
+  },
+  "palette": {
+    "placeholder": "Search or run a command…",
+    "recent": "Recent",
+    "commands": "Commands",
+    "empty": "Nothing matches. Try another word.",
+    "move": "move",
+    "run": "run",
+    "close": "Close",
+    "commandsById": {
+      "open-folder": "Open folder…",
+      "graph-focus": "Switch to graph focus",
+      "review-focus": "Switch to review focus",
+      "toggle-sidebar": "Toggle sidebar",
+      "open-terminal": "Open in terminal",
+      "open-editor": "Open in editor",
+      "close-repository": "Close repository",
+      "locale-en": "Language: English",
+      "locale-es": "Language: Spanish"
+    }
+  },
+  "external": {
+    "terminalFailed": "Couldn't open the terminal. Check the terminal command in Settings.",
+    "editorFailed": "Couldn't open the editor. Check the editor command in Settings.",
+    "showCommand": "Show command"
+  },
+  "errors": {
+    "repoNotFound": "Couldn't open {path}. The folder was removed or is no longer a Git repository.",
+    "repoInvalid": "Couldn't open {path}. {message}",
+    "corruptObject": "The repository has a corrupt object. {message}",
+    "refNotFound": "That branch or commit does not exist any more. {message}",
+    "cancelled": "The operation was cancelled.",
+    "timeout": "The operation took too long and was stopped.",
+    "gitFailed": "git reported an error. {message}",
+    "spawnFailed": "The command could not be started. {message}",
+    "generic": "{message}"
   }
 }

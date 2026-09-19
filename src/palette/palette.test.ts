@@ -5,15 +5,15 @@ import { paletteCommands, type PaletteActions } from "./commands";
 import { matchesQuery, usePalette } from "./usePalette";
 
 const labels: Record<string, string> = {
-  "palette.commands.open-folder": "Open folder…",
-  "palette.commands.graph-focus": "Switch to graph focus",
-  "palette.commands.review-focus": "Switch to review focus",
-  "palette.commands.toggle-sidebar": "Toggle sidebar",
-  "palette.commands.open-terminal": "Open in terminal",
-  "palette.commands.open-editor": "Open in editor",
-  "palette.commands.close-repository": "Close repository",
-  "palette.commands.locale-en": "Language: English",
-  "palette.commands.locale-es": "Language: Spanish",
+  "palette.commandsById.open-folder": "Open folder…",
+  "palette.commandsById.graph-focus": "Switch to graph focus",
+  "palette.commandsById.review-focus": "Switch to review focus",
+  "palette.commandsById.toggle-sidebar": "Toggle sidebar",
+  "palette.commandsById.open-terminal": "Open in terminal",
+  "palette.commandsById.open-editor": "Open in editor",
+  "palette.commandsById.close-repository": "Close repository",
+  "palette.commandsById.locale-en": "Language: English",
+  "palette.commandsById.locale-es": "Language: Spanish",
 };
 
 function actions(hasRepository = true): PaletteActions & { calls: string[] } {

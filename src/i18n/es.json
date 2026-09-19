@@ -38,7 +38,8 @@
     }
   },
   "toast": {
-    "showGitOutput": "Ver la salida de git"
+    "showGitOutput": "Ver la salida de git",
+    "dismiss": "Cerrar"
   },
   "errorBanner": {
     "showGitOutput": "Ver la salida de git",
@@ -70,5 +71,167 @@
   "hunkRow": {
     "markReviewed": "Marcar como revisado",
     "reviewed": "Revisado"
+  },
+  "app": {
+    "name": "Begira"
+  },
+  "date": {
+    "now": "ahora mismo",
+    "minutes": "hace {n} min",
+    "hours": "hace {n} h",
+    "days": "hace {n} d",
+    "weeks": "hace {n} sem",
+    "months": "hace {n} meses",
+    "years": "hace {n} a"
+  },
+  "topBar": {
+    "noRepository": "Ningún repositorio abierto",
+    "switchRepository": "Abrir otra carpeta",
+    "search": "Buscar o ejecutar un comando…",
+    "settings": "Ajustes",
+    "graphFocus": "Vista de grafo",
+    "reviewFocus": "Vista de revisión"
+  },
+  "sidebar": {
+    "repos": "Repos",
+    "branches": "Ramas",
+    "worktrees": "Worktrees",
+    "filterRepos": "Filtrar repositorios",
+    "filterBranches": "Filtrar ramas",
+    "filterWorktrees": "Filtrar worktrees",
+    "local": "Locales",
+    "remote": "Remotas",
+    "tags": "Etiquetas",
+    "stashes": "Stashes",
+    "noRepository": "Ningún repositorio abierto",
+    "noBranches": "Todavía no hay ramas",
+    "noWorktrees": "No hay worktrees enlazados",
+    "notFound": "no encontrado",
+    "mainWorktree": "worktree principal",
+    "expand": "Expandir la barra lateral"
+  },
+  "statusBar": {
+    "noRepositories": "Sin repositorios",
+    "commits": "commits",
+    "review": "revisar",
+    "commands": "comandos",
+    "files": "ficheros",
+    "hunks": "hunks",
+    "markReviewed": "marcar revisado",
+    "open": "abrir",
+    "unborn": "sin commits todavía",
+    "detached": "HEAD separado"
+  },
+  "operations": {
+    "opening": "Abriendo {name}",
+    "loadingHistory": "Cargando el historial",
+    "loadingDiff": "Calculando el diff de {hash}"
+  },
+  "home": {
+    "title": "Repositorios",
+    "subtitle": "Abre una carpeta para leer su historial.",
+    "openFolder": "Abrir carpeta…",
+    "empty": "Todavía no hay repositorios. Abre una carpeta para empezar."
+  },
+  "graph": {
+    "searchCommits": "Buscar commits",
+    "allBranches": "Todas las ramas",
+    "anyone": "Cualquiera",
+    "anyDate": "Cualquier fecha",
+    "path": "Ruta",
+    "noCommits": "Todavía no hay commits",
+    "noMatches": "Ningún commit coincide con el filtro",
+    "clearFilter": "Quitar el filtro",
+    "loadMore": "Cargar más commits",
+    "removeFromList": "Quitar de la lista",
+    "historyStopped": "El historial se detiene aquí: {message}"
+  },
+  "detail": {
+    "commit": "Commit",
+    "copyHash": "Copiar el hash completo",
+    "review": "Revisar",
+    "selectCommit": "Selecciona un commit para ver qué cambió",
+    "nothingUntilOpen": "No hay nada que mostrar hasta que se abra el repositorio",
+    "parent": "Padre",
+    "parents": "Padres",
+    "files": "{n} ficheros",
+    "file": "{n} fichero",
+    "generated": "{n} generados",
+    "tests": "{n} tests",
+    "test": "{n} test",
+    "binary": "binario",
+    "generatedLabel": "generado",
+    "loadingFiles": "Cargando ficheros",
+    "author": "{name} es el autor",
+    "committer": "{name} hizo el commit"
+  },
+  "review": {
+    "files": "Ficheros",
+    "hideGenerated": "Ocultar generados",
+    "hideLockfiles": "Ocultar lockfiles",
+    "hideTests": "Ocultar tests",
+    "noFile": "Selecciona un fichero para ver su diff",
+    "noCommit": "Selecciona un commit en la vista de grafo para revisarlo",
+    "overview": "Resumen del cambio",
+    "showOverview": "Mostrar el resumen",
+    "hideOverview": "Ocultar el resumen",
+    "byType": "Por tipo",
+    "largest": "Mayores cambios",
+    "generatedVsHand": "Generado frente a escrito a mano",
+    "handWritten": "{n} a mano",
+    "generated": "{n} generados",
+    "testsTouched": "{n} tests tocados",
+    "added": "{n} añadidos",
+    "modified": "{n} modificados",
+    "deleted": "{n} borrados",
+    "progress": "Progreso de la revisión",
+    "reviewed": "{done} de {total} ficheros revisados",
+    "largeFile": "Este fichero cambia {n} líneas. Mostrarlo entero puede ser lento.",
+    "binaryFile": "Fichero binario, {status}.",
+    "generatedFile": "Fichero generado.",
+    "showAnyway": "Mostrar de todos modos",
+    "truncated": "Se muestran las primeras {n} líneas de este diff.",
+    "nextFile": "fichero siguiente o anterior",
+    "nextHunk": "hunk siguiente o anterior",
+    "markReviewed": "marcar revisado",
+    "unified": "Unificado",
+    "sideBySide": "Lado a lado",
+    "other": "Otros"
+  },
+  "palette": {
+    "placeholder": "Buscar o ejecutar un comando…",
+    "recent": "Recientes",
+    "commands": "Comandos",
+    "empty": "Nada coincide. Prueba con otra palabra.",
+    "move": "mover",
+    "run": "ejecutar",
+    "close": "Cerrar",
+    "commandsById": {
+      "open-folder": "Abrir carpeta…",
+      "graph-focus": "Cambiar a la vista de grafo",
+      "review-focus": "Cambiar a la vista de revisión",
+      "toggle-sidebar": "Mostrar u ocultar la barra lateral",
+      "open-terminal": "Abrir en el terminal",
+      "open-editor": "Abrir en el editor",
+      "close-repository": "Cerrar el repositorio",
+      "locale-en": "Idioma: inglés",
+      "locale-es": "Idioma: español"
+    }
+  },
+  "external": {
+    "terminalFailed": "No se pudo abrir el terminal. Revisa el comando del terminal en Ajustes.",
+    "editorFailed": "No se pudo abrir el editor. Revisa el comando del editor en Ajustes.",
+    "showCommand": "Mostrar el comando"
+  },
+  "errors": {
+    "repoNotFound": "No se pudo abrir {path}. La carpeta se ha eliminado o ya no es un repositorio Git.",
+    "repoInvalid": "No se pudo abrir {path}. {message}",
+    "corruptObject": "El repositorio tiene un objeto corrupto. {message}",
+    "refNotFound": "Esa rama o commit ya no existe. {message}",
+    "cancelled": "La operación se canceló.",
+    "timeout": "La operación tardó demasiado y se detuvo.",
+    "gitFailed": "git devolvió un error. {message}",
+    "spawnFailed": "No se pudo iniciar el comando. {message}",
+    "generic": "{message}"
   }
 }
