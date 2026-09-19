@@ -357,6 +357,12 @@ impl Fixture {
             .env_remove("GIT_INDEX_FILE");
         command
     }
+
+    /// Sets the commit clock to `unix` seconds; the next commit gets `unix + 60`. Moving it
+    /// backwards creates a commit older than its parent (date skew).
+    pub fn set_clock(&mut self, unix: i64) {
+        self.clock = unix;
+    }
 }
 
 /// Canonical form of a path for comparisons (resolves symlinks and, on Windows, the `\\?\`
