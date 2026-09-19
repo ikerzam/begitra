@@ -64,18 +64,12 @@ const groups = computed<BranchGroup[]>(() => {
 
 const flatRows = computed(() => groups.value.flatMap((group) => group.rows));
 const rowCount = computed(() => flatRows.value.length);
+/* No row is selected until the user picks one. */
 const selectedRow = ref(-1);
 
-watch(
-  [flatRows, () => repo.currentBranch],
-  () => {
-    const current = flatRows.value.findIndex((row) => row.ref.isCurrent);
-    if (selectedRow.value < 0 || selectedRow.value >= flatRows.value.length) {
-      selectedRow.value = current;
-    }
-  },
-  { immediate: true },
-);
+watch(flatRows, (rows) => {
+  if (selectedRow.value >= rows.length) selectedRow.value = -1;
+});
 
 const navigation = useListNavigation({
   count: rowCount,
@@ -131,7 +125,7 @@ function rowIndex(groupIndex: number, index: number): number {
         @select="shell.setSidebarTab(tab.id)"
       />
     </div>
-    <div class="px-3 py-2">
+    <div class="px-2 py-2">
       <Input v-model="filter" :placeholder="filterPlaceholder" :icon="Search" />
     </div>
 
@@ -169,7 +163,7 @@ function rowIndex(groupIndex: number, index: number): number {
       v-else-if="shell.sidebarTab === 'repos'"
       id="sidebar-repos"
       role="listbox"
-      class="min-h-0 flex-1 overflow-y-auto py-2"
+      class="min-h-0 flex-1 overflow-y-auto"
       data-testid="repo-list"
     >
       <ListRow
@@ -197,7 +191,7 @@ function rowIndex(groupIndex: number, index: number): number {
       v-else
       id="sidebar-worktrees"
       role="listbox"
-      class="min-h-0 flex-1 overflow-y-auto py-2"
+      class="min-h-0 flex-1 overflow-y-auto"
       data-testid="worktree-list"
     >
       <ListRow
