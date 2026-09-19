@@ -18,6 +18,14 @@ use crate::ops::Operations;
 /// Walk handles idle for longer than this are dropped.
 pub const WALK_IDLE_LIMIT: Duration = Duration::from_secs(5 * 60);
 
+/// What [`AppState::close`] removed, to be dropped off the async runtime.
+pub struct Closed {
+    /// The engine, when the repository was open.
+    pub engine: Option<Arc<Git2Engine>>,
+    /// Its walk handles that were not in use.
+    pub walks: Vec<Box<dyn CommitWalk>>,
+}
+
 /// A stored walk: the handle, its repository, and when it was last used.
 struct WalkEntry {
     walk: Option<Box<dyn CommitWalk>>,
@@ -71,22 +79,39 @@ impl AppState {
         engines.get(path).map(Arc::clone)
     }
 
-    /// Closes the engine rooted at `root` and drops its walks; returns whether it was open.
-    pub fn close(&self, root: &Path) -> bool {
-        let removed = self
+    /// Closes the engine rooted at `root` and takes its walks out of the state. Returns what
+    /// was removed so the caller can drop it off the async runtime (freeing a libgit2
+    /// repository is not instant on a large one), and `None` when nothing was open.
+    pub fn close(&self, root: &Path) -> Option<Closed> {
+        let engine = self
             .inner
             .engines
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .remove(root)
-            .is_some();
+            .remove(root);
         let mut walks = self
             .inner
             .walks
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        walks.retain(|_, entry| entry.repo != root);
-        removed
+        let mut dropped = Vec::new();
+        walks.retain(|_, entry| {
+            if entry.repo == root {
+                if let Some(walk) = entry.walk.take() {
+                    dropped.push(walk);
+                }
+                false
+            } else {
+                true
+            }
+        });
+        if engine.is_none() && dropped.is_empty() {
+            return None;
+        }
+        Some(Closed {
+            engine,
+            walks: dropped,
+        })
     }
 
     /// Number of open engines.
@@ -154,28 +179,37 @@ impl AppState {
         }
     }
 
-    /// Drops a walk handle; returns whether it existed.
-    pub fn drop_walk(&self, walk_id: &str) -> bool {
+    /// Takes a walk handle out of the state; `None` when it did not exist. The caller drops
+    /// it off the async runtime.
+    pub fn drop_walk(&self, walk_id: &str) -> Option<Option<Box<dyn CommitWalk>>> {
         self.inner
             .walks
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .remove(walk_id)
-            .is_some()
+            .map(|entry| entry.walk)
     }
 
-    /// Drops walks idle for longer than `limit`; returns how many were dropped.
-    pub fn evict_idle_walks(&self, limit: Duration) -> usize {
+    /// Takes the walks idle for longer than `limit` out of the state and returns them, so the
+    /// caller drops them off the async runtime.
+    pub fn evict_idle_walks(&self, limit: Duration) -> Vec<Box<dyn CommitWalk>> {
         let mut walks = self
             .inner
             .walks
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let before = walks.len();
         let now = Instant::now();
-        walks
-            .retain(|_, entry| entry.walk.is_none() || now.duration_since(entry.last_used) < limit);
-        before - walks.len()
+        let mut evicted = Vec::new();
+        walks.retain(|_, entry| {
+            let idle = entry.walk.is_some() && now.duration_since(entry.last_used) >= limit;
+            if idle {
+                if let Some(walk) = entry.walk.take() {
+                    evicted.push(walk);
+                }
+            }
+            !idle
+        });
+        evicted
     }
 
     /// Number of stored walks.
@@ -224,8 +258,8 @@ mod tests {
         state.put_walk(&id, walk);
         assert!(state.take_walk(&id).is_ok());
 
-        assert!(state.drop_walk(&id));
-        assert!(!state.drop_walk(&id));
+        assert!(state.drop_walk(&id).is_some());
+        assert!(state.drop_walk(&id).is_none());
         assert_eq!(
             state.take_walk(&id).err().map(|e| e.code),
             Some(codes::OP_UNKNOWN_WALK.to_owned())
@@ -239,12 +273,15 @@ mod tests {
         let b = state.new_walk_id();
         state.store_walk(&a, PathBuf::from("/a"), Box::new(FakeWalk));
         state.store_walk(&b, PathBuf::from("/b"), Box::new(FakeWalk));
-        assert_eq!(state.evict_idle_walks(Duration::from_secs(60)), 0);
-        assert_eq!(state.evict_idle_walks(Duration::ZERO), 2);
+        assert!(state.evict_idle_walks(Duration::from_secs(60)).is_empty());
+        assert_eq!(state.evict_idle_walks(Duration::ZERO).len(), 2);
         assert_eq!(state.walk_count(), 0);
 
         state.store_walk(&a, PathBuf::from("/a"), Box::new(FakeWalk));
-        assert!(!state.close(Path::new("/a")));
+        let closed = state.close(Path::new("/a")).expect("a walk was dropped");
+        assert!(closed.engine.is_none());
+        assert_eq!(closed.walks.len(), 1);
+        assert!(state.close(Path::new("/a")).is_none());
         assert_eq!(state.walk_count(), 0);
     }
 }

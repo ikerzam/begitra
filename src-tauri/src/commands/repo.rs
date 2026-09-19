@@ -26,11 +26,19 @@ pub async fn open_repository(
     .await
 }
 
-/// Closes the engine rooted at `root` and drops its walks; returns whether it was open.
+/// Closes the engine rooted at `root` and drops its walks off the async runtime; returns
+/// whether it was open.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state))]
-pub fn close_repository(state: State<'_, AppState>, root: PathBuf) -> bool {
-    state.close(&root)
+pub async fn close_repository(state: State<'_, AppState>, root: PathBuf) -> Result<bool, AppError> {
+    let Some(closed) = state.close(&root) else {
+        return Ok(false);
+    };
+    let was_open = closed.engine.is_some();
+    tokio::task::spawn_blocking(move || drop(closed))
+        .await
+        .map_err(|join| AppError::internal(format!("close task failed: {join}")))?;
+    Ok(was_open)
 }
 
 /// Lists the refs of the repository at `repo`.

@@ -142,7 +142,10 @@ pub async fn walk_continue(
             match &result {
                 Ok(outcome) if !outcome.finished => holder.put_walk(&id, walk),
                 _ => {
-                    holder.drop_walk(&id);
+                    // The entry is reserved while in use; drop the handle and the entry here,
+                    // on the blocking thread.
+                    drop(walk);
+                    drop(holder.drop_walk(&id));
                 }
             }
             result.map(|_| ())
@@ -151,11 +154,17 @@ pub async fn walk_continue(
     .await
 }
 
-/// Drops a walk handle; returns whether it existed.
+/// Drops a walk handle off the async runtime; returns whether it existed.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state))]
-pub fn close_walk(state: State<'_, AppState>, walk_id: String) -> bool {
-    state.drop_walk(&walk_id)
+pub async fn close_walk(state: State<'_, AppState>, walk_id: String) -> Result<bool, AppError> {
+    let Some(walk) = state.drop_walk(&walk_id) else {
+        return Ok(false);
+    };
+    tokio::task::spawn_blocking(move || drop(walk))
+        .await
+        .map_err(|join| AppError::internal(format!("close task failed: {join}")))?;
+    Ok(true)
 }
 
 #[cfg(test)]
