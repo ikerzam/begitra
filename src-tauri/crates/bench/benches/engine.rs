@@ -136,6 +136,30 @@ fn walk_first_page(c: &mut Criterion) {
     group.finish();
 }
 
+/// The first page in `DateTopo` order, which counts the children of the whole history before
+/// it can emit a row; no budget of its own (the app walks lazily by default), recorded to show
+/// the cost of the exact order.
+fn walk_first_page_date_topo(c: &mut Criterion) {
+    let mut group = c.benchmark_group("walk_first_page_date_topo");
+    group.sample_size(10);
+    for target in present() {
+        let engine = engine(&target.path);
+        let options = WalkOptions {
+            page_size: 500,
+            order: WalkOrder::DateTopo,
+        };
+        group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+            b.iter(|| {
+                let mut walk = e
+                    .walk(&WalkScope::All, &options, &Cancel::never())
+                    .expect("walk");
+                walk.next_page(&Cancel::never()).expect("page")
+            });
+        });
+    }
+    group.finish();
+}
+
 fn walk_ten_pages(c: &mut Criterion) {
     let mut group = c.benchmark_group("walk_ten_pages");
     group.sample_size(10);
@@ -229,6 +253,7 @@ criterion_group!(
     open,
     refs,
     walk_first_page,
+    walk_first_page_date_topo,
     walk_ten_pages,
     status,
     diff_large_file,
