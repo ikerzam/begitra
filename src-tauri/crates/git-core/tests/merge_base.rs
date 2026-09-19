@@ -79,3 +79,22 @@ fn fails_with_refs_not_found_on_an_unborn_repository() {
     let error = engine.merge_base("HEAD", "HEAD").expect_err("must fail");
     assert_eq!(error.code(), "refs.not_found");
 }
+
+#[test]
+fn a_tree_tag_is_not_found_and_a_truncated_target_is_corrupt() {
+    let f = Fixture::basic();
+    f.git(&["tag", "treetag", "HEAD^{tree}"]);
+    let engine = Git2Engine::open(&f.root).expect("open");
+    assert_eq!(
+        engine
+            .merge_base("treetag", "main")
+            .expect_err("a tree is not a commit")
+            .code(),
+        "refs.not_found"
+    );
+    let hash = f.truncate_object("develop");
+    match engine.merge_base("main", "develop").expect_err("must fail") {
+        GitError::CorruptObject { hash: reported, .. } => assert_eq!(reported, hash),
+        other => panic!("unexpected error {other:?}"),
+    }
+}

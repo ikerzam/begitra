@@ -375,3 +375,17 @@ fn cancelled_status_stops_with_cancelled() {
         .expect_err("must be cancelled");
     assert!(matches!(error, GitError::Cancelled), "{error:?}");
 }
+
+#[test]
+fn a_truncated_head_is_reported_as_corrupt() {
+    let f = Fixture::basic();
+    let hash = f.truncate_object("HEAD");
+    let engine = Git2Engine::open(&f.root).expect("open");
+    match engine
+        .status(&StatusOptions::default(), &Cancel::never())
+        .expect_err("must fail")
+    {
+        GitError::CorruptObject { hash: reported, .. } => assert_eq!(reported, hash),
+        other => panic!("unexpected error {other:?}"),
+    }
+}

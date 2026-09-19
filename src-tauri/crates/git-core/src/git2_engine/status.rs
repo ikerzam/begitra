@@ -46,6 +46,7 @@ pub(super) fn list(
             // libgit2's index-to-workdir detection off keeps the path set equal to git's.
             .renames_index_to_workdir(false)
             .sort_case_sensitively(true);
+        super::check_head(repo)?;
         let statuses = repo.statuses(Some(&mut git_options))?;
         let mut entries = Vec::with_capacity(statuses.len());
         for (index, entry) in statuses.iter().enumerate() {

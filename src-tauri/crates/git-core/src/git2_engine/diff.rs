@@ -21,8 +21,8 @@ use std::path::Path;
 
 use git2::{
     AttrCheckFlags, AttrValue, Commit, Delta, Diff, DiffDelta, DiffFindOptions, DiffHunk,
-    DiffLine as Git2DiffLine, DiffLineType, DiffOptions as Git2DiffOptions, ErrorClass, ErrorCode,
-    FileMode, Patch, Repository, Tree,
+    DiffLine as Git2DiffLine, DiffLineType, DiffOptions as Git2DiffOptions, ErrorCode, FileMode,
+    Patch, Repository, Tree,
 };
 
 use super::Git2Engine;
@@ -129,32 +129,13 @@ fn build_diff<'r>(
     diff.map_err(GitError::from)
 }
 
-/// Resolves a revision as `git rev-parse` would and peels it to a commit.
+/// Resolves a revision as `git rev-parse` would and peels it to a commit: unknown and
+/// non-commit revisions are [`GitError::RefNotFound`], unreadable objects
+/// [`GitError::CorruptObject`].
 fn resolve_commit<'r>(repo: &'r Repository, revision: &str) -> GitResult<Commit<'r>> {
-    let object = repo
-        .revparse_single(revision)
-        .map_err(|error| revision_error(revision, error))?;
-    object
-        .peel_to_commit()
-        .map_err(|error| revision_error(revision, error))
-}
-
-/// Maps a resolution failure: unknown or non-commit revisions are [`GitError::RefNotFound`],
-/// unreadable objects along the way are [`GitError::CorruptObject`] named after the revision.
-fn revision_error(revision: &str, error: git2::Error) -> GitError {
-    if error.code() == ErrorCode::Peel {
-        return GitError::RefNotFound(revision.to_owned());
-    }
-    let unreadable = error.code() != ErrorCode::NotFound
-        && matches!(
-            error.class(),
-            ErrorClass::Odb | ErrorClass::Object | ErrorClass::Zlib
-        );
-    if unreadable {
-        GitError::object(revision, error)
-    } else {
-        GitError::revision(revision, error)
-    }
+    let oid = super::resolve_commit(repo, revision)?;
+    repo.find_commit(oid)
+        .map_err(|error| GitError::object(&oid.to_string(), error))
 }
 
 fn commit_tree<'r>(commit: &Commit<'r>) -> GitResult<Tree<'r>> {
@@ -178,10 +159,25 @@ fn parent_tree<'r>(repo: &'r Repository, commit: &Commit<'r>) -> GitResult<Optio
 /// Tree of HEAD, or `None` (the empty tree) when the branch is unborn.
 fn head_tree(repo: &Repository) -> GitResult<Option<Tree<'_>>> {
     match repo.head() {
-        Ok(head) => head
-            .peel_to_tree()
-            .map(Some)
-            .map_err(|error| GitError::object("HEAD", error)),
+        // The commit is read by hash rather than peeled through the reference: libgit2
+        // reports a peel failure as an invalid reference, which would hide the damaged
+        // object behind a generic error.
+        Ok(head) => match head.target() {
+            Some(oid) => {
+                let hash = oid.to_string();
+                let commit = repo
+                    .find_commit(oid)
+                    .map_err(|error| GitError::object(&hash, error))?;
+                let tree = commit
+                    .tree()
+                    .map_err(|error| GitError::object(&commit.tree_id().to_string(), error))?;
+                Ok(Some(tree))
+            }
+            None => head
+                .peel_to_tree()
+                .map(Some)
+                .map_err(|error| GitError::object("HEAD", error)),
+        },
         Err(error) if matches!(error.code(), ErrorCode::UnbornBranch | ErrorCode::NotFound) => {
             Ok(None)
         }

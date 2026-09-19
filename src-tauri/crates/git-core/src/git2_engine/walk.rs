@@ -448,13 +448,14 @@ fn load_refs(repo: &Repository, cancel: &Cancel) -> GitResult<Vec<RefTarget>> {
         let symbolic = reference.kind() == Some(ReferenceType::Symbolic);
         let commit = match reference.peel_to_commit() {
             Ok(commit) => commit.id(),
-            Err(error) if symbolic || error.code() == ErrorCode::Peel => continue,
-            Err(error) => {
-                let target = reference
-                    .target()
-                    .map_or_else(|| name.clone(), |oid| oid.to_string());
-                return Err(GitError::object(&target, error));
+            // Annotated tags on trees or blobs fail with `Peel`, lightweight ones with
+            // `InvalidSpec`; `git log --all` skips both kinds.
+            Err(error)
+                if symbolic || matches!(error.code(), ErrorCode::Peel | ErrorCode::InvalidSpec) =>
+            {
+                continue
             }
+            Err(error) => return Err(super::reference_error(repo, reference.target(), error)),
         };
         let label = if symbolic { None } else { label(&name) };
         refs.push(RefTarget {
@@ -476,12 +477,9 @@ fn head_commit(repo: &Repository) -> GitResult<Option<Oid>> {
         }
         Err(error) => return Err(error.into()),
     };
-    let commit = head.peel_to_commit().map_err(|error| {
-        let target = head
-            .target()
-            .map_or_else(|| "HEAD".to_owned(), |oid| oid.to_string());
-        GitError::object(&target, error)
-    })?;
+    let commit = head
+        .peel_to_commit()
+        .map_err(|error| super::reference_error(repo, head.target(), error))?;
     Ok(Some(commit.id()))
 }
 
@@ -514,16 +512,7 @@ fn resolve_scope(
 
 /// Resolves `spec` as `git rev-parse` would and peels it to a commit.
 fn resolve_commit(repo: &Repository, spec: &str) -> GitResult<Oid> {
-    let object = repo
-        .revparse_single(spec)
-        .map_err(|error| GitError::revision(spec, error))?;
-    let commit = object
-        .peel_to_commit()
-        .map_err(|error| match error.code() {
-            ErrorCode::Peel | ErrorCode::InvalidSpec => GitError::RefNotFound(spec.to_owned()),
-            _ => GitError::object(&object.id().to_string(), error),
-        })?;
-    Ok(commit.id())
+    super::resolve_commit(repo, spec)
 }
 
 /// Short ref names per commit: `HEAD` first, then the refs in name order.

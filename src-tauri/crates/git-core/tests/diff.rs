@@ -725,3 +725,36 @@ fn unborn_head_diffs_against_the_empty_tree() {
     );
     assert_eq!(paths(&head), ["first.txt"]);
 }
+
+#[test]
+fn a_tree_tag_as_revision_is_not_found() {
+    let f = Fixture::basic();
+    f.git(&["tag", "treetag", "HEAD^{tree}"]);
+    let error = engine(&f)
+        .diff(
+            &commits("treetag", "main"),
+            &DiffOptions::default(),
+            &Cancel::never(),
+        )
+        .expect_err("a tree is not a commit");
+    assert_eq!(error.code(), "refs.not_found");
+}
+
+#[test]
+fn a_truncated_head_makes_working_tree_diffs_corrupt() {
+    let f = Fixture::basic();
+    let hash = f.truncate_object("HEAD");
+    let error = engine(&f)
+        .diff(
+            &DiffTarget::WorkingTree {
+                base: WorkingTreeBase::Head,
+            },
+            &DiffOptions::default(),
+            &Cancel::never(),
+        )
+        .expect_err("must fail");
+    match error {
+        GitError::CorruptObject { hash: reported, .. } => assert_eq!(reported, hash),
+        other => panic!("unexpected error {other:?}"),
+    }
+}

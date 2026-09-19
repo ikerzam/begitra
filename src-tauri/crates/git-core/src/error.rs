@@ -96,13 +96,17 @@ impl GitError {
     /// [`GitError::Git`] otherwise.
     pub fn object(hash: &str, error: git2::Error) -> Self {
         use git2::{ErrorClass, ErrorCode};
-        let corrupt = matches!(
-            error.code(),
-            ErrorCode::NotFound | ErrorCode::Invalid | ErrorCode::Ambiguous
-        ) || matches!(
-            error.class(),
-            ErrorClass::Odb | ErrorClass::Object | ErrorClass::Zlib
-        );
+        // `Peel` and `InvalidSpec` mean the object is of the wrong type (a tag on a tree, a
+        // blob where a commit is expected), not that it cannot be read.
+        let wrong_type = matches!(error.code(), ErrorCode::Peel | ErrorCode::InvalidSpec);
+        let corrupt = !wrong_type
+            && (matches!(
+                error.code(),
+                ErrorCode::NotFound | ErrorCode::Invalid | ErrorCode::Ambiguous
+            ) || matches!(
+                error.class(),
+                ErrorClass::Odb | ErrorClass::Object | ErrorClass::Zlib
+            ));
         if corrupt {
             GitError::CorruptObject {
                 hash: hash.to_owned(),
@@ -118,9 +122,10 @@ impl GitError {
     pub fn revision(revision: &str, error: git2::Error) -> Self {
         use git2::ErrorCode;
         match error.code() {
-            ErrorCode::NotFound | ErrorCode::InvalidSpec | ErrorCode::Ambiguous => {
-                GitError::RefNotFound(revision.to_owned())
-            }
+            ErrorCode::NotFound
+            | ErrorCode::InvalidSpec
+            | ErrorCode::Ambiguous
+            | ErrorCode::Peel => GitError::RefNotFound(revision.to_owned()),
             _ => GitError::Git(error.message().to_owned()),
         }
     }

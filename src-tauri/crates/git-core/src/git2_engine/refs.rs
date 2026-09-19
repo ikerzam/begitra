@@ -46,15 +46,9 @@ pub(super) fn merge_base(engine: &Git2Engine, a: &str, b: &str) -> GitResult<Str
 }
 
 /// Resolves a revision to a commit id, peeling tags; [`GitError::RefNotFound`] when it does
-/// not name a commit.
+/// not name a commit, [`GitError::CorruptObject`] when its object cannot be read.
 fn commit_id(repo: &Repository, revision: &str) -> GitResult<Oid> {
-    let object = repo
-        .revparse_single(revision)
-        .map_err(|error| GitError::revision(revision, error))?;
-    let commit = object
-        .peel_to_commit()
-        .map_err(|error| GitError::revision(revision, error))?;
-    Ok(commit.id())
+    super::resolve_commit(repo, revision)
 }
 
 fn collect(repo: &Repository, cancel: &Cancel) -> GitResult<Vec<Ref>> {

@@ -683,3 +683,51 @@ fn first_page_of_a_long_history_reads_only_what_it_shows() {
         timings[0].1
     );
 }
+
+#[test]
+fn tags_on_trees_and_blobs_are_skipped_like_git_log_all() {
+    let f = Fixture::basic();
+    f.git(&["tag", "treetag", "HEAD^{tree}"]);
+    f.git(&["tag", "blobtag", "HEAD:README.md"]);
+    f.git(&["tag", "-a", "annotated-tree", "HEAD^{tree}", "-m", "tree"]);
+    let engine = open(&f);
+    for order in [WalkOrder::DateTopo, WalkOrder::Lazy] {
+        let nodes = walk_all(&engine, &WalkScope::All, 500, order);
+        assert_eq!(hashes(&nodes), git_log(&f, &[], "--all"), "{order:?}");
+        assert!(nodes
+            .iter()
+            .all(|node| !node.refs.iter().any(|r| r.contains("tag"))));
+    }
+    let error = engine
+        .walk(
+            &WalkScope::Ref {
+                name: "treetag".to_owned(),
+            },
+            &WalkOptions::default(),
+            &Cancel::never(),
+        )
+        .err()
+        .expect("a tree is not a commit");
+    assert_eq!(error.code(), "refs.not_found");
+}
+
+#[test]
+fn a_revision_whose_object_is_unreadable_is_corrupt_not_missing() {
+    let f = Fixture::basic();
+    let hash = f.truncate_object("develop");
+    let engine = open(&f);
+    let error = engine
+        .walk(
+            &WalkScope::Ref {
+                name: "develop".to_owned(),
+            },
+            &WalkOptions::default(),
+            &Cancel::never(),
+        )
+        .err()
+        .expect("must fail");
+    match error {
+        GitError::CorruptObject { hash: reported, .. } => assert_eq!(reported, hash),
+        other => panic!("unexpected error {other:?}"),
+    }
+}
