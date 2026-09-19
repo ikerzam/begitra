@@ -357,3 +357,38 @@ fn stops_when_cancelled() {
     assert!(matches!(error, GitError::Cancelled), "{error:?}");
     assert_eq!(error.code(), "op.cancelled");
 }
+
+/// With many tracking branches the counts are computed on several threads; every branch must
+/// still carry what `git rev-list --left-right --count` reports.
+#[test]
+fn many_tracking_branches_report_the_same_counts_as_rev_list() {
+    let f = Fixture::basic().with_remote();
+    for n in 0..24 {
+        let name = format!("t{n:02}");
+        let (start, upstream) = match n % 4 {
+            0 => ("develop", "origin/develop"),
+            1 => ("origin/develop", "origin/develop"),
+            2 => ("main~1", "origin/main"),
+            _ => ("main", "origin/develop"),
+        };
+        f.git(&["branch", "-q", &name, start]);
+        f.git(&["branch", "-q", "--set-upstream-to", upstream, &name]);
+    }
+    let refs = refs_at(&f.root);
+    let tracking: Vec<&Ref> = refs
+        .iter()
+        .filter(|r| r.kind == RefKind::LocalBranch && r.upstream.is_some())
+        .collect();
+    assert!(tracking.len() >= 24, "{} tracking branches", tracking.len());
+    for branch in tracking {
+        let upstream = branch.upstream.as_deref().unwrap_or_default();
+        let range = format!("{}...{upstream}", branch.name);
+        let counts = f.git(&["rev-list", "--left-right", "--count", &range]);
+        assert_eq!(
+            counts,
+            format!("{}\t{}", branch.ahead.unwrap(), branch.behind.unwrap()),
+            "{}",
+            branch.name
+        );
+    }
+}
