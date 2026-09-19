@@ -20,6 +20,8 @@ export interface PaletteOptions {
   /** Resolves a label key to text in the current locale. */
   translate: (key: string) => string;
   onClose: () => void;
+  /** Ids of the last run commands, most recent first; the caller may hand in a persisted ref. */
+  recents?: Ref<string[]>;
 }
 
 export interface Palette {
@@ -49,7 +51,7 @@ export function matchesQuery(label: string, query: string): boolean {
 export function usePalette(options: PaletteOptions): Palette {
   const query = ref("");
   const cursor = ref(0);
-  const recents = ref<string[]>([]);
+  const recents = options.recents ?? ref<string[]>([]);
 
   const rows = computed<PaletteRow[]>(() => {
     const all = options.commands.value

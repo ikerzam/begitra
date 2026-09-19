@@ -1,4 +1,5 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { flushPromises } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -38,6 +39,45 @@ describe("PaletteOverlay", () => {
     await input.trigger("keydown", { key: "Enter" });
     expect(shell.layoutMode).toBe("review");
     expect(shell.paletteOpen).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("keeps the recents across close and open through the settings", async () => {
+    const shell = useShellStore();
+    shell.openPalette();
+    let wrapper = mountWithI18n(PaletteOverlay, { attachTo: document.body });
+    await wrapper.get('[data-testid="palette-input"]').setValue("rev");
+    await wrapper.get('[data-testid="palette-input"]').trigger("keydown", { key: "Enter" });
+    expect(shell.paletteOpen).toBe(false);
+    wrapper.unmount();
+    expect(useSettingsStore().values.paletteRecents).toEqual(["review-focus"]);
+
+    shell.openPalette();
+    wrapper = mountWithI18n(PaletteOverlay, { attachTo: document.body });
+    const list = wrapper.get('[data-testid="palette-list"]');
+    expect(list.text().startsWith("Recent")).toBe(true);
+    expect(wrapper.findAll('[data-testid="palette-row"]')[0]?.text()).toContain(
+      "Switch to review focus",
+    );
+    wrapper.unmount();
+  });
+
+  it("names the active row for assistive technology and keeps Tab inside", async () => {
+    useShellStore().openPalette();
+    const wrapper = mountWithI18n(PaletteOverlay, { attachTo: document.body });
+    await flushPromises();
+    const input = wrapper.get('[data-testid="palette-input"]');
+    expect(document.activeElement).toBe(input.element);
+    const active = wrapper.get('[data-testid="palette-row"][aria-selected="true"]');
+    expect(input.attributes("aria-activedescendant")).toBe(active.attributes("id"));
+    await input.trigger("keydown", { key: "ArrowDown" });
+    expect(input.attributes("aria-activedescendant")).toBe(
+      wrapper.get('[data-testid="palette-row"][aria-selected="true"]').attributes("id"),
+    );
+    const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    input.element.dispatchEvent(tab);
+    expect(tab.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(input.element);
     wrapper.unmount();
   });
 

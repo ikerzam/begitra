@@ -27,6 +27,8 @@ export interface Settings {
   sidebarCollapsed: boolean;
   layoutMode: LayoutMode;
   locale: Locale;
+  /** Ids of the last commands run from the palette, most recent first. */
+  paletteRecents: string[];
 }
 
 const px = v.pipe(v.number(), v.minValue(0), v.maxValue(10_000));
@@ -38,6 +40,7 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   sidebarCollapsed: v.boolean(),
   layoutMode: v.picklist(["graph", "review"]),
   locale: v.picklist(["en", "es"]),
+  paletteRecents: v.array(v.string()),
 };
 
 export const settingsKeys = Object.keys(schemas) as (keyof Settings)[];
@@ -66,6 +69,7 @@ export function defaultSettings(platform: Platform): Settings {
     sidebarCollapsed: false,
     layoutMode: "graph",
     locale: "en",
+    paletteRecents: [],
   };
 }
 

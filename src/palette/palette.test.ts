@@ -157,6 +157,25 @@ describe("usePalette", () => {
     expect(palette.onKeydown(key("Enter"))).toBe(true);
   });
 
+  it("uses and updates the recents handed in by the caller", async () => {
+    const acts = actions();
+    const recents = ref<string[]>(["graph-focus"]);
+    const palette = usePalette({
+      commands: computed(() => paletteCommands(acts)),
+      translate: (k) => labels[k] ?? k,
+      onClose: () => {},
+      recents,
+    });
+    expect(palette.rows.value[0]).toMatchObject({
+      section: "recent",
+      command: { id: "graph-focus" },
+    });
+    const row = palette.rows.value.find((r) => r.command.id === "open-editor");
+    if (!row) throw new Error("missing open-editor");
+    await palette.run(row);
+    expect(recents.value).toEqual(["open-editor", "graph-focus"]);
+  });
+
   it("reacts to command changes", () => {
     const acts = actions();
     const commands = ref(paletteCommands(acts));

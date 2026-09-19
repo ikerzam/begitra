@@ -14,6 +14,7 @@ import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Kbd from "@/components/Kbd.vue";
+import { useFocusTrap } from "@/components/useFocusTrap";
 import { setLocale } from "@/i18n";
 import { useExternal } from "@/shell/useExternal";
 import { useOpenFolder } from "@/shell/useOpenFolder";
@@ -54,10 +55,16 @@ const actions: PaletteActions = {
 };
 
 const commands = computed(() => paletteCommands(actions));
+/* The recents live in the settings, so they survive closing the palette and relaunching. */
+const recents = computed({
+  get: () => settings.values.paletteRecents,
+  set: (ids: string[]) => void settings.update("paletteRecents", ids),
+});
 const palette = usePalette({
   commands,
   translate: (key) => t(key),
   onClose: () => shell.closePalette(),
+  recents,
 });
 
 const icons: Record<string, typeof Search> = {
@@ -74,6 +81,12 @@ const icons: Record<string, typeof Search> = {
 
 const input = ref<HTMLInputElement | null>(null);
 const list = ref<HTMLElement | null>(null);
+const dialog = ref<HTMLElement | null>(null);
+const trap = useFocusTrap(dialog);
+
+function optionId(index: number): string {
+  return `palette-option-${index}`;
+}
 
 const sections = computed(() => {
   const recent = palette.rows.value.filter((row) => row.section === "recent");
@@ -107,10 +120,12 @@ watch(
     @click.self="shell.closePalette()"
   >
     <div
+      ref="dialog"
       role="dialog"
       aria-modal="true"
       :aria-label="t('palette.placeholder')"
       class="palette flex max-h-full flex-col rounded-lg border border-line-strong bg-raised shadow-overlay"
+      @keydown="trap.onKeydown"
     >
       <div class="flex items-center gap-3 border-b border-line px-3 py-2">
         <Search :size="16" :stroke-width="1.5" aria-hidden="true" class="text-fg-secondary" />
@@ -122,6 +137,9 @@ watch(
           aria-autocomplete="list"
           aria-controls="palette-list"
           :aria-expanded="!palette.isEmpty.value"
+          :aria-activedescendant="
+            palette.isEmpty.value ? undefined : optionId(palette.cursor.value)
+          "
           :placeholder="t('palette.placeholder')"
           class="h-control min-w-0 flex-1 bg-transparent text-md text-fg outline-none placeholder:text-fg-muted"
           data-testid="palette-input"
@@ -140,6 +158,7 @@ watch(
           <p class="palette-section text-sm text-fg-muted">{{ section.label }}</p>
           <div
             v-for="(row, index) in section.rows"
+            :id="optionId(section.offset + index)"
             :key="`${section.id}-${row.command.id}`"
             role="option"
             :aria-selected="palette.cursor.value === section.offset + index"

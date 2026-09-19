@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, useId, useTemplateRef } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Button from "./Button.vue";
+import { useFocusTrap } from "./useFocusTrap";
 
 const props = withDefaults(
   defineProps<{
@@ -24,16 +25,9 @@ const { t } = useI18n();
 const panel = useTemplateRef<HTMLElement>("panel");
 const titleId = useId();
 const bodyId = `${titleId}-body`;
-
-const FOCUSABLE =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+const trap = useFocusTrap(panel);
 
 let previouslyFocused: Element | null = null;
-
-function focusables(): HTMLElement[] {
-  const nodes = panel.value?.querySelectorAll<HTMLElement>(FOCUSABLE);
-  return nodes ? Array.from(nodes) : [];
-}
 
 /* Escape cancels; Tab cycles inside the panel so focus never lands behind the scrim. */
 function onKeydown(event: KeyboardEvent): void {
@@ -42,24 +36,15 @@ function onKeydown(event: KeyboardEvent): void {
     emit("cancel");
     return;
   }
-  if (event.key !== "Tab") return;
-  const list = focusables();
-  const first = list[0];
-  const last = list[list.length - 1];
-  if (!first || !last) return;
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault();
-    last.focus();
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault();
-    first.focus();
-  }
+  trap.onKeydown(event);
 }
 
 onMounted(() => {
   previouslyFocused = document.activeElement;
   const target =
-    panel.value?.querySelector<HTMLElement>("[data-autofocus]") ?? focusables()[0] ?? panel.value;
+    panel.value?.querySelector<HTMLElement>("[data-autofocus]") ??
+    trap.focusables()[0] ??
+    panel.value;
   target?.focus();
 });
 
