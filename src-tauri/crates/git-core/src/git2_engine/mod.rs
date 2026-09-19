@@ -151,8 +151,3 @@ fn head_state(repo: &Repository) -> GitResult<(Option<String>, bool)> {
 fn normalize(path: &Path) -> PathBuf {
     path.components().collect()
 }
-
-/// Error for operations that a later task implements.
-pub(crate) fn not_implemented(operation: &str) -> GitError {
-    GitError::Git(format!("{operation} is not implemented yet"))
-}
