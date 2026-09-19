@@ -11,8 +11,8 @@
 //!   rename close to the threshold can be judged differently;
 //! - copies are detected from modified sources, like `git diff -C`; `git diff -M` alone
 //!   reports no copies;
-//! - a file is binary for libgit2 when its first 8 kB hold a NUL byte or too many non-printable
-//!   bytes; git only looks for NUL;
+//! - working tree diffs drop files that only differ by line endings under `text=auto` (git
+//!   compares the filtered content; libgit2 reports a modified delta without hunks);
 //! - `linguist-generated` is read from the index and the working copy (`.gitattributes` as
 //!   checked out), not from the compared commit;
 //! - an unborn HEAD counts as the empty tree, where `git diff HEAD` fails.
@@ -58,7 +58,8 @@ pub(super) fn compute(
             let found = diff.find_similar(Some(&mut find));
             found.map_err(|error| blob_error(repo, diff.deltas(), probe_new_side, error))?;
         }
-        collect(repo, &diff, options, probe_new_side, cancel)
+        let working_tree = matches!(target, DiffTarget::WorkingTree { .. });
+        collect(repo, &diff, options, probe_new_side, working_tree, cancel)
     })
 }
 
@@ -186,11 +187,16 @@ fn head_tree(repo: &Repository) -> GitResult<Option<Tree<'_>>> {
 }
 
 /// Builds the [`FileChange`]s of every delta.
+///
+/// With `working_tree` set, a modified text file without hunks and without a mode change is
+/// left out: libgit2 lists working tree files whose stat data changed although their filtered
+/// content did not (line endings under `text=auto`), where `git diff` shows nothing.
 fn collect(
     repo: &Repository,
     diff: &Diff<'_>,
     options: &DiffOptions,
     probe_new_side: bool,
+    working_tree: bool,
     cancel: &Cancel,
 ) -> GitResult<ChangeSet> {
     let count = diff.deltas().len();
@@ -220,6 +226,14 @@ fn collect(
                 assemble(repo, status, meta, None, 0, 0, Vec::new())
             }
         };
+        if working_tree
+            && status == ChangeKind::Modified
+            && !file.is_binary
+            && file.hunks.is_empty()
+            && delta.old_file().mode() == delta.new_file().mode()
+        {
+            continue;
+        }
         additions = additions.saturating_add(file.additions);
         deletions = deletions.saturating_add(file.deletions);
         files.push(file);

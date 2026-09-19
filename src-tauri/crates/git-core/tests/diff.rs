@@ -741,6 +741,20 @@ fn a_tree_tag_as_revision_is_not_found() {
 }
 
 #[test]
+fn working_tree_diff_skips_files_that_only_differ_by_line_endings() {
+    let mut f = Fixture::basic();
+    f.write(".gitattributes", "* text=auto\n");
+    f.write("auto.txt", "one\ntwo\nthree\n");
+    f.commit("text auto");
+    f.write("auto.txt", "one\r\ntwo\r\nthree\r\n");
+    assert_eq!(f.git(&["diff", "--name-status"]), "");
+    for base in [WorkingTreeBase::Index, WorkingTreeBase::Head] {
+        let set = diff(&f, &DiffTarget::WorkingTree { base });
+        assert!(set.files.is_empty(), "{base:?}: {:?}", set.files);
+    }
+}
+
+#[test]
 fn a_truncated_head_makes_working_tree_diffs_corrupt() {
     let f = Fixture::basic();
     let hash = f.truncate_object("HEAD");
