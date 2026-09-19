@@ -1,6 +1,9 @@
 //! Where the benchmark repositories live.
 
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+
+use crate::Error;
 
 /// Clone URL of the large real repository.
 pub const REAL_URL: &str = "https://github.com/torvalds/linux.git";
@@ -38,4 +41,141 @@ pub fn is_repository(path: &Path) -> bool {
         .ok()
         .and_then(|repo| repo.head().ok().and_then(|head| head.target()))
         .is_some()
+}
+
+/// Branch with one commit on top of HEAD that rewrites a large text file, created on demand
+/// by [`ensure_large_file_branch`] for the large-file diff benchmark. The benchmark
+/// repositories are the project's own fixtures, so the bench may add a ref to them.
+pub const LARGE_FILE_BRANCH: &str = "bench/large-file";
+
+/// Makes sure [`LARGE_FILE_BRANCH`] exists and returns `(parent, commit)`: the commit changes
+/// every third line of `file` (the largest text file of HEAD when `None`) without touching
+/// the working tree or the index, through a temporary index and plumbing commands.
+pub fn ensure_large_file_branch(
+    path: &Path,
+    file: Option<&str>,
+) -> Result<(String, String), Error> {
+    let full_ref = format!("refs/heads/{LARGE_FILE_BRANCH}");
+    if let Ok(commit) = git(path, &["rev-parse", "--verify", "--quiet", &full_ref], &[]) {
+        let parent = git(path, &["rev-parse", &format!("{commit}^")], &[])?;
+        return Ok((parent, commit));
+    }
+    let file = match file {
+        Some(file) => file.to_owned(),
+        None => largest_text_file(path)?,
+    };
+    let head = git(path, &["rev-parse", "HEAD"], &[])?;
+    let content = git(path, &["show", &format!("HEAD:{file}")], &[])?;
+    let rewritten: String = content
+        .lines()
+        .enumerate()
+        .map(|(index, line)| {
+            if index % 3 == 0 {
+                format!("{line} // bench\n")
+            } else {
+                format!("{line}\n")
+            }
+        })
+        .collect();
+    let temp = std::env::temp_dir().join(format!("begira-bench-{}", std::process::id()));
+    std::fs::create_dir_all(&temp).map_err(|source| Error::Io {
+        context: format!("create {}", temp.display()),
+        source,
+    })?;
+    let blob_file = temp.join("blob");
+    std::fs::write(&blob_file, rewritten).map_err(|source| Error::Io {
+        context: format!("write {}", blob_file.display()),
+        source,
+    })?;
+    let blob = git(
+        path,
+        &["hash-object", "-w", &blob_file.to_string_lossy()],
+        &[],
+    )?;
+    let index = temp.join("index");
+    let index_env = [("GIT_INDEX_FILE", index.to_string_lossy().into_owned())];
+    git(path, &["read-tree", "HEAD"], &index_env)?;
+    git(
+        path,
+        &[
+            "update-index",
+            "--cacheinfo",
+            &format!("100644,{blob},{file}"),
+        ],
+        &index_env,
+    )?;
+    let tree = git(path, &["write-tree"], &index_env)?;
+    let identity = [
+        ("GIT_AUTHOR_NAME", "bench".to_owned()),
+        ("GIT_AUTHOR_EMAIL", "bench@begira.local".to_owned()),
+        ("GIT_AUTHOR_DATE", "2026-01-01T00:00:00Z".to_owned()),
+        ("GIT_COMMITTER_NAME", "bench".to_owned()),
+        ("GIT_COMMITTER_EMAIL", "bench@begira.local".to_owned()),
+        ("GIT_COMMITTER_DATE", "2026-01-01T00:00:00Z".to_owned()),
+    ];
+    let message = format!("bench: rewrite every third line of {file}");
+    let commit = git(
+        path,
+        &["commit-tree", &tree, "-p", &head, "-m", &message],
+        &identity,
+    )?;
+    git(path, &["update-ref", &full_ref, &commit], &[])?;
+    let _ = std::fs::remove_dir_all(&temp);
+    Ok((head, commit))
+}
+
+/// The largest blob of HEAD with a source-like extension.
+fn largest_text_file(path: &Path) -> Result<String, Error> {
+    const TEXT: [&str; 12] = [
+        ".rs", ".ts", ".tsx", ".js", ".py", ".go", ".c", ".h", ".md", ".json", ".yaml", ".txt",
+    ];
+    let listing = git(path, &["ls-tree", "-r", "-l", "HEAD"], &[])?;
+    let mut best: Option<(u64, String)> = None;
+    for line in listing.lines() {
+        // `<mode> <type> <oid> <size>\t<path>`
+        let Some((meta, file)) = line.split_once('\t') else {
+            continue;
+        };
+        let size: u64 = meta
+            .split_whitespace()
+            .nth(3)
+            .and_then(|size| size.parse().ok())
+            .unwrap_or(0);
+        if !TEXT.iter().any(|ext| file.ends_with(ext)) {
+            continue;
+        }
+        if best.as_ref().is_none_or(|(largest, _)| size > *largest) {
+            best = Some((size, file.to_owned()));
+        }
+    }
+    best.map(|(_, file)| file).ok_or_else(|| Error::Io {
+        context: format!("find a large text file in {}", path.display()),
+        source: std::io::Error::new(std::io::ErrorKind::NotFound, "no text file"),
+    })
+}
+
+/// Runs git with `args` in `path` and extra environment variables, returning trimmed stdout.
+fn git(path: &Path, args: &[&str], env: &[(&str, String)]) -> Result<String, Error> {
+    let mut command = Command::new("git");
+    command
+        .args(args)
+        .current_dir(path)
+        .stdin(Stdio::null())
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE");
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    let output = command.output().map_err(|source| Error::Io {
+        context: format!("run git {}", args.join(" ")),
+        source,
+    })?;
+    if !output.status.success() {
+        return Err(Error::Io {
+            context: format!("git {}", args.join(" ")),
+            source: std::io::Error::other(String::from_utf8_lossy(&output.stderr).into_owned()),
+        });
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }

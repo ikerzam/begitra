@@ -20,8 +20,10 @@ struct Target {
     path: PathBuf,
     /// Two revisions with shared history, for `merge_base`.
     merge_base_pair: (String, String),
-    /// Two commits whose diff is dominated by one very large file.
-    large_diff: Option<(String, String)>,
+    /// The commit whose diff is dominated by one very large file.
+    large_diff: Option<String>,
+    /// A typical small commit.
+    typical: Option<String>,
 }
 
 fn present() -> Vec<Target> {
@@ -43,51 +45,98 @@ fn present() -> Vec<Target> {
         }
         let merge_base_pair = merge_base_pair(name, &path);
         let large_diff = large_diff(name, &path);
+        let typical = typical_commit(&path);
         targets.push(Target {
             name,
             path,
             merge_base_pair,
             large_diff,
+            typical,
         });
     }
     targets
 }
 
+/// Two revisions whose histories diverge by about 2,000 commits (the budget scenario of the
+/// branch comparison): on the real repository two release candidates of one cycle, on the
+/// synthetic one the branch whose distance to `main` is closest to that.
 fn merge_base_pair(name: &str, path: &Path) -> (String, String) {
+    const WANTED: i64 = 2_000;
     match name {
-        "real" => ("v6.6".to_owned(), "master".to_owned()),
+        "real" => {
+            let candidates = [
+                "v6.11-rc2",
+                "v6.11-rc3",
+                "v6.11-rc4",
+                "v6.11-rc5",
+                "v6.11-rc6",
+                "v6.11-rc7",
+                "v6.11",
+            ];
+            let best = candidates
+                .iter()
+                .filter_map(|tag| {
+                    let range = format!("v6.11-rc1...{tag}");
+                    let out = run_git(path, &["rev-list", "--count", &range]).ok()?;
+                    let count: i64 = out.stdout.trim().parse().ok()?;
+                    Some(((count - WANTED).abs(), (*tag).to_owned()))
+                })
+                .min_by_key(|(distance, _)| *distance)
+                .map(|(_, tag)| tag)
+                .unwrap_or_else(|| "master".to_owned());
+            ("v6.11-rc1".to_owned(), best)
+        }
         _ => {
-            let branch = run_git(
+            let out = run_git(
                 path,
-                &["for-each-ref", "--format=%(refname:short)", "refs/heads"],
+                &[
+                    "for-each-ref",
+                    "--format=%(refname:short) %(ahead-behind:main)",
+                    "refs/heads",
+                ],
             )
-            .ok()
-            .and_then(|out| {
-                out.stdout
-                    .lines()
-                    .find(|line| *line != "main")
-                    .map(str::to_owned)
-            })
-            .unwrap_or_else(|| "main".to_owned());
-            ("main".to_owned(), branch)
+            .ok();
+            let best = out
+                .and_then(|out| {
+                    out.stdout
+                        .lines()
+                        .filter_map(|line| {
+                            let mut parts = line.split_whitespace();
+                            let branch = parts.next()?;
+                            let ahead: i64 = parts.next()?.parse().ok()?;
+                            let behind: i64 = parts.next()?.parse().ok()?;
+                            let total = ahead + behind;
+                            (branch != "main" && total > 0)
+                                .then(|| ((total - WANTED).abs(), branch.to_owned()))
+                        })
+                        .min_by_key(|(distance, _)| *distance)
+                        .map(|(_, branch)| branch)
+                })
+                .unwrap_or_else(|| "main".to_owned());
+            ("main".to_owned(), best)
         }
     }
 }
 
-/// Finds the two most recent commits that touched a very large file.
-fn large_diff(name: &str, path: &Path) -> Option<(String, String)> {
-    let file = match name {
-        "real" => "MAINTAINERS".to_owned(),
-        _ => {
-            let listing = run_git(path, &["ls-files", "--", "*_all.*"]).ok()?;
-            listing.stdout.lines().next()?.to_owned()
+/// The commit that rewrites a large text file (about 10,000 changed lines of `MAINTAINERS` on
+/// the real repository, of the largest source file on the synthetic one); see
+/// [`repos::ensure_large_file_branch`].
+fn large_diff(name: &str, path: &Path) -> Option<String> {
+    let file = (name == "real").then_some("MAINTAINERS");
+    match repos::ensure_large_file_branch(path, file) {
+        Ok((_, commit)) => Some(commit),
+        Err(error) => {
+            eprintln!("large file branch of {name}: {error}");
+            None
         }
-    };
-    let log = run_git(path, &["log", "-n", "2", "--format=%H", "--", &file]).ok()?;
-    let mut hashes = log.stdout.lines();
-    let newer = hashes.next()?.to_owned();
-    let older = hashes.next()?.to_owned();
-    Some((older, newer))
+    }
+}
+
+/// The newest non-merge commit, for the typical select-to-diff scenario.
+fn typical_commit(path: &Path) -> Option<String> {
+    let out = run_git(path, &["rev-list", "--no-merges", "-n", "1", "HEAD"]).ok()?;
+    let hash = out.stdout.trim();
+    (!hash.is_empty()).then(|| hash.to_owned())
 }
 
 fn engine(path: &Path) -> Git2Engine {
@@ -206,15 +255,35 @@ fn diff_large_file(c: &mut Criterion) {
     let mut group = c.benchmark_group("diff_large_file");
     group.sample_size(10);
     for target in present() {
-        let Some((from, to)) = target.large_diff.clone() else {
+        let Some(hash) = target.large_diff.clone() else {
             eprintln!(
-                "skipping diff_large_file/{}: no large file found",
+                "skipping diff_large_file/{}: no large file branch",
                 target.name
             );
             continue;
         };
         let engine = engine(&target.path);
-        let diff_target = DiffTarget::Commits { from, to };
+        let diff_target = DiffTarget::Commit { hash };
+        group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+            b.iter(|| {
+                e.diff(&diff_target, &DiffOptions::default(), &Cancel::never())
+                    .expect("diff")
+            });
+        });
+    }
+    group.finish();
+}
+
+fn diff_typical(c: &mut Criterion) {
+    let mut group = c.benchmark_group("diff_typical");
+    group.sample_size(20);
+    for target in present() {
+        let Some(hash) = target.typical.clone() else {
+            eprintln!("skipping diff_typical/{}: no commit", target.name);
+            continue;
+        };
+        let engine = engine(&target.path);
+        let diff_target = DiffTarget::Commit { hash };
         group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
             b.iter(|| {
                 e.diff(&diff_target, &DiffOptions::default(), &Cancel::never())
@@ -257,6 +326,7 @@ criterion_group!(
     walk_ten_pages,
     status,
     diff_large_file,
+    diff_typical,
     merge_base,
     worktrees
 );

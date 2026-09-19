@@ -10,12 +10,14 @@ use crate::{Error, Result};
 pub fn budget(id: &str) -> Option<Duration> {
     let (group, repo) = id.split_once('/')?;
     let ms = match (group, repo) {
-        ("open", _) | ("walk_first_page", _) => 300,
+        // Refs are on the open-to-first-paint path, so they share its budget.
+        ("open", _) | ("walk_first_page", _) | ("refs", _) => 300,
         ("walk_ten_pages", _) => 3_000,
-        ("diff_large_file", _) => 500,
+        ("diff_typical", _) => 100,
+        ("diff_large_file", _) | ("merge_base", _) => 500,
         ("status", _) => 2_000,
-        ("refs", "synthetic") | ("merge_base", "synthetic") | ("worktrees", "synthetic") => 50,
-        ("refs", _) | ("merge_base", _) | ("worktrees", _) => 500,
+        ("worktrees", "synthetic") => 50,
+        ("worktrees", _) => 500,
         _ => return None,
     };
     Some(Duration::from_millis(ms))
@@ -126,7 +128,7 @@ mod tests {
         assert_eq!(lines.len(), 3);
         assert_eq!(
             lines[0],
-            "| 2026-09-19 | abc1234 | laptop | refs | synthetic | 12 ms | < 50 ms | ok |"
+            "| 2026-09-19 | abc1234 | laptop | refs | synthetic | 12 ms | < 300 ms | ok |"
         );
         assert!(lines[1].ends_with("| 900 ms | < 300 ms | red |"));
         assert!(lines[2].ends_with("| 1.50 ms | - | no budget |"));
