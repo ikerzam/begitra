@@ -14,7 +14,8 @@ export type Locale = "en" | "es";
 
 export interface PaneSizes {
   sidebar: number;
-  detail: number;
+  /** Pinned width after a drag; null keeps the default fraction of the window. */
+  detail: number | null;
   files: number;
   reviewRail: number;
 }
@@ -33,7 +34,7 @@ const px = v.pipe(v.number(), v.minValue(0), v.maxValue(10_000));
 const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } = {
   terminalCommand: v.pipe(v.string(), v.minLength(1)),
   editorCommand: v.pipe(v.string(), v.minLength(1)),
-  paneSizes: v.object({ sidebar: px, detail: px, files: px, reviewRail: px }),
+  paneSizes: v.object({ sidebar: px, detail: v.nullable(px), files: px, reviewRail: px }),
   sidebarCollapsed: v.boolean(),
   layoutMode: v.picklist(["graph", "review"]),
   locale: v.picklist(["en", "es"]),
@@ -61,7 +62,7 @@ export function defaultSettings(platform: Platform): Settings {
   return {
     terminalCommand: defaults.terminal[0] ?? "",
     editorCommand: defaults.editor[0] ?? "",
-    paneSizes: { sidebar: 240, detail: 480, files: 280, reviewRail: 280 },
+    paneSizes: { sidebar: 240, detail: null, files: 280, reviewRail: 280 },
     sidebarCollapsed: false,
     layoutMode: "graph",
     locale: "en",

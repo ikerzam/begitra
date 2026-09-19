@@ -17,7 +17,7 @@ describe("settings store", () => {
     expect(defaultSettings("linux").editorCommand).toBe("code {path}");
     expect(defaultSettings("windows").paneSizes).toEqual({
       sidebar: 240,
-      detail: 480,
+      detail: null,
       files: 280,
       reviewRail: 280,
     });

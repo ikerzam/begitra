@@ -22,6 +22,14 @@ export function clampPane(pane: keyof PaneSizes, px: number): number {
   return Math.round(Math.min(Math.max(px, min), max));
 }
 
+/** Share of the window (minus the sidebar) the detail panel takes until the user drags it. */
+export const DETAIL_FRACTION = 0.4;
+
+/** The default detail width: 480 at 1440, 416 at 1280, never under 360. */
+export function defaultDetailWidth(windowWidth: number, sidebarWidth: number): number {
+  return clampPane("detail", DETAIL_FRACTION * (windowWidth - sidebarWidth));
+}
+
 export type SidebarTab = "repos" | "branches" | "worktrees";
 
 export const useShellStore = defineStore("shell", () => {
@@ -34,6 +42,13 @@ export const useShellStore = defineStore("shell", () => {
   const layoutMode = computed<LayoutMode>(() => settings.values.layoutMode);
   const sidebarCollapsed = computed(() => settings.values.sidebarCollapsed);
   const paneSizes = computed<PaneSizes>(() => settings.values.paneSizes);
+
+  /** Width of the detail panel: the pinned size after a drag, else the fraction of the window. */
+  const detailWidth = computed(() => {
+    const pinned = paneSizes.value.detail;
+    if (pinned !== null) return clampPane("detail", pinned);
+    return defaultDetailWidth(windowWidth.value, paneSizes.value.sidebar);
+  });
 
   /** The review rail is hidden below the breakpoint unless the user asked for it. */
   const reviewRailCollapsed = computed(
@@ -51,8 +66,10 @@ export const useShellStore = defineStore("shell", () => {
     return settings.update("sidebarCollapsed", !settings.values.sidebarCollapsed);
   }
 
+  /** Sets a pane to `px` within its limits; for the detail panel this pins the width. */
   function setPaneSize(pane: keyof PaneSizes, px: number): Promise<void> {
-    const next = { ...settings.values.paneSizes, [pane]: clampPane(pane, px) };
+    const next: PaneSizes = { ...settings.values.paneSizes };
+    next[pane] = clampPane(pane, px);
     return settings.update("paneSizes", next);
   }
 
@@ -95,6 +112,7 @@ export const useShellStore = defineStore("shell", () => {
     layoutMode,
     sidebarCollapsed,
     paneSizes,
+    detailWidth,
     reviewRailCollapsed,
     paletteOpen,
     setLayoutMode,

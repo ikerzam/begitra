@@ -2,7 +2,7 @@ import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { memoryStorage, useSettingsStore } from "./settings";
-import { clampPane, useShellStore } from "./shell";
+import { clampPane, defaultDetailWidth, useShellStore } from "./shell";
 
 beforeEach(() => {
   setActivePinia(createPinia());
@@ -35,6 +35,24 @@ describe("shell store", () => {
     expect(shell.paneSizes.detail).toBe(360);
     expect(clampPane("sidebar", 9999)).toBe(420);
     expect((storage.data.get("paneSizes") as { detail: number }).detail).toBe(360);
+  });
+
+  it("sizes the detail panel as 40% of the window minus the sidebar until it is dragged", async () => {
+    const settings = useSettingsStore();
+    const storage = memoryStorage();
+    await settings.init(storage, "windows");
+    const shell = useShellStore();
+    shell.setWindowWidth(1440);
+    expect(shell.detailWidth).toBe(480);
+    shell.setWindowWidth(1280);
+    expect(shell.detailWidth).toBe(416);
+    shell.setWindowWidth(1024);
+    expect(shell.detailWidth).toBe(360);
+    expect(defaultDetailWidth(1440, 240)).toBe(480);
+    await shell.setPaneSize("detail", 520);
+    shell.setWindowWidth(1440);
+    expect(shell.detailWidth).toBe(520);
+    expect((storage.data.get("paneSizes") as { detail: number }).detail).toBe(520);
   });
 
   it("collapses the review rail below 1100px until the user shows it", async () => {

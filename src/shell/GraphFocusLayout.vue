@@ -24,7 +24,7 @@ const repo = useRepoStore();
 const graph = ref<{ focus(): void } | null>(null);
 
 const showSidebar = computed(() => repo.state.kind !== "empty" && !shell.sidebarCollapsed);
-const detailWidth = computed(() => `${shell.paneSizes.detail}px`);
+const detailWidth = computed(() => `${shell.detailWidth}px`);
 
 defineExpose({ focusRows: () => graph.value?.focus() });
 </script>
@@ -45,7 +45,7 @@ defineExpose({ focusRows: () => graph.value?.focus() });
         @remove-from-list="emit('removeFromList')"
       />
       <PaneResizer
-        :size="shell.paneSizes.detail"
+        :size="shell.detailWidth"
         :direction="-1"
         :min="paneLimits.detail.min"
         :max="paneLimits.detail.max"
