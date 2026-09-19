@@ -54,7 +54,7 @@ function onClick(): void {
       :class="iconClass"
     />
     <span class="flex-1 truncate">{{ props.label }}</span>
-    <span v-if="props.context" class="truncate text-fg-muted">{{ props.context }}</span>
+    <span v-if="props.context" class="truncate text-sm text-fg-muted">{{ props.context }}</span>
     <Kbd v-if="props.keys" :keys="props.keys" />
   </button>
 </template>

@@ -16,7 +16,7 @@ const { t, n } = useI18n();
   <span
     role="img"
     :aria-label="t('diffStat.label', { added: n(props.added), removed: n(props.removed) })"
-    class="inline-flex shrink-0 items-center gap-2 text-md whitespace-nowrap tabular-nums"
+    class="inline-flex shrink-0 items-center gap-2 text-sm whitespace-nowrap tabular-nums"
   >
     <span :class="props.added > 0 ? 'text-add' : 'text-fg-muted'" data-testid="diff-stat-added">
       {{ t("diffStat.added", { n: n(props.added) }) }}

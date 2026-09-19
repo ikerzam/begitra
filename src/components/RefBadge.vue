@@ -46,7 +46,7 @@ const text = computed(() => props.label || (props.kind === "head" ? t("refBadge.
       role="img"
       :aria-label="t('refBadge.worktree')"
       class="shrink-0"
-      :class="laneTextClass(props.worktreeLane)"
+      :class="props.kind === 'current' ? 'text-white' : laneTextClass(props.worktreeLane)"
     />
     <span class="truncate">{{ text }}</span>
   </span>

@@ -55,6 +55,6 @@ const hasError = computed(() => props.error !== "");
         ]"
       />
     </div>
-    <p v-if="hasError" :id="errorId" class="text-md text-danger">{{ props.error }}</p>
+    <p v-if="hasError" :id="errorId" class="text-sm text-danger">{{ props.error }}</p>
   </div>
 </template>

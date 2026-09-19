@@ -19,7 +19,7 @@ const trackClass = computed(() => {
 });
 
 const knobClass = computed(() => {
-  if (props.disabled) return model.value ? "bg-line" : "bg-fg-disabled";
+  if (props.disabled) return model.value ? "bg-app" : "bg-fg-disabled";
   return model.value ? "bg-app" : "bg-fg-secondary";
 });
 

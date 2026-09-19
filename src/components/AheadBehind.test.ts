@@ -17,6 +17,7 @@ describe("AheadBehind", () => {
     expect(ahead.get("svg").attributes("width")).toBe("12");
     expect(behind.get("svg").classes()).toContain("lucide-arrow-down");
     expect(wrapper.attributes("aria-label")).toBe("2 ahead, 0 behind");
+    expect(wrapper.classes()).toContain("text-sm");
   });
 
   it("shows behind in --warn", () => {

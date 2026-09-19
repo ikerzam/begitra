@@ -15,6 +15,7 @@ describe("TabsItem", () => {
     expect(wrapper.classes()).toContain("text-fg-secondary");
     expect(wrapper.classes()).toContain("border-transparent");
     expect(wrapper.classes()).toContain("h-panel-header");
+    expect(wrapper.classes().some((c) => /^p[xlr]-/.test(c))).toBe(false);
   });
 
   it("underlines the active tab in --text, never in the accent", () => {

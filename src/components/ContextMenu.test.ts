@@ -61,6 +61,7 @@ describe("ContextMenu", () => {
       "Remove worktree…",
     ]);
     expect(menu.get("[role='separator']").classes()).toContain("bg-line");
+    expect(menu.get("[role='separator']").classes()).toContain("-mx-1");
     expect(focusedLabel()).toContain("Copy hash");
   });
 

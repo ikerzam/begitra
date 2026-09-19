@@ -16,6 +16,7 @@ describe("ErrorBanner", () => {
     expect(wrapper.get("svg").classes()).toContain("text-danger");
     expect(wrapper.classes()).toContain("rounded-md");
     expect(wrapper.classes()).toContain("border-line-strong");
+    expect(wrapper.classes()).toContain("p-3");
     expect(wrapper.classes().some((c) => c.startsWith("bg-"))).toBe(false);
     expect(wrapper.find("button").exists()).toBe(false);
   });
@@ -42,7 +43,7 @@ describe("ErrorBanner", () => {
     const pre = wrapper.get("[data-testid='error-banner-output']");
     expect(pre.text()).toBe(output);
     expect(pre.classes()).toContain("font-mono");
-    expect(pre.classes()).toContain("text-code");
+    expect(pre.classes()).toContain("text-mono-sm");
     expect(toggle.attributes("aria-controls")).toBe(pre.attributes("id"));
 
     await toggle.trigger("click");

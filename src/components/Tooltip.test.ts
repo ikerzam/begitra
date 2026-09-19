@@ -24,6 +24,9 @@ describe("Tooltip", () => {
     expect(tooltip.classes()).toContain("border-line-strong");
     expect(tooltip.classes()).toContain("shadow-overlay");
     expect(tooltip.classes()).toContain("top-full");
+    expect(tooltip.classes()).toContain("text-sm");
+    expect(tooltip.classes()).toContain("px-2");
+    expect(tooltip.classes()).toContain("py-1");
 
     await wrapper.trigger("mouseleave");
     expect(wrapper.find("[role='tooltip']").exists()).toBe(false);

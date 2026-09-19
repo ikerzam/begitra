@@ -13,6 +13,7 @@ describe("TreeRow", () => {
     expect(wrapper.attributes("aria-level")).toBe("2");
     expect(wrapper.attributes("aria-expanded")).toBeUndefined();
     expect(wrapper.classes()).toContain("h-row-tree");
+    expect(wrapper.classes()).toContain("pr-2");
     expect(wrapper.attributes("style")).toContain(
       "padding-left: calc(var(--space-3) + var(--space-4) * 1)",
     );
@@ -35,6 +36,7 @@ describe("TreeRow", () => {
     const chevron = wrapper.get("[data-testid='tree-row-chevron']");
     expect(chevron.attributes("aria-label")).toBe("Expand");
     expect(chevron.get("svg").classes()).toContain("lucide-chevron-right");
+    expect(chevron.classes()).toContain("size-icon");
     expect(wrapper.find("[data-testid='diff-stat-added']").exists()).toBe(false);
 
     await chevron.trigger("click");
@@ -64,7 +66,7 @@ describe("TreeRow", () => {
     const wrapper = mountWithI18n(TreeRow, {
       props: { name: "openapi.ts", status: "modified", added: 12400, removed: 0, generated: true },
     });
-    expect(wrapper.get("[data-testid='tree-row-name']").classes()).toContain("text-fg-secondary");
+    expect(wrapper.get("[data-testid='tree-row-name']").classes()).toContain("text-fg-muted");
     expect(wrapper.get("[data-testid='tree-row-generated']").text()).toBe("generated");
     expect(wrapper.get("[data-testid='diff-stat-added']").text()).toBe("+12,400");
   });

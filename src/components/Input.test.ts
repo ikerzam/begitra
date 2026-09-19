@@ -44,6 +44,7 @@ describe("Input", () => {
     const message = wrapper.get("p");
     expect(message.text()).toBe("Not a valid ref or range");
     expect(message.classes()).toContain("text-danger");
+    expect(message.classes()).toContain("text-sm");
     expect(input.attributes("aria-describedby")).toBe(message.attributes("id"));
   });
 

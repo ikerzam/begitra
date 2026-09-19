@@ -52,10 +52,11 @@ const indent = computed(() => ({
   paddingLeft: `calc(var(--space-3) + var(--space-4) * ${Math.max(0, props.depth)})`,
 }));
 
-/* Folders, generated files and reviewed files dim to the secondary text colour. */
-const nameClass = computed(() =>
-  isFolder.value || props.generated || props.reviewed ? "text-fg-secondary" : "text-fg",
-);
+/* Generated files dim to the muted colour; folders and reviewed files to the secondary one. */
+const nameClass = computed(() => {
+  if (props.generated) return "text-fg-muted";
+  return isFolder.value || props.reviewed ? "text-fg-secondary" : "text-fg";
+});
 
 /* Enter or a double click opens a folder or a file. */
 function onActivate(): void {
@@ -85,7 +86,7 @@ function onKeydown(event: KeyboardEvent): void {
     :aria-level="props.depth + 1"
     :tabindex="props.selected ? 0 : -1"
     data-testid="tree-row"
-    class="flex h-row-tree items-center gap-2 border-l-2 pr-3 text-md whitespace-nowrap"
+    class="flex h-row-tree items-center gap-2 border-l-2 pr-2 text-md whitespace-nowrap"
     :class="props.selected ? 'border-accent bg-selected' : 'border-transparent hover:bg-hover'"
     :style="indent"
     @click="emit('select')"
@@ -98,7 +99,7 @@ function onKeydown(event: KeyboardEvent): void {
       tabindex="-1"
       :aria-label="props.expanded ? t('treeRow.collapse') : t('treeRow.expand')"
       data-testid="tree-row-chevron"
-      class="flex size-3 shrink-0 items-center justify-center text-fg-secondary"
+      class="flex size-icon shrink-0 items-center justify-center text-fg-secondary"
       @click.stop="emit('toggle')"
     >
       <component
@@ -114,12 +115,16 @@ function onKeydown(event: KeyboardEvent): void {
     </span>
     <span
       v-if="isFolder && props.count !== undefined"
-      class="shrink-0 text-fg-muted"
+      class="shrink-0 text-sm text-fg-muted"
       data-testid="tree-row-count"
     >
       {{ n(props.count) }}
     </span>
-    <span v-if="props.generated" class="shrink-0 text-fg-muted" data-testid="tree-row-generated">
+    <span
+      v-if="props.generated"
+      class="shrink-0 text-sm text-fg-muted"
+      data-testid="tree-row-generated"
+    >
       {{ t("treeRow.generated") }}
     </span>
     <DiffStat v-if="hasStats" :added="props.added ?? 0" :removed="props.removed ?? 0" />

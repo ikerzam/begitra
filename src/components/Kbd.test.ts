@@ -9,7 +9,8 @@ describe("Kbd", () => {
     const wrapper = mountWithI18n(Kbd, { props: { keys: "⌘K" } });
     expect(wrapper.element.tagName).toBe("KBD");
     expect(wrapper.text()).toBe("⌘K");
-    expect(wrapper.classes()).toContain("bg-hover");
+    expect(wrapper.classes()).toContain("bg-selected");
+    expect(wrapper.classes()).toContain("kbd");
     expect(wrapper.classes()).toContain("rounded-sm");
     expect(wrapper.classes()).toContain("text-sm");
     expect(wrapper.classes()).toContain("font-ui");

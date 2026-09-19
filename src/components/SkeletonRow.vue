@@ -40,8 +40,15 @@ const widths = computed(() => patterns[Math.abs(props.index) % patterns.length] 
     <span
       v-for="(width, i) in widths"
       :key="i"
-      class="h-3 rounded-full bg-hover"
+      class="skeleton-line rounded-full bg-hover"
       :style="{ width }"
     />
   </div>
 </template>
+
+<style scoped>
+/* Skeleton lines are 10px tall; no spacing step is 10. */
+.skeleton-line {
+  height: 10px;
+}
+</style>

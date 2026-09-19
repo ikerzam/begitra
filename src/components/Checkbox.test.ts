@@ -13,7 +13,7 @@ describe("Checkbox", () => {
     expect(input.attributes("type")).toBe("checkbox");
     expect(input.classes()).toContain("sr-only");
     const box = wrapper.get("span[aria-hidden]");
-    expect(box.classes()).toContain("size-icon");
+    expect(box.classes()).toContain("checkbox-box");
     expect(box.classes()).toContain("rounded-sm");
     expect(box.classes()).toContain("border-line-strong");
     expect(wrapper.find("svg").exists()).toBe(false);

@@ -68,7 +68,7 @@ function onKeydown(event: KeyboardEvent): void {
       <DirtyDot v-if="props.dirty" />
     </span>
     <AheadBehind :ahead="props.ahead" :behind="props.behind" />
-    <span class="truncate text-fg-muted" data-testid="repo-row-last-commit">
+    <span class="truncate text-sm text-fg-muted" data-testid="repo-row-last-commit">
       {{ props.lastCommit }}
     </span>
     <span class="truncate font-mono text-mono-sm text-fg-muted" data-testid="repo-row-path">

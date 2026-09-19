@@ -39,7 +39,7 @@ const boxClass = computed(() => {
     />
     <span
       aria-hidden="true"
-      class="flex size-icon shrink-0 items-center justify-center rounded-sm border peer-focus-visible:outline-2 peer-focus-visible:outline-focus"
+      class="checkbox-box flex shrink-0 items-center justify-center rounded-sm border peer-focus-visible:outline-2 peer-focus-visible:outline-focus"
       :class="boxClass"
     >
       <Minus v-if="props.indeterminate" :size="12" :stroke-width="2" />
@@ -50,3 +50,11 @@ const boxClass = computed(() => {
     </span>
   </label>
 </template>
+
+<style scoped>
+/* The box is 14px; no spacing step is 14. */
+.checkbox-box {
+  width: 14px;
+  height: 14px;
+}
+</style>

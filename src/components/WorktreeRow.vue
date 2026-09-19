@@ -85,8 +85,8 @@ function onKeydown(event: KeyboardEvent): void {
       <DirtyDot v-if="props.dirty" />
     </span>
     <span
-      class="flex items-center gap-2 truncate"
-      :class="props.missing ? 'text-warn' : 'text-fg-secondary'"
+      class="flex items-center gap-2 truncate text-sm"
+      :class="props.missing ? 'text-warn' : 'text-fg-muted'"
       data-testid="worktree-row-state"
     >
       <template v-if="props.missing">
@@ -102,7 +102,10 @@ function onKeydown(event: KeyboardEvent): void {
     <span data-testid="worktree-row-counts">
       <AheadBehind v-if="!props.missing" :ahead="props.ahead" :behind="props.behind" />
     </span>
-    <span class="flex items-center gap-2 truncate text-fg-muted" data-testid="worktree-row-commit">
+    <span
+      class="flex items-center gap-2 truncate text-sm text-fg-muted"
+      data-testid="worktree-row-commit"
+    >
       <template v-if="props.missing">{{ t("worktreeRow.prune") }}</template>
       <template v-else>
         <span class="truncate">{{ props.lastCommit }}</span>

@@ -44,7 +44,7 @@ function onKeydown(event: KeyboardEvent): void {
       v-if="open"
       :id="id"
       role="tooltip"
-      class="tooltip-bubble absolute z-10 inline-flex h-control items-center gap-2 rounded-md border border-line-strong bg-raised px-3 text-md whitespace-nowrap text-fg shadow-overlay"
+      class="tooltip-bubble absolute z-10 inline-flex items-center gap-2 rounded-md border border-line-strong bg-raised px-2 py-1 text-sm whitespace-nowrap text-fg shadow-overlay"
       :class="props.placement === 'top' ? 'bottom-full mb-1' : 'top-full mt-1'"
     >
       {{ props.label }}

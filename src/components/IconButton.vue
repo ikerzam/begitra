@@ -21,7 +21,7 @@ const props = withDefaults(
     :aria-label="props.label"
     :aria-pressed="props.pressed"
     :title="props.label"
-    class="inline-flex size-control shrink-0 items-center justify-center rounded-sm enabled:hover:bg-hover enabled:hover:text-fg enabled:active:bg-active disabled:text-fg-disabled"
+    class="inline-flex size-5 shrink-0 items-center justify-center rounded-sm enabled:hover:bg-hover enabled:hover:text-fg enabled:active:bg-active disabled:text-fg-disabled"
     :class="props.pressed ? 'bg-selected text-fg' : 'text-fg-secondary'"
   >
     <component

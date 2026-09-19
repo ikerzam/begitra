@@ -57,6 +57,15 @@ describe("RefBadge", () => {
     expect(plain.find("svg").exists()).toBe(false);
   });
 
+  it("draws the worktree marker in white on the filled current badge", () => {
+    const wrapper = mountWithI18n(RefBadge, {
+      props: { kind: "current", label: "main", worktreeLane: 1 },
+    });
+    const icon = wrapper.get("svg");
+    expect(icon.classes()).toContain("text-white");
+    expect(icon.classes()).not.toContain("text-lane-1");
+  });
+
   it("translates the marker and the kind titles", () => {
     const wrapper = mountWithI18n(
       RefBadge,

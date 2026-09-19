@@ -14,6 +14,7 @@ describe("DiffStat", () => {
     expect(removed.text()).toBe("−4");
     expect(removed.classes()).toContain("text-del");
     expect(wrapper.attributes("aria-label")).toBe("128 lines added, 4 lines removed");
+    expect(wrapper.classes()).toContain("text-sm");
   });
 
   it("mutes a zero count", () => {

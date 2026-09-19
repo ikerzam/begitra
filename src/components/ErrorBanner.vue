@@ -28,7 +28,7 @@ const outputId = useId();
 </script>
 
 <template>
-  <div role="alert" class="flex flex-col gap-3 rounded-md border border-line-strong p-4 text-md">
+  <div role="alert" class="flex flex-col gap-3 rounded-md border border-line-strong p-3 text-md">
     <div class="flex items-start gap-3">
       <CircleAlert
         :size="16"
@@ -49,7 +49,7 @@ const outputId = useId();
           :aria-expanded="expanded"
           :aria-controls="outputId"
           data-testid="error-banner-toggle"
-          class="inline-flex items-center gap-2 self-start text-fg-secondary hover:text-fg"
+          class="inline-flex items-center gap-2 self-start text-sm text-fg-secondary hover:text-fg"
           @click="expanded = !expanded"
         >
           <component
@@ -64,7 +64,7 @@ const outputId = useId();
           v-if="expanded"
           :id="outputId"
           data-testid="error-banner-output"
-          class="overflow-x-auto font-mono text-code whitespace-pre text-fg-secondary"
+          class="overflow-x-auto font-mono text-mono-sm whitespace-pre text-fg-secondary"
           >{{ props.output }}</pre>
       </div>
     </div>

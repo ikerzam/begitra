@@ -15,6 +15,7 @@ describe("Toast", () => {
     expect(wrapper.classes()).toContain("bg-raised");
     expect(wrapper.classes()).toContain("rounded-lg");
     expect(wrapper.classes()).toContain("shadow-overlay");
+    expect(wrapper.classes()).toContain("py-2");
   });
 
   it("announces an error as an alert and offers the git output", async () => {
@@ -29,7 +30,9 @@ describe("Toast", () => {
     expect(wrapper.get("svg").classes()).toContain("text-danger");
     const action = wrapper.get("[data-testid='toast-action']");
     expect(action.text()).toBe("Show git output");
-    expect(action.attributes("data-variant")).toBe("ghost");
+    expect(action.element.tagName).toBe("BUTTON");
+    expect(action.classes()).toContain("text-sm");
+    expect(action.classes()).toContain("text-fg-secondary");
     await action.trigger("click");
     expect(wrapper.emitted("action")).toHaveLength(1);
   });

@@ -57,13 +57,13 @@ function onKeydown(event: KeyboardEvent): void {
       {{ props.message }}
     </span>
     <span
-      class="graph-row-author ml-4 shrink-0 truncate text-fg-secondary"
+      class="graph-row-author ml-4 shrink-0 truncate text-sm text-fg-secondary"
       data-testid="graph-row-author"
     >
       {{ props.author }}
     </span>
     <span
-      class="graph-row-date ml-4 shrink-0 text-right text-fg-muted"
+      class="graph-row-date ml-4 shrink-0 text-right text-sm text-fg-muted"
       data-testid="graph-row-date"
     >
       {{ props.date }}

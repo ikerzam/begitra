@@ -15,6 +15,7 @@ describe("StatusLetter", () => {
     expect(wrapper.text()).toBe(letter);
     expect(wrapper.classes()).toContain(cls);
     expect(wrapper.classes()).toContain("font-semibold");
+    expect(wrapper.classes()).toContain("w-icon");
     expect(wrapper.classes().some((c) => c.startsWith("bg-"))).toBe(false);
     expect(wrapper.attributes("title")).toBe(title);
     expect(wrapper.attributes("aria-label")).toBe(title);

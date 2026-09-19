@@ -21,7 +21,7 @@ const colorClasses: Record<FileStatus, string> = {
     :aria-label="t(`statusLetter.title.${props.status}`)"
     :title="t(`statusLetter.title.${props.status}`)"
     :data-status="props.status"
-    class="status-letter inline-flex w-3 shrink-0 justify-center font-ui font-semibold"
+    class="status-letter inline-flex w-icon shrink-0 justify-center font-ui font-semibold"
     :class="colorClasses[props.status]"
   >
     {{ t(`statusLetter.${props.status}`) }}

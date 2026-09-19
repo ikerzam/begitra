@@ -73,7 +73,7 @@ function onKeydown(event: KeyboardEvent): void {
     </span>
     <DirtyDot v-if="props.dirty" />
     <AheadBehind v-if="hasCounts" :ahead="props.ahead ?? 0" :behind="props.behind ?? 0" />
-    <span v-if="props.meta" class="shrink-0 text-fg-muted" data-testid="list-row-meta">
+    <span v-if="props.meta" class="shrink-0 text-sm text-fg-muted" data-testid="list-row-meta">
       {{ props.meta }}
     </span>
   </div>

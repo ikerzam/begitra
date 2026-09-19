@@ -76,7 +76,7 @@ describe("WorktreeRow", () => {
     });
     const state = wrapper.get("[data-testid='worktree-row-state']");
     expect(state.text()).toBe("Locked");
-    expect(state.classes()).toContain("text-fg-secondary");
+    expect(state.classes()).toContain("text-fg-muted");
     expect(state.get("svg").classes()).toContain("lucide-lock");
   });
 

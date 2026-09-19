@@ -20,6 +20,7 @@ describe("PanelHeader", () => {
     const count = wrapper.get("[data-testid='panel-header-count']");
     expect(count.text()).toBe("48");
     expect(count.classes()).toContain("text-fg-muted");
+    expect(count.classes()).toContain("text-sm");
     expect(wrapper.find("[data-testid='panel-header-actions']").exists()).toBe(false);
   });
 

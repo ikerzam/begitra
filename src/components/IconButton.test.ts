@@ -12,7 +12,7 @@ describe("IconButton", () => {
     expect(wrapper.attributes("type")).toBe("button");
     expect(wrapper.attributes("aria-label")).toBe("Settings");
     expect(wrapper.attributes("title")).toBe("Settings");
-    expect(wrapper.classes()).toContain("size-control");
+    expect(wrapper.classes()).toContain("size-5");
     expect(wrapper.classes()).toContain("rounded-sm");
     expect(wrapper.classes()).toContain("text-fg-secondary");
     expect(wrapper.get("svg").attributes("width")).toBe("16");

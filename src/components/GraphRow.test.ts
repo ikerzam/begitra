@@ -26,6 +26,8 @@ describe("GraphRow", () => {
       "text-fg-secondary",
     );
     expect(wrapper.get("[data-testid='graph-row-date']").classes()).toContain("text-fg-muted");
+    expect(wrapper.get("[data-testid='graph-row-author']").classes()).toContain("text-sm");
+    expect(wrapper.get("[data-testid='graph-row-date']").classes()).toContain("text-sm");
     const hash = wrapper.get("[data-testid='graph-row-hash']");
     expect(hash.text()).toBe("a1b2c3d");
     expect(hash.classes()).toContain("font-mono");

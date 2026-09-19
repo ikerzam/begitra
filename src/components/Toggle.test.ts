@@ -43,6 +43,6 @@ describe("Toggle", () => {
 
     const on = mountWithI18n(Toggle, { props: { label: "x", disabled: true, modelValue: true } });
     expect(on.classes()).toContain("bg-fg-disabled");
-    expect(on.get("span").classes()).toContain("bg-line");
+    expect(on.get("span").classes()).toContain("bg-app");
   });
 });

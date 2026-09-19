@@ -3,7 +3,6 @@ import { Check, CircleAlert, Info } from "@lucide/vue";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
-import Button from "./Button.vue";
 import type { ToastKind } from "./types";
 
 const props = withDefaults(
@@ -37,8 +36,7 @@ const actionLabel = computed(() => props.action || (props.output ? t("toast.show
   <div
     :role="props.kind === 'error' ? 'alert' : 'status'"
     :data-kind="props.kind"
-    class="inline-flex items-center gap-3 rounded-lg border border-line-strong bg-raised py-1 pl-3 text-md text-fg shadow-overlay"
-    :class="actionLabel ? 'pr-1' : 'pr-3'"
+    class="inline-flex items-center gap-3 rounded-lg border border-line-strong bg-raised px-3 py-2 text-md text-fg shadow-overlay"
   >
     <component
       :is="icons[props.kind]"
@@ -49,8 +47,15 @@ const actionLabel = computed(() => props.action || (props.output ? t("toast.show
       :class="iconClasses[props.kind]"
     />
     <span class="whitespace-nowrap">{{ props.message }}</span>
-    <Button v-if="actionLabel" variant="ghost" data-testid="toast-action" @click="emit('action')">
+    <!-- The action is 12px secondary text without button chrome; it is still a real button. -->
+    <button
+      v-if="actionLabel"
+      type="button"
+      data-testid="toast-action"
+      class="shrink-0 text-sm whitespace-nowrap text-fg-secondary hover:text-fg"
+      @click="emit('action')"
+    >
       {{ actionLabel }}
-    </Button>
+    </button>
   </div>
 </template>

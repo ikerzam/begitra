@@ -15,6 +15,7 @@ describe("SkeletonRow", () => {
     expect(spans[0]?.classes()).toContain("size-2");
     for (const line of spans.slice(1)) {
       expect(line.classes()).toContain("bg-hover");
+      expect(line.classes()).toContain("skeleton-line");
       expect(line.classes()).toContain("rounded-full");
     }
   });

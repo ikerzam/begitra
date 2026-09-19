@@ -28,7 +28,7 @@ const { t } = useI18n();
     </span>
     <span
       v-if="props.symbol"
-      class="flex-1 truncate text-fg-secondary"
+      class="flex-1 truncate text-sm text-fg-secondary"
       data-testid="hunk-row-symbol"
     >
       {{ props.symbol }}

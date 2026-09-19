@@ -22,6 +22,6 @@ describe("EmptyState", () => {
       slots: { default: "<button type='button'>Add worktree</button>" },
     });
     expect(wrapper.get("button").text()).toBe("Add worktree");
-    expect(wrapper.classes()).toContain("gap-5");
+    expect(wrapper.classes()).toContain("gap-3");
   });
 });

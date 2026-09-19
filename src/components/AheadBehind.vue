@@ -17,7 +17,7 @@ const { t, n } = useI18n();
   <span
     role="img"
     :aria-label="t('aheadBehind.label', { ahead: n(props.ahead), behind: n(props.behind) })"
-    class="inline-flex shrink-0 items-center gap-2 text-md whitespace-nowrap tabular-nums"
+    class="inline-flex shrink-0 items-center gap-2 text-sm whitespace-nowrap tabular-nums"
   >
     <span
       class="inline-flex items-center"
