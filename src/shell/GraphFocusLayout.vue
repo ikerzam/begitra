@@ -9,7 +9,7 @@ import DetailPanel from "@/detail/DetailPanel.vue";
 import GraphPanel from "@/graph/GraphPanel.vue";
 import type { FileChange } from "@/ipc/schemas";
 import { useRepoStore } from "@/stores/repo";
-import { useShellStore } from "@/stores/shell";
+import { paneLimits, useShellStore } from "@/stores/shell";
 
 import HomeEmpty from "./HomeEmpty.vue";
 import PaneResizer from "./PaneResizer.vue";
@@ -47,6 +47,8 @@ defineExpose({ focusRows: () => graph.value?.focus() });
       <PaneResizer
         :size="shell.paneSizes.detail"
         :direction="-1"
+        :min="paneLimits.detail.min"
+        :max="paneLimits.detail.max"
         :label="t('detail.commit')"
         @resize="(px) => void shell.setPaneSize('detail', px)"
       />

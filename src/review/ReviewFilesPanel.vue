@@ -63,7 +63,7 @@ defineExpose({ focus: () => tree.value?.focus(), navigation });
 </script>
 
 <template>
-  <section class="flex min-w-0 flex-col" data-testid="review-files">
+  <section class="flex min-w-0 flex-col border-r border-line" data-testid="review-files">
     <PanelHeader :title="t('review.files')" :count="repo.detail ? count : undefined" />
     <div v-if="repo.detail" class="flex flex-col gap-1 border-b border-line px-3 py-2">
       <Checkbox

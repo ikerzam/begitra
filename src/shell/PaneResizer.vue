@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// A vertical hairline between two panes that resizes the pane it belongs to: drag it, or focus
-// it and use the arrow keys (16px per press).
+// A zero-width handle over the hairline of a pane (the pane draws the line inside its own
+// width) that resizes it: drag it, or focus it and use the arrow keys (16px per press).
 
 import { onBeforeUnmount } from "vue";
 
@@ -11,8 +11,11 @@ const props = withDefaults(
     /** 1 when dragging right grows the pane (a left pane), -1 for a pane on the right. */
     direction?: 1 | -1;
     label: string;
+    /** Limits of the pane, in px, for assistive technology. */
+    min?: number;
+    max?: number;
   }>(),
-  { direction: 1 },
+  { direction: 1, min: undefined, max: undefined },
 );
 const emit = defineEmits<{ resize: [px: number] }>();
 
@@ -53,7 +56,10 @@ onBeforeUnmount(stop);
     tabindex="0"
     :aria-label="props.label"
     :aria-valuenow="props.size"
-    class="pane-resizer relative w-px shrink-0 cursor-col-resize bg-line hover:bg-line-strong focus-visible:bg-accent"
+    :aria-valuemin="props.min"
+    :aria-valuemax="props.max"
+    :data-direction="props.direction"
+    class="pane-resizer relative shrink-0 cursor-col-resize"
     data-testid="pane-resizer"
     @mousedown="start"
     @keydown="onKeydown"
@@ -61,10 +67,32 @@ onBeforeUnmount(stop);
 </template>
 
 <style scoped>
-/* A 7px hit area around the 1px line. */
-.pane-resizer::after {
+/* No width of its own, so the pane keeps its exact size; a 6px hit area straddles the edge. */
+.pane-resizer {
+  width: 0;
+}
+
+.pane-resizer::before {
   content: "";
   position: absolute;
   inset: 0 -3px;
+}
+
+/* On hover the pane's hairline turns strong: the line is drawn over it, on the pane's side. */
+.pane-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 1px;
+}
+
+.pane-resizer[data-direction="1"]::after {
+  left: -1px;
+}
+
+.pane-resizer:hover::after {
+  background: var(--border-strong);
 }
 </style>

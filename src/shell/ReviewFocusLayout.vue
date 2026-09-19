@@ -12,7 +12,7 @@ import ReviewFilesPanel from "@/review/ReviewFilesPanel.vue";
 import ReviewRail from "@/review/ReviewRail.vue";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
-import { useShellStore, type SidebarTab } from "@/stores/shell";
+import { paneLimits, useShellStore, type SidebarTab } from "@/stores/shell";
 
 import PaneResizer from "./PaneResizer.vue";
 import SidebarRail from "./SidebarRail.vue";
@@ -56,6 +56,8 @@ defineExpose({ focusFiles: () => filesPanel.value?.focus() });
     <ReviewFilesPanel ref="filesPanel" class="shrink-0" :style="{ width: filesWidth }" />
     <PaneResizer
       :size="shell.paneSizes.files"
+      :min="paneLimits.files.min"
+      :max="paneLimits.files.max"
       :label="t('review.files')"
       @resize="(px) => void shell.setPaneSize('files', px)"
     />
@@ -68,6 +70,8 @@ defineExpose({ focusFiles: () => filesPanel.value?.focus() });
       <PaneResizer
         :size="shell.paneSizes.reviewRail"
         :direction="-1"
+        :min="paneLimits.reviewRail.min"
+        :max="paneLimits.reviewRail.max"
         :label="t('review.overview')"
         @resize="(px) => void shell.setPaneSize('reviewRail', px)"
       />

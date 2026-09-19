@@ -54,7 +54,7 @@ function selectParent(hash: string): void {
 </script>
 
 <template>
-  <aside class="flex min-w-0 flex-col" data-testid="detail-panel">
+  <aside class="flex min-w-0 flex-col border-l border-line" data-testid="detail-panel">
     <template v-if="repo.state.kind === 'ready' && commit">
       <PanelHeader :title="t('detail.commit')">
         <span class="truncate font-mono text-mono-sm text-fg-secondary" data-testid="detail-hash">

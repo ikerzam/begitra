@@ -44,7 +44,7 @@ const reviewShare = computed(() =>
 </script>
 
 <template>
-  <aside class="flex min-w-0 flex-col" data-testid="review-rail">
+  <aside class="flex min-w-0 flex-col border-l border-line" data-testid="review-rail">
     <PanelHeader :title="t('review.overview')">
       <template #actions>
         <IconButton
