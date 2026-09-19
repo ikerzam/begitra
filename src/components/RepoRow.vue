@@ -53,7 +53,7 @@ function onKeydown(event: KeyboardEvent): void {
     @dblclick="emit('activate')"
     @keydown="onKeydown"
   >
-    <span class="flex min-w-0 items-center" data-testid="repo-row-name">
+    <span class="flex items-center overflow-hidden" data-testid="repo-row-name">
       <span
         v-if="props.nested"
         aria-hidden="true"
@@ -62,7 +62,7 @@ function onKeydown(event: KeyboardEvent): void {
       />
       <span class="truncate text-fg">{{ props.name }}</span>
     </span>
-    <span class="flex min-w-0 items-center gap-2" data-testid="repo-row-branch">
+    <span class="flex items-center gap-2 overflow-hidden" data-testid="repo-row-branch">
       <LaneDot v-if="props.lane > 0" :lane="props.lane" />
       <span class="truncate text-fg">{{ props.branch }}</span>
       <DirtyDot v-if="props.dirty" />
@@ -71,7 +71,7 @@ function onKeydown(event: KeyboardEvent): void {
     <span class="truncate text-fg-muted" data-testid="repo-row-last-commit">
       {{ props.lastCommit }}
     </span>
-    <span class="min-w-0 truncate font-mono text-mono-sm text-fg-muted" data-testid="repo-row-path">
+    <span class="truncate font-mono text-mono-sm text-fg-muted" data-testid="repo-row-path">
       {{ props.path }}
     </span>
   </div>

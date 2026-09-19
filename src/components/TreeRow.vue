@@ -109,7 +109,7 @@ function onKeydown(event: KeyboardEvent): void {
       />
     </button>
     <StatusLetter v-else-if="props.status" :status="props.status" />
-    <span class="min-w-0 flex-1 truncate" :class="nameClass" data-testid="tree-row-name">
+    <span class="flex-1 truncate" :class="nameClass" data-testid="tree-row-name">
       {{ props.name }}
     </span>
     <span

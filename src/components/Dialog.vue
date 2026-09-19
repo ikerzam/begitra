@@ -71,7 +71,7 @@ onBeforeUnmount(() => {
 <template>
   <div
     data-testid="dialog-scrim"
-    class="fixed inset-0 z-10 flex items-center justify-center bg-shadow"
+    class="dialog-scrim fixed z-10 flex items-center justify-center bg-shadow"
     @pointerdown.self="emit('cancel')"
   >
     <div
@@ -107,6 +107,11 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* The strict spacing scale generates no `inset-0`, so the scrim covers the window from here. */
+.dialog-scrim {
+  inset: 0;
+}
+
 /* A dialog is 440px wide; it shrinks on narrow windows. */
 .dialog {
   width: 440px;

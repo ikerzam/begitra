@@ -36,14 +36,14 @@ const outputId = useId();
         aria-hidden="true"
         class="mt-px shrink-0 text-danger"
       />
-      <p class="min-w-0 flex-1 text-fg">{{ props.message }}</p>
+      <p class="flex-1 text-fg">{{ props.message }}</p>
       <Button v-if="props.action" variant="secondary" class="shrink-0" @click="emit('action')">
         {{ props.action }}
       </Button>
     </div>
     <div v-if="props.output" class="flex items-start gap-3">
       <span aria-hidden="true" class="w-icon shrink-0" />
-      <div class="flex min-w-0 flex-1 flex-col gap-2">
+      <div class="flex flex-1 flex-col gap-2 overflow-hidden">
         <button
           type="button"
           :aria-expanded="expanded"

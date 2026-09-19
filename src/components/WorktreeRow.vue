@@ -79,7 +79,7 @@ function onKeydown(event: KeyboardEvent): void {
     >
       {{ props.path }}
     </span>
-    <span class="flex min-w-0 items-center gap-2" data-testid="worktree-row-branch">
+    <span class="flex items-center gap-2 overflow-hidden" data-testid="worktree-row-branch">
       <LaneDot v-if="props.lane > 0" :lane="props.lane" />
       <span class="truncate text-fg">{{ props.branch }}</span>
       <DirtyDot v-if="props.dirty" />
@@ -102,10 +102,7 @@ function onKeydown(event: KeyboardEvent): void {
     <span data-testid="worktree-row-counts">
       <AheadBehind v-if="!props.missing" :ahead="props.ahead" :behind="props.behind" />
     </span>
-    <span
-      class="flex min-w-0 items-center gap-2 truncate text-fg-muted"
-      data-testid="worktree-row-commit"
-    >
+    <span class="flex items-center gap-2 truncate text-fg-muted" data-testid="worktree-row-commit">
       <template v-if="props.missing">{{ t("worktreeRow.prune") }}</template>
       <template v-else>
         <span class="truncate">{{ props.lastCommit }}</span>

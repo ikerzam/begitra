@@ -53,7 +53,7 @@ function onClick(): void {
       class="shrink-0"
       :class="iconClass"
     />
-    <span class="min-w-0 flex-1 truncate">{{ props.label }}</span>
+    <span class="flex-1 truncate">{{ props.label }}</span>
     <span v-if="props.context" class="truncate text-fg-muted">{{ props.context }}</span>
     <Kbd v-if="props.keys" :keys="props.keys" />
   </button>

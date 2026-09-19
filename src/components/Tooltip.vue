@@ -44,7 +44,7 @@ function onKeydown(event: KeyboardEvent): void {
       v-if="open"
       :id="id"
       role="tooltip"
-      class="absolute left-0 z-10 inline-flex h-control items-center gap-2 rounded-md border border-line-strong bg-raised px-3 text-md whitespace-nowrap text-fg shadow-overlay"
+      class="tooltip-bubble absolute z-10 inline-flex h-control items-center gap-2 rounded-md border border-line-strong bg-raised px-3 text-md whitespace-nowrap text-fg shadow-overlay"
       :class="props.placement === 'top' ? 'bottom-full mb-1' : 'top-full mt-1'"
     >
       {{ props.label }}
@@ -52,3 +52,10 @@ function onKeydown(event: KeyboardEvent): void {
     </span>
   </span>
 </template>
+
+<style scoped>
+/* The strict spacing scale generates no `left-0`; the bubble aligns with the trigger's left edge. */
+.tooltip-bubble {
+  left: 0;
+}
+</style>

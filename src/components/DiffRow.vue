@@ -52,7 +52,7 @@ const markerClass = computed(() => {
     <span class="text-center select-none" :class="markerClass" data-testid="diff-row-marker">{{
       markers[props.kind]
     }}</span>
-    <span class="min-w-0 overflow-hidden text-fg" data-testid="diff-row-code"
+    <span class="overflow-hidden text-fg" data-testid="diff-row-code"
       ><slot>{{ props.code }}</slot></span
     >
   </div>

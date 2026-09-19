@@ -65,7 +65,7 @@ function onKeydown(event: KeyboardEvent): void {
       :class="props.selected ? 'text-fg' : 'text-fg-secondary'"
     />
     <span
-      class="min-w-0 flex-1 truncate text-fg"
+      class="flex-1 truncate text-fg"
       :class="{ 'font-medium': props.selected }"
       data-testid="list-row-name"
     >

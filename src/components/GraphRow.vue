@@ -53,7 +53,7 @@ function onKeydown(event: KeyboardEvent): void {
     >
       <slot name="refs" />
     </div>
-    <span class="min-w-0 flex-1 truncate text-fg" data-testid="graph-row-message">
+    <span class="flex-1 truncate text-fg" data-testid="graph-row-message">
       {{ props.message }}
     </span>
     <span
