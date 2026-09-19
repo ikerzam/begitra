@@ -103,6 +103,23 @@ describe("CommitRows", () => {
     wrapper.unmount();
   });
 
+  it("keeps the tab stop on the selected row and moves focus with the selection", async () => {
+    const wrapper = mountRows(5);
+    const rows = wrapper.findAll('[data-testid="graph-row"]');
+    expect(wrapper.get('[data-testid="commit-rows"]').attributes("tabindex")).toBeUndefined();
+    expect(rows.map((row) => row.attributes("tabindex"))).toEqual(["0", "-1", "-1", "-1", "-1"]);
+    (wrapper.vm as unknown as { focus(): void }).focus();
+    expect(document.activeElement).toBe(rows[0]?.element);
+    await rows[0]!.trigger("keydown", { key: "j" });
+    expect(wrapper.emitted("select")?.at(-1)).toEqual([1]);
+    expect(document.activeElement).toBe(rows[1]?.element);
+    await wrapper.setProps({ selectedIndex: 1 });
+    expect(rows.map((row) => row.attributes("tabindex"))).toEqual(["-1", "0", "-1", "-1", "-1"]);
+    await rows[1]!.trigger("keydown", { key: "Enter" });
+    expect(wrapper.emitted("activate")).toEqual([[1]]);
+    wrapper.unmount();
+  });
+
   it("asks for more rows when the selection nears the end and more pages exist", async () => {
     const wrapper = mountRows(30, { canLoadMore: true });
     await wrapper.setProps({ selectedIndex: 15 });

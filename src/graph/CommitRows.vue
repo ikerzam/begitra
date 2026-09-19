@@ -90,15 +90,17 @@ watch(
   },
 );
 
-defineExpose({ focus: () => container.value?.focus() });
+/* The selected row is the tab stop; before a selection exists, the first row is. */
+const tabStop = computed(() => (props.selectedIndex >= 0 ? props.selectedIndex : 0));
+
+defineExpose({ focus: navigation.focus });
 </script>
 
 <template>
   <div
     ref="container"
     role="listbox"
-    tabindex="0"
-    class="min-h-0 flex-1 overflow-y-auto outline-none"
+    class="min-h-0 flex-1 overflow-y-auto"
     data-testid="commit-rows"
     @keydown="navigation.onKeydown"
     @scroll.passive="onScroll"
@@ -112,6 +114,7 @@ defineExpose({ focus: () => container.value?.focus() });
       :date="date(commit)"
       :hash="shortHash(commit.hash)"
       :selected="index === props.selectedIndex"
+      :tab-stop="index === tabStop"
       @select="emit('select', index)"
       @activate="emit('activate', index)"
     >

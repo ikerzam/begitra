@@ -53,8 +53,15 @@ watch(
   () => repo.state.kind,
   (kind) => {
     if (kind === "error") shell.setSidebarTab("repos");
-    if (kind === "ready") {
-      shell.setSidebarTab("branches");
+    if (kind === "ready") shell.setSidebarTab("branches");
+  },
+);
+
+// Keyboard focus lands on the commit rows as soon as the first page selects a commit.
+watch(
+  () => repo.selectedIndex,
+  (index, previous) => {
+    if (index >= 0 && previous < 0 && shell.layoutMode === "graph") {
       void nextTick(() => graphLayout.value?.focusRows());
     }
   },
