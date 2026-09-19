@@ -81,6 +81,49 @@ describe("PaletteOverlay", () => {
     wrapper.unmount();
   });
 
+  it("points the active descendant at the first visible row after typing", async () => {
+    useShellStore().openPalette();
+    const wrapper = mountWithI18n(PaletteOverlay, { attachTo: document.body });
+    await wrapper.findAll('[data-testid="palette-row"]')[3]!.trigger("mousemove");
+    const input = wrapper.get('[data-testid="palette-input"]');
+    expect(input.attributes("aria-activedescendant")).toBe("palette-option-3");
+    await input.setValue("rev");
+    const rows = wrapper.findAll('[data-testid="palette-row"]');
+    expect(rows).toHaveLength(1);
+    expect(input.attributes("aria-activedescendant")).toBe(rows[0]?.attributes("id"));
+    expect(rows[0]?.attributes("aria-selected")).toBe("true");
+    wrapper.unmount();
+  });
+
+  it("gives the focus back to the element that had it when it closes", async () => {
+    const opener = document.createElement("button");
+    document.body.append(opener);
+    opener.focus();
+    const shell = useShellStore();
+    shell.openPalette();
+    const wrapper = mountWithI18n(PaletteOverlay, { attachTo: document.body });
+    await flushPromises();
+    const input = wrapper.get('[data-testid="palette-input"]');
+    expect(document.activeElement).toBe(input.element);
+    await input.trigger("keydown", { key: "Escape" });
+    expect(shell.paletteOpen).toBe(false);
+    wrapper.unmount();
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
+  });
+
+  it("leaves the focus alone when the previous element is gone", async () => {
+    const opener = document.createElement("button");
+    document.body.append(opener);
+    opener.focus();
+    useShellStore().openPalette();
+    const wrapper = mountWithI18n(PaletteOverlay, { attachTo: document.body });
+    await flushPromises();
+    opener.remove();
+    wrapper.unmount();
+    expect(document.activeElement).toBe(document.body);
+  });
+
   it("shows the empty sentence and closes with escape", async () => {
     const shell = useShellStore();
     shell.openPalette();

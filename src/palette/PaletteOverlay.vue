@@ -10,7 +10,7 @@ import {
   Terminal,
   X,
 } from "@lucide/vue";
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Kbd from "@/components/Kbd.vue";
@@ -75,8 +75,19 @@ function hint(row: PaletteRow): string {
   return row.command.shortcutId ? shortcutRegistry().hint(row.command.shortcutId) : "";
 }
 
+let previouslyFocused: Element | null = null;
+
 onMounted(() => {
+  previouslyFocused = document.activeElement;
   void nextTick(() => input.value?.focus());
+});
+
+/* The element that had the focus gets it back, unless it went away or a command moved it. */
+onBeforeUnmount(() => {
+  const previous = previouslyFocused;
+  const active = document.activeElement;
+  const still = active === null || active === document.body || dialog.value?.contains(active);
+  if (previous instanceof HTMLElement && previous.isConnected && still) previous.focus();
 });
 
 watch(

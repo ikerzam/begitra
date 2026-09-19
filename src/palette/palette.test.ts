@@ -149,6 +149,18 @@ describe("usePalette", () => {
     expect(palette.query.value).toBe("");
   });
 
+  it("puts the cursor back on the first row when the query changes", async () => {
+    const { acts, palette } = setup();
+    for (let i = 0; i < 4; i += 1) palette.onKeydown(key("ArrowDown"));
+    expect(palette.cursor.value).toBe(4);
+    palette.query.value = "sw";
+    expect(palette.cursor.value).toBe(0);
+    expect(palette.rows.value.map((r) => r.command.id)).toEqual(["graph-focus", "review-focus"]);
+    palette.onKeydown(key("Enter"));
+    await Promise.resolve();
+    expect(acts.calls).toEqual(["graph"]);
+  });
+
   it("reports the empty state when nothing matches", () => {
     const { palette } = setup();
     palette.query.value = "zzz";

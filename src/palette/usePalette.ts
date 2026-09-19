@@ -2,7 +2,7 @@
 // cursor, and running a row. The palette renders whatever this returns; it knows nothing of
 // the DOM beyond a keydown handler.
 
-import { computed, ref, type ComputedRef, type Ref } from "vue";
+import { computed, ref, watch, type ComputedRef, type Ref } from "vue";
 
 import type { PaletteCommand } from "./commands";
 
@@ -72,6 +72,15 @@ export function usePalette(options: PaletteOptions): Palette {
   });
 
   const isEmpty = computed(() => rows.value.length === 0);
+
+  // Typing changes the rows, so the cursor goes back to the first one before the next key.
+  watch(
+    query,
+    () => {
+      cursor.value = 0;
+    },
+    { flush: "sync" },
+  );
 
   function clampCursor(): void {
     const count = rows.value.length;
