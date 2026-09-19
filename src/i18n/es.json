@@ -1,0 +1,82 @@
+{
+  "common": {
+    "cancel": "Cancelar",
+    "close": "Cerrar",
+    "loading": "Cargando"
+  },
+  "refBadge": {
+    "head": "HEAD",
+    "worktree": "Activa en un worktree",
+    "kind": {
+      "local": "Rama local",
+      "current": "Rama actual",
+      "remote": "Rama remota",
+      "tag": "Etiqueta",
+      "head": "HEAD desacoplado",
+      "stash": "Stash"
+    }
+  },
+  "diffStat": {
+    "added": "+{n}",
+    "removed": "−{n}",
+    "label": "{added} líneas añadidas, {removed} líneas eliminadas"
+  },
+  "aheadBehind": {
+    "label": "{ahead} por delante, {behind} por detrás"
+  },
+  "dirtyDot": {
+    "label": "Cambios sin confirmar"
+  },
+  "progress": {
+    "label": "Progreso"
+  },
+  "statusLetter": {
+    "added": "A",
+    "modified": "M",
+    "deleted": "D",
+    "renamed": "R",
+    "title": {
+      "added": "Añadido",
+      "modified": "Modificado",
+      "deleted": "Borrado",
+      "renamed": "Renombrado"
+    }
+  },
+  "toast": {
+    "showGitOutput": "Ver la salida de git"
+  },
+  "skeleton": {
+    "loading": "Cargando"
+  },
+  "errorBanner": {
+    "showGitOutput": "Ver la salida de git",
+    "hideGitOutput": "Ocultar la salida de git"
+  },
+  "contextMenu": {
+    "label": "Menú contextual"
+  },
+  "dialog": {
+    "cancel": "Cancelar",
+    "confirm": "Confirmar"
+  },
+  "worktreeRow": {
+    "main": "worktree principal",
+    "locked": "Bloqueado",
+    "missing": "Falta la carpeta",
+    "prune": "Limpia los worktrees para quitar esta entrada",
+    "diff": "Diff con main",
+    "terminal": "Abrir en la terminal",
+    "editor": "Abrir en el editor",
+    "remove": "Eliminar worktree"
+  },
+  "treeRow": {
+    "generated": "generado",
+    "reviewed": "Revisado",
+    "expand": "Expandir",
+    "collapse": "Contraer"
+  },
+  "hunkRow": {
+    "markReviewed": "Marcar como revisado",
+    "reviewed": "Revisado"
+  }
+}

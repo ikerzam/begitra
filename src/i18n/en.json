@@ -1,0 +1,82 @@
+{
+  "common": {
+    "cancel": "Cancel",
+    "close": "Close",
+    "loading": "Loading"
+  },
+  "refBadge": {
+    "head": "HEAD",
+    "worktree": "Checked out in a worktree",
+    "kind": {
+      "local": "Local branch",
+      "current": "Current branch",
+      "remote": "Remote branch",
+      "tag": "Tag",
+      "head": "Detached HEAD",
+      "stash": "Stash"
+    }
+  },
+  "diffStat": {
+    "added": "+{n}",
+    "removed": "−{n}",
+    "label": "{added} lines added, {removed} lines removed"
+  },
+  "aheadBehind": {
+    "label": "{ahead} ahead, {behind} behind"
+  },
+  "dirtyDot": {
+    "label": "Uncommitted changes"
+  },
+  "progress": {
+    "label": "Progress"
+  },
+  "statusLetter": {
+    "added": "A",
+    "modified": "M",
+    "deleted": "D",
+    "renamed": "R",
+    "title": {
+      "added": "Added",
+      "modified": "Modified",
+      "deleted": "Deleted",
+      "renamed": "Renamed"
+    }
+  },
+  "toast": {
+    "showGitOutput": "Show git output"
+  },
+  "skeleton": {
+    "loading": "Loading"
+  },
+  "errorBanner": {
+    "showGitOutput": "Show git output",
+    "hideGitOutput": "Hide git output"
+  },
+  "contextMenu": {
+    "label": "Context menu"
+  },
+  "dialog": {
+    "cancel": "Cancel",
+    "confirm": "Confirm"
+  },
+  "worktreeRow": {
+    "main": "main worktree",
+    "locked": "Locked",
+    "missing": "Folder missing",
+    "prune": "Prune to remove this entry",
+    "diff": "Diff vs main",
+    "terminal": "Open in terminal",
+    "editor": "Open in editor",
+    "remove": "Remove worktree"
+  },
+  "treeRow": {
+    "generated": "generated",
+    "reviewed": "Reviewed",
+    "expand": "Expand",
+    "collapse": "Collapse"
+  },
+  "hunkRow": {
+    "markReviewed": "Mark reviewed",
+    "reviewed": "Reviewed"
+  }
+}
