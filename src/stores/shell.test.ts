@@ -73,6 +73,29 @@ describe("shell store", () => {
     expect(shell.reviewRailCollapsed).toBe(false);
   });
 
+  it("hides and shows the review rail on request at any width", async () => {
+    const settings = useSettingsStore();
+    await settings.init(memoryStorage(), "windows");
+    const shell = useShellStore();
+    await shell.setLayoutMode("review");
+    shell.setWindowWidth(1440);
+    expect(shell.reviewRailCollapsed).toBe(false);
+    shell.hideReviewRail();
+    expect(shell.reviewRailCollapsed).toBe(true);
+    shell.setWindowWidth(1300);
+    expect(shell.reviewRailCollapsed).toBe(true);
+    shell.showReviewRail();
+    expect(shell.reviewRailCollapsed).toBe(false);
+    shell.setWindowWidth(1000);
+    expect(shell.reviewRailCollapsed).toBe(true);
+    shell.showReviewRail();
+    expect(shell.reviewRailCollapsed).toBe(false);
+    shell.hideReviewRail();
+    expect(shell.reviewRailCollapsed).toBe(true);
+    shell.setWindowWidth(1440);
+    expect(shell.reviewRailCollapsed).toBe(false);
+  });
+
   it("opens and closes the palette", () => {
     const shell = useShellStore();
     expect(shell.paletteOpen).toBe(false);

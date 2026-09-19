@@ -80,7 +80,7 @@ defineExpose({ focusFiles: () => filesPanel.value?.focus() });
         :style="{ width: railWidth }"
         :files="files"
         :reviewed-count="review.reviewedCount"
-        @hide="shell.setWindowWidth(shell.windowWidth)"
+        @hide="shell.hideReviewRail()"
       />
     </template>
   </div>

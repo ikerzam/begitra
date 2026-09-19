@@ -32,10 +32,13 @@ export function defaultDetailWidth(windowWidth: number, sidebarWidth: number): n
 
 export type SidebarTab = "repos" | "branches" | "worktrees";
 
+/** The user's say on the review rail; "auto" follows the window width. */
+export type ReviewRailPreference = "auto" | "shown" | "hidden";
+
 export const useShellStore = defineStore("shell", () => {
   const settings = useSettingsStore();
   const windowWidth = ref(1440);
-  const reviewRailShown = ref(false);
+  const reviewRailPreference = ref<ReviewRailPreference>("auto");
   const paletteOpen = ref(false);
   const sidebarTab = ref<SidebarTab>("branches");
 
@@ -50,13 +53,12 @@ export const useShellStore = defineStore("shell", () => {
     return defaultDetailWidth(windowWidth.value, paneSizes.value.sidebar);
   });
 
-  /** The review rail is hidden below the breakpoint unless the user asked for it. */
-  const reviewRailCollapsed = computed(
-    () =>
-      layoutMode.value === "review" &&
-      windowWidth.value < REVIEW_RAIL_BREAKPOINT &&
-      !reviewRailShown.value,
-  );
+  /** The review rail follows the user's toggle, else it hides below the breakpoint. */
+  const reviewRailCollapsed = computed(() => {
+    if (layoutMode.value !== "review") return false;
+    if (reviewRailPreference.value !== "auto") return reviewRailPreference.value === "hidden";
+    return windowWidth.value < REVIEW_RAIL_BREAKPOINT;
+  });
 
   function setLayoutMode(mode: LayoutMode): Promise<void> {
     return settings.update("layoutMode", mode);
@@ -73,13 +75,19 @@ export const useShellStore = defineStore("shell", () => {
     return settings.update("paneSizes", next);
   }
 
+  /** Crossing the breakpoint in either direction hands the rail back to the automatic rule. */
   function setWindowWidth(px: number): void {
-    if (px >= REVIEW_RAIL_BREAKPOINT) reviewRailShown.value = false;
+    const narrow = px < REVIEW_RAIL_BREAKPOINT;
+    if (narrow !== windowWidth.value < REVIEW_RAIL_BREAKPOINT) reviewRailPreference.value = "auto";
     windowWidth.value = px;
   }
 
   function showReviewRail(): void {
-    reviewRailShown.value = true;
+    reviewRailPreference.value = "shown";
+  }
+
+  function hideReviewRail(): void {
+    reviewRailPreference.value = "hidden";
   }
 
   function openPalette(): void {
@@ -120,6 +128,7 @@ export const useShellStore = defineStore("shell", () => {
     setPaneSize,
     setWindowWidth,
     showReviewRail,
+    hideReviewRail,
     openPalette,
     closePalette,
     togglePalette,
