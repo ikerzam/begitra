@@ -33,14 +33,29 @@ export const defaultBindings: readonly ShortcutBinding[] = [
 
 export type ShortcutHandler = (event: KeyboardEvent) => void;
 
-type TargetLike = { tagName?: string; isContentEditable?: boolean } | null;
+type TargetLike = { tagName?: string; type?: string; isContentEditable?: boolean } | null;
+
+/** Input types that take no typed text: keys pressed on them are shortcuts, not input. */
+const NON_TEXT_INPUTS = new Set([
+  "button",
+  "checkbox",
+  "color",
+  "file",
+  "hidden",
+  "image",
+  "radio",
+  "range",
+  "reset",
+  "submit",
+]);
 
 /** Whether a key event comes from a text field, where plain-key shortcuts must not fire. */
 export function isEditableTarget(target: TargetLike): boolean {
   if (!target) return false;
   if (target.isContentEditable) return true;
   const tag = target.tagName?.toUpperCase();
-  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+  if (tag === "INPUT") return !NON_TEXT_INPUTS.has((target.type ?? "text").toLowerCase());
+  return tag === "TEXTAREA" || tag === "SELECT";
 }
 
 export class ShortcutRegistry {

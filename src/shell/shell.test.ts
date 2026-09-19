@@ -46,16 +46,25 @@ function commit(n: number): CommitNode {
   };
 }
 
-function backend(options: { failOpen?: boolean; failExternal?: boolean } = {}) {
+function backend(
+  options: {
+    failOpen?: boolean;
+    failExternal?: boolean;
+    /** The first commit page waits for this promise. */
+    walkGate?: Promise<void>;
+  } = {},
+) {
   const calls: string[] = [];
   mockIPC((cmd, rawArgs) => {
     const args = (rawArgs ?? {}) as Record<string, unknown>;
     calls.push(cmd);
-    const send = (messages: unknown[]) => {
+    const send = (messages: unknown[], gate?: Promise<void>) => {
       const channel = args["onPage"] as Channel<unknown>;
-      queueMicrotask(() => {
+      const deliver = () => {
         for (const message of messages) channel.onmessage(message);
-      });
+      };
+      if (gate) void gate.then(deliver);
+      else queueMicrotask(deliver);
     };
     switch (cmd) {
       case "open_repository":
@@ -96,14 +105,17 @@ function backend(options: { failOpen?: boolean; failExternal?: boolean } = {}) {
           },
         ];
       case "walk_commits":
-        send([
-          {
-            kind: "page",
-            seq: 0,
-            data: { walkId: "w", index: 0, commits: [0, 1, 2].map(commit), done: true },
-          },
-          { kind: "done" },
-        ]);
+        send(
+          [
+            {
+              kind: "page",
+              seq: 0,
+              data: { walkId: "w", index: 0, commits: [0, 1, 2].map(commit), done: true },
+            },
+            { kind: "done" },
+          ],
+          options.walkGate,
+        );
         return null;
       case "diff":
         send([
@@ -291,6 +303,26 @@ describe("AppShell", () => {
     expect(wrapper.get('[data-testid="commit-subject"]').text()).toBe("feat: change 0");
     expect(wrapper.get('[data-testid="detail-stats"]').text()).toContain("2 files");
     expect(wrapper.get('[data-testid="file-list"]').text()).toContain("app.ts");
+    wrapper.unmount();
+  });
+
+  it("leaves the focus in the search box when the first page arrives while typing", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    backend({ walkGate: gate });
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    await wrapper.get('[data-testid="home-empty-open"]').trigger("click");
+    await settle();
+    // The repository is open, the rows have not arrived: the user starts a search.
+    const search = wrapper.get('[data-testid="graph-filters"] input').element as HTMLInputElement;
+    search.focus();
+    expect(document.activeElement).toBe(search);
+    release();
+    await settle();
+    expect(wrapper.findAll('[data-testid="graph-row"]')).toHaveLength(3);
+    expect(document.activeElement).toBe(search);
     wrapper.unmount();
   });
 

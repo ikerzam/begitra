@@ -7,6 +7,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import type { FileChange } from "@/ipc/schemas";
 import { baseName } from "@/shell/format";
 import PaletteOverlay from "@/palette/PaletteOverlay.vue";
+import { isEditableTarget } from "@/shortcuts/registry";
 import { installShortcuts, useShortcut } from "@/shortcuts/useShortcut";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
@@ -61,12 +62,16 @@ watch(
   },
 );
 
-// Keyboard focus lands on the commit rows as soon as the first page selects a commit.
+// Keyboard focus lands on the commit rows as soon as the first page selects a commit, unless
+// the user is already typing somewhere (the search or a filter while the repository opens).
 watch(
   () => repo.selectedIndex,
   (index, previous) => {
     if (index >= 0 && previous < 0 && shell.layoutMode === "graph") {
-      void nextTick(() => graphLayout.value?.focusRows());
+      void nextTick(() => {
+        if (isEditableTarget(document.activeElement)) return;
+        graphLayout.value?.focusRows();
+      });
     }
   },
 );

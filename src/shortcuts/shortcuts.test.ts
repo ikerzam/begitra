@@ -134,6 +134,14 @@ describe("ShortcutRegistry", () => {
     expect(isEditableTarget({ isContentEditable: true })).toBe(true);
     expect(isEditableTarget(document.createElement("button"))).toBe(false);
     expect(isEditableTarget(null)).toBe(false);
+    const text = document.createElement("input");
+    expect(isEditableTarget(text)).toBe(true);
+    text.type = "search";
+    expect(isEditableTarget(text)).toBe(true);
+    // A focused checkbox (the review filters) still takes the review shortcuts.
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    expect(isEditableTarget(checkbox)).toBe(false);
   });
 });
 
