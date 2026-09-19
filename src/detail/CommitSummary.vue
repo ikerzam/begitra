@@ -3,42 +3,24 @@ import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
 import RefBadge from "@/components/RefBadge.vue";
-import type { RefKind as BadgeKind } from "@/components/types";
+import { commitBadges, refsByName } from "@/graph/badges";
 import type { CommitNode, Ref as GitRef } from "@/ipc/schemas";
 import { absoluteDate, relativeDate, shortHash } from "@/shell/format";
+import { useNow } from "@/shell/useNow";
 
 const props = defineProps<{ commit: CommitNode; refs: GitRef[] }>();
 const emit = defineEmits<{ selectParent: [hash: string] }>();
 
 const { t, locale } = useI18n();
 
+const now = useNow();
 const relative = computed(() => {
-  const rel = relativeDate(props.commit.author.time);
+  const rel = relativeDate(props.commit.author.time, now.value);
   return rel.unit === "now" ? t("date.now") : t(`date.${rel.unit}`, { n: rel.n });
 });
 const absolute = computed(() => absoluteDate(props.commit.author.time, locale.value));
 
-const badges = computed(() =>
-  props.commit.refs
-    .filter((name) => name !== "HEAD")
-    .map((name) => {
-      const ref = props.refs.find((r) => r.name === name);
-      const kind: BadgeKind = !ref
-        ? "local"
-        : ref.kind === "local-branch"
-          ? ref.isCurrent
-            ? "current"
-            : "local"
-          : ref.kind === "remote-branch"
-            ? "remote"
-            : ref.kind === "tag"
-              ? "tag"
-              : ref.kind === "stash"
-                ? "stash"
-                : "head";
-      return { kind, label: name };
-    }),
-);
+const badges = computed(() => commitBadges(props.commit.refs, refsByName(props.refs)));
 </script>
 
 <template>
@@ -75,12 +57,7 @@ const badges = computed(() =>
       </button>
     </p>
     <div v-if="badges.length > 0" class="flex flex-wrap items-center gap-2">
-      <RefBadge
-        v-for="badge in badges"
-        :key="badge.label"
-        :kind="badge.kind"
-        :label="badge.label"
-      />
+      <RefBadge v-for="badge in badges" :key="badge.key" :kind="badge.kind" :label="badge.label" />
     </div>
   </div>
 </template>

@@ -7,10 +7,12 @@ import { useI18n } from "vue-i18n";
 import GraphRow from "@/components/GraphRow.vue";
 import RefBadge from "@/components/RefBadge.vue";
 import SkeletonRow from "@/components/SkeletonRow.vue";
-import type { RefKind as BadgeKind } from "@/components/types";
 import type { CommitNode, Ref as GitRef } from "@/ipc/schemas";
 import { relativeDate, shortHash } from "@/shell/format";
+import { useNow } from "@/shell/useNow";
 import { useListNavigation } from "@/shortcuts/useListNavigation";
+
+import { commitBadges, refsByName, type Badge } from "./badges";
 
 const props = withDefaults(
   defineProps<{
@@ -29,7 +31,7 @@ const emit = defineEmits<{ select: [index: number]; activate: [index: number]; l
 
 const { t } = useI18n();
 const container = ref<HTMLElement | null>(null);
-const now = ref(Date.now());
+const now = useNow();
 
 const count = computed(() => props.commits.length);
 const selected = computed({
@@ -44,31 +46,10 @@ const navigation = useListNavigation({
   rowElement: (index) => container.value?.querySelector(`[data-index="${index}"]`),
 });
 
-/** Badge kind and label of a decoration name, using the ref list for the exact kind. */
-const badgeByName = computed(() => {
-  const map = new Map<string, { kind: BadgeKind; label: string }>();
-  for (const ref of props.refs) {
-    const kind: BadgeKind =
-      ref.kind === "local-branch"
-        ? ref.isCurrent
-          ? "current"
-          : "local"
-        : ref.kind === "remote-branch"
-          ? "remote"
-          : ref.kind === "tag"
-            ? "tag"
-            : ref.kind === "stash"
-              ? "stash"
-              : "head";
-    map.set(ref.name, { kind, label: ref.name });
-  }
-  return map;
-});
+const badgesByName = computed(() => refsByName(props.refs));
 
-function badges(commit: CommitNode): { kind: BadgeKind; label: string }[] {
-  return commit.refs
-    .filter((name) => name !== "HEAD")
-    .map((name) => badgeByName.value.get(name) ?? { kind: "local", label: name });
+function badges(commit: CommitNode): Badge[] {
+  return commitBadges(commit.refs, badgesByName.value);
 }
 
 function date(commit: CommitNode): string {
@@ -121,7 +102,7 @@ defineExpose({ focus: navigation.focus });
       <template v-if="badges(commit).length > 0" #refs>
         <RefBadge
           v-for="badge in badges(commit)"
-          :key="badge.label"
+          :key="badge.key"
           :kind="badge.kind"
           :label="badge.label"
         />
