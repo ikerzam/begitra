@@ -5,6 +5,7 @@ import { useI18n } from "vue-i18n";
 
 import IconButton from "@/components/IconButton.vue";
 import Kbd from "@/components/Kbd.vue";
+import Tooltip from "@/components/Tooltip.vue";
 import { useShortcutHint } from "@/shortcuts/useShortcut";
 import type { LayoutMode } from "@/stores/settings";
 
@@ -17,6 +18,8 @@ const emit = defineEmits<{ openFolder: []; openPalette: []; setLayoutMode: [mode
 
 const { t } = useI18n();
 const paletteHint = useShortcutHint("palette");
+const graphHint = useShortcutHint("graph-focus");
+const reviewHint = useShortcutHint("review-focus");
 const name = computed(() => props.repositoryName ?? t("topBar.noRepository"));
 </script>
 
@@ -48,22 +51,49 @@ const name = computed(() => props.repositoryName ?? t("topBar.noRepository"));
       <span class="flex-1 truncate text-left">{{ t("topBar.search") }}</span>
       <Kbd :keys="paletteHint" />
     </button>
+    <!-- Tooltips carry the shortcut hint; the buttons drop their native title to avoid two. -->
     <div class="flex flex-1 items-center justify-end gap-2">
-      <IconButton :label="t('topBar.settings')" :icon="Settings" disabled />
-      <IconButton
+      <Tooltip v-slot="{ id }" :label="t('topBar.settings')" data-testid="tooltip-settings">
+        <IconButton
+          :label="t('topBar.settings')"
+          :icon="Settings"
+          :native-title="false"
+          :aria-describedby="id"
+          disabled
+        />
+      </Tooltip>
+      <Tooltip
+        v-slot="{ id }"
         :label="t('topBar.graphFocus')"
-        :icon="GitGraph"
-        :pressed="props.layoutMode === 'graph'"
-        data-testid="mode-graph"
-        @click="emit('setLayoutMode', 'graph')"
-      />
-      <IconButton
+        :keys="graphHint"
+        data-testid="tooltip-graph"
+      >
+        <IconButton
+          :label="t('topBar.graphFocus')"
+          :icon="GitGraph"
+          :pressed="props.layoutMode === 'graph'"
+          :native-title="false"
+          :aria-describedby="id"
+          data-testid="mode-graph"
+          @click="emit('setLayoutMode', 'graph')"
+        />
+      </Tooltip>
+      <Tooltip
+        v-slot="{ id }"
         :label="t('topBar.reviewFocus')"
-        :icon="FileDiff"
-        :pressed="props.layoutMode === 'review'"
-        data-testid="mode-review"
-        @click="emit('setLayoutMode', 'review')"
-      />
+        :keys="reviewHint"
+        data-testid="tooltip-review"
+      >
+        <IconButton
+          :label="t('topBar.reviewFocus')"
+          :icon="FileDiff"
+          :pressed="props.layoutMode === 'review'"
+          :native-title="false"
+          :aria-describedby="id"
+          data-testid="mode-review"
+          @click="emit('setLayoutMode', 'review')"
+        />
+      </Tooltip>
     </div>
   </header>
 </template>

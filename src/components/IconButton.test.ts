@@ -18,6 +18,16 @@ describe("IconButton", () => {
     expect(wrapper.get("svg").attributes("width")).toBe("16");
   });
 
+  it("renders 32px for the rail and drops the native title under a custom tooltip", () => {
+    const wrapper = mountWithI18n(IconButton, {
+      props: { label: "Repos", icon: Settings, size: "lg", nativeTitle: false },
+    });
+    expect(wrapper.classes()).toContain("size-6");
+    expect(wrapper.classes()).not.toContain("size-5");
+    expect(wrapper.attributes("title")).toBeUndefined();
+    expect(wrapper.attributes("aria-label")).toBe("Repos");
+  });
+
   it("renders slot content when no icon prop is given", () => {
     const wrapper = mountWithI18n(IconButton, {
       props: { label: "Custom" },
