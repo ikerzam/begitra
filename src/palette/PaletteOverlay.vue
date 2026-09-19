@@ -15,44 +15,18 @@ import { useI18n } from "vue-i18n";
 
 import Kbd from "@/components/Kbd.vue";
 import { useFocusTrap } from "@/components/useFocusTrap";
-import { setLocale } from "@/i18n";
-import { useExternal } from "@/shell/useExternal";
-import { useOpenFolder } from "@/shell/useOpenFolder";
 import { shortcutRegistry } from "@/shortcuts/registry";
-import { useRepoStore } from "@/stores/repo";
 import { useSettingsStore } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
 
-import { paletteCommands, type PaletteActions } from "./commands";
+import { paletteCommands } from "./commands";
 import { usePalette, type PaletteRow } from "./usePalette";
+import { usePaletteActions } from "./usePaletteActions";
 
 const { t } = useI18n();
 const shell = useShellStore();
-const repo = useRepoStore();
 const settings = useSettingsStore();
-const { openFolder } = useOpenFolder();
-const external = useExternal();
-
-const actions: PaletteActions = {
-  hasRepository: () => repo.state.kind === "ready",
-  openFolder: async () => {
-    await openFolder();
-  },
-  closeRepository: () => repo.close(),
-  setGraphFocus: () => void shell.setLayoutMode("graph"),
-  setReviewFocus: () => void shell.setLayoutMode("review"),
-  toggleSidebar: () => void shell.toggleSidebar(),
-  openTerminal: async () => {
-    await external.openTerminal();
-  },
-  openEditor: async () => {
-    await external.openEditor();
-  },
-  setLocale: async (locale) => {
-    await settings.update("locale", locale);
-    setLocale(locale);
-  },
-};
+const actions = usePaletteActions();
 
 const commands = computed(() => paletteCommands(actions));
 /* The recents live in the settings, so they survive closing the palette and relaunching. */
