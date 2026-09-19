@@ -12,6 +12,7 @@ import { useListNavigation } from "@/shortcuts/useListNavigation";
 import { useRepoStore } from "@/stores/repo";
 import { useShellStore, type SidebarTab } from "@/stores/shell";
 
+import { branchLanes } from "./branchLanes";
 import { baseName } from "./format";
 
 const { t } = useI18n();
@@ -49,15 +50,18 @@ interface BranchGroup {
   rows: BranchRow[];
 }
 
-/** Local branches, remote branches and tags, filtered, each with a lane colour by position. */
+/** Local branches, remote branches and tags, filtered, each with its lane colour by position. */
 const groups = computed<BranchGroup[]>(() => {
+  const lanes = branchLanes(repo.refs);
   const matching = repo.refs.filter((r) => matchesQuery(r.name, filter.value));
   const pick = (kind: GitRef["kind"]) =>
-    matching.filter((r) => r.kind === kind).map((r, i) => ({ ref: r, lane: (i % 8) + 1 }));
+    matching
+      .filter((r) => r.kind === kind)
+      .map((r) => ({ ref: r, lane: lanes.get(r.fullName) ?? 0 }));
   const all: BranchGroup[] = [
     { id: "local", label: t("sidebar.local"), rows: pick("local-branch") },
     { id: "remote", label: t("sidebar.remote"), rows: pick("remote-branch") },
-    { id: "tags", label: t("sidebar.tags"), rows: pick("tag").map((r) => ({ ...r, lane: 0 })) },
+    { id: "tags", label: t("sidebar.tags"), rows: pick("tag") },
   ];
   return all.filter((group) => group.rows.length > 0);
 });

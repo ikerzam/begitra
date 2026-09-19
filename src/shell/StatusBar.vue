@@ -11,6 +11,7 @@ import { useOperationsStore } from "@/stores/operations";
 import { useRepoStore } from "@/stores/repo";
 import { useShellStore } from "@/stores/shell";
 
+import { branchLanes } from "./branchLanes";
 import { baseName, shortHash } from "./format";
 
 const { t } = useI18n();
@@ -18,14 +19,19 @@ const repo = useRepoStore();
 const shell = useShellStore();
 const operations = useOperationsStore();
 
-const path = computed(() => repo.repo?.root ?? "");
-const branch = computed(() => repo.currentBranch);
-const repoName = computed(() => {
+/** The open repository, or the folder being opened or that failed to open. */
+const path = computed(() => {
   const state = repo.state;
-  if (state.kind === "ready") return baseName(path.value);
-  if (state.kind === "opening" || state.kind === "error") return baseName(state.path);
+  if (state.kind === "ready") return repo.repo?.root ?? "";
+  if (state.kind === "opening" || state.kind === "error") return state.path;
   return "";
 });
+const branch = computed(() => repo.currentBranch);
+const branchLane = computed(() => {
+  const current = branch.value;
+  return current ? (branchLanes(repo.refs).get(current.fullName) ?? 1) : 1;
+});
+const repoName = computed(() => baseName(path.value));
 
 const branchLabel = computed(() => {
   if (repo.repo?.detached) return t("statusBar.detached");
@@ -78,7 +84,7 @@ const hints = computed(() => {
         class="flex items-center gap-2 text-fg"
         data-testid="status-branch"
       >
-        <LaneDot :lane="1" />
+        <LaneDot :lane="branchLane" />
         {{ branchLabel }}
       </span>
       <span v-else class="text-fg">{{ repoName }}</span>
@@ -100,7 +106,7 @@ const hints = computed(() => {
       </span>
     </template>
     <span class="ml-auto flex items-center gap-4 text-fg-muted" data-testid="status-hints">
-      <span v-for="hint in hints" :key="hint.label" class="flex items-center gap-1">
+      <span v-for="hint in hints" :key="hint.label" class="flex items-center gap-2">
         <Kbd :keys="hint.keys" />
         {{ hint.label }}
       </span>
@@ -109,8 +115,8 @@ const hints = computed(() => {
 </template>
 
 <style scoped>
-/* The inline progress bar is 112px wide; not on the spacing scale. */
+/* The inline progress bar is 80px wide; not on the spacing scale. */
 .status-progress {
-  width: 112px;
+  width: 80px;
 }
 </style>
