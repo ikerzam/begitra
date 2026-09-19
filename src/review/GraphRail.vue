@@ -37,7 +37,7 @@ function laneClass(commit: CommitNode): string {
 
 <template>
   <div
-    class="flex w-rail shrink-0 flex-col items-center overflow-hidden border-r border-line py-2"
+    class="flex w-rail shrink-0 flex-col items-center overflow-hidden border-r border-line"
     data-testid="graph-rail"
     :title="t('topBar.graphFocus')"
     @click.self="emit('back')"
@@ -56,7 +56,7 @@ function laneClass(commit: CommitNode): string {
         :class="[
           laneClass(entry.commit),
           entry.index === props.selectedIndex
-            ? 'ring-2 ring-accent ring-offset-2 ring-offset-app'
+            ? 'ring-2 ring-accent ring-offset-1 ring-offset-app'
             : '',
         ]"
       ></span>
