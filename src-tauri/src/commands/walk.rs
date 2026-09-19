@@ -2,6 +2,7 @@
 //! `max_pages` pages, keeping the handle for `walk_continue`; `close_walk` drops it.
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use git_core::engine::{Cancel, CommitWalk, GitEngine};
 use git_core::error::GitResult;
@@ -27,6 +28,15 @@ pub struct WalkPage {
     pub commits: Vec<CommitNode>,
     /// Whether the walk is exhausted after this page.
     pub done: bool,
+}
+
+/// Most pages one call streams; the timeout grows with the pages.
+const MAX_PAGES_PER_CALL: u32 = 64;
+
+/// The pages one call streams and the timeout they get.
+fn pages_and_timeout(max_pages: u32) -> (u32, Duration) {
+    let pages = max_pages.clamp(1, MAX_PAGES_PER_CALL);
+    (pages, DEFAULT_TIMEOUT * pages)
 }
 
 /// Where a pump stopped.
@@ -94,7 +104,7 @@ pub async fn walk_commits(
 ) -> Result<(), AppError> {
     let app = state.inner().clone();
     let worker = app.clone();
-    let timeout = DEFAULT_TIMEOUT * max_pages.clamp(1, 64);
+    let (max_pages, timeout) = pages_and_timeout(max_pages);
     run_stream(
         app.ops(),
         &op_id,
@@ -130,7 +140,7 @@ pub async fn walk_continue(
 ) -> Result<(), AppError> {
     let app = state.inner().clone();
     let (_repo, mut walk) = app.take_walk(&walk_id)?;
-    let timeout = DEFAULT_TIMEOUT * max_pages.clamp(1, 64);
+    let (max_pages, timeout) = pages_and_timeout(max_pages);
     let id = walk_id.clone();
     let holder = app.clone();
     run_stream(

@@ -43,10 +43,16 @@ pub fn cancel_operation(state: State<'_, AppState>, op_id: String) -> bool {
 }
 
 /// Emits a `repo:changed` event with the given payload, so the frontend listener can be
-/// exercised before the filesystem watcher exists.
+/// exercised before the filesystem watcher exists. Debug builds only: a release build refuses
+/// it, so nothing in the webview can forge the event.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(app))]
 pub fn debug_emit_repo_changed(app: AppHandle, payload: RepoChanged) -> Result<(), AppError> {
+    if !cfg!(debug_assertions) {
+        return Err(AppError::internal(
+            "debug_emit_repo_changed is only available in debug builds",
+        ));
+    }
     emit_repo_changed(&app, &payload)
 }
 

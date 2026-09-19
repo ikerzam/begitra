@@ -11,7 +11,7 @@ use crate::error::{codes, AppError};
 /// Splitting happens before substitution, so a path with spaces stays one argument. Fails with
 /// `external.spawn_failed` when the template is empty or has unbalanced quotes.
 pub fn argv(template: &str, path: &Path) -> Result<Vec<String>, AppError> {
-    let words = shell_words::split(template).map_err(|error| {
+    let words = split_template(template).map_err(|error| {
         AppError::new(
             codes::EXTERNAL_SPAWN_FAILED,
             "The command template could not be parsed",
@@ -29,6 +29,57 @@ pub fn argv(template: &str, path: &Path) -> Result<Vec<String>, AppError> {
         .into_iter()
         .map(|word| word.replace("{path}", &path))
         .collect())
+}
+
+/// Splits a template into words: POSIX shell rules on Unix (`shell-words`), and on Windows
+/// whitespace with double quotes only, since a backslash is a path separator there
+/// (`C:\tools\wezterm.exe` must survive) and never an escape.
+fn split_template(template: &str) -> Result<Vec<String>, String> {
+    if cfg!(windows) {
+        split_windows(template)
+    } else {
+        shell_words::split(template).map_err(|error| error.to_string())
+    }
+}
+
+/// Windows template words: separated by whitespace, grouped by double quotes (which are
+/// removed), with a backslash before a quote inside quotes standing for a literal quote;
+/// nothing else is special.
+fn split_windows(template: &str) -> Result<Vec<String>, String> {
+    let mut words = Vec::new();
+    let mut word = String::new();
+    let mut in_word = false;
+    let mut quoted = false;
+    let mut chars = template.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => {
+                quoted = !quoted;
+                in_word = true;
+            }
+            '\\' if quoted && chars.peek() == Some(&'"') => {
+                word.push('"');
+                chars.next();
+            }
+            c if c.is_whitespace() && !quoted => {
+                if in_word {
+                    words.push(std::mem::take(&mut word));
+                    in_word = false;
+                }
+            }
+            c => {
+                word.push(c);
+                in_word = true;
+            }
+        }
+    }
+    if quoted {
+        return Err("missing closing quote".to_owned());
+    }
+    if in_word {
+        words.push(word);
+    }
+    Ok(words)
 }
 
 /// Spawns `argv` detached, with `cwd` as its working directory. The child is reaped by a
@@ -108,6 +159,28 @@ mod tests {
         );
         let words = argv(r#"code "{path}" --new-window"#, path).expect("argv");
         assert_eq!(words, vec!["code", "C:/repos/my project", "--new-window"]);
+    }
+
+    #[test]
+    fn windows_words_keep_backslashes_and_group_quotes() {
+        let words = split_windows(r#"C:\tools\wezterm.exe start --cwd "{path}" "a \"b\" c""#)
+            .expect("words");
+        assert_eq!(
+            words,
+            vec![
+                r"C:\tools\wezterm.exe",
+                "start",
+                "--cwd",
+                "{path}",
+                r#"a "b" c"#
+            ]
+        );
+        assert_eq!(
+            split_windows("  cmd   /K  ").expect("words"),
+            vec!["cmd", "/K"]
+        );
+        assert!(split_windows(r#"code "{path}"#).is_err());
+        assert_eq!(split_windows("").expect("words"), Vec::<String>::new());
     }
 
     #[test]

@@ -57,7 +57,8 @@ impl LaneLayout {
     }
 
     /// Number of lanes carrying a line into the next row.
-    pub fn active_lanes(&self) -> usize {
+    #[cfg(test)]
+    pub(crate) fn active_lanes(&self) -> usize {
         self.lanes.iter().filter(|lane| lane.is_some()).count()
     }
 

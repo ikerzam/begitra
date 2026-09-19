@@ -21,7 +21,10 @@ pub async fn open_repository(
     let app = state.inner().clone();
     let worker = app.clone();
     run_blocking(app.ops(), &op_id, DEFAULT_TIMEOUT, move |_cancel| {
-        worker.open(&path).map(|engine| engine.repo().clone())
+        // The engine may have been opened earlier; HEAD is read now so a branch switched
+        // outside the app is reported on this open.
+        let engine = worker.open(&path)?;
+        engine.describe_now()
     })
     .await
 }
