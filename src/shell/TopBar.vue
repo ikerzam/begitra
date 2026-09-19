@@ -40,7 +40,7 @@ const name = computed(() => props.repositoryName ?? t("topBar.noRepository"));
     </div>
     <button
       type="button"
-      class="palette-trigger flex h-control shrink-0 items-center gap-2 rounded-md border border-line px-3 text-md text-fg-muted hover:bg-hover"
+      class="palette-trigger flex h-control shrink-0 items-center gap-2 rounded-sm border border-line-strong px-3 text-md text-fg-muted hover:bg-hover"
       data-testid="palette-trigger"
       @click="emit('openPalette')"
     >
@@ -48,7 +48,7 @@ const name = computed(() => props.repositoryName ?? t("topBar.noRepository"));
       <span class="flex-1 truncate text-left">{{ t("topBar.search") }}</span>
       <Kbd :keys="paletteHint" />
     </button>
-    <div class="flex flex-1 items-center justify-end gap-1">
+    <div class="flex flex-1 items-center justify-end gap-2">
       <IconButton :label="t('topBar.settings')" :icon="Settings" disabled />
       <IconButton
         :label="t('topBar.graphFocus')"
