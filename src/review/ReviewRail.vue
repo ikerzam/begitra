@@ -18,11 +18,20 @@ const emit = defineEmits<{ hide: [] }>();
 
 const { t, n } = useI18n();
 const stats = computed(() => totals(props.files));
+/** The five most frequent types with their labels; the rest fold into "Other" at the end. */
 const types = computed(() => {
   const all = byType(props.files);
-  const top = all.slice(0, 6);
-  const rest = all.slice(6).reduce((sum, entry) => sum + entry.count, 0);
-  return rest > 0 ? [...top, { type: t("review.other"), count: rest }] : top;
+  const top = all.slice(0, 5).filter((entry) => entry.type !== "other");
+  const rest = all
+    .filter((entry) => !top.includes(entry))
+    .reduce((sum, entry) => sum + entry.count, 0);
+  const rows = top.map((entry) => ({
+    key: entry.type,
+    label: t(`review.types.${entry.type}`),
+    count: entry.count,
+  }));
+  if (rest > 0) rows.push({ key: "other", label: t("review.types.other"), count: rest });
+  return rows;
 });
 const biggest = computed(() => largest(props.files, 3));
 const handWritten = computed(() => stats.value.files - stats.value.generated);
@@ -58,17 +67,26 @@ const reviewShare = computed(() =>
         </p>
       </div>
 
-      <div class="flex flex-col gap-1">
+      <div class="flex flex-col">
         <h3 class="text-sm text-fg-muted">{{ t("review.byType") }}</h3>
-        <p v-for="entry in types" :key="entry.type" class="flex justify-between text-fg">
-          <span>{{ entry.type }}</span>
+        <p
+          v-for="entry in types"
+          :key="entry.key"
+          class="flex h-5 items-center justify-between text-fg"
+          data-testid="review-type"
+        >
+          <span>{{ entry.label }}</span>
           <span class="text-fg-secondary">{{ n(entry.count) }}</span>
         </p>
       </div>
 
-      <div v-if="biggest.length > 0" class="flex flex-col gap-1">
+      <div v-if="biggest.length > 0" class="flex flex-col">
         <h3 class="text-sm text-fg-muted">{{ t("review.largest") }}</h3>
-        <p v-for="file in biggest" :key="file.path" class="flex items-center justify-between gap-2">
+        <p
+          v-for="file in biggest"
+          :key="file.path"
+          class="flex h-5 items-center justify-between gap-2"
+        >
           <span class="truncate text-fg">{{ splitPath(file.path).name }}</span>
           <DiffStat :added="file.additions" :removed="file.deletions" />
         </p>
@@ -85,17 +103,20 @@ const reviewShare = computed(() =>
       </div>
 
       <div class="flex flex-col gap-2 border-t border-line pt-3">
-        <h3 class="font-medium text-fg">{{ t("review.progress") }}</h3>
+        <h3 class="text-lg font-semibold text-fg">{{ t("review.progress") }}</h3>
         <p class="text-sm text-fg-secondary">
           {{ t("review.reviewed", { done: props.reviewedCount, total: stats.files }) }}
         </p>
         <Progress :value="reviewShare" variant="reviewed" :label="t('review.progress')" />
       </div>
     </div>
-    <div class="flex flex-col gap-2 border-t border-line px-3 py-3 text-sm text-fg-muted">
-      <span class="flex items-center gap-2"><Kbd keys="j/k" /> {{ t("review.nextFile") }}</span>
-      <span class="flex items-center gap-2"><Kbd keys="n/p" /> {{ t("review.nextHunk") }}</span>
-      <span class="flex items-center gap-2"><Kbd keys="r" /> {{ t("review.markReviewed") }}</span>
+    <!-- Three 24px hint rows with 4px above and below (81px with the hairline). -->
+    <div class="flex flex-col border-t border-line px-3 py-1 text-sm text-fg-muted">
+      <span class="flex h-5 items-center gap-2"><Kbd keys="j/k" /> {{ t("review.nextFile") }}</span>
+      <span class="flex h-5 items-center gap-2"><Kbd keys="n/p" /> {{ t("review.nextHunk") }}</span>
+      <span class="flex h-5 items-center gap-2"
+        ><Kbd keys="r" /> {{ t("review.markReviewed") }}</span
+      >
     </div>
   </aside>
 </template>

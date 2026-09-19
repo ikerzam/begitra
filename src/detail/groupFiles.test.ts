@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { FileChange } from "@/ipc/schemas";
 
-import { applyFilters, byType, groupFiles, largest, statusOf, totals } from "./groupFiles";
+import { applyFilters, byType, groupFiles, largest, statusOf, totals, typeOf } from "./groupFiles";
 
 function file(path: string, overrides: Partial<FileChange> = {}): FileChange {
   return {
@@ -59,10 +59,15 @@ describe("groupFiles", () => {
       tests: 1,
       binary: 1,
     });
-    expect(byType(files).slice(0, 2)).toEqual([
-      { type: "ts", count: 3 },
-      { type: "png", count: 1 },
+    expect(byType(files).slice(0, 3)).toEqual([
+      { type: "typescript", count: 3 },
+      { type: "images", count: 1 },
+      { type: "lockfile", count: 1 },
     ]);
+    expect(typeOf("apps/web/src/map/map-view.tsx")).toBe("tsx");
+    expect(typeOf("Cargo.lock")).toBe("lockfile");
+    expect(typeOf("LICENSE")).toBe("other");
+    expect(typeOf("docs/a.b.Md")).toBe("markdown");
     expect(largest(files, 2).map((f) => f.path)).toEqual([
       "apps/api/src/openapi.ts",
       "pnpm-lock.yaml",

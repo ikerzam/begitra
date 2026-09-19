@@ -196,7 +196,24 @@
     "markReviewed": "mark reviewed",
     "unified": "Unified",
     "sideBySide": "Side by side",
-    "other": "Other"
+    "types": {
+      "typescript": "TypeScript",
+      "tsx": "TSX",
+      "javascript": "JavaScript",
+      "vue": "Vue",
+      "rust": "Rust",
+      "python": "Python",
+      "go": "Go",
+      "json": "JSON",
+      "yaml": "YAML",
+      "toml": "TOML",
+      "markdown": "Markdown",
+      "css": "CSS",
+      "html": "HTML",
+      "images": "Images",
+      "lockfile": "Lockfile",
+      "other": "Other"
+    }
   },
   "palette": {
     "placeholder": "Search or run a command…",

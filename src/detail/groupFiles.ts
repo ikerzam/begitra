@@ -92,13 +92,73 @@ export function totals(files: FileChange[]): ChangeTotals {
   return result;
 }
 
-/** Files by extension (or "other"), most frequent first. */
-export function byType(files: FileChange[]): { type: string; count: number }[] {
-  const counts = new Map<string, number>();
+/** The type categories of the review rail; each is an i18n key under `review.types`. */
+export const fileTypes = [
+  "typescript",
+  "tsx",
+  "javascript",
+  "vue",
+  "rust",
+  "python",
+  "go",
+  "json",
+  "yaml",
+  "toml",
+  "markdown",
+  "css",
+  "html",
+  "images",
+  "lockfile",
+  "other",
+] as const;
+
+export type FileType = (typeof fileTypes)[number];
+
+const typeByExtension: Record<string, FileType> = {
+  ts: "typescript",
+  mts: "typescript",
+  cts: "typescript",
+  tsx: "tsx",
+  js: "javascript",
+  mjs: "javascript",
+  cjs: "javascript",
+  jsx: "javascript",
+  vue: "vue",
+  rs: "rust",
+  py: "python",
+  go: "go",
+  json: "json",
+  yaml: "yaml",
+  yml: "yaml",
+  toml: "toml",
+  md: "markdown",
+  mdx: "markdown",
+  css: "css",
+  scss: "css",
+  html: "html",
+  png: "images",
+  jpg: "images",
+  jpeg: "images",
+  gif: "images",
+  svg: "images",
+  webp: "images",
+  ico: "images",
+};
+
+/** The type category of a path: lockfiles first, then by extension, else "other". */
+export function typeOf(path: string): FileType {
+  if (isLockfile(path)) return "lockfile";
+  const name = splitPath(path).name;
+  const dot = name.lastIndexOf(".");
+  const extension = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+  return typeByExtension[extension] ?? "other";
+}
+
+/** Files by type category, most frequent first, then by key. */
+export function byType(files: FileChange[]): { type: FileType; count: number }[] {
+  const counts = new Map<FileType, number>();
   for (const file of files) {
-    const name = splitPath(file.path).name;
-    const dot = name.lastIndexOf(".");
-    const type = dot > 0 ? name.slice(dot + 1).toLowerCase() : "other";
+    const type = typeOf(file.path);
     counts.set(type, (counts.get(type) ?? 0) + 1);
   }
   return [...counts.entries()]
