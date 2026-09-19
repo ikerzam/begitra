@@ -175,10 +175,11 @@ describe("repo store", () => {
     expect(store.detail?.loading).toBe(false);
     expect(store.detail?.files.map((f) => f.path)).toEqual(["file-00.rs"]);
     expect(operations.isBusy).toBe(false);
+    // The walk starts before the refs are listed so the first page never waits for them.
     expect(calls.map((c) => c.cmd)).toEqual([
       "open_repository",
-      "list_refs",
       "walk_commits",
+      "list_refs",
       "diff",
     ]);
   });

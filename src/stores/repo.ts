@@ -122,13 +122,18 @@ export const useRepoStore = defineStore("repo", () => {
       const opened = await ipc.openRepository(path, opId);
       if (myGeneration !== generation) return;
       repo.value = opened;
-      refs.value = await ipc.listRefs(opened.root);
-      if (myGeneration !== generation) return;
       state.value = { kind: "ready" };
+      // The first page paints before the refs arrive: listing refs with their ahead/behind
+      // counts takes longer than the first page on a repository with many branches.
       startWalk(opened.root);
+      const listed = await ipc.listRefs(opened.root);
+      if (myGeneration !== generation) return;
+      refs.value = listed;
     } catch (error) {
       if (myGeneration !== generation) return;
-      state.value = { kind: "error", path, error: toAppError(error) };
+      const failed = toAppError(error);
+      reset();
+      state.value = { kind: "error", path, error: failed };
     } finally {
       operations.finish(opId);
     }
