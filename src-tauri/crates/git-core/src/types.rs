@@ -1,4 +1,9 @@
 //! Plain serializable domain types shared by the engine, the application and any future CLI.
+//!
+//! Every type here crosses the IPC boundary as JSON with camelCase fields, so names and shapes
+//! are part of the contract that the IPC contract test checks against the TypeScript schemas.
+//! Paths inside a repository (`path`, `old_path`) are repository-relative with `/` separators,
+//! as git prints them; filesystem paths are [`PathBuf`]s.
 
 use std::path::PathBuf;
 
@@ -6,15 +11,435 @@ use serde::{Deserialize, Serialize};
 
 /// An opened repository.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Repo {
     /// Root of the working tree that was opened (a linked worktree keeps its own root).
     pub root: PathBuf,
     /// The shared `.git` directory (the common dir for linked worktrees).
     pub common_dir: PathBuf,
-    /// Checked-out branch name, or `None` when HEAD is detached or unborn.
+    /// Checked-out branch name, or `None` when HEAD is detached.
+    ///
+    /// An unborn branch (a repository without commits) still reports its name.
     pub current_branch: Option<String>,
     /// Whether HEAD points at a commit rather than a branch.
     pub detached: bool,
     /// Whether this working tree is a linked worktree rather than the main one.
     pub is_linked_worktree: bool,
+}
+
+/// Kind of a ref.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RefKind {
+    /// `refs/heads/*`.
+    LocalBranch,
+    /// `refs/remotes/*`, excluding the symbolic `HEAD` of a remote.
+    RemoteBranch,
+    /// `refs/tags/*`; annotated tags are peeled to the commit.
+    Tag,
+    /// One entry of the stash reflog: `stash@{0}` is the newest.
+    Stash,
+    /// The repository `HEAD`.
+    Head,
+}
+
+/// A ref and the commit it points at.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Ref {
+    /// Short display name: `main`, `origin/main`, `v1.0`, `stash@{0}` or `HEAD`.
+    pub name: String,
+    /// Full name: `refs/heads/main`, `refs/remotes/origin/main`, `refs/tags/v1.0`, `refs/stash`
+    /// or `HEAD`.
+    pub full_name: String,
+    /// What kind of ref this is.
+    pub kind: RefKind,
+    /// Hash of the commit the ref points at (annotated tags and stashes peeled to a commit).
+    pub target: String,
+    /// Whether HEAD of the opened working tree points at this ref.
+    pub is_current: bool,
+    /// Short name of the configured upstream (`origin/main`) for local branches that track one.
+    pub upstream: Option<String>,
+    /// Commits on the branch that are not on its upstream; `None` without an upstream.
+    pub ahead: Option<u32>,
+    /// Commits on the upstream that are not on the branch; `None` without an upstream.
+    pub behind: Option<u32>,
+    /// Working tree (main or linked) where a local branch is checked out.
+    pub worktree: Option<PathBuf>,
+    /// Stash message or annotated tag message, when there is one.
+    pub message: Option<String>,
+}
+
+/// Author or committer identity with its timestamp.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Signature {
+    /// Person name.
+    pub name: String,
+    /// E-mail address.
+    pub email: String,
+    /// Seconds since the Unix epoch, UTC.
+    pub time: i64,
+    /// Time zone offset in minutes east of UTC, as stored in the commit.
+    pub offset_minutes: i32,
+}
+
+/// A line of the graph leaving a row towards a parent on a later row.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Edge {
+    /// Lane the line leaves from on this row.
+    pub from_lane: u32,
+    /// Lane the line arrives at on the next row.
+    pub to_lane: u32,
+    /// Hash of the commit the line leads to.
+    pub parent: String,
+}
+
+/// One commit of a walk page, with its lane layout.
+///
+/// Lanes are numbered from zero. Lanes at or beyond [`crate::graph::MAX_LANES`] are not drawn as
+/// columns: their edges are omitted and counted in `overflow`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitNode {
+    /// Full commit hash.
+    pub hash: String,
+    /// Parent hashes, first parent first.
+    pub parents: Vec<String>,
+    /// Author identity and date.
+    pub author: Signature,
+    /// Committer identity and date.
+    pub committer: Signature,
+    /// First paragraph of the message, as `git log --format=%s` prints it.
+    pub subject: String,
+    /// Rest of the message after the subject, without the separating blank line.
+    pub body: String,
+    /// Short names of the refs pointing at this commit (`main`, `origin/main`, `v1`, `HEAD`).
+    pub refs: Vec<String>,
+    /// Lane holding this commit's dot.
+    pub lane: u32,
+    /// Lines leaving this row: one per parent, plus the lanes passing straight through
+    /// (`from_lane == to_lane`, `parent` the commit that lane is waiting for).
+    pub edges: Vec<Edge>,
+    /// Number of active lanes that did not fit in the drawn columns.
+    pub overflow: u32,
+}
+
+/// One page of a commit walk.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Page {
+    /// Commits in walk order.
+    pub commits: Vec<CommitNode>,
+    /// Whether the walk has no more commits after this page.
+    pub done: bool,
+}
+
+/// Which commits a walk covers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum WalkScope {
+    /// Every commit reachable from any ref (branches, remotes, tags, stashes and HEAD).
+    All,
+    /// Commits reachable from one ref or revision.
+    Ref {
+        /// Ref name or revision, resolved as `git rev-parse` would.
+        name: String,
+    },
+    /// Commits reachable from `include` and not from `exclude`, as `exclude..include`.
+    Range {
+        /// Revision whose ancestors are left out.
+        exclude: String,
+        /// Revision whose ancestors are walked.
+        include: String,
+    },
+}
+
+/// Ordering of a commit walk.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum WalkOrder {
+    /// The order of `git log --date-order` (which is also what `--topo-order --date-order`
+    /// selects): newest commit date first, and never a parent before all of its children have
+    /// been shown. Needs the whole history read before the first page can be produced.
+    #[default]
+    DateTopo,
+    /// Newest commit date first, emitted as soon as a commit is discovered, so the first page
+    /// does not wait for the whole history. Identical to [`WalkOrder::DateTopo`] whenever every
+    /// parent is older than its children; with skewed dates a parent can appear before a child.
+    Lazy,
+}
+
+/// Options of a commit walk.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WalkOptions {
+    /// Commits per page, clamped to `1..=500`.
+    pub page_size: usize,
+    /// Ordering; see [`WalkOrder`].
+    pub order: WalkOrder,
+}
+
+impl Default for WalkOptions {
+    fn default() -> Self {
+        Self {
+            page_size: 500,
+            order: WalkOrder::default(),
+        }
+    }
+}
+
+/// How a path changed, in status and diffs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ChangeKind {
+    /// New path.
+    Added,
+    /// Content changed.
+    Modified,
+    /// Path removed.
+    Deleted,
+    /// Moved from `old_path`; content may also have changed.
+    Renamed,
+    /// Copied from `old_path`.
+    Copied,
+    /// File type changed (regular file, symlink, submodule).
+    TypeChanged,
+    /// Conflicted path of an in-progress merge.
+    Unmerged,
+}
+
+/// Status of one path of the working tree.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatusEntry {
+    /// Repository-relative path.
+    pub path: String,
+    /// Previous path of a rename.
+    pub old_path: Option<String>,
+    /// Change between HEAD and the index, if any.
+    pub staged: Option<ChangeKind>,
+    /// Change between the index and the working tree, if any.
+    pub unstaged: Option<ChangeKind>,
+    /// Path is not tracked and not ignored.
+    pub untracked: bool,
+    /// Path is ignored; only reported when ignored paths are requested.
+    pub ignored: bool,
+    /// Path has merge conflicts.
+    pub conflicted: bool,
+}
+
+/// Options of a status scan.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatusOptions {
+    /// Report ignored paths too.
+    pub include_ignored: bool,
+    /// Report untracked paths (default) or leave them out.
+    pub include_untracked: bool,
+    /// Detect renames between HEAD, the index and the working tree.
+    pub renames: bool,
+}
+
+impl Default for StatusOptions {
+    fn default() -> Self {
+        Self {
+            include_ignored: false,
+            include_untracked: true,
+            renames: true,
+        }
+    }
+}
+
+/// What to compare in a diff.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum DiffTarget {
+    /// One commit against its first parent (the empty tree for a root commit).
+    Commit {
+        /// Commit hash or revision.
+        hash: String,
+    },
+    /// The tree of `to` against the tree of `from`, like `git diff from to`.
+    Commits {
+        /// Base revision.
+        from: String,
+        /// Compared revision.
+        to: String,
+    },
+    /// A range: `from..to` compares the two trees, `from...to` compares `to` with the merge
+    /// base of both, like `git diff from...to`.
+    Range {
+        /// Base revision.
+        from: String,
+        /// Compared revision.
+        to: String,
+        /// Use three-dot semantics.
+        three_dot: bool,
+    },
+    /// The working tree against HEAD (`git diff HEAD`) or against the index (`git diff`).
+    WorkingTree {
+        /// What the working tree is compared with.
+        base: WorkingTreeBase,
+    },
+    /// The index against HEAD (`git diff --cached`).
+    Index,
+}
+
+/// Base of a working tree diff.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum WorkingTreeBase {
+    /// Compare with the HEAD commit.
+    Head,
+    /// Compare with the index.
+    Index,
+}
+
+/// Options of a diff.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffOptions {
+    /// Detect renames and copies.
+    pub renames: bool,
+    /// Similarity threshold for renames, in percent.
+    pub similarity: u8,
+    /// Context lines around each change.
+    pub context: u32,
+    /// Compute intra-line change spans for paired removed and added lines.
+    pub intra_line: bool,
+}
+
+impl Default for DiffOptions {
+    fn default() -> Self {
+        Self {
+            renames: true,
+            similarity: 50,
+            context: 3,
+            intra_line: true,
+        }
+    }
+}
+
+/// Result of a diff: every changed file with its hunks and flags.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeSet {
+    /// Changed files, in the order git lists them.
+    pub files: Vec<FileChange>,
+    /// Added lines over every file.
+    pub additions: u32,
+    /// Removed lines over every file.
+    pub deletions: u32,
+}
+
+/// One changed file of a diff.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileChange {
+    /// How the file changed.
+    pub status: ChangeKind,
+    /// Path on the compared side (the new path of a rename).
+    pub path: String,
+    /// Previous path of a rename or copy.
+    pub old_path: Option<String>,
+    /// Similarity of a rename or copy, in percent.
+    pub similarity: Option<u8>,
+    /// Added lines.
+    pub additions: u32,
+    /// Removed lines.
+    pub deletions: u32,
+    /// Hunks; empty for binary files.
+    pub hunks: Vec<Hunk>,
+    /// Either side is binary.
+    pub is_binary: bool,
+    /// Over 5,000 changed lines or 1 MB on either side.
+    pub is_large: bool,
+    /// Marked `linguist-generated` in `.gitattributes`, or a lockfile or minified file.
+    pub is_generated: bool,
+    /// A test file by path convention.
+    pub is_test: bool,
+}
+
+/// A hunk of a text diff.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Hunk {
+    /// First line of the hunk on the old side, 1-based.
+    pub old_start: u32,
+    /// Number of old-side lines in the hunk.
+    pub old_lines: u32,
+    /// First line of the hunk on the new side, 1-based.
+    pub new_start: u32,
+    /// Number of new-side lines in the hunk.
+    pub new_lines: u32,
+    /// The `@@ ... @@` header, including the function context git found.
+    pub header: String,
+    /// Lines of the hunk, in order.
+    pub lines: Vec<DiffLine>,
+}
+
+/// Kind of a diff line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LineKind {
+    /// Present on both sides.
+    Context,
+    /// Present on the new side only.
+    Added,
+    /// Present on the old side only.
+    Removed,
+}
+
+/// A byte range of a line that changed, for intra-line emphasis.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Span {
+    /// Byte offset of the first changed byte.
+    pub start: u32,
+    /// Byte offset just past the last changed byte.
+    pub end: u32,
+}
+
+/// One line of a hunk.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffLine {
+    /// Context, added or removed.
+    pub kind: LineKind,
+    /// Line number on the old side; `None` for added lines.
+    pub old_number: Option<u32>,
+    /// Line number on the new side; `None` for removed lines.
+    pub new_number: Option<u32>,
+    /// Line content without the trailing newline.
+    pub text: String,
+    /// Changed byte ranges within the line, when the line is half of a modified pair.
+    pub spans: Vec<Span>,
+    /// The line has no newline at end of file.
+    pub no_newline: bool,
+}
+
+/// A working tree of the repository, main or linked.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Worktree {
+    /// Path of the working tree.
+    pub path: PathBuf,
+    /// Name git gave the linked worktree; `None` for the main one.
+    pub name: Option<String>,
+    /// Hash of the checked-out commit; `None` when the branch is unborn.
+    pub head: Option<String>,
+    /// Checked-out branch; `None` when detached.
+    pub branch: Option<String>,
+    /// Whether HEAD is detached.
+    pub detached: bool,
+    /// Whether this is the main working tree.
+    pub is_main: bool,
+    /// Whether the worktree is locked.
+    pub locked: bool,
+    /// Lock reason, when one was given.
+    pub lock_reason: Option<String>,
+    /// Whether `git worktree prune` would remove it (its folder is missing).
+    pub prunable: bool,
 }
