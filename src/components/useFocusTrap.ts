@@ -1,17 +1,34 @@
 // Keeps Tab inside a panel (dialogs, the palette): the last focusable element wraps to the
-// first and back, and a panel with one focusable keeps it. The panel decides what its other
-// keys do.
+// first and back, focus on the panel itself starts the cycle from an end, and a panel with one
+// focusable keeps it. The panel decides what its other keys do.
 
 import type { Ref } from "vue";
 
 export const FOCUSABLE =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/** Whether the engine lays elements out; jsdom does not, so there every element counts as rendered. */
+function hasLayout(): boolean {
+  return document.documentElement.getClientRects().length > 0;
+}
+
+/** Whether `element` is rendered: no `hidden` ancestor and, where there is layout, a box. */
+export function isRendered(element: HTMLElement, layout = hasLayout()): boolean {
+  if (element.closest("[hidden]")) return false;
+  if (!layout) return true;
+  if (typeof element.checkVisibility === "function") {
+    return element.checkVisibility({ visibilityProperty: true });
+  }
+  return element.getClientRects().length > 0;
+}
 
 export function useFocusTrap(panel: Ref<HTMLElement | null>) {
-  /** The focusable elements of the panel, in document order. */
+  /** The rendered focusable elements of the panel, in document order. */
   function focusables(): HTMLElement[] {
     const nodes = panel.value?.querySelectorAll<HTMLElement>(FOCUSABLE);
-    return nodes ? Array.from(nodes) : [];
+    if (!nodes) return [];
+    const layout = hasLayout();
+    return Array.from(nodes).filter((element) => isRendered(element, layout));
   }
 
   /** Handles a Tab keydown from inside the panel; returns whether the event was a Tab. */
@@ -24,12 +41,18 @@ export function useFocusTrap(panel: Ref<HTMLElement | null>) {
       event.preventDefault();
       return true;
     }
-    if (event.shiftKey && document.activeElement === first) {
+    const active = document.activeElement;
+    const inside = list.some((element) => element === active);
+    const target = event.shiftKey
+      ? !inside || active === first
+        ? last
+        : null
+      : !inside || active === last
+        ? first
+        : null;
+    if (target) {
       event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
+      target.focus();
     }
     return true;
   }
