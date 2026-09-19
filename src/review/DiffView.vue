@@ -29,7 +29,7 @@ const props = withDefaults(
 );
 const emit = defineEmits<{ showOverview: [] }>();
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const review = useReviewStore();
 const body = ref<HTMLElement | null>(null);
 
@@ -40,6 +40,13 @@ const guarded = computed(
 );
 
 const diff = computed(() => buildRows(props.file?.hunks ?? []));
+
+/* The status word of the binary card, in lower case ("binary, added"). */
+const binaryStatus = computed(() =>
+  props.file
+    ? t(`statusLetter.title.${statusOf(props.file.status)}`).toLocaleLowerCase(locale.value)
+    : "",
+);
 
 useHunkNavigation(body);
 useShortcut("mark-reviewed", () => {
@@ -97,7 +104,7 @@ useShortcut("mark-reviewed", () => {
       <EmptyState v-if="!props.file" :message="t('review.noFile')" />
       <div v-else-if="props.file.isBinary" class="p-4">
         <div class="rounded-md border border-line p-4 text-md text-fg-secondary">
-          {{ t("review.binaryFile", { status: statusOf(props.file.status) }) }}
+          {{ t("review.binaryFile", { status: binaryStatus }) }}
         </div>
       </div>
       <div v-else-if="guarded" class="p-4" data-testid="diff-guard">

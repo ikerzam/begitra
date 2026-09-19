@@ -80,6 +80,16 @@ describe("DiffView", () => {
     wrapper.unmount();
   });
 
+  it("names the status of a binary file in the viewer's language", () => {
+    const binary = file([], { status: "added", isBinary: true, path: "logo.png" });
+    const english = mountWithI18n(DiffView, { props: { file: binary } });
+    expect(english.get('[data-testid="diff-body"]').text()).toBe("Binary file, added.");
+    english.unmount();
+    const spanish = mountWithI18n(DiffView, { props: { file: binary } }, { locale: "es" });
+    expect(spanish.get('[data-testid="diff-body"]').text()).toBe("Fichero binario, añadido.");
+    spanish.unmount();
+  });
+
   it("shows the empty state without a file", () => {
     const wrapper = mountWithI18n(DiffView, { props: { file: null } });
     expect(wrapper.text()).toContain("Select a file to see its diff");
