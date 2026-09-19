@@ -17,7 +17,6 @@
 //!   checked out), not from the compared commit;
 //! - an unborn HEAD counts as the empty tree, where `git diff HEAD` fails.
 
-use std::collections::BTreeMap;
 use std::path::Path;
 
 use git2::{
@@ -72,7 +71,7 @@ fn build_diff<'r>(
 ) -> GitResult<Diff<'r>> {
     let mut git_options = Git2DiffOptions::new();
     git_options
-        .context_lines(options.context)
+        .context_lines(options.context.min(MAX_CONTEXT))
         .include_typechange(true);
     let diff = match target {
         DiffTarget::Commit { hash } => {
@@ -119,16 +118,20 @@ fn build_diff<'r>(
         } => {
             let head = head_tree(repo)?;
             repo.diff_tree_to_workdir_with_index(head.as_ref(), Some(&mut git_options))
+                .map_err(GitError::from)
         }
         DiffTarget::WorkingTree {
             base: WorkingTreeBase::Index,
-        } => repo.diff_index_to_workdir(None, Some(&mut git_options)),
+        } => repo
+            .diff_index_to_workdir(None, Some(&mut git_options))
+            .map_err(GitError::from),
         DiffTarget::Index => {
             let head = head_tree(repo)?;
             repo.diff_tree_to_index(head.as_ref(), None, Some(&mut git_options))
+                .map_err(GitError::from)
         }
     };
-    diff.map_err(GitError::from)
+    diff
 }
 
 /// Resolves a revision as `git rev-parse` would and peels it to a commit: unknown and
@@ -140,6 +143,13 @@ fn resolve_commit<'r>(repo: &'r Repository, revision: &str) -> GitResult<Commit<
         .map_err(|error| GitError::object(&oid.to_string(), error))
 }
 
+/// Most context lines around a change; larger requests are clamped so one request cannot
+/// turn every file into a full listing.
+const MAX_CONTEXT: u32 = 1_000;
+
+/// Lines of one hunk between two cancellation checks.
+const CANCEL_EVERY_LINES: usize = 512;
+
 /// Changed paths above which a tree diff runs unpruned: a pathspec that long costs more than
 /// the walk it saves, and such a diff is dominated by its deltas anyway.
 const PRUNE_LIMIT: usize = 2_000;
@@ -147,7 +157,7 @@ const PRUNE_LIMIT: usize = 2_000;
 /// A tree-to-tree diff limited to the paths that differ.
 ///
 /// libgit2 walks both trees completely, which costs tens of milliseconds on a tree of fifty
-/// thousand files even for a one-line commit. The changed paths are found first by comparing
+/// thousand files even for a one-line commit. The changed paths are found first by merging
 /// the entries of both trees and descending only into subtrees whose ids differ, and the diff
 /// is then limited to those paths with a literal pathspec, which libgit2's iterators prune
 /// on. A directory present on one side only is listed as `dir/`, which libgit2 expands.
@@ -156,79 +166,138 @@ fn tree_diff<'r>(
     old: Option<&Tree<'r>>,
     new: &Tree<'r>,
     git_options: &mut Git2DiffOptions,
-) -> Result<Diff<'r>, git2::Error> {
+) -> GitResult<Diff<'r>> {
     if let Some(old) = old {
         if let Some(paths) = changed_paths(repo, old, new, PRUNE_LIMIT)? {
             git_options.disable_pathspec_match(true);
+            if paths.is_empty() {
+                // Identical trees: a name of one control byte matches nothing, so libgit2
+                // visits no entry at all instead of walking both trees.
+                git_options.pathspec(&[1u8][..]);
+            }
             for path in paths {
                 git_options.pathspec(path);
             }
         }
     }
     repo.diff_tree_to_tree(old, Some(new), Some(git_options))
-}
-
-/// One entry of a tree, as needed to compare two trees.
-struct Entry {
-    id: Oid,
-    kind: Option<ObjectType>,
-    mode: i32,
+        .map_err(GitError::from)
 }
 
 /// The paths that differ between `old` and `new`, descending only into subtrees whose ids
-/// differ; `None` once more than `limit` paths are found. Trees present on one side only, or
-/// replacing a blob, are listed as `dir/` so a literal pathspec covers their content; a blob
-/// replaced by a tree is listed as both `path` and `path/`.
+/// differ; `None` once more than `limit` paths are found, or when a path cannot be given to
+/// libgit2 literally. Trees present on one side only, or replacing a blob, are listed as
+/// `dir/` so a literal pathspec covers their content; a blob replaced by a tree is listed as
+/// both `path` and `path/`. A subtree that cannot be read is [`GitError::CorruptObject`].
 fn changed_paths(
     repo: &Repository,
     old: &Tree<'_>,
     new: &Tree<'_>,
     limit: usize,
-) -> Result<Option<Vec<Vec<u8>>>, git2::Error> {
-    let mut paths: Vec<Vec<u8>> = Vec::new();
-    let mut pending: Vec<(Vec<u8>, Oid, Oid)> = vec![(Vec::new(), old.id(), new.id())];
-    while let Some((prefix, old_id, new_id)) = pending.pop() {
-        let old_tree = repo.find_tree(old_id)?;
-        let new_tree = repo.find_tree(new_id)?;
-        let mut old_entries: BTreeMap<Vec<u8>, Entry> = BTreeMap::new();
-        for entry in old_tree.iter() {
-            old_entries.insert(
-                entry.name_bytes().to_vec(),
-                Entry {
-                    id: entry.id(),
-                    kind: entry.kind(),
-                    mode: entry.filemode(),
-                },
-            );
-        }
-        for entry in new_tree.iter() {
-            let name = entry.name_bytes();
-            let new_is_tree = entry.kind() == Some(ObjectType::Tree);
-            match old_entries.remove(name) {
-                Some(before) if before.id == entry.id() && before.mode == entry.filemode() => {}
-                Some(before) if before.kind == Some(ObjectType::Tree) && new_is_tree => {
-                    pending.push((join(&prefix, name, true), before.id, entry.id()));
-                }
-                Some(before) => {
-                    let old_is_tree = before.kind == Some(ObjectType::Tree);
-                    if !old_is_tree || !new_is_tree {
-                        paths.push(join(&prefix, name, false));
-                    }
-                    if old_is_tree || new_is_tree {
-                        paths.push(join(&prefix, name, true));
-                    }
-                }
-                None => paths.push(join(&prefix, name, new_is_tree)),
-            }
-        }
-        for (name, before) in old_entries {
-            paths.push(join(&prefix, &name, before.kind == Some(ObjectType::Tree)));
-        }
-        if paths.len() > limit {
+) -> GitResult<Option<Vec<Vec<u8>>>> {
+    let mut found = ChangedPaths {
+        paths: Vec::new(),
+        pending: Vec::new(),
+        limit,
+    };
+    if !found.merge(b"", old, new) {
+        return Ok(None);
+    }
+    while let Some((prefix, old_id, new_id)) = found.pending.pop() {
+        let old_tree = repo
+            .find_tree(old_id)
+            .map_err(|error| GitError::object(&old_id.to_string(), error))?;
+        let new_tree = repo
+            .find_tree(new_id)
+            .map_err(|error| GitError::object(&new_id.to_string(), error))?;
+        if !found.merge(&prefix, &old_tree, &new_tree) {
             return Ok(None);
         }
     }
-    Ok(Some(paths))
+    Ok(Some(found.paths))
+}
+
+/// The changed paths found so far and the differing subtrees still to compare.
+struct ChangedPaths {
+    paths: Vec<Vec<u8>>,
+    /// `(prefix with trailing slash, old subtree, new subtree)`.
+    pending: Vec<(Vec<u8>, Oid, Oid)>,
+    limit: usize,
+}
+
+impl ChangedPaths {
+    /// Merges the entries of two trees, which git stores in one canonical order (a directory
+    /// sorts as `name/`), so each side is read once and no map is built. Returns `false`
+    /// when the limit is passed or a path cannot be a literal pathspec.
+    fn merge(&mut self, prefix: &[u8], old: &Tree<'_>, new: &Tree<'_>) -> bool {
+        use std::cmp::Ordering;
+        let mut olds = old.iter().peekable();
+        let mut news = new.iter().peekable();
+        loop {
+            let ok = match (olds.peek(), news.peek()) {
+                (None, None) => return true,
+                (Some(gone), None) => {
+                    let ok = self.push(prefix, gone.name_bytes(), is_tree(gone));
+                    olds.next();
+                    ok
+                }
+                (None, Some(added)) => {
+                    let ok = self.push(prefix, added.name_bytes(), is_tree(added));
+                    news.next();
+                    ok
+                }
+                (Some(before), Some(after)) => match before.cmp(after) {
+                    Ordering::Less => {
+                        let ok = self.push(prefix, before.name_bytes(), is_tree(before));
+                        olds.next();
+                        ok
+                    }
+                    Ordering::Greater => {
+                        let ok = self.push(prefix, after.name_bytes(), is_tree(after));
+                        news.next();
+                        ok
+                    }
+                    // Same name and the same kind of entry (a blob and a tree of one name
+                    // never compare equal, so a typechange lists both forms).
+                    Ordering::Equal => {
+                        let ok =
+                            if before.id() == after.id() && before.filemode() == after.filemode() {
+                                true
+                            } else if is_tree(before) && is_tree(after) {
+                                self.pending.push((
+                                    join(prefix, before.name_bytes(), true),
+                                    before.id(),
+                                    after.id(),
+                                ));
+                                true
+                            } else {
+                                self.push(prefix, before.name_bytes(), false)
+                            };
+                        olds.next();
+                        news.next();
+                        ok
+                    }
+                },
+            };
+            if !ok {
+                return false;
+            }
+        }
+    }
+
+    /// Records one changed path; `false` when the limit is passed or the name holds a
+    /// backslash, which git2 rewrites to a slash on Windows (the unpruned diff still lists it).
+    fn push(&mut self, prefix: &[u8], name: &[u8], directory: bool) -> bool {
+        if cfg!(windows) && name.contains(&b'\\') {
+            return false;
+        }
+        self.paths.push(join(prefix, name, directory));
+        self.paths.len() <= self.limit
+    }
+}
+
+fn is_tree(entry: &git2::TreeEntry<'_>) -> bool {
+    entry.kind() == Some(ObjectType::Tree)
 }
 
 /// `prefix/name`, with a trailing slash for a directory.
@@ -363,6 +432,11 @@ fn file_change(
     } else {
         None
     };
+    // Whether the file is large is known from the line counts before any line is read, so
+    // the intra-line pass (the costly part) is skipped for files the viewer collapses anyway.
+    let (_, stat_additions, stat_deletions) = patch.line_stats()?;
+    let changed = u32::try_from(stat_additions.saturating_add(stat_deletions)).unwrap_or(u32::MAX);
+    let large = flags::is_large(changed, meta.old_size, meta.new_size);
     let hunk_count = patch.num_hunks();
     let mut hunks = Vec::with_capacity(hunk_count);
     let mut additions: u32 = 0;
@@ -372,6 +446,9 @@ fn file_change(
         let (hunk, line_count) = patch.hunk(hunk_index)?;
         let mut lines: Vec<DiffLine> = Vec::with_capacity(line_count);
         for line_index in 0..line_count {
+            if line_index % CANCEL_EVERY_LINES == 0 {
+                cancel.check()?;
+            }
             let line = patch.line_in_hunk(hunk_index, line_index)?;
             let kind = match line.origin_value() {
                 DiffLineType::Context => LineKind::Context,
@@ -404,7 +481,7 @@ fn file_change(
                 no_newline: false,
             });
         }
-        if options.intra_line {
+        if options.intra_line && !large {
             mark_intra_line_spans(&mut lines);
         }
         hunks.push(Hunk {

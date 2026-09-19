@@ -868,3 +868,39 @@ fn an_absurd_ancestor_count_is_just_not_found() {
         .expect_err("must fail");
     assert_eq!(error.code(), "refs.not_found", "{error:?}");
 }
+
+/// Large files carry their hunks but no intra-line spans: the viewer collapses them, and the
+/// span pass is the costly part of a diff.
+#[test]
+fn large_files_skip_the_intra_line_spans() {
+    let mut f = Fixture::basic();
+    let before: String = (0..6_000)
+        .map(|i| {
+            format!(
+                "line {i} alpha
+"
+            )
+        })
+        .collect();
+    f.write("big.txt", &before);
+    f.commit("big");
+    let after: String = (0..6_000)
+        .map(|i| {
+            format!(
+                "line {i} omega
+"
+            )
+        })
+        .collect();
+    f.write("big.txt", &after);
+    f.commit("big changed");
+    let set = diff(&f, &commit("HEAD"));
+    let big = file(&set, "big.txt");
+    assert!(big.is_large);
+    assert_eq!(big.additions, 6_000);
+    assert!(big
+        .hunks
+        .iter()
+        .flat_map(|h| h.lines.iter())
+        .all(|l| l.spans.is_empty()));
+}
