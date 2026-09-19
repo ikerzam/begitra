@@ -46,6 +46,8 @@ pub struct Placement {
 pub struct LaneLayout {
     /// Hash each lane expects next; `None` is a free lane. Trailing free lanes are trimmed.
     lanes: Vec<Option<String>>,
+    /// Which lanes were active before the current row; reused between rows.
+    was_active: Vec<bool>,
 }
 
 impl LaneLayout {
@@ -69,14 +71,17 @@ impl LaneLayout {
             Some(lane) => lane,
             None => self.allocate(),
         };
-        let was_active: Vec<bool> = self.lanes.iter().map(Option::is_some).collect();
+        self.was_active.clear();
+        self.was_active
+            .extend(self.lanes.iter().map(Option::is_some));
         for slot in &mut self.lanes {
             if slot.as_deref() == Some(hash) {
                 *slot = None;
             }
         }
 
-        let mut edges = Vec::with_capacity(parents.len() + self.lanes.len());
+        let drawn = MAX_LANES as usize;
+        let mut edges = Vec::with_capacity(parents.len() + self.lanes.len().min(drawn));
         let mut own_lane_taken = false;
         for parent in parents {
             let to_lane = match self.expecting(parent) {
@@ -92,14 +97,17 @@ impl LaneLayout {
                     opened
                 }
             };
-            edges.push(Edge {
-                from_lane: index(lane),
-                to_lane: index(to_lane),
-                parent: (*parent).to_owned(),
-            });
+            // Edges touching undrawn lanes are counted in the overflow, never built.
+            if lane < drawn && to_lane < drawn {
+                edges.push(Edge {
+                    from_lane: index(lane),
+                    to_lane: index(to_lane),
+                    parent: (*parent).to_owned(),
+                });
+            }
         }
-        for (i, slot) in self.lanes.iter().enumerate() {
-            if i == lane || was_active.get(i).copied() != Some(true) {
+        for (i, slot) in self.lanes.iter().enumerate().take(drawn) {
+            if i == lane || self.was_active.get(i).copied() != Some(true) {
                 continue;
             }
             if let Some(expected) = slot {
@@ -117,10 +125,9 @@ impl LaneLayout {
         let overflow = self
             .lanes
             .iter()
-            .skip(MAX_LANES as usize)
+            .skip(drawn)
             .filter(|slot| slot.is_some())
             .count();
-        edges.retain(|edge| edge.from_lane < MAX_LANES && edge.to_lane < MAX_LANES);
         Placement {
             lane: index(lane),
             edges,
