@@ -9,9 +9,18 @@ publish = false
 
 [dependencies]
 git-core.workspace = true
+git2.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
+tempfile.workspace = true
+
+[lib]
+name = "bench"
+path = "src/lib.rs"
 
 [[bin]]
 name = "bench"
