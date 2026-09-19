@@ -3,7 +3,7 @@
 // only the pages it has received and asks for more on demand.
 
 import { defineStore } from "pinia";
-import { computed, ref } from "vue";
+import { computed, ref, shallowRef } from "vue";
 
 import * as ipc from "@/ipc/commands";
 import { toAppError, type AppError } from "@/ipc/errors";
@@ -31,6 +31,8 @@ export interface WalkPosition {
   walkId: string;
   nextIndex: number;
   done: boolean;
+  /** Pages below this index were loaded by an earlier walk and are skipped on arrival. */
+  skipBefore: number;
 }
 
 export interface Detail {
@@ -52,7 +54,11 @@ export const useRepoStore = defineStore("repo", () => {
   const state = ref<RepoState>({ kind: "empty" });
   const repo = ref<Repo | null>(null);
   const refs = ref<GitRef[]>([]);
-  const commits = ref<CommitNode[]>([]);
+  /** Whether the refs of the open repository have arrived (they load after the first page). */
+  const refsLoaded = ref(false);
+  // Commits are appended by the thousand and never edited in place: a shallow ref avoids a
+  // reactive proxy per commit.
+  const commits = shallowRef<CommitNode[]>([]);
   const walk = ref<WalkPosition | null>(null);
   const streaming = ref(false);
   const walkError = ref<AppError | null>(null);
@@ -64,6 +70,10 @@ export const useRepoStore = defineStore("repo", () => {
   let walkHandle: StreamHandle | null = null;
   let diffHandle: StreamHandle | null = null;
   let generation = 0;
+  /** Number of the latest diff request; older streams are ignored whatever commit they hold. */
+  let diffRequest = 0;
+  /** Whether the current walk was already restarted once after the backend lost it. */
+  let walkRecovered = false;
 
   const selectedCommit = computed<CommitNode | undefined>(() => commits.value[selectedIndex.value]);
   const canLoadMore = computed(
@@ -81,8 +91,10 @@ export const useRepoStore = defineStore("repo", () => {
     if (walk.value && !walk.value.done) void ipc.closeWalk(walk.value.walkId);
     walkHandle = null;
     diffHandle = null;
+    walkRecovered = false;
     repo.value = null;
     refs.value = [];
+    refsLoaded.value = false;
     commits.value = [];
     walk.value = null;
     streaming.value = false;
@@ -109,7 +121,14 @@ export const useRepoStore = defineStore("repo", () => {
     }
   }
 
-  /** Opens the repository at `path`: description, refs, then the first commit pages. */
+  /** Whether `root` (or the path being opened) is the repository the store shows now. */
+  function isCurrentRepository(root: string, path: string): boolean {
+    if (repo.value?.root === root) return true;
+    const current = state.value;
+    return (current.kind === "opening" || current.kind === "error") && current.path === path;
+  }
+
+  /** Opens the repository at `path`: description, the first commit pages, then the refs. */
   async function open(path: string): Promise<void> {
     const previous = repo.value?.root;
     reset();
@@ -118,9 +137,15 @@ export const useRepoStore = defineStore("repo", () => {
     state.value = { kind: "opening", path };
     const opId = newOpId("open");
     operations.start(opId, "operations.opening");
+    let opened: Repo | null = null;
     try {
-      const opened = await ipc.openRepository(path, opId);
-      if (myGeneration !== generation) return;
+      opened = await ipc.openRepository(path, opId);
+      if (myGeneration !== generation) {
+        // Abandoned while opening: the backend cached the engine, so it is closed unless the
+        // newer open is for this same repository.
+        if (!isCurrentRepository(opened.root, path)) void ipc.closeRepository(opened.root);
+        return;
+      }
       repo.value = opened;
       state.value = { kind: "ready" };
       // The first page paints before the refs arrive: listing refs with their ahead/behind
@@ -129,17 +154,25 @@ export const useRepoStore = defineStore("repo", () => {
       const listed = await ipc.listRefs(opened.root);
       if (myGeneration !== generation) return;
       refs.value = listed;
+      refsLoaded.value = true;
     } catch (error) {
       if (myGeneration !== generation) return;
       const failed = toAppError(error);
       reset();
       state.value = { kind: "error", path, error: failed };
+      if (opened) void ipc.closeRepository(opened.root);
     } finally {
       operations.finish(opId);
     }
   }
 
-  function startWalk(root: string): void {
+  /**
+   * Starts a walk from the first page. With `skipPages`, the walk repeats the pages an earlier
+   * walk already delivered (the backend drops idle walks after a while) and only appends from
+   * that page on; the first repeated page must still start with the same commit, otherwise
+   * the history changed and the list starts over.
+   */
+  function startWalk(root: string, skipPages = 0): void {
     const myGeneration = generation;
     const opId = newOpId("walk");
     streaming.value = true;
@@ -148,9 +181,9 @@ export const useRepoStore = defineStore("repo", () => {
     walkHandle = ipc.walkCommits(
       root,
       { kind: "all" },
-      (page) => receivePage(page, myGeneration),
+      (page) => receivePage(page, myGeneration, skipPages),
       ipc.defaultWalkOptions,
-      PAGES_PER_REQUEST,
+      skipPages + PAGES_PER_REQUEST,
       opId,
     );
     void settleWalk(walkHandle, myGeneration, opId);
@@ -173,10 +206,32 @@ export const useRepoStore = defineStore("repo", () => {
     void settleWalk(walkHandle, myGeneration, opId);
   }
 
-  function receivePage(page: WalkPage, myGeneration: number): void {
+  function receivePage(page: WalkPage, myGeneration: number, skipBefore?: number): void {
     if (myGeneration !== generation) return;
-    commits.value = commits.value.concat(page.commits);
-    walk.value = { walkId: page.walkId, nextIndex: page.index + 1, done: page.done };
+    const skip = skipBefore ?? walk.value?.skipBefore ?? 0;
+    if (page.index === 0 && skip > 0 && page.commits[0]?.hash !== commits.value[0]?.hash) {
+      // The history changed under the restarted walk: start the list over.
+      commits.value = [];
+      selectedIndex.value = -1;
+      detail.value = null;
+      walk.value = { walkId: page.walkId, nextIndex: 1, done: page.done, skipBefore: 0 };
+      commits.value = page.commits;
+    } else if (page.index >= skip) {
+      commits.value = commits.value.concat(page.commits);
+      walk.value = {
+        walkId: page.walkId,
+        nextIndex: page.index + 1,
+        done: page.done,
+        skipBefore: skip,
+      };
+    } else {
+      walk.value = {
+        walkId: page.walkId,
+        nextIndex: page.index + 1,
+        done: page.done,
+        skipBefore: skip,
+      };
+    }
     if (selectedIndex.value < 0 && commits.value.length > 0) select(0);
   }
 
@@ -187,8 +242,25 @@ export const useRepoStore = defineStore("repo", () => {
   ): Promise<void> {
     try {
       await handle.done;
+      if (myGeneration === generation) walkRecovered = false;
     } catch (error) {
-      if (myGeneration === generation) walkError.value = toAppError(error);
+      if (myGeneration !== generation) return;
+      const failed = toAppError(error);
+      const root = repo.value?.root;
+      const position = walk.value;
+      const lost = failed.code === "op.unknown_walk" && root !== undefined && position !== null;
+      if (lost && !walkRecovered) {
+        // The backend dropped the walk (idle for too long, or a timed-out continuation):
+        // start it again and skip the pages already shown.
+        walkRecovered = true;
+        startWalk(root, position.nextIndex);
+        return;
+      }
+      walkError.value = failed;
+      if (lost) {
+        // A second loss in a row: stop asking, the banner says where history stops.
+        walk.value = { ...position, done: true };
+      }
     } finally {
       operations.finish(opId);
       if (myGeneration === generation) streaming.value = false;
@@ -204,10 +276,15 @@ export const useRepoStore = defineStore("repo", () => {
     if (!commit || !root) return;
     void diffHandle?.cancel();
     const myGeneration = generation;
+    // Each request has its own number: a stream of the same commit started earlier (a double
+    // click, k on the first row) is ignored, pages and cancellation alike.
+    diffRequest += 1;
+    const request = diffRequest;
+    const current = () => myGeneration === generation && request === diffRequest;
     const hash = commit.hash;
     detail.value = { hash, files: [], additions: 0, deletions: 0, totalFiles: 0, loading: true };
     const handle = ipc.diff(root, { kind: "commit", hash }, (page: DiffPage) => {
-      if (myGeneration !== generation || detail.value?.hash !== hash) return;
+      if (!current() || !detail.value) return;
       detail.value = {
         ...detail.value,
         files: detail.value.files.concat(page.files),
@@ -219,12 +296,10 @@ export const useRepoStore = defineStore("repo", () => {
     diffHandle = handle;
     void handle.done
       .then(() => {
-        if (myGeneration === generation && detail.value?.hash === hash) {
-          detail.value = { ...detail.value, loading: false };
-        }
+        if (current() && detail.value) detail.value = { ...detail.value, loading: false };
       })
       .catch((error: unknown) => {
-        if (myGeneration === generation && detail.value?.hash === hash) {
+        if (current() && detail.value) {
           detail.value = { ...detail.value, loading: false, error: toAppError(error) };
         }
       });
@@ -249,6 +324,7 @@ export const useRepoStore = defineStore("repo", () => {
     state,
     repo,
     refs,
+    refsLoaded,
     commits,
     walk,
     streaming,

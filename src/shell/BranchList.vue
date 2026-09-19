@@ -8,6 +8,7 @@ import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ListRow from "@/components/ListRow.vue";
+import SkeletonRow from "@/components/SkeletonRow.vue";
 import type { Ref as GitRef } from "@/ipc/schemas";
 import { matchesQuery } from "@/palette/usePalette";
 import { useListNavigation } from "@/shortcuts/useListNavigation";
@@ -101,7 +102,10 @@ defineExpose({ focus: navigation.focus });
         @select="navigation.select(rowIndex(groupIndex, index))"
       />
     </template>
-    <p v-if="groups.length === 0" class="px-3 py-4 text-md text-fg-secondary">
+    <template v-if="groups.length === 0 && repo.state.kind === 'ready' && !repo.refsLoaded">
+      <SkeletonRow v-for="n in 6" :key="n" :index="n" height="list" />
+    </template>
+    <p v-else-if="groups.length === 0" class="px-3 py-4 text-md text-fg-secondary">
       {{ repo.state.kind === "ready" ? t("sidebar.noBranches") : t("sidebar.noRepository") }}
     </p>
   </div>
