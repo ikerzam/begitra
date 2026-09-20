@@ -103,13 +103,22 @@ export const useShellStore = defineStore("shell", () => {
     paletteOpen.value = !paletteOpen.value;
   }
 
+  /**
+   * The Worktrees tab shows the dashboard in the main area; the other tabs return to graph
+   * focus when the dashboard is up (the review and compare layouts keep their tab).
+   */
   function setSidebarTab(tab: SidebarTab): void {
     sidebarTab.value = tab;
+    if (tab === "worktrees" && layoutMode.value !== "worktrees") {
+      void setLayoutMode("worktrees");
+    } else if (tab !== "worktrees" && layoutMode.value === "worktrees") {
+      void setLayoutMode("graph");
+    }
   }
 
   /** Expands the sidebar on `tab` (the rail icons do this). */
   async function expandSidebar(tab: SidebarTab): Promise<void> {
-    sidebarTab.value = tab;
+    setSidebarTab(tab);
     if (settings.values.sidebarCollapsed) await settings.update("sidebarCollapsed", false);
   }
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// The Worktrees tab: the worktrees of the open repository, filtered, with roving focus and
-// j/k navigation. Rows show the worktree icon and the branch.
+// The Worktrees tab: the worktrees of the open repository as their folder name with the
+// branch's lane dot and the tree icon, filtered, with roving focus and
+// j/k navigation. Selecting a row selects it in the dashboard; ↵ opens it as the context.
 
 import { ListTree } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
@@ -10,32 +11,38 @@ import ListRow from "@/components/ListRow.vue";
 import { matchesQuery } from "@/palette/usePalette";
 import { useListNavigation } from "@/shortcuts/useListNavigation";
 import { useRepoStore } from "@/stores/repo";
+import { useWorktreesStore } from "@/stores/worktrees";
 
+import { branchLanes } from "./branchLanes";
 import { baseName } from "./format";
 
 const props = defineProps<{ filter: string }>();
 
 const { t } = useI18n();
 const repo = useRepoStore();
+const worktrees = useWorktreesStore();
 const listbox = ref<HTMLElement | null>(null);
 
-const rows = computed(() =>
-  repo.worktrees
+const rows = computed(() => {
+  const lanes = branchLanes(repo.refs);
+  return repo.worktrees
     .map((worktree) => ({
       key: worktree.path,
-      name: worktree.isMain ? t("sidebar.mainWorktree") : baseName(worktree.path),
-      meta: worktree.branch ?? "",
+      name: baseName(worktree.path),
+      branch: worktree.branch ?? "",
+      lane: worktree.branch
+        ? (lanes.get(worktree.branch) ?? lanes.get(`refs/heads/${worktree.branch}`) ?? 0)
+        : 0,
     }))
-    .filter((row) => matchesQuery(`${row.name} ${row.meta}`, props.filter)),
-);
+    .filter((row) => matchesQuery(`${row.name} ${row.branch}`, props.filter));
+});
 const rowCount = computed(() => rows.value.length);
 
-/* The selection follows the path, so filtering keeps it; none until the user picks a row. */
-const selectedKey = ref<string | null>(null);
+/* The selection is the dashboard's, so both sides agree; filtering keeps it. */
 const selectedRow = computed({
-  get: () => rows.value.findIndex((row) => row.key === selectedKey.value),
+  get: () => rows.value.findIndex((row) => row.key === worktrees.selectedPath),
   set: (index: number) => {
-    selectedKey.value = rows.value[index]?.key ?? null;
+    worktrees.select(rows.value[index]?.key ?? null);
   },
 });
 const tabStopRow = computed(() => Math.max(0, selectedRow.value));
@@ -43,6 +50,10 @@ const tabStopRow = computed(() => Math.max(0, selectedRow.value));
 const navigation = useListNavigation({
   count: rowCount,
   selected: selectedRow,
+  onActivate: (index) => {
+    const row = rows.value[index];
+    if (row) void worktrees.openAsContext(row.key);
+  },
   rowElement: (index) => listbox.value?.querySelector(`[data-index="${index}"]`),
 });
 
@@ -73,11 +84,13 @@ defineExpose({ focus: navigation.focus });
       :key="row.key"
       :data-index="index"
       :name="row.name"
+      :lane="row.lane"
       :icon="ListTree"
-      :meta="row.meta"
+      icon-beside
       :selected="index === selectedRow"
       :tab-stop="index === tabStopRow"
       @select="navigation.select(index)"
+      @activate="() => void worktrees.openAsContext(row.key)"
     />
     <p v-if="rows.length === 0" class="px-3 py-2 text-md text-fg-secondary">
       {{ repo.state.kind === "ready" ? t("sidebar.noWorktrees") : t("sidebar.noRepository") }}

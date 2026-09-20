@@ -37,6 +37,9 @@ const labels: Record<string, string> = {
   "palette.commandsById.compare-with": "Compare with…",
   "palette.commandsById.swap-comparison": "Swap comparison sides",
   "palette.commandsById.compare-open-review": "Open comparison in review",
+  "palette.commandsById.show-worktrees": "Show worktrees",
+  "palette.commandsById.add-worktree": "Add worktree…",
+  "palette.commandsById.prune-worktrees": "Prune worktrees",
   "palette.commandsById.locale-en": "Language: English",
   "palette.commandsById.locale-es": "Language: Spanish",
 };
@@ -142,6 +145,13 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
       calls.push("openComparisonInReview");
       return Promise.resolve();
     },
+    showWorktrees: () => {
+      calls.push("showWorktrees");
+      return Promise.resolve();
+    },
+    addWorktree: record("addWorktree"),
+    hasPrunableWorktrees: () => false,
+    pruneWorktrees: record("pruneWorktrees"),
   };
 }
 
@@ -193,6 +203,8 @@ describe("usePalette", () => {
       "toggle-wrap",
       "toggle-whitespace",
       "compare-with",
+      "show-worktrees",
+      "add-worktree",
       "toggle-hide-generated",
       "toggle-hide-lockfiles",
       "toggle-hide-tests",

@@ -10,7 +10,7 @@ import { computed, ref } from "vue";
 import { defaultSkipFolders } from "@/ipc/commands";
 import { detectPlatform, type Platform } from "@/shortcuts/platform";
 
-export type LayoutMode = "graph" | "review" | "compare";
+export type LayoutMode = "graph" | "review" | "compare" | "worktrees";
 export type Locale = "en" | "es";
 
 /** One side of a comparison: a revision, or a worktree meaning its checked-out commit. */
@@ -63,6 +63,8 @@ export interface Settings {
   diffIgnoreWhitespace: boolean;
   /** The comparison to restore with the compare layout; null when none was open. */
   compare: CompareEndpoints | null;
+  /** Where new worktrees go; null means a sibling folder of the repository. */
+  worktreeFolder: string | null;
 }
 
 export type DiffLayout = "unified" | "side-by-side";
@@ -80,7 +82,7 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   editorCommand: v.pipe(v.string(), v.minLength(1)),
   paneSizes: v.object({ sidebar: px, detail: v.nullable(px), files: px, reviewRail: px }),
   sidebarCollapsed: v.boolean(),
-  layoutMode: v.picklist(["graph", "review", "compare"]),
+  layoutMode: v.picklist(["graph", "review", "compare", "worktrees"]),
   locale: v.picklist(["en", "es"]),
   paletteRecents: v.array(v.string()),
   scanRoots: v.array(path),
@@ -92,6 +94,7 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   diffWrap: v.boolean(),
   diffIgnoreWhitespace: v.boolean(),
   compare: v.nullable(v.object({ a: endpoint, b: endpoint })),
+  worktreeFolder: v.nullable(path),
 };
 
 export const settingsKeys = Object.keys(schemas) as (keyof Settings)[];
@@ -133,6 +136,7 @@ export function defaultSettings(platform: Platform): Settings {
     diffWrap: false,
     diffIgnoreWhitespace: false,
     compare: null,
+    worktreeFolder: null,
   };
 }
 

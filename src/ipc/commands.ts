@@ -141,6 +141,11 @@ export function worktreeUnlock(repo: string, path: string, opId = newOpId("workt
   return call("worktree_unlock", { repo, path, opId }, v.null());
 }
 
+/** Whether an absolute path exists (the add dialog checks its Path field with it). */
+export function pathExists(path: string) {
+  return call("path_exists", { path }, v.boolean());
+}
+
 export function closeWalk(walkId: string) {
   return call("close_walk", { walkId }, v.boolean());
 }

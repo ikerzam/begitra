@@ -14,10 +14,9 @@ import ReviewRail from "@/review/ReviewRail.vue";
 import { useShortcut } from "@/shortcuts/useShortcut";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
-import { paneLimits, useShellStore, type SidebarTab } from "@/stores/shell";
+import { paneLimits, useShellStore } from "@/stores/shell";
 
 import PaneResizer from "./PaneResizer.vue";
-import SidebarRail from "./SidebarRail.vue";
 
 const { t } = useI18n();
 const shell = useShellStore();
@@ -39,17 +38,11 @@ const railWidth = computed(() => `${shell.paneSizes.reviewRail}px`);
 useShortcut("next-file", () => filesPanel.value?.moveFile(1));
 useShortcut("previous-file", () => filesPanel.value?.moveFile(-1));
 
-async function leaveToSidebar(tab: SidebarTab): Promise<void> {
-  await shell.setLayoutMode("graph");
-  await shell.expandSidebar(tab);
-}
-
 defineExpose({ focusFiles: () => filesPanel.value?.focus() });
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1" data-testid="review-focus">
-    <SidebarRail :active="shell.sidebarTab" @select="(tab) => void leaveToSidebar(tab)" />
+  <div class="flex min-h-0 min-w-0 flex-1" data-testid="review-focus">
     <GraphRail
       :commits="repo.commits"
       :selected-index="repo.selectedIndex"

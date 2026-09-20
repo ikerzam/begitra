@@ -17,6 +17,7 @@ import { useRepoStore } from "@/stores/repo";
 import { useCompareStore } from "@/stores/compare";
 import { useReviewStore } from "@/stores/review";
 import { useToastsStore } from "@/stores/toasts";
+import { useWorktreesStore } from "@/stores/worktrees";
 
 import { errorText } from "./errorMessage";
 
@@ -27,6 +28,7 @@ export function useRepoWatcher(): void {
   const toasts = useToastsStore();
   const review = useReviewStore();
   const compare = useCompareStore();
+  const worktrees = useWorktreesStore();
   let unlisten: UnlistenFn | undefined;
   let disposed = false;
 
@@ -48,6 +50,7 @@ export function useRepoWatcher(): void {
     if (change.kinds.includes("worktrees")) void repo.loadWorktrees();
     review.onRepoChanged(change.kinds);
     compare.onRepoChanged(change.kinds);
+    worktrees.onRepoChanged(change.kinds);
     void index.refresh(root);
   }
 

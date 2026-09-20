@@ -22,10 +22,15 @@ import { useReviewStore } from "@/stores/review";
 import { useSettingsStore } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
 import { useToastsStore } from "@/stores/toasts";
+import { useWorktreesStore } from "@/stores/worktrees";
+import type { SidebarTab } from "@/stores/shell";
+import WorktreesLayout from "@/worktrees/WorktreesLayout.vue";
 
 import { errorText } from "./errorMessage";
 import GraphFocusLayout from "./GraphFocusLayout.vue";
 import ReviewFocusLayout from "./ReviewFocusLayout.vue";
+import Sidebar from "./Sidebar.vue";
+import SidebarRail from "./SidebarRail.vue";
 import StatusBar from "./StatusBar.vue";
 import ToastHost from "./ToastHost.vue";
 import TopBar from "./TopBar.vue";
@@ -39,6 +44,7 @@ const repo = useRepoStore();
 const index = useIndexStore();
 const settings = useSettingsStore();
 const toasts = useToastsStore();
+const worktrees = useWorktreesStore();
 const reviewStore = useReviewStore();
 const picker = usePickerStore();
 const { openFolder } = useOpenFolder();
@@ -48,6 +54,7 @@ useRepoWatcher();
 const graphLayout = ref<{ focusRows(): void } | null>(null);
 const reviewLayout = ref<{ focusFiles(): void } | null>(null);
 const compareLayout = ref<{ focusSides(): void } | null>(null);
+const worktreesLayout = ref<{ focusRows(): void } | null>(null);
 
 const repositoryName = computed(() => (repo.repo ? baseName(repo.repo.root) : null));
 const reviewMode = computed(() => shell.layoutMode === "review" && repo.state.kind === "ready");
@@ -57,6 +64,22 @@ const compareMode = computed(
     repo.state.kind === "ready" &&
     settings.values.compare !== null,
 );
+const worktreesMode = computed(
+  () => shell.layoutMode === "worktrees" && repo.state.kind === "ready",
+);
+/**
+ * One sidebar for every layout but review focus (which shows the rail), so switching layouts
+ * keeps its filter, its lists and the focus of a tab that switched to the dashboard.
+ */
+const showSidebar = computed(
+  () => repo.state.kind !== "empty" && !shell.sidebarCollapsed && !reviewMode.value,
+);
+
+/** A rail icon expands the sidebar on its tab; from review focus that means leaving it. */
+async function selectRailTab(tab: SidebarTab): Promise<void> {
+  if (reviewMode.value) await shell.setLayoutMode("graph");
+  await shell.expandSidebar(tab);
+}
 
 /** "Compare with…": the selected commit in graph focus, else the current branch, as A. */
 function compareWith(): void {
@@ -78,6 +101,9 @@ useShortcut("toggle-sidebar", () => void shell.toggleSidebar());
 useShortcut("open-terminal", () => void external.openTerminal());
 useShortcut("open-editor", () => void external.openEditor());
 useShortcut("compare-with", compareWith);
+useShortcut("add-worktree", () => {
+  if (repo.state.kind === "ready") worktrees.openAdd();
+});
 useShortcut("diff-from", () => {
   if (repo.state.kind === "ready") picker.open({ kind: "diff-from" });
 });
@@ -146,6 +172,11 @@ watch(compareMode, (on) => {
   if (on) void nextTick(() => compareLayout.value?.focusSides());
 });
 
+// The dashboard starts on its rows ("j/k worktrees").
+watch(worktreesMode, (on) => {
+  if (on) void nextTick(() => worktreesLayout.value?.focusRows());
+});
+
 /** Switches to review focus, on `file` when the detail tree chose one. */
 async function review(file?: FileChange): Promise<void> {
   if (repo.state.kind !== "ready") return;
@@ -172,8 +203,11 @@ async function removeFromList(): Promise<void> {
       @set-layout-mode="(mode) => void shell.setLayoutMode(mode)"
     />
     <div class="relative flex min-h-0 flex-1">
+      <Sidebar v-if="showSidebar" />
+      <SidebarRail v-else :active="shell.sidebarTab" @select="(tab) => void selectRailTab(tab)" />
       <ReviewFocusLayout v-if="reviewMode" ref="reviewLayout" />
       <CompareLayout v-else-if="compareMode" ref="compareLayout" />
+      <WorktreesLayout v-else-if="worktreesMode" ref="worktreesLayout" />
       <GraphFocusLayout
         v-else
         ref="graphLayout"

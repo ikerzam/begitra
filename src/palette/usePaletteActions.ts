@@ -17,6 +17,7 @@ import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
 import { useSettingsStore } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
+import { useWorktreesStore } from "@/stores/worktrees";
 import { shortcutRegistry } from "@/shortcuts/registry";
 
 import type { PaletteActions } from "./commands";
@@ -33,6 +34,7 @@ export function usePaletteActions(): PaletteActions {
   const review = useReviewStore();
   const picker = usePickerStore();
   const compare = useCompareStore();
+  const worktrees = useWorktreesStore();
 
   return {
     hasRepository: () => repo.state.kind === "ready",
@@ -95,6 +97,10 @@ export function usePaletteActions(): PaletteActions {
     inComparison: () => shell.layoutMode === "compare",
     swapComparison: () => compare.swap(),
     openComparisonInReview: () => compare.openInReview(),
+    showWorktrees: () => worktrees.show(),
+    addWorktree: () => worktrees.openAdd(),
+    hasPrunableWorktrees: () => worktrees.prunable.length > 0,
+    pruneWorktrees: () => worktrees.askPrune(),
   };
 }
 

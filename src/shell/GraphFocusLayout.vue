@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Graph focus: sidebar (or rail), the graph panel and the detail panel; with no repository
+// Graph focus, beside the shell's sidebar: the graph panel and the detail panel; with no repository
 // open, the home screen (the empty one until a scan folder or an entry exists).
 
 import { computed, ref } from "vue";
@@ -16,8 +16,6 @@ import { paneLimits, useShellStore } from "@/stores/shell";
 
 import HomeEmpty from "./HomeEmpty.vue";
 import PaneResizer from "./PaneResizer.vue";
-import Sidebar from "./Sidebar.vue";
-import SidebarRail from "./SidebarRail.vue";
 
 const emit = defineEmits<{ openFolder: []; review: [file?: FileChange]; removeFromList: [] }>();
 
@@ -28,7 +26,6 @@ const index = useIndexStore();
 const { addScanFolder } = useAddScanFolder();
 const graph = ref<{ focus(): void } | null>(null);
 
-const showSidebar = computed(() => repo.state.kind !== "empty" && !shell.sidebarCollapsed);
 const detailWidth = computed(() => `${shell.detailWidth}px`);
 /**
  * The empty Home once the index has loaded with no scan folder and no repository; until then
@@ -43,13 +40,7 @@ defineExpose({ focusRows: () => graph.value?.focus() });
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1" data-testid="graph-focus">
-    <Sidebar v-if="showSidebar" />
-    <SidebarRail
-      v-else
-      :active="shell.sidebarTab"
-      @select="(tab) => void shell.expandSidebar(tab)"
-    />
+  <div class="flex min-h-0 min-w-0 flex-1" data-testid="graph-focus">
     <template v-if="repo.state.kind === 'empty'">
       <HomeEmpty
         v-if="homeIsEmpty"

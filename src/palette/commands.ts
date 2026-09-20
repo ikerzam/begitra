@@ -51,6 +51,11 @@ export interface PaletteActions {
   inComparison: () => boolean;
   swapComparison: () => Promise<void>;
   openComparisonInReview: () => Promise<void>;
+  showWorktrees: () => Promise<void>;
+  addWorktree: () => void;
+  /** Whether some worktree entry can be pruned (its folder is gone). */
+  hasPrunableWorktrees: () => boolean;
+  pruneWorktrees: () => void;
 }
 
 export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
@@ -204,6 +209,25 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       labelKey: "palette.commandsById.compare-open-review",
       enabled: () => withRepo() && actions.inComparison(),
       run: actions.openComparisonInReview,
+    },
+    {
+      id: "show-worktrees",
+      labelKey: "palette.commandsById.show-worktrees",
+      enabled: withRepo,
+      run: actions.showWorktrees,
+    },
+    {
+      id: "add-worktree",
+      labelKey: "palette.commandsById.add-worktree",
+      shortcutId: "add-worktree",
+      enabled: withRepo,
+      run: actions.addWorktree,
+    },
+    {
+      id: "prune-worktrees",
+      labelKey: "palette.commandsById.prune-worktrees",
+      enabled: () => withRepo() && actions.hasPrunableWorktrees(),
+      run: actions.pruneWorktrees,
     },
     {
       id: "toggle-overview",

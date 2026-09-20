@@ -11,9 +11,11 @@ use bench::repos;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use git_core::cli::run_git;
 use git_core::engine::{Cancel, GitEngine};
+use git_core::error::GitError;
 use git_core::git2_engine::Git2Engine;
 use git_core::types::{
     BlobAt, DiffOptions, DiffTarget, StatusOptions, WalkFilter, WalkOptions, WalkOrder, WalkScope,
+    WorktreeAdd, WorktreeBranch,
 };
 
 /// A benchmark repository that is present on disk.
@@ -577,6 +579,74 @@ fn worktrees(c: &mut Criterion) {
     group.finish();
 }
 
+/// The dashboard's read: the listing plus one comparison of every linked worktree's branch
+/// with the main worktree's, which is what the screen waits for.
+fn worktree_dashboard(c: &mut Criterion) {
+    let mut group = c.benchmark_group("worktree_dashboard");
+    group.sample_size(10);
+    for target in present() {
+        let engine = engine(&target.path);
+        group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+            b.iter(|| {
+                let listed = e.worktrees(&Cancel::never()).expect("worktrees");
+                let main = listed
+                    .iter()
+                    .find(|worktree| worktree.is_main)
+                    .and_then(|worktree| worktree.branch.clone())
+                    .expect("a main branch");
+                let mut compared = 0;
+                for worktree in listed.iter().filter(|worktree| !worktree.is_main) {
+                    let Some(rev) = worktree.branch.as_deref().or(worktree.head.as_deref()) else {
+                        continue;
+                    };
+                    if e.compare(&main, rev, &Cancel::never()).is_ok() {
+                        compared += 1;
+                    }
+                }
+                compared
+            });
+        });
+    }
+    group.finish();
+}
+
+/// One add of a worktree on a fresh branch and its removal: a checkout of the whole tree, a
+/// user action that shows its progress, recorded without a budget.
+fn worktree_add_remove(c: &mut Criterion) {
+    let mut group = c.benchmark_group("worktree_add_remove");
+    group.sample_size(10);
+    for target in present() {
+        let engine = engine(&target.path);
+        let folder = std::env::temp_dir().join(format!("begira-bench-wt-{}", target.name));
+        let _ = std::fs::remove_dir_all(&folder);
+        let _ = run_git(&target.path, &["worktree", "prune"]);
+        let _ = run_git(&target.path, &["branch", "-D", "begira-bench-wt"]);
+        group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+            b.iter(|| {
+                let request = WorktreeAdd {
+                    path: folder.clone(),
+                    branch: WorktreeBranch::New {
+                        name: "begira-bench-wt".to_owned(),
+                        start: "HEAD".to_owned(),
+                    },
+                };
+                e.worktree_add(&request, &Cancel::never()).expect("add");
+                // The kernel has paths that differ only in case, which a Windows checkout
+                // leaves modified; the forced removal is the fallback for that case only.
+                if let Err(GitError::WorktreeDirty(_)) =
+                    e.worktree_remove(&folder, false, &Cancel::never())
+                {
+                    e.worktree_remove(&folder, true, &Cancel::never())
+                        .expect("forced remove");
+                }
+                run_git(&target.path, &["branch", "-D", "begira-bench-wt"]).expect("branch");
+            });
+        });
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     open,
@@ -597,6 +667,8 @@ criterion_group!(
     diff_three_dot_first_page,
     diff_three_dot,
     merge_preview,
-    worktrees
+    worktrees,
+    worktree_dashboard,
+    worktree_add_remove
 );
 criterion_main!(benches);

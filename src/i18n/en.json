@@ -57,10 +57,11 @@
     "locked": "Locked",
     "missing": "Folder missing",
     "prune": "Prune to remove this entry",
-    "diff": "Diff vs main",
+    "compare": "Compare with main",
     "terminal": "Open in terminal",
     "editor": "Open in editor",
-    "remove": "Remove worktree"
+    "remove": "Remove worktree",
+    "lock": "Lock worktree"
   },
   "treeRow": {
     "generated": "generated",
@@ -125,7 +126,8 @@
     "historyStoppedEarly": "History stopped",
     "diffFailed": "Diff failed for {n} file | Diff failed for {n} files",
     "diffFailedAll": "Diff failed",
-    "symbol": "At {name}"
+    "symbol": "At {name}",
+    "worktrees": "worktrees"
   },
   "operations": {
     "opening": "Opening {name}",
@@ -133,7 +135,9 @@
     "loadingDiff": "Computing diff for {hash}",
     "scanning": "Scanning {folder}",
     "computingDiff": "Computing diff for {target}",
-    "comparing": "Comparing {a} and {b}"
+    "comparing": "Comparing {a} and {b}",
+    "readingWorktrees": "Reading worktrees",
+    "addingWorktree": "Adding worktree"
   },
   "home": {
     "title": "Repositories",
@@ -386,7 +390,10 @@
       "toggle-hide-tests": "Show or hide test files",
       "compare-with": "Compare with…",
       "swap-comparison": "Swap comparison sides",
-      "compare-open-review": "Open comparison in review"
+      "compare-open-review": "Open comparison in review",
+      "show-worktrees": "Show worktrees",
+      "add-worktree": "Add worktree…",
+      "prune-worktrees": "Prune worktrees"
     },
     "repos": "Repos"
   },
@@ -471,6 +478,61 @@
       "conflicts": "{n} file would conflict if {b} were merged into {a} | {n} files would conflict if {b} were merged into {a}",
       "previewOnly": "Preview only. Nothing is written until you merge in a terminal.",
       "failed": "Couldn't compute the merge preview. {message} The commit lists and file summary are still correct."
+    }
+  },
+  "worktrees": {
+    "title": "Worktrees",
+    "rowMenu": "Worktree actions",
+    "columns": {
+      "path": "Path",
+      "branch": "Branch",
+      "state": "State",
+      "aheadBehind": "Ahead/behind",
+      "lastCommit": "Last commit",
+      "actions": "Actions"
+    },
+    "footer": "Worktrees share the repository's objects. Removing one deletes its folder; the branch stays and can be checked out again.",
+    "empty": "No worktrees yet. Add one to work on a branch in its own folder while main stays clean.",
+    "missingFolder": "Couldn't read {path}. The folder was removed. Prune worktrees to clean this up, or restore the folder if it moved.",
+    "pruneAction": "Prune worktrees",
+    "lock": "Lock",
+    "unlock": "Unlock",
+    "add": {
+      "action": "Add worktree",
+      "title": "Add worktree",
+      "body": "Creates a folder with its own checkout. The branch stays in this repository and shows up in the graph with a tree icon.",
+      "confirm": "Add worktree",
+      "branch": "Branch",
+      "newBranch": "New branch",
+      "namePlaceholder": "branch name",
+      "invalidName": "Not a valid branch name.",
+      "startFrom": "Start from",
+      "path": "Path",
+      "help": "Defaults to {folder}/‹branch›. The folder must not exist yet.",
+      "folderExists": "The folder must not exist yet."
+    },
+    "prune": {
+      "action": "Prune",
+      "title": "Prune worktrees?",
+      "body": "This removes the entry whose folder is missing: {paths}. The branch stays. | This removes the {n} entries whose folders are missing: {paths}. The branches stay.",
+      "confirm": "Prune"
+    },
+    "remove": {
+      "title": "Remove worktree {folder}?",
+      "body": "This deletes the folder {path}. The branch {branch} stays and can be checked out again.",
+      "confirm": "Remove"
+    },
+    "removeAnyway": {
+      "title": "Remove worktree {folder} anyway?",
+      "body": "It has uncommitted changes, which will be lost. The branch {branch} stays and can be checked out again.",
+      "confirm": "Remove anyway"
+    },
+    "lockPrompt": {
+      "title": "Lock worktree {folder}",
+      "body": "A locked worktree is never pruned and cannot be removed until it is unlocked.",
+      "reason": "Reason",
+      "reasonPlaceholder": "Reason (optional)",
+      "confirm": "Lock"
     }
   }
 }

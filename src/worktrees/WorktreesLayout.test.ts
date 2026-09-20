@@ -1,0 +1,284 @@
+import { clearMocks } from "@tauri-apps/api/mocks";
+import { flushPromises } from "@vue/test-utils";
+import { createPinia, setActivePinia } from "pinia";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { nextTick } from "vue";
+
+import { ShortcutRegistry, setShortcutRegistry } from "@/shortcuts/registry";
+import { useCompareStore } from "@/stores/compare";
+import { useRepoStore } from "@/stores/repo";
+import { memoryStorage, useSettingsStore } from "@/stores/settings";
+import { useShellStore } from "@/stores/shell";
+import { useWorktreesStore } from "@/stores/worktrees";
+import {
+  fakeBackend,
+  fakeWorktrees,
+  settled,
+  type Call,
+  type FakeBackendOptions,
+} from "@/test/backend";
+import { mountWithI18n } from "@/test/mount";
+
+import WorktreesLayout from "./WorktreesLayout.vue";
+
+const summaries = {
+  "/wt/claude-auth": {
+    currentBranch: "claude/fix-auth",
+    detached: false,
+    ahead: null,
+    behind: null,
+    lastCommitAt: 1_699_000_000,
+    dirty: true,
+  },
+};
+
+beforeEach(async () => {
+  setActivePinia(createPinia());
+  setShortcutRegistry(new ShortcutRegistry("windows"));
+  await useSettingsStore().init(memoryStorage(), "windows");
+});
+
+afterEach(() => {
+  setShortcutRegistry(undefined);
+  clearMocks();
+  document.body.innerHTML = "";
+});
+
+async function mountDashboard(options: FakeBackendOptions = {}): Promise<{
+  wrapper: ReturnType<typeof mountWithI18n>;
+  calls: Call[];
+}> {
+  const calls = fakeBackend({ worktrees: fakeWorktrees(), summaries, ...options });
+  await useRepoStore().open("/r");
+  await settled();
+  await useWorktreesStore().show();
+  await settled();
+  const wrapper = mountWithI18n(WorktreesLayout, { attachTo: document.body });
+  await flushPromises();
+  await nextTick();
+  return { wrapper, calls };
+}
+
+function rows(wrapper: ReturnType<typeof mountWithI18n>) {
+  return wrapper.findAll('[data-testid="worktree-row"]');
+}
+
+describe("WorktreesLayout", () => {
+  it("lists the worktrees as a grid: the main one first, states, counts and the footer", async () => {
+    const { wrapper } = await mountDashboard();
+    expect(wrapper.get('[data-testid="worktrees-count"]').text()).toBe("2");
+    expect(wrapper.get('[role="grid"]').attributes("aria-label")).toBe("Worktrees");
+    expect(wrapper.findAll('[role="columnheader"]').map((h) => h.text())).toEqual([
+      "Path",
+      "Branch",
+      "State",
+      "Ahead/behind",
+      "Last commit",
+      "Actions",
+    ]);
+    const listed = rows(wrapper);
+    expect(listed).toHaveLength(3);
+    expect(listed[0]?.attributes("role")).toBe("row");
+    expect(listed[0]?.get('[data-testid="worktree-row-path"]').text()).toBe("/r");
+    expect(listed[0]?.get('[data-testid="worktree-row-state"]').text()).toBe("main worktree");
+    const linked = listed[1];
+    expect(linked?.get('[data-testid="worktree-row-branch"]').text()).toBe("claude/fix-auth");
+    expect(linked?.find('[data-testid="worktree-row-branch"] [role="img"]').exists()).toBe(true);
+    expect(linked?.get('[data-testid="ahead"]').text()).toBe("3");
+    expect(linked?.get('[data-testid="behind"]').text()).toBe("4");
+    expect(linked?.get('[data-testid="worktree-row-commit"]').text()).toContain("commit 4");
+    const gone = listed[2];
+    expect(gone?.get('[data-testid="worktree-row-state"]').text()).toBe("Folder missing");
+    expect(gone?.get('[data-testid="worktree-row-commit"]').text()).toBe(
+      "Prune to remove this entry",
+    );
+    expect(wrapper.get('[data-testid="worktree-footer"]').text()).toContain(
+      "Worktrees share the repository's objects.",
+    );
+    expect(wrapper.get('[data-testid="worktrees-prune"]').attributes("disabled")).toBeUndefined();
+    // The rows have the focus, the first one being the tab stop.
+    expect(listed.map((row) => row.attributes("tabindex"))).toEqual(["0", "-1", "-1"]);
+  });
+
+  it("moves with j/k, opens a worktree as the context with Enter and the menu with the menu key", async () => {
+    const { wrapper, calls } = await mountDashboard();
+    const listed = rows(wrapper);
+    // Nothing is selected at first: j selects the first row, then moves down.
+    await listed[0]!.trigger("keydown", { key: "j" });
+    expect(useWorktreesStore().selectedPath).toBe("/r");
+    await listed[0]!.trigger("keydown", { key: "j" });
+    expect(useWorktreesStore().selectedPath).toBe("/wt/claude-auth");
+    expect(document.activeElement).toBe(listed[1]?.element);
+    await listed[1]!.trigger("keydown", { key: "ContextMenu" });
+    await nextTick();
+    const menu = wrapper.find('[role="menu"]');
+    expect(menu.exists()).toBe(true);
+    expect(menu.findAll('[role="menuitem"]').map((item) => item.text())).toEqual([
+      "Compare with main",
+      "Open in terminal",
+      "Open in editor",
+      "Lock",
+      "Remove worktree",
+    ]);
+    await menu.get('[data-testid="menu-lock"]').trigger("click");
+    await nextTick();
+    expect(useWorktreesStore().prompt).toEqual({ kind: "lock", path: "/wt/claude-auth" });
+    expect(wrapper.find('[data-testid="worktree-prompt-lock"]').exists()).toBe(true);
+    await wrapper
+      .get('[data-testid="lock-reason"] input, input[data-testid="lock-reason"]')
+      .setValue("review");
+    await wrapper.get('[data-testid="dialog-confirm"]').trigger("click");
+    await settled();
+    const lock = calls.find((call) => call.cmd === "worktree_lock");
+    expect(lock?.args).toMatchObject({ path: "/wt/claude-auth", reason: "review" });
+
+    await rows(wrapper)[1]!.trigger("keydown", { key: "Enter" });
+    await settled();
+    expect(calls.filter((call) => call.cmd === "open_repository").at(-1)?.args["path"]).toBe(
+      "/wt/claude-auth",
+    );
+  });
+
+  it("confirms a removal once, then again with force when git refuses a dirty worktree", async () => {
+    const { wrapper, calls } = await mountDashboard({ dirtyWorktrees: ["/wt/claude-auth"] });
+    const remove = rows(wrapper)[1]!.findAll('[data-testid="worktree-row-actions"] button').at(-1);
+    await remove!.trigger("click");
+    await nextTick();
+    const first = wrapper.get('[data-testid="worktree-prompt-remove"]');
+    expect(first.text()).toContain("Remove worktree claude-auth?");
+    expect(first.text()).toContain("This deletes the folder /wt/claude-auth.");
+    expect(first.text()).toContain("The branch claude/fix-auth stays");
+    await first.get('[data-testid="dialog-confirm"]').trigger("click");
+    await settled();
+    const again = wrapper.get('[data-testid="worktree-prompt-remove"]');
+    expect(again.text()).toContain("Remove worktree claude-auth anyway?");
+    expect(again.text()).toContain("uncommitted changes, which will be lost");
+    expect(again.get('[data-testid="dialog-confirm"]').text()).toBe("Remove anyway");
+    await again.get('[data-testid="dialog-confirm"]').trigger("click");
+    await settled();
+    expect(wrapper.find('[data-testid="worktree-prompt-remove"]').exists()).toBe(false);
+    expect(rows(wrapper).map((row) => row.get('[data-testid="worktree-row-path"]').text())).toEqual(
+      ["/r", "/wt/gone"],
+    );
+    expect(
+      calls.filter((call) => call.cmd === "worktree_remove").map((c) => c.args["force"]),
+    ).toEqual([false, true]);
+  });
+
+  it("prunes from the header after one confirmation that lists the missing folders", async () => {
+    const { wrapper, calls } = await mountDashboard();
+    await wrapper.get('[data-testid="worktrees-prune"]').trigger("click");
+    await nextTick();
+    const prompt = wrapper.get('[data-testid="worktree-prompt-prune"]');
+    expect(prompt.text()).toContain("/wt/gone");
+    await prompt.get('[data-testid="dialog-confirm"]').trigger("click");
+    await settled();
+    expect(calls.some((call) => call.cmd === "worktree_prune")).toBe(true);
+    expect(rows(wrapper)).toHaveLength(2);
+    expect(wrapper.get('[data-testid="worktrees-prune"]').attributes("disabled")).toBeDefined();
+  });
+
+  it("adds a worktree from the dialog with the default path and selects the new row", async () => {
+    const { wrapper, calls } = await mountDashboard();
+    await wrapper.get('[data-testid="worktrees-add"]').trigger("click");
+    await nextTick();
+    const dialog = wrapper.get('[role="dialog"]');
+    expect(dialog.text()).toContain("Add worktree");
+    expect(dialog.get('[data-testid="dialog-confirm"]').attributes("disabled")).toBeDefined();
+    await dialog
+      .get('[data-testid="add-worktree-name"] input, input[data-testid="add-worktree-name"]')
+      .setValue("claude/fix-tiles");
+    await nextTick();
+    const path = dialog.get<HTMLInputElement>(
+      '[data-testid="add-worktree-path"] input, input[data-testid="add-worktree-path"]',
+    );
+    expect(path.element.value).toBe("/r.worktrees/claude-fix-tiles");
+    expect(dialog.get('[data-testid="add-worktree-help"]').text()).toBe(
+      "Defaults to /r.worktrees/‹branch›. The folder must not exist yet.",
+    );
+    await settled();
+    expect(dialog.get('[data-testid="dialog-confirm"]').attributes("disabled")).toBeUndefined();
+    await dialog.get('[data-testid="dialog-confirm"]').trigger("click");
+    await settled();
+    await flushPromises();
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+    const add = calls.find((call) => call.cmd === "worktree_add");
+    expect(add?.args["request"]).toEqual({
+      path: "/r.worktrees/claude-fix-tiles",
+      branch: { kind: "new", name: "claude/fix-tiles", start: "main" },
+    });
+    expect(useWorktreesStore().selectedPath).toBe("/r.worktrees/claude-fix-tiles");
+    expect(rows(wrapper)).toHaveLength(4);
+  });
+
+  it("keeps the dialog open with git's output when the add fails, and refuses an existing folder", async () => {
+    const { wrapper } = await mountDashboard({ failWorktreeAdd: true, existingPaths: ["/taken"] });
+    useWorktreesStore().openAdd();
+    await nextTick();
+    const dialog = wrapper.get('[role="dialog"]');
+    const branch = dialog.get<HTMLSelectElement>("select");
+    await branch.setValue("develop");
+    await nextTick();
+    expect(dialog.find('[data-testid="add-worktree-start"]').exists()).toBe(false);
+    const path = dialog.get<HTMLInputElement>(
+      '[data-testid="add-worktree-path"] input, input[data-testid="add-worktree-path"]',
+    );
+    expect(path.element.value).toBe("/r.worktrees/develop");
+    await path.setValue("/taken");
+    await settled();
+    expect(dialog.text()).toContain("The folder must not exist yet.");
+    expect(dialog.get('[data-testid="dialog-confirm"]').attributes("disabled")).toBeDefined();
+    await path.setValue("/free");
+    await settled();
+    await dialog.get('[data-testid="dialog-confirm"]').trigger("click");
+    await settled();
+    await flushPromises();
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(true);
+    const banner = wrapper.get('[data-testid="add-worktree-error"]');
+    expect(banner.text()).toContain("git reported an error.");
+    expect(banner.text()).toContain("already used by worktree");
+  });
+
+  it("shows the empty state when the repository has no linked worktree", async () => {
+    const { wrapper } = await mountDashboard({ worktrees: fakeWorktrees().slice(0, 1) });
+    expect(wrapper.get('[data-testid="worktrees-empty"]').text()).toContain(
+      "No worktrees yet. Add one to work on a branch in its own folder while main stays clean.",
+    );
+    expect(wrapper.get('[data-testid="worktrees-count"]').text()).toBe("0");
+    expect(wrapper.find('[data-testid="worktree-table"]').exists()).toBe(false);
+    await wrapper.get('[data-testid="worktrees-empty"] button').trigger("click");
+    await nextTick();
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(true);
+  });
+
+  it("names a missing folder in the banner with Prune worktrees when the editor is asked for it", async () => {
+    const { wrapper, calls } = await mountDashboard();
+    const editor = rows(wrapper)[2]!.findAll('[data-testid="worktree-row-actions"] button')[1];
+    await editor!.trigger("click");
+    await nextTick();
+    const banner = wrapper.get('[data-testid="worktrees-error"]');
+    expect(banner.text()).toContain(
+      "Couldn't read /wt/gone. The folder was removed. Prune worktrees to clean this up, or restore the folder if it moved.",
+    );
+    expect(banner.text()).toContain("is not a working tree");
+    expect(calls.some((call) => call.cmd === "open_external")).toBe(false);
+    expect(rows(wrapper)).toHaveLength(3);
+    await banner.get("button:last-of-type").trigger("click");
+    await nextTick();
+    expect(wrapper.find('[data-testid="worktree-prompt-prune"]').exists()).toBe(true);
+  });
+
+  it("opens the comparison of main with the worktree from the row action", async () => {
+    const { wrapper } = await mountDashboard();
+    const compare = rows(wrapper)[1]!.findAll('[data-testid="worktree-row-actions"] button')[0];
+    expect(compare?.attributes("aria-label")).toBe("Compare with main");
+    await compare!.trigger("click");
+    await settled();
+    expect(useShellStore().layoutMode).toBe("compare");
+    expect(useCompareStore().endpoints?.b).toEqual({
+      kind: "worktree",
+      rev: "claude/fix-auth",
+      label: "claude-auth",
+    });
+  });
+});

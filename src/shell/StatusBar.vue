@@ -113,6 +113,13 @@ const hints = computed(() => {
       { keys: registry.hint("palette"), label: t("statusBar.commands") },
     ];
   }
+  if (shell.layoutMode === "worktrees") {
+    return [
+      { keys: "j/k", label: t("statusBar.worktrees") },
+      { keys: "↵", label: t("statusBar.open") },
+      { keys: registry.hint("palette"), label: t("statusBar.commands") },
+    ];
+  }
   return [
     { keys: "j/k", label: t("statusBar.commits") },
     { keys: "↵", label: t("statusBar.review") },

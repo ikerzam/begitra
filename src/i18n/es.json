@@ -57,10 +57,11 @@
     "locked": "Bloqueado",
     "missing": "Falta la carpeta",
     "prune": "Limpia los worktrees para quitar esta entrada",
-    "diff": "Diff con main",
+    "compare": "Comparar con main",
     "terminal": "Abrir en la terminal",
     "editor": "Abrir en el editor",
-    "remove": "Eliminar worktree"
+    "remove": "Eliminar worktree",
+    "lock": "Bloquear worktree"
   },
   "treeRow": {
     "generated": "generado",
@@ -125,7 +126,8 @@
     "historyStoppedEarly": "El historial se detuvo",
     "diffFailed": "El diff falló en {n} fichero | El diff falló en {n} ficheros",
     "diffFailedAll": "El diff falló",
-    "symbol": "En {name}"
+    "symbol": "En {name}",
+    "worktrees": "worktrees"
   },
   "operations": {
     "opening": "Abriendo {name}",
@@ -133,7 +135,9 @@
     "loadingDiff": "Calculando el diff de {hash}",
     "scanning": "Escaneando {folder}",
     "computingDiff": "Calculando el diff de {target}",
-    "comparing": "Comparando {a} y {b}"
+    "comparing": "Comparando {a} y {b}",
+    "readingWorktrees": "Leyendo los worktrees",
+    "addingWorktree": "Añadiendo el worktree"
   },
   "home": {
     "title": "Repositorios",
@@ -386,7 +390,10 @@
       "toggle-hide-tests": "Mostrar u ocultar ficheros de test",
       "compare-with": "Comparar con…",
       "swap-comparison": "Intercambiar los lados de la comparación",
-      "compare-open-review": "Abrir la comparación en revisión"
+      "compare-open-review": "Abrir la comparación en revisión",
+      "show-worktrees": "Mostrar los worktrees",
+      "add-worktree": "Añadir worktree…",
+      "prune-worktrees": "Limpiar los worktrees"
     },
     "repos": "Repos"
   },
@@ -471,6 +478,61 @@
       "conflicts": "{n} fichero entraría en conflicto si {b} se fusionara en {a} | {n} ficheros entrarían en conflicto si {b} se fusionara en {a}",
       "previewOnly": "Solo es una vista previa. No se escribe nada hasta que fusiones en un terminal.",
       "failed": "No se pudo calcular la vista previa del merge. {message} Las listas de commits y el resumen de ficheros siguen siendo correctos."
+    }
+  },
+  "worktrees": {
+    "title": "Worktrees",
+    "rowMenu": "Acciones del worktree",
+    "columns": {
+      "path": "Ruta",
+      "branch": "Rama",
+      "state": "Estado",
+      "aheadBehind": "Delante/detrás",
+      "lastCommit": "Último commit",
+      "actions": "Acciones"
+    },
+    "footer": "Los worktrees comparten los objetos del repositorio. Eliminar uno borra su carpeta; la rama se queda y se puede volver a sacar.",
+    "empty": "Aún no hay worktrees. Añade uno para trabajar en una rama en su propia carpeta mientras main sigue limpia.",
+    "missingFolder": "No se pudo leer {path}. La carpeta fue eliminada. Limpia los worktrees para quitar la entrada, o restaura la carpeta si se movió.",
+    "pruneAction": "Limpiar los worktrees",
+    "lock": "Bloquear",
+    "unlock": "Desbloquear",
+    "add": {
+      "action": "Añadir worktree",
+      "title": "Añadir worktree",
+      "body": "Crea una carpeta con su propio checkout. La rama se queda en este repositorio y aparece en el grafo con el icono de árbol.",
+      "confirm": "Añadir worktree",
+      "branch": "Rama",
+      "newBranch": "Rama nueva",
+      "namePlaceholder": "nombre de la rama",
+      "invalidName": "No es un nombre de rama válido.",
+      "startFrom": "Empezar desde",
+      "path": "Ruta",
+      "help": "Por defecto, {folder}/‹rama›. La carpeta no debe existir todavía.",
+      "folderExists": "La carpeta no debe existir todavía."
+    },
+    "prune": {
+      "action": "Limpiar",
+      "title": "¿Limpiar los worktrees?",
+      "body": "Quita la entrada cuya carpeta falta: {paths}. La rama se queda. | Quita las {n} entradas cuyas carpetas faltan: {paths}. Las ramas se quedan.",
+      "confirm": "Limpiar"
+    },
+    "remove": {
+      "title": "¿Eliminar el worktree {folder}?",
+      "body": "Borra la carpeta {path}. La rama {branch} se queda y se puede volver a sacar.",
+      "confirm": "Eliminar"
+    },
+    "removeAnyway": {
+      "title": "¿Eliminar el worktree {folder} de todos modos?",
+      "body": "Tiene cambios sin confirmar, que se perderán. La rama {branch} se queda y se puede volver a sacar.",
+      "confirm": "Eliminar de todos modos"
+    },
+    "lockPrompt": {
+      "title": "Bloquear el worktree {folder}",
+      "body": "Un worktree bloqueado nunca se limpia y no se puede eliminar hasta desbloquearlo.",
+      "reason": "Motivo",
+      "reasonPlaceholder": "Motivo (opcional)",
+      "confirm": "Bloquear"
     }
   }
 }

@@ -125,6 +125,7 @@ pub fn run() {
             commands::worktrees::worktree_prune,
             commands::worktrees::worktree_lock,
             commands::worktrees::worktree_unlock,
+            commands::worktrees::path_exists,
         ])
         .run(tauri::generate_context!());
 

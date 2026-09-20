@@ -24,7 +24,8 @@ function actionLabels(wrapper: ReturnType<typeof mountWithI18n>) {
 describe("WorktreeRow", () => {
   it("shows path in mono, branch with lane dot and dirty marker, counts, commit and actions", () => {
     const wrapper = mountWithI18n(WorktreeRow, { props: worktree });
-    expect(wrapper.attributes("role")).toBe("option");
+    expect(wrapper.attributes("role")).toBe("row");
+    expect(wrapper.findAll("[role='gridcell']")).toHaveLength(6);
     expect(wrapper.classes()).toContain("h-row-list");
     const path = wrapper.get("[data-testid='worktree-row-path']");
     expect(path.text()).toBe("/wt/claude-auth");
@@ -42,18 +43,37 @@ describe("WorktreeRow", () => {
     );
     expect(wrapper.get("[data-testid='worktree-row-commit']").text()).toContain("3h ago");
     expect(actionLabels(wrapper)).toEqual([
-      "Diff vs main",
+      "Compare with main",
       "Open in terminal",
       "Open in editor",
       "Remove worktree",
     ]);
   });
 
+  it("shows no counts until they are known and the lock reason as the state's title", () => {
+    const wrapper = mountWithI18n(WorktreeRow, {
+      props: { ...worktree, ahead: null, behind: null, locked: true, lockReason: "review" },
+    });
+    expect(wrapper.find("[data-testid='ahead']").exists()).toBe(false);
+    expect(wrapper.get("[data-testid='worktree-row-state']").attributes("title")).toBe("review");
+  });
+
+  it("asks for the context menu from a right click and from the menu key", async () => {
+    const wrapper = mountWithI18n(WorktreeRow, { props: worktree });
+    await wrapper.trigger("contextmenu", { clientX: 40, clientY: 50 });
+    expect(wrapper.emitted("menu")?.[0]).toEqual([40, 50]);
+    expect(wrapper.emitted("select")).toHaveLength(1);
+    await wrapper.trigger("keydown", { key: "ContextMenu" });
+    expect(wrapper.emitted("menu")).toHaveLength(2);
+    await wrapper.trigger("keydown", { key: "Enter" });
+    expect(wrapper.emitted("activate")).toHaveLength(1);
+  });
+
   it("emits one event per action without selecting the row", async () => {
     const wrapper = mountWithI18n(WorktreeRow, { props: worktree });
     const buttons = wrapper.findAll("[data-testid='worktree-row-actions'] button");
     for (const button of buttons) await button.trigger("click");
-    expect(wrapper.emitted("diff")).toHaveLength(1);
+    expect(wrapper.emitted("compare")).toHaveLength(1);
     expect(wrapper.emitted("terminal")).toHaveLength(1);
     expect(wrapper.emitted("editor")).toHaveLength(1);
     expect(wrapper.emitted("remove")).toHaveLength(1);
@@ -105,7 +125,7 @@ describe("WorktreeRow", () => {
     );
     expect(wrapper.get("[data-testid='worktree-row-state']").text()).toBe("Bloqueado");
     expect(actionLabels(wrapper)).toEqual([
-      "Diff con main",
+      "Comparar con main",
       "Abrir en la terminal",
       "Abrir en el editor",
       "Eliminar worktree",

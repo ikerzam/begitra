@@ -83,6 +83,15 @@ fn listed_worktree(
     }
 }
 
+/// Whether an absolute path exists, for the add dialog's inline check of its Path field
+/// before git is asked (git refuses an existing folder too).
+#[tauri::command]
+#[tracing::instrument(level = "debug")]
+pub fn path_exists(path: PathBuf) -> Result<bool, AppError> {
+    validate_path("path", &path)?;
+    Ok(path.exists())
+}
+
 /// Adds a worktree to the repository at `repo`.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state))]

@@ -36,6 +36,10 @@ pub fn budget(id: &str) -> Option<Duration> {
         ("discovery", "scan_full") => 2_000,
         ("worktrees", "synthetic") => 50,
         ("worktrees", _) => 500,
+        // The dashboard: the listing and one comparison per linked worktree.
+        ("worktree_dashboard", _) => 500,
+        // Adding a worktree checks out the whole tree: a user action with its progress.
+        ("worktree_add_remove", _) => return None,
         _ => return None,
     };
     Some(Duration::from_millis(ms))

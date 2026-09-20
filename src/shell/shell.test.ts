@@ -736,10 +736,13 @@ describe("Sidebar", () => {
     await wrapper.get('[data-testid="tab-worktrees"]').trigger("click");
     await settle();
     const rows = wrapper.get('[data-testid="worktree-list"]').findAll('[data-testid="list-row"]');
-    expect(rows.map((row) => row.text())).toEqual([
-      "main worktreemain",
-      "claude-authclaude/fix-auth",
-    ]);
+    // Folder names with the branch's lane dot and the tree icon.
+    expect(rows.map((row) => row.text())).toEqual(["r", "claude-auth"]);
+    expect(rows[0]?.find("[data-lane]").exists()).toBe(true);
+    expect(rows[0]?.find("svg.lucide-list-tree").exists()).toBe(true);
+    // The tab switched the main area to the dashboard.
+    expect(useShellStore().layoutMode).toBe("worktrees");
+    expect(wrapper.find('[data-testid="worktrees-layout"]').exists()).toBe(true);
     expect(rows.map((row) => row.attributes("tabindex"))).toEqual(["0", "-1"]);
     await rows[0]!.trigger("keydown", { key: "ArrowDown" });
     await rows[0]!.trigger("keydown", { key: "ArrowDown" });

@@ -23,6 +23,8 @@ const props = withDefaults(
     selected?: boolean;
     /** Roving tab stop; defaults to the selected row. Lists without a selection pass it to the first row. */
     tabStop?: boolean;
+    /** Draw the icon after the lane dot too (the Worktrees tab shows both). */
+    iconBeside?: boolean;
   }>(),
   {
     lane: 0,
@@ -34,6 +36,7 @@ const props = withDefaults(
     missing: false,
     selected: false,
     tabStop: undefined,
+    iconBeside: false,
   },
 );
 
@@ -72,7 +75,7 @@ function onKeydown(event: KeyboardEvent): void {
     <LaneDot v-else-if="props.lane > 0" :lane="props.lane" />
     <component
       :is="props.icon"
-      v-else-if="props.icon"
+      v-if="props.icon && !props.missing && (props.lane === 0 || props.iconBeside)"
       :size="16"
       :stroke-width="1.5"
       aria-hidden="true"

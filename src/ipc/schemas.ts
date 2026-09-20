@@ -532,6 +532,7 @@ export const commandArgs = {
     opId,
   }),
   worktree_unlock: v.object({ repo: path, path, opId }),
+  path_exists: v.object({ path }),
   count_commits: v.object({ repo: path, scope: WalkScopeSchema, opId }),
   list_worktrees: v.object({ repo: path, opId }),
   walk_commits: v.object({

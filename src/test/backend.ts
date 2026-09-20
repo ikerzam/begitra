@@ -13,9 +13,13 @@ import type {
   DiffTarget,
   FileChange,
   Hunk,
+  IndexEntry,
   MergePreview,
+  RepoSummary,
   WalkFilter,
   WalkScope,
+  Worktree,
+  WorktreeAdd,
 } from "@/ipc/schemas";
 
 export interface Call {
@@ -45,6 +49,55 @@ export interface FakeBackendOptions {
   failPreview?: boolean;
   /** What `merge_preview` answers. Default: three conflicts. */
   preview?: MergePreview;
+  /** The worktrees `list_worktrees` answers; the worktree writes change the list. */
+  worktrees?: Worktree[];
+  /** What `refresh_repository` answers for a path; a path not listed answers nothing. */
+  summaries?: Record<string, RepoSummary>;
+  /** `worktree_remove` without `force` rejects with `worktree.dirty` for these paths. */
+  dirtyWorktrees?: string[];
+  /** `worktree_add` rejects with `git.cli_failed`. */
+  failWorktreeAdd?: boolean;
+  /** The paths `path_exists` answers true for. */
+  existingPaths?: string[];
+}
+
+/** The main worktree at `/r` and two linked ones, one of them prunable. */
+export function fakeWorktrees(): Worktree[] {
+  return [
+    {
+      path: "/r",
+      name: null,
+      head: fakeCommit(0).hash,
+      branch: "main",
+      detached: false,
+      isMain: true,
+      locked: false,
+      lockReason: null,
+      prunable: false,
+    },
+    {
+      path: "/wt/claude-auth",
+      name: "claude-auth",
+      head: fakeCommit(4).hash,
+      branch: "claude/fix-auth",
+      detached: false,
+      isMain: false,
+      locked: false,
+      lockReason: null,
+      prunable: false,
+    },
+    {
+      path: "/wt/gone",
+      name: "gone",
+      head: fakeCommit(6).hash,
+      branch: "gone",
+      detached: false,
+      isMain: false,
+      locked: true,
+      lockReason: "review",
+      prunable: true,
+    },
+  ];
 }
 
 /** The files a diff of `target` lists: two text files, an image and a generated one. */
@@ -143,6 +196,19 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
   const pageSize = options.pageSize ?? 500;
   const all = Array.from({ length: total }, (_, i) => fakeCommit(i));
   const annotations: Record<string, Annotation[]> = options.annotations ?? {};
+  let worktrees: Worktree[] = (options.worktrees ?? []).map((worktree) => ({ ...worktree }));
+  const entryFor = (path: string, summary: RepoSummary): IndexEntry => ({
+    path,
+    name: path.slice(path.lastIndexOf("/") + 1),
+    kind: path === "/r" ? "main" : "worktree",
+    parentPath: path === "/r" ? null : "/r",
+    scanRoot: null,
+    summary,
+    pinned: false,
+    lastOpenedAt: null,
+    refreshedAt: 1_700_000_000,
+    missing: false,
+  });
   const send = (channel: Channel<unknown>, messages: unknown[]) => {
     queueMicrotask(() => {
       for (const message of messages) channel.onmessage(message);
@@ -373,10 +439,74 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
           }
         );
       case "list_worktrees":
-        return [];
+        return worktrees.map((worktree) => ({ ...worktree }));
+      case "worktree_add": {
+        if (options.failWorktreeAdd) {
+          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+          return Promise.reject({
+            code: "git.cli_failed",
+            message: "git worktree add failed",
+            detail: "fatal: 'develop' is already used by worktree at '/wt/develop'",
+          });
+        }
+        const request = args["request"] as WorktreeAdd;
+        const branch = request.branch;
+        const added: Worktree = {
+          path: request.path,
+          name: request.path.slice(request.path.lastIndexOf("/") + 1),
+          head: fakeCommit(2).hash,
+          branch: branch.kind === "detached" ? null : branch.name,
+          detached: branch.kind === "detached",
+          isMain: false,
+          locked: false,
+          lockReason: null,
+          prunable: false,
+        };
+        worktrees = [...worktrees, added];
+        return { ...added };
+      }
+      case "worktree_remove": {
+        const path = args["path"] as string;
+        if (!args["force"] && options.dirtyWorktrees?.includes(path)) {
+          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+          return Promise.reject({
+            code: "worktree.dirty",
+            message: `the worktree ${path} has uncommitted changes`,
+          });
+        }
+        worktrees = worktrees.filter((worktree) => worktree.path !== path);
+        return null;
+      }
+      case "worktree_prune": {
+        const pruned = worktrees.filter((worktree) => worktree.prunable).map((w) => w.path);
+        worktrees = worktrees.filter((worktree) => !worktree.prunable);
+        return pruned;
+      }
+      case "worktree_lock": {
+        const path = args["path"] as string;
+        worktrees = worktrees.map((worktree) =>
+          worktree.path === path
+            ? { ...worktree, locked: true, lockReason: (args["reason"] as string | null) ?? null }
+            : worktree,
+        );
+        return null;
+      }
+      case "worktree_unlock": {
+        const path = args["path"] as string;
+        worktrees = worktrees.map((worktree) =>
+          worktree.path === path ? { ...worktree, locked: false, lockReason: null } : worktree,
+        );
+        return null;
+      }
+      case "path_exists":
+        return options.existingPaths?.includes(args["path"] as string) ?? false;
+      case "refresh_repository": {
+        const path = args["path"] as string;
+        const summary = options.summaries?.[path];
+        return summary ? entryFor(path, summary) : null;
+      }
       case "watch_repository":
       case "record_repository_open":
-      case "refresh_repository":
         return null;
       case "list_repositories":
         return [];

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// The comparison: the
-// sidebar of graph focus, then the header, the merge-base line, the preview banner, the two
+// The comparison, beside
+// the shell's sidebar: the header, the merge-base line, the preview banner, the two
 // side lists and "Files changed" on the review's files panel and viewer, whose target is the
 // three-dot range of the endpoints. While the counts are computed the banner and the lists
 // show their loading states; both endpoints at the same commit show the
@@ -19,8 +19,6 @@ import { branchLanes } from "@/shell/branchLanes";
 import { errorText } from "@/shell/errorMessage";
 import { relativeDate, shortHash } from "@/shell/format";
 import PaneResizer from "@/shell/PaneResizer.vue";
-import Sidebar from "@/shell/Sidebar.vue";
-import SidebarRail from "@/shell/SidebarRail.vue";
 import { useExternal } from "@/shell/useExternal";
 import { useNow } from "@/shell/useNow";
 import { useCompareStore, type CompareSide } from "@/stores/compare";
@@ -43,7 +41,6 @@ const external = useExternal();
 const now = useNow();
 const sideA = ref<{ focus(): void } | null>(null);
 
-const showSidebar = computed(() => !shell.sidebarCollapsed);
 const endpoints = computed(() => compare.endpoints);
 const lanes = computed<Record<CompareSide, number>>(() => {
   const byRef = branchLanes(repo.refs);
@@ -114,13 +111,7 @@ defineExpose({ focusSides: () => sideA.value?.focus() });
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1" data-testid="compare-layout">
-    <Sidebar v-if="showSidebar" />
-    <SidebarRail
-      v-else
-      :active="shell.sidebarTab"
-      @select="(tab) => void shell.expandSidebar(tab)"
-    />
+  <div class="flex min-h-0 min-w-0 flex-1" data-testid="compare-layout">
     <div v-if="endpoints" class="flex min-h-0 min-w-0 flex-1 flex-col">
       <CompareHeader
         :a="endpoints.a"
