@@ -19,9 +19,12 @@ const MAX_TEXT_CHARS: usize = 200;
 
 /// Adding a worktree checks out the whole tree and removing one deletes it: a minute each on
 /// the benchmark repositories (96,038 files; 58,430 files in 35,604 directories), so they
-/// get ten instead of the default thirty seconds. A timeout kills git mid-checkout and leaves
-/// the entry locked ("initializing") with a partial folder, which Unlock and Remove clean.
+/// get ten minutes instead of the default thirty seconds. A timeout kills git mid-checkout;
+/// the engine then rolls the add back.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// How long the add dialog's existence check waits for a path (a network share may hang).
+const EXISTS_TIMEOUT: Duration = Duration::from_secs(2);
 
 fn validate_text(field: &str, value: &str) -> Result<(), AppError> {
     if value.trim().is_empty() {
@@ -49,12 +52,10 @@ fn validate_path(field: &str, path: &Path) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Checks an add request: the path is absolute and free, the branch and revision are sane.
+/// Checks an add request: the path is absolute, the branch and revision are sane. Whether
+/// the folder exists is checked on the blocking thread, with the engine.
 fn validate_add(request: &WorktreeAdd) -> Result<(), AppError> {
     validate_path("path", &request.path)?;
-    if request.path.exists() {
-        return Err(AppError::invalid_argument("path", "the folder exists"));
-    }
     match &request.branch {
         WorktreeBranch::New { name, start } => {
             validate_text("name", name)?;
@@ -115,12 +116,19 @@ fn free_local_branch(
 }
 
 /// Whether an absolute path exists, for the add dialog's inline check of its Path field
-/// before git is asked (git refuses an existing folder too).
+/// before git is asked (git refuses an existing folder too). Off the main thread, since a
+/// network path can hang for the share's timeout; after [`EXISTS_TIMEOUT`] it reads as free
+/// and git has the last word.
 #[tauri::command]
 #[tracing::instrument(level = "debug")]
-pub fn path_exists(path: PathBuf) -> Result<bool, AppError> {
+pub async fn path_exists(path: PathBuf) -> Result<bool, AppError> {
     validate_path("path", &path)?;
-    Ok(path.exists())
+    let probe = tokio::task::spawn_blocking(move || path.exists());
+    match tokio::time::timeout(EXISTS_TIMEOUT, probe).await {
+        Ok(Ok(exists)) => Ok(exists),
+        Ok(Err(join)) => Err(AppError::internal(format!("path probe failed: {join}"))),
+        Err(_elapsed) => Ok(false),
+    }
 }
 
 /// Adds a worktree to the repository at `repo`.
@@ -136,6 +144,9 @@ pub async fn worktree_add(
     let app = state.inner().clone();
     let worker = app.clone();
     run_blocking(app.ops(), &op_id, WRITE_TIMEOUT, move |cancel| {
+        if request.path.exists() {
+            return Err(AppError::invalid_argument("path", "the folder exists"));
+        }
         let engine = worker.open(&repo)?;
         if let WorktreeBranch::Existing { name } = &request.branch {
             free_local_branch(engine.as_ref(), name, &cancel)?;
@@ -258,11 +269,6 @@ mod tests {
             validate_add(&relative).expect_err("relative").code,
             "ipc.invalid_argument"
         );
-        let existing = WorktreeAdd {
-            path: temp.clone(),
-            ..ok.clone()
-        };
-        assert!(validate_add(&existing).is_err());
         let dashed = WorktreeAdd {
             branch: WorktreeBranch::Existing {
                 name: "--force".to_owned(),

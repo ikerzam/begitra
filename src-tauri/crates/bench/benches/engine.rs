@@ -618,6 +618,20 @@ fn worktree_add_remove(c: &mut Criterion) {
     for target in present() {
         let engine = engine(&target.path);
         let folder = std::env::temp_dir().join(format!("begira-bench-wt-{}", target.name));
+        let folder_text = folder.to_string_lossy().into_owned();
+        // A killed run leaves the entry locked "initializing": unlock and force it away.
+        let _ = run_git(&target.path, &["worktree", "unlock", "--", &folder_text]);
+        let _ = run_git(
+            &target.path,
+            &[
+                "worktree",
+                "remove",
+                "--force",
+                "--force",
+                "--",
+                &folder_text,
+            ],
+        );
         let _ = std::fs::remove_dir_all(&folder);
         let _ = run_git(&target.path, &["worktree", "prune"]);
         let _ = run_git(&target.path, &["branch", "-D", "begira-bench-wt"]);
@@ -633,11 +647,12 @@ fn worktree_add_remove(c: &mut Criterion) {
                 e.worktree_add(&request, &Cancel::never()).expect("add");
                 // The kernel has paths that differ only in case, which a Windows checkout
                 // leaves modified; the forced removal is the fallback for that case only.
-                if let Err(GitError::WorktreeDirty(_)) =
-                    e.worktree_remove(&folder, false, &Cancel::never())
-                {
-                    e.worktree_remove(&folder, true, &Cancel::never())
-                        .expect("forced remove");
+                match e.worktree_remove(&folder, false, &Cancel::never()) {
+                    Ok(()) => {}
+                    Err(GitError::WorktreeDirty(_)) => e
+                        .worktree_remove(&folder, true, &Cancel::never())
+                        .expect("forced remove"),
+                    Err(error) => panic!("remove failed: {error}"),
                 }
                 run_git(&target.path, &["branch", "-D", "begira-bench-wt"]).expect("branch");
             });

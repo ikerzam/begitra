@@ -276,6 +276,104 @@ fn removes_an_entry_whose_folder_is_gone() {
     );
 }
 
+/// The value of `-b` cannot be protected by `--`: an option-shaped name is refused before
+/// git would hand it to `git branch` as an option (and move a branch).
+#[test]
+fn an_option_shaped_branch_name_is_refused_and_moves_nothing() {
+    let f = Fixture::basic();
+    let engine = engine(&f);
+    let develop = f.rev("develop");
+    let refused = engine
+        .worktree_add(
+            &WorktreeAdd {
+                path: f.sibling("wt-dash"),
+                branch: WorktreeBranch::New {
+                    name: "--force".to_owned(),
+                    start: "develop".to_owned(),
+                },
+            },
+            &Cancel::never(),
+        )
+        .expect_err("option-shaped");
+    assert_eq!(refused.code(), "git.cli_failed");
+    assert_eq!(f.rev("develop"), develop);
+    assert!(!f.sibling("wt-dash").exists());
+}
+
+/// An add cancelled while git checks the tree out is rolled back: no entry, no folder, the
+/// branch kept, as after a failure git cleans up itself.
+#[test]
+fn a_cancelled_add_is_rolled_back() {
+    let mut f = Fixture::basic();
+    for dir in 0..60 {
+        for file in 0..40 {
+            f.write(
+                &format!("bulk/d{dir}/f{file}.txt"),
+                &format!(
+                    "{dir}-{file}
+"
+                ),
+            );
+        }
+    }
+    f.commit("bulk");
+    let engine = std::sync::Arc::new(engine(&f));
+    let path = f.sibling("wt-cancelled");
+    let cancel = Cancel::new();
+    let flag = cancel.clone();
+    let request = WorktreeAdd {
+        path: path.clone(),
+        branch: WorktreeBranch::New {
+            name: "cancelled".to_owned(),
+            start: "main".to_owned(),
+        },
+    };
+    let worker = std::sync::Arc::clone(&engine);
+    let adding = std::thread::spawn(move || worker.worktree_add(&request, &flag));
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    cancel.cancel();
+    let result = adding.join().expect("thread");
+    match result {
+        // A fast disk finished the checkout before the flag was seen.
+        Ok(added) => assert!(same_path(&added.path, &path)),
+        Err(error) => {
+            assert_eq!(error.code(), "op.cancelled");
+            assert!(!path.exists(), "the partial folder is gone");
+            assert!(!porcelain(&f)
+                .iter()
+                .any(|(p, _, _)| same_path(Path::new(p), &path)));
+            assert!(engine
+                .worktrees(&Cancel::never())
+                .expect("list")
+                .iter()
+                .all(|w| !w.locked));
+        }
+    }
+    assert_eq!(
+        f.git(&["rev-parse", "--verify", "refs/heads/cancelled"])
+            .len(),
+        40
+    );
+}
+
+/// An entry whose admin directory libgit2 cannot open (its `gitdir` file gone) is pruned by
+/// git and reported under its name.
+#[test]
+fn prunes_an_entry_libgit2_cannot_open() {
+    let f = Fixture::basic().with_linked_worktree();
+    let engine = engine(&f);
+    let admin = f.git_dir().join("worktrees").join("wt-feature");
+    fs::remove_file(admin.join("gitdir")).expect("drop the gitdir file");
+    assert!(engine
+        .worktrees(&Cancel::never())
+        .expect("list")
+        .iter()
+        .all(|w| w.is_main));
+    let pruned = engine.worktree_prune(&Cancel::never()).expect("prune");
+    assert_eq!(pruned, vec![PathBuf::from("wt-feature")]);
+    assert!(!admin.exists());
+}
+
 #[test]
 fn removes_clean_worktrees_and_refuses_dirty_ones_until_forced() {
     let f = Fixture::basic().with_linked_worktree();
