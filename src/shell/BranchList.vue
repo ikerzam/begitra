@@ -6,7 +6,7 @@
 // they survive filtering. While a filter is typed, the count line reads "N of M branches".
 
 import { Tag } from "@lucide/vue";
-import { computed, ref } from "vue";
+import { computed, onUnmounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ListRow from "@/components/ListRow.vue";
@@ -55,8 +55,15 @@ const groups = computed<BranchGroup[]>(() => {
 const flatRows = computed(() => groups.value.flatMap((group) => group.rows));
 const rowCount = computed(() => flatRows.value.length);
 
-/* The selection is the graph's scope ref, so filtering keeps it; none until the user picks a row. */
+/* The selection is the graph's scope ref, so filtering keeps it; none until the user picks a row.
+   A move waits a moment before scoping the graph, so that j/k held over the list restarts the
+   walk once, on the row the user stops at; the row itself is marked at once. */
+const SCOPE_DELAY_MS = 120;
+const pendingName = ref<string | null>(null);
+let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+
 const selectedName = computed(() => {
+  if (pendingName.value !== null) return pendingName.value;
   const scope = graph.filters.scope;
   return scope.kind === "ref" ? scope.fullName : null;
 });
@@ -64,8 +71,19 @@ const selectedRow = computed({
   get: () => flatRows.value.findIndex((row) => row.ref.fullName === selectedName.value),
   set: (index: number) => {
     const ref = flatRows.value[index]?.ref;
-    if (ref) graph.setScope({ kind: "ref", name: ref.name, fullName: ref.fullName });
+    if (!ref) return;
+    pendingName.value = ref.fullName;
+    if (pendingTimer !== null) clearTimeout(pendingTimer);
+    pendingTimer = setTimeout(() => {
+      pendingTimer = null;
+      pendingName.value = null;
+      graph.setScope({ kind: "ref", name: ref.name, fullName: ref.fullName });
+    }, SCOPE_DELAY_MS);
   },
+});
+
+onUnmounted(() => {
+  if (pendingTimer !== null) clearTimeout(pendingTimer);
 });
 
 /** "N of M branches" while a filter narrows the list. */

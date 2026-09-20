@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CommitNode, IndexEntry, Repo } from "@/ipc/schemas";
 import { ShortcutRegistry, setShortcutRegistry } from "@/shortcuts/registry";
+import { useGraphStore } from "@/stores/graph";
 import { useIndexStore } from "@/stores/index";
 import { useOperationsStore } from "@/stores/operations";
 import { useRepoStore } from "@/stores/repo";
@@ -743,6 +744,26 @@ describe("Sidebar", () => {
     expect(document.activeElement).toBe(rows[1]?.element);
     await rows[1]!.trigger("keydown", { key: "ArrowUp" });
     expect(rows[0]?.attributes("aria-selected")).toBe("true");
+    wrapper.unmount();
+  });
+
+  it("scopes the graph once the branch selection settles, not on every j/k step", async () => {
+    const wrapper = await openShell();
+    const rows = wrapper.get('[data-testid="branch-list"]').findAll('[data-testid="list-row"]');
+    (rows[0]?.element as HTMLElement).focus();
+    await rows[0]!.trigger("keydown", { key: "j" });
+    await rows[0]!.trigger("keydown", { key: "j" });
+    // The second row is marked at once; the graph is still unscoped.
+    expect(rows.map((row) => row.attributes("aria-selected"))).toEqual(["false", "true"]);
+    expect(useGraphStore().filters.scope.kind).toBe("all");
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await settle();
+    expect(useGraphStore().filters.scope).toEqual({
+      kind: "ref",
+      name: "origin/main",
+      fullName: "refs/remotes/origin/main",
+    });
+    expect(rows.map((row) => row.attributes("aria-selected"))).toEqual(["false", "true"]);
     wrapper.unmount();
   });
 
