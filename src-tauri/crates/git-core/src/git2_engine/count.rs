@@ -1,15 +1,17 @@
 //! A bounded commit count of a scope, for the graph's "N of M commits" line.
 //!
 //! The count runs on its own repository handle (the engine's mutex stays free for the refs,
-//! the status and the diffs the screen asks for meanwhile) and walks the parents itself from
-//! the same seeds as the graph, so it stops at the cap and answers cancellation at every
-//! [`CANCEL_EVERY`] commits; libgit2's revwalk would read the whole excluded ancestry of a
-//! range inside its first step. The excluded ancestry of a range is read first, cancellable.
+//! the status and the diffs the screen asks for meanwhile). A ref or `All` scope walks the
+//! parents itself from the same seeds as the graph, so it stops at the cap and answers
+//! cancellation at every [`CANCEL_EVERY`] commits. A `Range` scope counts the members of
+//! libgit2's bounded revwalk up to the cap: the cost is the range's size, never the
+//! excluded history, and only the timeout interrupts that pass.
 
 use std::collections::HashSet;
 
 use git2::{Oid, Repository};
 
+use super::walk::range_members;
 use super::Git2Engine;
 use crate::engine::Cancel;
 use crate::error::{GitError, GitResult};
@@ -27,47 +29,28 @@ pub(super) fn count(
 ) -> GitResult<CommitCount> {
     let repo = engine.with_repo(super::reopen)?;
     let (seeds, exclude) = super::walk::scope_of(&repo, scope, cancel)?;
-    let excluded = match exclude {
-        Some(root) => ancestry(&repo, root, cancel)?,
-        None => HashSet::new(),
-    };
-    count_from(&repo, &seeds, &excluded, COUNT_CAP, cancel)
-}
-
-/// Every commit reachable from `root`, `root` included.
-fn ancestry(repo: &Repository, root: Oid, cancel: &Cancel) -> GitResult<HashSet<Oid>> {
-    let mut set = HashSet::from([root]);
-    let mut stack = vec![root];
-    let mut visited: u32 = 0;
-    while let Some(oid) = stack.pop() {
-        visited = visited.wrapping_add(1);
-        if visited.is_multiple_of(CANCEL_EVERY) {
-            cancel.check()?;
-        }
-        let commit = repo
-            .find_commit(oid)
-            .map_err(|error| GitError::object(&oid.to_string(), error))?;
-        for parent in commit.parent_ids() {
-            if set.insert(parent) {
-                stack.push(parent);
-            }
-        }
+    if let Some(exclude) = exclude {
+        cancel.check()?;
+        let (members, more) = range_members(&repo, &seeds, exclude, Some(COUNT_CAP as usize))?;
+        return Ok(CommitCount {
+            count: u32::try_from(members.len()).unwrap_or(COUNT_CAP),
+            capped: more,
+        });
     }
-    Ok(set)
+    count_from(&repo, &seeds, COUNT_CAP, cancel)
 }
 
-/// Counts the commits reachable from `seeds` outside `excluded`, at most `cap`.
+/// Counts the commits reachable from `seeds`, at most `cap`.
 fn count_from(
     repo: &Repository,
     seeds: &[Oid],
-    excluded: &HashSet<Oid>,
     cap: u32,
     cancel: &Cancel,
 ) -> GitResult<CommitCount> {
     let mut seen: HashSet<Oid> = HashSet::new();
     let mut stack: Vec<Oid> = Vec::new();
     for seed in seeds {
-        if !excluded.contains(seed) && seen.insert(*seed) {
+        if seen.insert(*seed) {
             stack.push(*seed);
         }
     }
@@ -81,7 +64,7 @@ fn count_from(
             .find_commit(oid)
             .map_err(|error| GitError::object(&oid.to_string(), error))?;
         for parent in commit.parent_ids() {
-            if !excluded.contains(&parent) && seen.insert(parent) {
+            if seen.insert(parent) {
                 stack.push(parent);
             }
         }
@@ -135,8 +118,7 @@ mod tests {
     #[test]
     fn counts_up_to_the_cap_and_reports_it() {
         let (_dir, repo, tip) = chain(10);
-        let none = HashSet::new();
-        let all = count_from(&repo, &[tip], &none, 100, &Cancel::never()).expect("count");
+        let all = count_from(&repo, &[tip], 100, &Cancel::never()).expect("count");
         assert_eq!(
             all,
             CommitCount {
@@ -144,7 +126,7 @@ mod tests {
                 capped: false
             }
         );
-        let capped = count_from(&repo, &[tip], &none, 4, &Cancel::never()).expect("count");
+        let capped = count_from(&repo, &[tip], 4, &Cancel::never()).expect("count");
         assert_eq!(
             capped,
             CommitCount {
@@ -152,7 +134,7 @@ mod tests {
                 capped: true
             }
         );
-        let exact = count_from(&repo, &[tip], &none, 10, &Cancel::never()).expect("count");
+        let exact = count_from(&repo, &[tip], 10, &Cancel::never()).expect("count");
         assert_eq!(
             exact,
             CommitCount {
@@ -171,10 +153,16 @@ mod tests {
             .and_then(|c| c.parent(0))
             .expect("tip~2")
             .id();
-        let excluded = ancestry(&repo, third, &Cancel::never()).expect("ancestry");
-        assert_eq!(excluded.len(), 4);
-        let counted = count_from(&repo, &[tip], &excluded, 100, &Cancel::never()).expect("count");
-        assert_eq!(counted.count, 2);
-        assert!(!counted.capped);
+        let (members, more) = range_members(&repo, &[tip], third, None).expect("members");
+        assert_eq!(members.len(), 2);
+        assert!(!more);
+        // The cap cuts the members and says so; exactly the cap is not cut.
+        let (one, more) = range_members(&repo, &[tip], third, Some(1)).expect("members");
+        assert_eq!((one.len(), more), (1, true));
+        let (two, more) = range_members(&repo, &[tip], third, Some(2)).expect("members");
+        assert_eq!((two.len(), more), (2, false));
+        // Excluding the tip itself leaves nothing.
+        let (none, more) = range_members(&repo, &[tip], tip, None).expect("members");
+        assert!(none.is_empty() && !more);
     }
 }

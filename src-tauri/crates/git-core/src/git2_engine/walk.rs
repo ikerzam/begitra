@@ -19,6 +19,12 @@
 //! Ties in the heap go to the commit inserted first, like git's `prio_queue`; seeds enter in
 //! ref name order with `HEAD` last, the order `git log --all` feeds its pending list.
 //!
+//! A `Range` scope takes its members from libgit2's revwalk (`push` the tips, `hide` the
+//! excluded revision) before the first page: its limit pass stops once every pending commit is
+//! older than the hidden frontier, so the cost is the range's size plus git's slop, never the
+//! excluded history. That pass runs under the operation's timeout but cannot be
+//! interrupted by `Cancel`; every page after it can.
+//!
 //! When a commit cannot be read, the page in progress is returned with `done` set and the
 //! [`GitError::CorruptObject`] is kept for the following call; when nothing was read yet the
 //! error is returned right away. Cancellation is checked before every page and every
@@ -122,8 +128,8 @@ struct Walk {
     pending_error: Option<GitError>,
     heap: BinaryHeap<QueueEntry>,
     next_seq: u64,
-    /// Ancestry of `exclude`: never queued, never drawn.
-    excluded: HashSet<Oid>,
+    /// The members of the range, once prepared; a parent outside is never queued or drawn.
+    members: Option<HashSet<Oid>>,
     /// Lazy order: every commit queued so far, `true` once shown.
     seen: HashMap<Oid, bool>,
     /// Date-topo order: children still to show, per commit not shown yet.
@@ -154,23 +160,32 @@ impl Walk {
             pending_error: None,
             heap: BinaryHeap::new(),
             next_seq: 0,
-            excluded: HashSet::new(),
+            members: None,
             seen: HashMap::new(),
             waiting_children: HashMap::new(),
             layout: LaneLayout::new(),
         }
     }
 
+    /// Whether `oid` lies outside the range (never, without an excluded revision).
+    fn outside(&self, oid: Oid) -> bool {
+        self.members
+            .as_ref()
+            .is_some_and(|members| !members.contains(&oid))
+    }
+
     /// Queues the seeds; in date-topo order the pre-walk runs first.
     fn prepare(&mut self, cancel: &Cancel) -> GitResult<()> {
         if let Some(exclude) = self.exclude {
-            self.excluded = self.ancestry(exclude, cancel)?;
+            cancel.check()?;
+            let (members, _) = range_members(&self.repo, &self.seeds, exclude, None)?;
+            self.members = Some(members);
         }
         let seeds: Vec<Oid> = self
             .seeds
             .iter()
             .copied()
-            .filter(|seed| !self.excluded.contains(seed))
+            .filter(|seed| !self.outside(*seed))
             .collect();
         match self.order {
             WalkOrder::Lazy => {
@@ -191,29 +206,6 @@ impl Walk {
             }
         }
         Ok(())
-    }
-
-    /// Every commit reachable from `root`, `root` included.
-    fn ancestry(&self, root: Oid, cancel: &Cancel) -> GitResult<HashSet<Oid>> {
-        let mut set = HashSet::from([root]);
-        let mut stack = vec![root];
-        let mut visited = 0usize;
-        while let Some(oid) = stack.pop() {
-            visited += 1;
-            if visited.is_multiple_of(CANCEL_EVERY) {
-                cancel.check()?;
-            }
-            let commit = self
-                .repo
-                .find_commit(oid)
-                .map_err(|error| GitError::object(&oid.to_string(), error))?;
-            for parent in commit.parent_ids() {
-                if set.insert(parent) {
-                    stack.push(parent);
-                }
-            }
-        }
-        Ok(set)
     }
 
     /// The date-topo pre-walk: visits every commit of the scope once and counts, per commit,
@@ -237,7 +229,7 @@ impl Walk {
                 .find_commit(oid)
                 .map_err(|error| GitError::object(&oid.to_string(), error))?;
             for parent in commit.parent_ids() {
-                if self.excluded.contains(&parent) {
+                if self.outside(parent) {
                     continue;
                 }
                 match self.waiting_children.entry(parent) {
@@ -306,7 +298,7 @@ impl Walk {
         let mut to_queue = Vec::new();
         let mut ahead = Vec::with_capacity(parent_ids.len());
         for (index, parent) in parent_ids.iter().enumerate() {
-            if self.excluded.contains(parent) {
+            if self.outside(*parent) {
                 continue;
             }
             let drawable = match self.order {
@@ -379,7 +371,7 @@ impl Walk {
     fn finish(&mut self) {
         self.finished = true;
         self.heap = BinaryHeap::new();
-        self.excluded = HashSet::new();
+        self.members = None;
         self.seen = HashMap::new();
         self.waiting_children = HashMap::new();
     }
@@ -593,6 +585,33 @@ fn resolve_scope(
 /// Resolves `spec` as `git rev-parse` would and peels it to a commit.
 fn resolve_commit(repo: &Repository, spec: &str) -> GitResult<Oid> {
     super::resolve_commit(repo, spec)
+}
+
+/// The commits of `exclude..include` from libgit2's revwalk (`push` the tips, `hide` the
+/// excluded revision), whose limit pass stops once every pending commit is older than the
+/// hidden frontier: the cost is the range's size plus git's slop, never the history. With
+/// `cap`, at most `cap` members are collected and the flag says whether more remained.
+pub(super) fn range_members(
+    repo: &Repository,
+    include: &[Oid],
+    exclude: Oid,
+    cap: Option<usize>,
+) -> GitResult<(HashSet<Oid>, bool)> {
+    let mut walk = repo.revwalk()?;
+    walk.set_sorting(git2::Sort::NONE)?;
+    for oid in include {
+        walk.push(*oid)?;
+    }
+    walk.hide(exclude)?;
+    let mut members = HashSet::new();
+    for next in walk {
+        let oid = next.map_err(|error| GitError::object("range", error))?;
+        if cap.is_some_and(|cap| members.len() >= cap) {
+            return Ok((members, true));
+        }
+        members.insert(oid);
+    }
+    Ok((members, false))
 }
 
 /// Short ref names per commit: `HEAD` first, then the refs in name order.

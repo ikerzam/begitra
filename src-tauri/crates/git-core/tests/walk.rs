@@ -1309,3 +1309,81 @@ fn commit_count_matches_git_rev_list_count() {
         assert!(!count.capped);
     }
 }
+
+/// `feature` forked from the middle of a long `main` whose tip merged a side branch: the
+/// excluded side has a merge and thousands of commits the range must never read.
+fn long_main_with_feature(main_length: usize) -> Fixture {
+    // The chain grows on the branch HEAD points at (main on this git's default).
+    let f = chain(main_length);
+    let branch = f.git(&["rev-parse", "--abbrev-ref", "HEAD"]);
+    if branch != "main" {
+        f.git(&["branch", "-m", &branch, "main"]);
+    }
+    // A side branch merged into main's tip (the excluded side owns a merge).
+    f.git(&["checkout", "-q", "-b", "side", "HEAD~3"]);
+    f.write("side.txt", "side\n");
+    f.git(&["add", "side.txt"]);
+    f.git(&["commit", "-q", "-m", "side work"]);
+    f.git(&["checkout", "-q", "main"]);
+    f.git(&["merge", "-q", "--no-ff", "--no-edit", "side"]);
+    // The feature forks a few commits before the merge and adds its own.
+    f.git(&["checkout", "-q", "-b", "feature", "main~2"]);
+    for i in 0..4 {
+        f.write("feature.txt", &format!("{i}\n"));
+        f.git(&["add", "feature.txt"]);
+        f.git(&["commit", "-q", "-m", &format!("feature {i}")]);
+    }
+    f.git(&["checkout", "-q", "main"]);
+    f
+}
+
+#[test]
+fn range_walks_and_counts_equal_git_rev_list_without_reading_the_excluded_history() {
+    let f = long_main_with_feature(800);
+    let engine = open(&f);
+    for (exclude, include) in [
+        ("main", "feature"),
+        ("feature", "main"),
+        ("main~50", "main"),
+    ] {
+        let scope = WalkScope::Range {
+            exclude: exclude.to_owned(),
+            include: include.to_owned(),
+        };
+        let expected: Vec<String> = f
+            .git(&["rev-list", &format!("{exclude}..{include}")])
+            .lines()
+            .map(str::to_owned)
+            .collect();
+        let started = Instant::now();
+        let listed = walk_all(&engine, &scope, 500, WalkOrder::DateTopo);
+        let took = started.elapsed();
+        let mut got = hashes(&listed);
+        let mut want = expected.clone();
+        got.sort();
+        want.sort();
+        assert_eq!(got, want, "{exclude}..{include}");
+        let count = engine
+            .count_commits(&scope, &Cancel::never())
+            .expect("count");
+        assert_eq!(
+            (count.count as usize, count.capped),
+            (expected.len(), false),
+            "{exclude}..{include}"
+        );
+        // Bounded by the range, not by the 3,000 commits behind it: generous for CI.
+        assert!(
+            took < Duration::from_secs(2),
+            "{exclude}..{include} took {took:?}"
+        );
+    }
+    // An edge into the excluded side is never drawn: feature's first commit has no parent
+    // edge, since its parent is on main.
+    let scope = WalkScope::Range {
+        exclude: "main".to_owned(),
+        include: "feature".to_owned(),
+    };
+    let listed = walk_all(&engine, &scope, 500, WalkOrder::Lazy);
+    let oldest = listed.last().expect("four commits");
+    assert!(oldest.edges.is_empty(), "{:?}", oldest.edges);
+}
