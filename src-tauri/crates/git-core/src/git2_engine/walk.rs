@@ -30,11 +30,12 @@ use std::collections::{BinaryHeap, HashMap, HashSet};
 
 use git2::{ErrorCode, Oid, ReferenceType, Repository};
 
+use super::filter::Matcher;
 use super::Git2Engine;
 use crate::engine::{Cancel, CommitWalk};
 use crate::error::{GitError, GitResult};
 use crate::graph::LaneLayout;
-use crate::types::{CommitNode, Page, Signature, WalkFilter, WalkOptions, WalkOrder, WalkScope};
+use crate::types::{CommitNode, Page, Signature, WalkOptions, WalkOrder, WalkScope};
 
 /// Largest page a walk produces; [`WalkOptions::page_size`] is clamped to `1..=MAX_PAGE_SIZE`.
 pub(super) const MAX_PAGE_SIZE: usize = 500;
@@ -67,7 +68,7 @@ pub(super) fn start(
         .filter
         .as_ref()
         .filter(|filter| filter.is_active())
-        .cloned();
+        .map(Matcher::new);
     Ok(Box::new(Walk::new(
         repo,
         options.order,
@@ -105,8 +106,8 @@ struct Walk {
     repo: Repository,
     order: WalkOrder,
     page_size: usize,
-    /// Commits kept; with a filter the layout is flat.
-    filter: Option<WalkFilter>,
+    /// Commits kept; with a filter the layout is flat and never computed.
+    filter: Option<Matcher>,
     /// Commits the scope starts from, in insertion order, without duplicates.
     seeds: Vec<Oid>,
     /// Revision whose ancestry is left out (`Range` scope).
@@ -135,7 +136,7 @@ impl Walk {
         repo: Repository,
         order: WalkOrder,
         page_size: usize,
-        filter: Option<WalkFilter>,
+        filter: Option<Matcher>,
         seeds: Vec<Oid>,
         exclude: Option<Oid>,
         decorations: HashMap<Oid, Vec<String>>,
@@ -271,15 +272,27 @@ impl Walk {
     /// Reads `oid`, marks it shown, lays out its row and returns the node together with the
     /// parents to queue; their lookups happen afterwards, so an unreadable parent never loses
     /// the row that was read.
-    fn emit(&mut self, oid: Oid) -> GitResult<(CommitNode, Vec<Oid>)> {
+    /// Reads `oid`, decides whether the filter keeps it, and queues its parents. The row is
+    /// built only for a kept commit; under a filter it is flat and the lane layout is skipped.
+    fn emit(&mut self, oid: Oid) -> GitResult<(Option<CommitNode>, Vec<Oid>)> {
         let commit = self
             .repo
             .find_commit(oid)
             .map_err(|error| GitError::object(&oid.to_string(), error))?;
+        let kept = self
+            .filter
+            .as_ref()
+            .is_none_or(|matcher| matcher.matches(&commit));
         let parent_ids: Vec<Oid> = commit.parent_ids().collect();
-        let author = signature(&commit.author());
-        let committer = signature(&commit.committer());
-        let (subject, body) = split_message(commit.message_raw_bytes());
+        let row = kept.then(|| {
+            let (subject, body) = split_message(commit.message_raw_bytes());
+            (
+                signature(&commit.author()),
+                signature(&commit.committer()),
+                subject,
+                body,
+            )
+        });
         drop(commit);
 
         match self.order {
@@ -321,14 +334,23 @@ impl Walk {
             }
         }
 
+        let Some((author, committer, subject, body)) = row else {
+            return Ok((None, to_queue));
+        };
         let hash = oid.to_string();
         let parents: Vec<String> = parent_ids.iter().map(Oid::to_string).collect();
-        let drawable: Vec<&str> = ahead
-            .iter()
-            .filter_map(|&index| parents.get(index).map(String::as_str))
-            .collect();
-        let placement = self.layout.place(&hash, &drawable);
         let refs = self.decorations.get(&oid).cloned().unwrap_or_default();
+        let (lane, edges, overflow) = if self.filter.is_some() {
+            // Lines between non-adjacent commits would not be parent edges.
+            (0, Vec::new(), 0)
+        } else {
+            let drawable: Vec<&str> = ahead
+                .iter()
+                .filter_map(|&index| parents.get(index).map(String::as_str))
+                .collect();
+            let placement = self.layout.place(&hash, &drawable);
+            (placement.lane, placement.edges, placement.overflow)
+        };
         let node = CommitNode {
             hash,
             parents,
@@ -337,11 +359,11 @@ impl Walk {
             subject,
             body,
             refs,
-            lane: placement.lane,
-            edges: placement.edges,
-            overflow: placement.overflow,
+            lane,
+            edges,
+            overflow,
         };
-        Ok((node, to_queue))
+        Ok((Some(node), to_queue))
     }
 
     /// Fails with [`GitError::Cancelled`], ending the walk, when cancellation was requested.
@@ -408,23 +430,13 @@ impl CommitWalk for Walk {
             let Some(entry) = self.heap.pop() else {
                 break;
             };
-            let (mut node, to_queue) = match self.emit(entry.oid) {
+            let (node, to_queue) = match self.emit(entry.oid) {
                 Ok(emitted) => emitted,
                 Err(error) => return self.fail(commits, error),
             };
-            let kept = match &self.filter {
-                Some(filter) => filter.matches(&node),
-                None => true,
-            };
-            if kept {
-                if self.filter.is_some() {
-                    // Lines between non-adjacent commits would not be parent edges.
-                    node.lane = 0;
-                    node.edges.clear();
-                    node.overflow = 0;
-                }
-                // Pushed before the parents are queued, so an unreadable parent still
-                // leaves this row in the partial page.
+            // Pushed before the parents are queued, so an unreadable parent still leaves
+            // this row in the partial page.
+            if let Some(node) = node {
                 commits.push(node);
             }
             for parent in to_queue {

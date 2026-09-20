@@ -6,6 +6,7 @@
 mod cli_walk;
 mod count;
 mod diff;
+mod filter;
 mod refs;
 mod status;
 mod walk;

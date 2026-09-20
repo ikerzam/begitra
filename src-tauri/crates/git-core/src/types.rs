@@ -245,50 +245,6 @@ impl WalkFilter {
             || self.until.is_some()
             || !self.paths.is_empty()
     }
-
-    /// Whether the metadata part of the filter (everything but `paths`) keeps `node`.
-    pub fn matches(&self, node: &CommitNode) -> bool {
-        if let Some(text) = self
-            .text
-            .as_deref()
-            .map(str::trim)
-            .filter(|t| !t.is_empty())
-        {
-            let needle = text.to_lowercase();
-            let hit = node.subject.to_lowercase().contains(&needle)
-                || node.body.to_lowercase().contains(&needle)
-                || node.author.name.to_lowercase().contains(&needle)
-                || node.author.email.to_lowercase().contains(&needle)
-                || node.hash.starts_with(&needle);
-            if !hit {
-                return false;
-            }
-        }
-        if let Some(author) = self
-            .author
-            .as_deref()
-            .map(str::trim)
-            .filter(|a| !a.is_empty())
-        {
-            let needle = author.to_lowercase();
-            if !(node.author.name.to_lowercase().contains(&needle)
-                || node.author.email.to_lowercase().contains(&needle))
-            {
-                return false;
-            }
-        }
-        if let Some(since) = self.since {
-            if node.committer.time < since {
-                return false;
-            }
-        }
-        if let Some(until) = self.until {
-            if node.committer.time > until {
-                return false;
-            }
-        }
-        true
-    }
 }
 
 /// How a path changed, in status and diffs.

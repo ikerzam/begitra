@@ -150,8 +150,9 @@ describe("graph store", () => {
     graph.setDateRange("7d");
     await settled();
     expect(graph.matches).toBe(1);
-    graph.setPath("apps/api");
+    graph.setPath("apps\\api\\");
     await settled();
+    expect(graph.filters.path).toBe("apps/api");
     const last = calls.filter((c) => c.cmd === "walk_commits").at(-1);
     expect(last?.args["options"]).toEqual({
       pageSize: 500,

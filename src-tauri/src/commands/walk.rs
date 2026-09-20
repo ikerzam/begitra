@@ -457,4 +457,69 @@ mod tests {
             ]
         );
     }
+
+    fn with_filter(filter: git_core::types::WalkFilter) -> WalkOptions {
+        WalkOptions {
+            filter: Some(filter),
+            ..WalkOptions::default()
+        }
+    }
+
+    #[test]
+    fn filters_are_validated_before_the_walk_starts() {
+        use git_core::types::WalkFilter;
+        assert!(validate_filter(&WalkOptions::default()).is_ok());
+        let ok = with_filter(WalkFilter {
+            text: Some("é".repeat(200)),
+            author: Some("a".repeat(200)),
+            since: Some(1),
+            until: Some(1),
+            paths: vec![
+                "apps/api".to_owned(),
+                "a[1].txt".to_owned(),
+                ":!x".to_owned(),
+            ],
+        });
+        assert!(
+            validate_filter(&ok).is_ok(),
+            "lengths count characters; paths are literal"
+        );
+        let too_long = with_filter(WalkFilter {
+            text: Some("x".repeat(201)),
+            ..WalkFilter::default()
+        });
+        let error = validate_filter(&too_long).expect_err("too long");
+        assert_eq!(error.code, codes::IPC_INVALID_ARGUMENT);
+        assert_eq!(error.message, "Invalid argument text");
+        for path in [
+            "",
+            "/etc/passwd",
+            r"\\server\share",
+            "-",
+            "..",
+            "a/../b",
+            "C:/x",
+        ] {
+            let bad = with_filter(WalkFilter {
+                paths: vec![path.to_owned()],
+                ..WalkFilter::default()
+            });
+            let error = validate_filter(&bad).expect_err(path);
+            assert_eq!(error.message, "Invalid argument paths", "{path:?}");
+        }
+        let many = with_filter(WalkFilter {
+            paths: (0..21).map(|i| format!("p{i}")).collect(),
+            ..WalkFilter::default()
+        });
+        assert!(validate_filter(&many).is_err());
+        let inverted = with_filter(WalkFilter {
+            since: Some(2),
+            until: Some(1),
+            ..WalkFilter::default()
+        });
+        assert_eq!(
+            validate_filter(&inverted).expect_err("inverted").message,
+            "Invalid argument since"
+        );
+    }
 }

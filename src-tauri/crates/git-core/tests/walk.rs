@@ -756,6 +756,54 @@ fn a_broken_ref_is_skipped_by_the_all_walk() {
         let nodes = walk_all(&engine, &WalkScope::All, 500, order);
         assert_eq!(hashes(&nodes), git_log(&f, &[], "main"), "{order:?}");
     }
+    // The path walk seeds git with the same commits, so the broken ref is skipped there too
+    // (`git rev-list --all` itself fails on it).
+    let by_path = walk_filtered(
+        &engine,
+        &WalkScope::All,
+        &filtered(WalkFilter {
+            paths: vec!["src".to_owned()],
+            ..WalkFilter::default()
+        }),
+    );
+    let expected: Vec<String> = f
+        .git(&["rev-list", "main", "--", "src"])
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(hashes(&by_path), expected);
+}
+
+/// The path walk never puts a ref name on git's command line (a ref can be spelled like an
+/// option) and passes paths as literals (a bracket in a file name is not a pattern).
+#[test]
+fn path_history_keeps_names_and_paths_out_of_gits_parsing() {
+    let mut f = Fixture::basic();
+    f.write(
+        "a[1].txt", "bracket
+",
+    );
+    f.commit("bracket file");
+    let bracket = f.head();
+    f.write(
+        "a1.txt", "plain
+",
+    );
+    f.commit("plain file");
+    f.git(&["update-ref", "refs/heads/--output=owned.txt", "HEAD"]);
+    let engine = open(&f);
+    let nodes = walk_filtered(
+        &engine,
+        &WalkScope::Ref {
+            name: "refs/heads/--output=owned.txt".to_owned(),
+        },
+        &filtered(WalkFilter {
+            paths: vec!["a[1].txt".to_owned()],
+            ..WalkFilter::default()
+        }),
+    );
+    assert_eq!(hashes(&nodes), vec![bracket]);
+    assert!(!f.root.join("owned.txt").exists());
 }
 
 /// Filtered options in the lazy order the app uses.

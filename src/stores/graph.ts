@@ -136,8 +136,9 @@ export const useGraphStore = defineStore("graph", () => {
     apply();
   }
 
+  /** A repository-relative path; backslashes (typed on Windows) are git's slashes. */
   function setPath(path: string): void {
-    const trimmed = path.trim();
+    const trimmed = path.trim().replace(/\\/g, "/").replace(/\/+$/, "");
     if (filters.value.path === trimmed) return;
     filters.value = { ...filters.value, path: trimmed };
     apply();
