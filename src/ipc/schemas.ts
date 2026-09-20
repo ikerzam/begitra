@@ -27,6 +27,7 @@ export const errorCodes = [
   "refs.not_found",
   "refs.unrelated_histories",
   "diff.blob_missing",
+  "blob.too_large",
   "worktree.missing_folder",
   "git.cli_failed",
   "ipc.invalid_argument",

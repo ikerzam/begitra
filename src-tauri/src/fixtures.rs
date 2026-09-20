@@ -592,6 +592,7 @@ fn write_fixtures() {
                 similarity: 70,
                 context: 0,
                 intra_line: false,
+                ignore_whitespace: true,
             },
         ],
     );

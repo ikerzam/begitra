@@ -72,7 +72,8 @@ fn build_diff<'r>(
     let mut git_options = Git2DiffOptions::new();
     git_options
         .context_lines(options.context.min(MAX_CONTEXT))
-        .include_typechange(true);
+        .include_typechange(true)
+        .ignore_whitespace(options.ignore_whitespace);
     let diff = match target {
         DiffTarget::Commit { hash } => {
             let commit = resolve_commit(repo, hash)?;
@@ -121,9 +122,24 @@ fn build_diff<'r>(
                 .map_err(GitError::from)
         }
         DiffTarget::WorkingTree {
+            base: WorkingTreeBase::Revision { rev },
+        } => {
+            let tree = commit_tree(&resolve_commit(repo, rev)?)?;
+            repo.diff_tree_to_workdir_with_index(Some(&tree), Some(&mut git_options))
+                .map_err(GitError::from)
+        }
+        DiffTarget::WorkingTree {
             base: WorkingTreeBase::Index,
         } => repo
-            .diff_index_to_workdir(None, Some(&mut git_options))
+            .diff_index_to_workdir(
+                None,
+                Some(
+                    git_options
+                        .include_untracked(true)
+                        .recurse_untracked_dirs(true)
+                        .show_untracked_content(true),
+                ),
+            )
             .map_err(GitError::from),
         DiffTarget::Index => {
             let head = head_tree(repo)?;
@@ -398,7 +414,9 @@ fn collect(
                 assemble(repo, status, meta, None, 0, 0, Vec::new())
             }
         };
-        if working_tree
+        // A modified delta without hunks is a file `git diff` would not list: a working tree
+        // file whose filtered content is unchanged, or a whitespace-only change under `-w`.
+        if (working_tree || options.ignore_whitespace)
             && status == ChangeKind::Modified
             && !file.is_binary
             && file.hunks.is_empty()

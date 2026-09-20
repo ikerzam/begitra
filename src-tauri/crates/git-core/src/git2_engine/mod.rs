@@ -3,6 +3,7 @@
 //! One submodule per operation family (`refs`, `walk`, `status`, `diff`, `worktrees`); this
 //! module owns the repository handle and the `open` logic.
 
+mod blob;
 mod cli_walk;
 mod count;
 mod diff;
@@ -20,8 +21,8 @@ use git2::{ErrorClass, ErrorCode, Oid, Repository};
 use crate::engine::{Cancel, CommitWalk, GitEngine};
 use crate::error::{GitError, GitResult};
 use crate::types::{
-    ChangeSet, CommitCount, DiffOptions, DiffTarget, Ref, Repo, StatusEntry, StatusOptions,
-    WalkOptions, WalkScope, Worktree,
+    BlobAt, BlobContent, ChangeSet, CommitCount, DiffOptions, DiffTarget, Ref, Repo, StatusEntry,
+    StatusOptions, WalkOptions, WalkScope, Worktree,
 };
 
 /// A repository opened with libgit2.
@@ -171,6 +172,10 @@ impl GitEngine for Git2Engine {
 
     fn merge_base(&self, a: &str, b: &str) -> GitResult<String> {
         refs::merge_base(self, a, b)
+    }
+
+    fn read_blob(&self, at: &BlobAt, path: &str) -> GitResult<BlobContent> {
+        blob::read(self, at, path)
     }
 
     fn worktrees(&self, cancel: &Cancel) -> GitResult<Vec<Worktree>> {

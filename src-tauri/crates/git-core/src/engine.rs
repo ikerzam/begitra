@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use crate::error::{GitError, GitResult};
 use crate::types::{
-    ChangeSet, CommitCount, DiffOptions, DiffTarget, Page, Ref, Repo, StatusEntry, StatusOptions,
-    WalkOptions, WalkScope, Worktree,
+    BlobAt, BlobContent, ChangeSet, CommitCount, DiffOptions, DiffTarget, Page, Ref, Repo,
+    StatusEntry, StatusOptions, WalkOptions, WalkScope, Worktree,
 };
 
 /// Cooperative cancellation flag checked by long operations between units of work.
@@ -105,6 +105,10 @@ pub trait GitEngine: Send + Sync {
 
     /// Merge base of two revisions; [`GitError::UnrelatedHistories`] when there is none.
     fn merge_base(&self, a: &str, b: &str) -> GitResult<String>;
+
+    /// Reads one file whole at a revision or in the working tree, at most 20 MB
+    /// ([`GitError::BlobTooLarge`]); an unknown path is [`GitError::RefNotFound`].
+    fn read_blob(&self, at: &BlobAt, path: &str) -> GitResult<BlobContent>;
 
     /// Lists the main worktree and every linked worktree.
     fn worktrees(&self, cancel: &Cancel) -> GitResult<Vec<Worktree>>;

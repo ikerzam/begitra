@@ -295,17 +295,34 @@ fn working_tree_and_index_diffs_match_git() {
     f.remove("docs/guide.md");
     f.git(&["rm", "-q", "src/dev.rs"]);
 
+    // Against the index the untracked file is listed as added (git's own diff leaves it out;
+    // `git status` shows it as `??`), the ignored one is not.
     let index = diff(
         &f,
         &DiffTarget::WorkingTree {
             base: WorkingTreeBase::Index,
         },
     );
+    let mut expected = git_name_status(&f, &["diff", "--name-status"]);
+    let porcelain = f.git(&["status", "--porcelain"]);
+    for line in porcelain.lines().filter(|line| line.starts_with("?? ")) {
+        expected.push(("A".to_owned(), line[3..].to_owned(), None));
+    }
+    expected.sort();
+    let mut listed = engine_name_status(&index);
+    listed.sort();
+    assert_eq!(listed, expected);
     assert_eq!(
-        engine_name_status(&index),
-        git_name_status(&f, &["diff", "--name-status"])
+        paths(&index),
+        ["README.md", "docs/guide.md", "untracked.txt"]
     );
-    assert_eq!(paths(&index), ["README.md", "docs/guide.md"]);
+    let untracked = file(&index, "untracked.txt");
+    assert_eq!(untracked.status, ChangeKind::Added);
+    assert_eq!(untracked.additions, 1);
+    assert!(untracked.hunks[0]
+        .lines
+        .iter()
+        .any(|line| line.kind == LineKind::Added && line.text == "untracked"));
 
     let head = diff(
         &f,
@@ -336,6 +353,68 @@ fn working_tree_and_index_diffs_match_git() {
         .lines
         .iter()
         .any(|line| line.kind == LineKind::Added && line.text == "modified"));
+
+    // The working tree against a revision, like `git diff v1`.
+    let against_tag = diff(
+        &f,
+        &DiffTarget::WorkingTree {
+            base: WorkingTreeBase::Revision {
+                rev: "v1".to_owned(),
+            },
+        },
+    );
+    assert_eq!(
+        engine_name_status(&against_tag),
+        git_name_status(&f, &["diff", "v1", "--name-status"])
+    );
+    // `docs/guide.md` exists at neither side (added after v1, removed here): not listed.
+    assert!(paths(&against_tag).contains(&"README.md"));
+    assert!(!paths(&against_tag).contains(&"docs/guide.md"));
+}
+
+/// `ignoreWhitespace` drops the lines and files that only changed in whitespace, like
+/// `git diff -w`.
+#[test]
+fn ignore_whitespace_matches_git_diff_w() {
+    let mut f = Fixture::basic();
+    f.write(
+        "src/lib.rs",
+        "pub fn one() -> u32 {
+        1
+}
+",
+    );
+    f.write(
+        "docs/guide.md",
+        "# Guide
+
+real change
+",
+    );
+    f.commit("reindent and edit");
+    let head = f.head();
+    let plain = diff(&f, &commit(&head));
+    assert_eq!(paths(&plain), ["docs/guide.md", "src/lib.rs"]);
+    let options = DiffOptions {
+        ignore_whitespace: true,
+        ..DiffOptions::default()
+    };
+    let ignoring = diff_with(&f, &commit(&head), &options);
+    let expected: Vec<String> = f
+        .git(&["diff", "-w", "--name-only", &format!("{head}~1"), &head])
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(paths(&ignoring), expected);
+    assert_eq!(paths(&ignoring), ["docs/guide.md"]);
+    let (additions, deletions) = numstat_totals(
+        &f,
+        &["diff", "-w", "--numstat", &format!("{head}~1"), &head],
+    );
+    assert_eq!(
+        (ignoring.additions, ignoring.deletions),
+        (additions, deletions)
+    );
 }
 
 #[test]
@@ -733,7 +812,7 @@ fn working_tree_diff_skips_files_that_only_differ_by_line_endings() {
     f.write("auto.txt", "one\r\ntwo\r\nthree\r\n");
     assert_eq!(f.git(&["diff", "--name-status"]), "");
     for base in [WorkingTreeBase::Index, WorkingTreeBase::Head] {
-        let set = diff(&f, &DiffTarget::WorkingTree { base });
+        let set = diff(&f, &DiffTarget::WorkingTree { base: base.clone() });
         assert!(set.files.is_empty(), "{base:?}: {:?}", set.files);
     }
 }

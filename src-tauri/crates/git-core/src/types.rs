@@ -349,13 +349,47 @@ pub enum DiffTarget {
 }
 
 /// Base of a working tree diff.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum WorkingTreeBase {
     /// Compare with the HEAD commit.
     Head,
-    /// Compare with the index.
+    /// Compare with the index; untracked files (outside `.gitignore`) count as added.
     Index,
+    /// Compare with any revision, like `git diff <rev>`.
+    Revision {
+        /// Revision the working tree is compared with.
+        rev: String,
+    },
+}
+
+/// Where a file is read from for [`crate::engine::GitEngine::read_blob`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", tag = "kind")]
+pub enum BlobAt {
+    /// The file as checked out in the working tree.
+    WorkingTree,
+    /// The file at a revision.
+    Revision {
+        /// Revision holding the file.
+        rev: String,
+    },
+}
+
+/// One file read whole: text (lossy UTF-8) or bytes (base64) by libgit2's binary heuristic.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlobContent {
+    /// Size in bytes.
+    pub size: u64,
+    /// A NUL in the first 8,000 bytes.
+    pub is_binary: bool,
+    /// The text of a text file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// The bytes of a binary file, base64.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bytes: Option<String>,
 }
 
 /// Options of a diff.
@@ -370,6 +404,9 @@ pub struct DiffOptions {
     pub context: u32,
     /// Compute intra-line change spans for paired removed and added lines.
     pub intra_line: bool,
+    /// Ignore every whitespace change, like `git diff -w`.
+    #[serde(default)]
+    pub ignore_whitespace: bool,
 }
 
 impl Default for DiffOptions {
@@ -379,6 +416,7 @@ impl Default for DiffOptions {
             similarity: 50,
             context: 3,
             intra_line: true,
+            ignore_whitespace: false,
         }
     }
 }

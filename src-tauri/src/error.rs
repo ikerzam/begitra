@@ -25,6 +25,8 @@ pub mod codes {
     pub const REFS_UNRELATED_HISTORIES: &str = "refs.unrelated_histories";
     /// A blob referenced by a diff is missing.
     pub const DIFF_BLOB_MISSING: &str = "diff.blob_missing";
+    /// A file is larger than what the app reads whole.
+    pub const BLOB_TOO_LARGE: &str = "blob.too_large";
     /// A linked worktree's folder is missing.
     pub const WORKTREE_MISSING_FOLDER: &str = "worktree.missing_folder";
     /// The system `git` failed; `detail` carries its stderr.
@@ -51,13 +53,14 @@ pub mod codes {
     pub const INTERNAL: &str = "internal";
 
     /// Every code, in the order of the declarations above.
-    pub const ALL: [&str; 18] = [
+    pub const ALL: [&str; 19] = [
         REPO_NOT_FOUND,
         REPO_INVALID,
         REPO_CORRUPT_OBJECT,
         REFS_NOT_FOUND,
         REFS_UNRELATED_HISTORIES,
         DIFF_BLOB_MISSING,
+        BLOB_TOO_LARGE,
         WORKTREE_MISSING_FOLDER,
         GIT_CLI_FAILED,
         IPC_INVALID_ARGUMENT,
