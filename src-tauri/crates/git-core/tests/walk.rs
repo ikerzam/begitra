@@ -758,9 +758,11 @@ fn a_broken_ref_is_skipped_by_the_all_walk() {
     }
 }
 
+/// Filtered options in the lazy order the app uses.
 fn filtered(filter: WalkFilter) -> WalkOptions {
     WalkOptions {
         filter: Some(filter),
+        order: WalkOrder::Lazy,
         ..WalkOptions::default()
     }
 }
@@ -892,9 +894,10 @@ fn an_empty_filter_keeps_lanes_and_no_match_ends_done() {
     assert!(page.done);
 }
 
-/// The path filter equals `git rev-list <scope> --date-order -- <paths>`: a file, a
-/// directory, a renamed file (history stops at the rename, as git's does without
-/// `--follow`), a path that never existed; it composes with the text filter.
+/// The path filter equals `git rev-list <scope> -- <paths>` in the lazy order (git's default)
+/// and `git rev-list --date-order` for the exact order: a file, a directory, a renamed file
+/// (history stops at the rename, as git's does without `--follow`), a path that never
+/// existed; it composes with the text filter.
 #[test]
 fn path_history_matches_git_rev_list() {
     let f = Fixture::basic().with_rename();
@@ -931,7 +934,7 @@ fn path_history_matches_git_rev_list() {
     ];
     for (paths, scope, git_scope) in cases {
         let nodes = by_paths(paths, &scope, None);
-        let mut args = vec!["rev-list", "--date-order", git_scope, "--"];
+        let mut args = vec!["rev-list", git_scope, "--"];
         args.extend_from_slice(paths);
         let expected: Vec<String> = f.git(&args).lines().map(str::to_owned).collect();
         assert_eq!(hashes(&nodes), expected, "{paths:?} on {git_scope}");
@@ -940,19 +943,29 @@ fn path_history_matches_git_rev_list() {
     assert!(by_paths(&["never/existed.txt"], &WalkScope::All, None).is_empty());
     let with_text = by_paths(&["src"], &WalkScope::All, Some("develop"));
     let expected: Vec<String> = f
-        .git(&[
-            "rev-list",
-            "--date-order",
-            "-i",
-            "--grep=develop",
-            "--all",
-            "--",
-            "src",
-        ])
+        .git(&["rev-list", "-i", "--grep=develop", "--all", "--", "src"])
         .lines()
         .map(str::to_owned)
         .collect();
     assert_eq!(hashes(&with_text), expected);
+    // The exact order asks git for --date-order.
+    let exact = walk_filtered(
+        &engine,
+        &WalkScope::All,
+        &WalkOptions {
+            order: WalkOrder::DateTopo,
+            ..filtered(WalkFilter {
+                paths: vec!["src".to_owned()],
+                ..WalkFilter::default()
+            })
+        },
+    );
+    let expected: Vec<String> = f
+        .git(&["rev-list", "--date-order", "--all", "--", "src"])
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(hashes(&exact), expected);
 }
 
 /// A path walk over many commits is paged and stops within 200 ms of a cancel, killing git.

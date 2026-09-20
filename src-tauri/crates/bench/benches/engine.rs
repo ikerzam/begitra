@@ -12,7 +12,9 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use git_core::cli::run_git;
 use git_core::engine::{Cancel, GitEngine};
 use git_core::git2_engine::Git2Engine;
-use git_core::types::{DiffOptions, DiffTarget, StatusOptions, WalkOptions, WalkOrder, WalkScope};
+use git_core::types::{
+    DiffOptions, DiffTarget, StatusOptions, WalkFilter, WalkOptions, WalkOrder, WalkScope,
+};
 
 /// A benchmark repository that is present on disk.
 struct Target {
@@ -25,6 +27,8 @@ struct Target {
     large_diff: Option<String>,
     /// A typical small commit.
     typical: Option<String>,
+    /// The path changed most often among the newest 200 commits, for `path_history`.
+    frequent_path: Option<String>,
 }
 
 fn present() -> Vec<Target> {
@@ -47,12 +51,14 @@ fn present() -> Vec<Target> {
         let merge_base_pair = merge_base_pair(name, &path);
         let large_diff = large_diff(name, &path);
         let typical = typical_commit(&path);
+        let frequent_path = frequent_path(&path);
         targets.push(Target {
             name,
             path,
             merge_base_pair,
             large_diff,
             typical,
+            frequent_path,
         });
     }
     targets
@@ -138,6 +144,25 @@ fn typical_commit(path: &Path) -> Option<String> {
     (!hash.is_empty()).then(|| hash.to_owned())
 }
 
+/// The path the newest 200 commits change most often: a file whose history git can list
+/// quickly, the scenario of the path filter (a rarely changed file walks the whole history).
+fn frequent_path(path: &Path) -> Option<String> {
+    let out = run_git(path, &["log", "-200", "--format=", "--name-only", "HEAD"]).ok()?;
+    let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for line in out
+        .stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        *counts.entry(line).or_default() += 1;
+    }
+    counts
+        .into_iter()
+        .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(a.0)))
+        .map(|(file, _)| file.to_owned())
+}
+
 fn engine(path: &Path) -> Git2Engine {
     Git2Engine::open(path).expect("benchmark repository opens")
 }
@@ -197,6 +222,68 @@ fn walk_first_page_date_topo(c: &mut Criterion) {
             page_size: 500,
             order: WalkOrder::DateTopo,
             filter: None,
+        };
+        group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+            b.iter(|| {
+                let mut walk = e
+                    .walk(&WalkScope::All, &options, &Cancel::never())
+                    .expect("walk");
+                walk.next_page(&Cancel::never()).expect("page")
+            });
+        });
+    }
+    group.finish();
+}
+
+/// The first page of a text-filtered walk: "fix" matches a fair share of the commits of both
+/// repositories, so 500 matches need a few thousand commits parsed and matched.
+fn walk_first_page_filtered(c: &mut Criterion) {
+    let mut group = c.benchmark_group("walk_first_page_filtered");
+    group.sample_size(10);
+    for target in present() {
+        let engine = engine(&target.path);
+        let options = WalkOptions {
+            page_size: 500,
+            order: WalkOrder::Lazy,
+            filter: Some(WalkFilter {
+                text: Some("fix".to_owned()),
+                ..WalkFilter::default()
+            }),
+        };
+        group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+            b.iter(|| {
+                let mut walk = e
+                    .walk(&WalkScope::All, &options, &Cancel::never())
+                    .expect("walk");
+                walk.next_page(&Cancel::never()).expect("page")
+            });
+        });
+    }
+    group.finish();
+}
+
+/// The first page of a path history (`git rev-list --all -- <path>` hydrated with libgit2)
+/// for the path the newest commits change most often; the child process is killed when the
+/// handle drops.
+fn path_history(c: &mut Criterion) {
+    let mut group = c.benchmark_group("path_history");
+    group.sample_size(10);
+    for target in present() {
+        let Some(file) = target.frequent_path.clone() else {
+            eprintln!(
+                "path_history/{}: no path found in the newest commits",
+                target.name
+            );
+            continue;
+        };
+        let engine = engine(&target.path);
+        let options = WalkOptions {
+            page_size: 500,
+            order: WalkOrder::Lazy,
+            filter: Some(WalkFilter {
+                paths: vec![file],
+                ..WalkFilter::default()
+            }),
         };
         group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
             b.iter(|| {
@@ -328,6 +415,8 @@ criterion_group!(
     refs,
     walk_first_page,
     walk_first_page_date_topo,
+    walk_first_page_filtered,
+    path_history,
     walk_ten_pages,
     status,
     diff_large_file,

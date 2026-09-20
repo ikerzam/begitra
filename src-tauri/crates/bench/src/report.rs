@@ -13,6 +13,8 @@ pub fn budget(id: &str) -> Option<Duration> {
         // Refs are on the open-to-first-paint path, so they share its budget.
         ("open", _) | ("walk_first_page", _) | ("refs", _) => 300,
         ("walk_ten_pages", _) => 3_000,
+        // A filter is an explicit action: first results within a second.
+        ("walk_first_page_filtered", _) | ("path_history", _) => 1_000,
         ("diff_typical", _) => 100,
         ("diff_large_file", _) | ("merge_base", _) => 500,
         ("status", _) => 2_000,

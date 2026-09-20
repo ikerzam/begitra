@@ -1,15 +1,25 @@
-//! Path history as a paged walk over `git rev-list <scope> --date-order -- <paths>`.
+//! Path history as a paged walk over `git rev-list <scope> -- <paths>`.
 //!
 //! libgit2 has no history simplification for paths, and a tree diff per commit over a large
 //! history is far slower than git's own walker, so the hashes come from the git CLI (argv,
-//! never a shell) as a child process the handle owns: lines are read one page at a time, the
-//! process is killed on drop and on cancel, and each hash is hydrated with libgit2 from the
-//! engine's own second handle. The layout is flat (lane 0, no edges) like every filtered walk,
-//! and the metadata filters apply after hydration so every filter composes.
+//! never a shell) as a child process the handle owns. git's default order is the lazy order
+//! of the engine and streams as it walks; `--date-order` is passed only for
+//! [`WalkOrder::DateTopo`], since git sorts the whole list before the first line then. A
+//! reader thread feeds the lines through a bounded channel, so a page can be returned early:
+//! history simplification costs a tree diff per commit and a rarely changed path yields its
+//! 500th line seconds after the first, while the graph should show the first rows at once. A
+//! page therefore closes when it is full, or after [`PAGE_BUDGET`] once it holds a row;
+//! cancellation is polled while waiting rather than between blocking reads. The process is
+//! killed on drop and on cancel, and each hash is hydrated with libgit2 from the engine's own
+//! second handle. The layout is flat (lane 0, no edges) like every filtered walk, and the
+//! metadata filters apply after hydration so every filter composes.
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read};
-use std::process::{Child, ChildStdout, Stdio};
+use std::io::{self, BufRead, BufReader, Read};
+use std::process::{Child, Stdio};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use git2::{Oid, Repository};
 
@@ -18,10 +28,14 @@ use super::Git2Engine;
 use crate::cli;
 use crate::engine::{Cancel, CommitWalk, GitEngine};
 use crate::error::{GitError, GitResult};
-use crate::types::{CommitNode, Page, WalkFilter, WalkOptions, WalkScope};
+use crate::types::{CommitNode, Page, WalkFilter, WalkOptions, WalkOrder, WalkScope};
 
-/// Lines read between two cancellation checks.
-const CANCEL_EVERY: usize = 100;
+/// Longest a page waits for more lines once it holds a row; a partial page is sent then.
+const PAGE_BUDGET: Duration = Duration::from_millis(200);
+/// How often cancellation is checked while waiting for a line.
+const CANCEL_POLL: Duration = Duration::from_millis(50);
+/// Lines the reader thread may run ahead of the pages; git is paused beyond it.
+const LINE_BUFFER: usize = 4_096;
 
 /// Starts a path-history walk; see the module docs.
 #[tracing::instrument(level = "debug", skip_all, fields(paths = ?options.filter.as_ref().map(|f| &f.paths)))]
@@ -34,7 +48,10 @@ pub(super) fn start(
     let filter = options.filter.clone().unwrap_or_default();
     let repo = engine.with_repo(super::reopen)?;
     let decorations = decorations_for(&repo, cancel)?;
-    let mut args: Vec<String> = vec!["rev-list".to_owned(), "--date-order".to_owned()];
+    let mut args: Vec<String> = vec!["rev-list".to_owned()];
+    if options.order == WalkOrder::DateTopo {
+        args.push("--date-order".to_owned());
+    }
     match scope {
         WalkScope::All => args.push("--all".to_owned()),
         WalkScope::Ref { name } => {
@@ -66,10 +83,27 @@ pub(super) fn start(
         status: None,
         stderr: "git gave no output pipe".to_owned(),
     })?;
+    let (sender, lines) = mpsc::sync_channel::<io::Result<String>>(LINE_BUFFER);
+    let reader = std::thread::Builder::new()
+        .name("begira-rev-list".to_owned())
+        .spawn(move || {
+            for line in BufReader::new(stdout).lines() {
+                if sender.send(line).is_err() {
+                    // The walk was dropped: the child is being killed, stop reading.
+                    break;
+                }
+            }
+        })
+        .map_err(|error| GitError::Cli {
+            command: command_text.clone(),
+            status: None,
+            stderr: format!("could not start the reader thread: {error}"),
+        })?;
     Ok(Box::new(CliWalk {
         repo,
         child: Some(child),
-        lines: BufReader::new(stdout),
+        lines,
+        reader: Some(reader),
         command: command_text,
         page_size: usize::try_from(options.page_size)
             .unwrap_or(MAX_PAGE_SIZE)
@@ -84,7 +118,8 @@ pub(super) fn start(
 struct CliWalk {
     repo: Repository,
     child: Option<Child>,
-    lines: BufReader<ChildStdout>,
+    lines: Receiver<io::Result<String>>,
+    reader: Option<JoinHandle<()>>,
     command: String,
     page_size: usize,
     filter: WalkFilter,
@@ -94,18 +129,25 @@ struct CliWalk {
 }
 
 impl CliWalk {
-    /// Kills the child if it still runs.
+    /// Kills the child if it still runs and joins the reader, which ends at the closed pipe.
     fn stop(&mut self) {
         if let Some(mut child) = self.child.take() {
             let _ = child.kill();
             let _ = child.wait();
         }
+        if let Some(reader) = self.reader.take() {
+            let _ = reader.join();
+        }
+        self.finished = true;
     }
 
     /// Reads the exit status after the last line; a failure becomes [`GitError::Cli`] with
     /// git's stderr.
     fn finish(&mut self) -> GitResult<()> {
         self.finished = true;
+        if let Some(reader) = self.reader.take() {
+            let _ = reader.join();
+        }
         let Some(mut child) = self.child.take() else {
             return Ok(());
         };
@@ -129,12 +171,33 @@ impl CliWalk {
         }
     }
 
+    fn cli_error(&self, stderr: String) -> GitError {
+        GitError::Cli {
+            command: self.command.clone(),
+            status: None,
+            stderr,
+        }
+    }
+
     fn hydrate(&self, oid: Oid) -> GitResult<CommitNode> {
         let commit = self
             .repo
             .find_commit(oid)
             .map_err(|error| GitError::object(&oid.to_string(), error))?;
         Ok(super::walk::node_of(&commit, &self.decorations))
+    }
+
+    /// Keeps the error for the next call when the page already holds rows.
+    fn park(&mut self, commits: Vec<CommitNode>, error: GitError) -> GitResult<Page> {
+        self.stop();
+        if commits.is_empty() {
+            return Err(error);
+        }
+        self.pending_error = Some(error);
+        Ok(Page {
+            commits,
+            done: true,
+        })
     }
 }
 
@@ -156,57 +219,55 @@ impl CommitWalk for CliWalk {
             });
         }
         let mut commits = Vec::with_capacity(self.page_size);
-        let mut line = String::new();
-        let mut read: usize = 0;
+        let mut first_row_at: Option<Instant> = None;
         while commits.len() < self.page_size {
-            if read.is_multiple_of(CANCEL_EVERY) && cancel.is_cancelled() {
+            if cancel.is_cancelled() {
                 self.stop();
-                self.finished = true;
                 return Err(GitError::Cancelled);
             }
-            read += 1;
-            line.clear();
-            let bytes = self
-                .lines
-                .read_line(&mut line)
-                .map_err(|error| GitError::Cli {
-                    command: self.command.clone(),
-                    status: None,
-                    stderr: error.to_string(),
-                })?;
-            if bytes == 0 {
-                // EOF: the process is done; its status says whether git was happy.
-                if let Err(error) = self.finish() {
-                    if commits.is_empty() {
-                        return Err(error);
-                    }
-                    self.pending_error = Some(error);
+            let line = match self.lines.recv_timeout(CANCEL_POLL) {
+                Ok(Ok(line)) => line,
+                Ok(Err(error)) => {
+                    let error = self.cli_error(error.to_string());
+                    return self.park(commits, error);
                 }
-                break;
-            }
+                Err(RecvTimeoutError::Timeout) => {
+                    // A partial page once the budget has passed with something to show.
+                    if first_row_at.is_some_and(|at| at.elapsed() >= PAGE_BUDGET) {
+                        break;
+                    }
+                    continue;
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    // EOF: the process is done; its status says whether git was happy.
+                    if let Err(error) = self.finish() {
+                        if commits.is_empty() {
+                            return Err(error);
+                        }
+                        self.pending_error = Some(error);
+                    }
+                    break;
+                }
+            };
             let text = line.trim();
             if text.is_empty() {
                 continue;
             }
-            let oid = Oid::from_str(text).map_err(|error| GitError::Cli {
-                command: self.command.clone(),
-                status: None,
-                stderr: format!("unexpected rev-list output {text:?}: {error}"),
-            })?;
-            let node = match self.hydrate(oid) {
-                Ok(node) => node,
+            let oid = match Oid::from_str(text) {
+                Ok(oid) => oid,
                 Err(error) => {
-                    // The page so far is returned; the error waits for the next call.
-                    self.stop();
-                    self.finished = true;
-                    if commits.is_empty() {
-                        return Err(error);
-                    }
-                    self.pending_error = Some(error);
-                    break;
+                    let error =
+                        self.cli_error(format!("unexpected rev-list output {text:?}: {error}"));
+                    return self.park(commits, error);
                 }
             };
+            let node = match self.hydrate(oid) {
+                Ok(node) => node,
+                // The page so far is returned; the error waits for the next call.
+                Err(error) => return self.park(commits, error),
+            };
             if self.filter.matches(&node) {
+                first_row_at.get_or_insert_with(Instant::now);
                 commits.push(node);
             }
         }
