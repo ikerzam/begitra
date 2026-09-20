@@ -47,6 +47,7 @@ const { dragging } = useDragDrop((path) => void index.open(path));
 useRepoWatcher();
 const graphLayout = ref<{ focusRows(): void } | null>(null);
 const reviewLayout = ref<{ focusFiles(): void } | null>(null);
+const compareLayout = ref<{ focusSides(): void } | null>(null);
 
 const repositoryName = computed(() => (repo.repo ? baseName(repo.repo.root) : null));
 const reviewMode = computed(() => shell.layoutMode === "review" && repo.state.kind === "ready");
@@ -140,6 +141,11 @@ watch(reviewMode, (on) => {
   if (on) void nextTick(() => reviewLayout.value?.focusFiles());
 });
 
+// The comparison starts on the "Only in A" list for the same reason.
+watch(compareMode, (on) => {
+  if (on) void nextTick(() => compareLayout.value?.focusSides());
+});
+
 /** Switches to review focus, on `file` when the detail tree chose one. */
 async function review(file?: FileChange): Promise<void> {
   if (repo.state.kind !== "ready") return;
@@ -167,7 +173,7 @@ async function removeFromList(): Promise<void> {
     />
     <div class="relative flex min-h-0 flex-1">
       <ReviewFocusLayout v-if="reviewMode" ref="reviewLayout" />
-      <CompareLayout v-else-if="compareMode" />
+      <CompareLayout v-else-if="compareMode" ref="compareLayout" />
       <GraphFocusLayout
         v-else
         ref="graphLayout"

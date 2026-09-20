@@ -449,7 +449,7 @@
   },
   "compare": {
     "title": "Compare",
-    "pickEndpoint": "Pick side {side}",
+    "endpoint": "Side {side}: {label}",
     "swap": "Swap sides",
     "mergeBase": "Merge base",
     "counting": "Counting commits…",
@@ -468,7 +468,7 @@
       "fastForwardBody": "{a} has no commits of its own since the merge base, so merging moves the pointer without a merge commit.",
       "upToDate": "{b} is already part of {a}",
       "clean": "{b} merges cleanly into {a}",
-      "conflicts": "{n} files would conflict if {b} were merged into {a}",
+      "conflicts": "{n} file would conflict if {b} were merged into {a} | {n} files would conflict if {b} were merged into {a}",
       "previewOnly": "Preview only. Nothing is written until you merge in a terminal.",
       "failed": "Couldn't compute the merge preview. {message} The commit lists and file summary are still correct."
     }

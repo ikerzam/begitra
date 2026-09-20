@@ -2,8 +2,9 @@
 // The comparison: the
 // sidebar of graph focus, then the header, the merge-base line, the preview banner, the two
 // side lists and "Files changed" on the review's files panel and viewer, whose target is the
-// three-dot range of the endpoints. Both endpoints at the same commit show the empty state;
-// a comparison that failed shows the banner in place of the merge-base line.
+// three-dot range of the endpoints. While the counts are computed the banner and the lists
+// show their loading states; both endpoints at the same commit show the
+// empty state; a comparison that failed shows the banner in place of the merge-base line.
 
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
@@ -106,8 +107,7 @@ function pick(side: CompareSide): void {
 /** Selects the merge base in the graph when the history lists it. */
 function selectBase(): void {
   const hash = compare.comparison?.base.hash;
-  const index = hash ? repo.commits.findIndex((commit) => commit.hash === hash) : -1;
-  if (index >= 0) repo.select(index);
+  if (hash) compare.selectCommit(hash);
 }
 
 defineExpose({ focusSides: () => sideA.value?.focus() });
@@ -143,20 +143,22 @@ defineExpose({ focusSides: () => sideA.value?.focus() });
           class="flex h-panel-header shrink-0 items-center gap-4 px-4 text-md"
           data-testid="merge-base-line"
         >
-          <span class="text-fg-secondary">{{ t("compare.mergeBase") }}</span>
+          <span class="text-fg-muted">{{ t("compare.mergeBase") }}</span>
           <template v-if="baseLine">
             <button
               type="button"
-              class="font-mono text-mono-sm text-accent hover:underline"
+              class="font-mono text-mono-sm text-link hover:underline"
               data-testid="merge-base-hash"
               @click="selectBase"
             >
               {{ baseLine.hash }}
             </button>
             <span class="text-fg-muted">{{ baseLine.ago }}</span>
-            <span class="text-fg" data-testid="compare-counts">{{ baseLine.counts }}</span>
+            <span class="text-fg-secondary" data-testid="compare-counts">{{
+              baseLine.counts
+            }}</span>
           </template>
-          <span v-else class="text-fg-muted">{{ t("compare.counting") }}</span>
+          <span v-else class="text-fg-secondary">{{ t("compare.counting") }}</span>
         </p>
         <EmptyState
           v-if="compare.same"
@@ -166,31 +168,33 @@ defineExpose({ focusSides: () => sideA.value?.focus() });
         >
           <Button variant="secondary" @click="pick('b')">{{ t("compare.pickAnother") }}</Button>
         </EmptyState>
-        <template v-else-if="compare.comparison">
+        <template v-else-if="compare.comparison || compare.comparing">
           <MergePreviewBanner
             :a="names.a"
             :b="names.b"
             :preview="compare.preview"
             :error="compare.previewError"
-            :loading="compare.previewing"
+            :loading="compare.previewing || compare.comparing"
             @open-terminal="() => void external.openTerminal()"
           />
           <div class="compare-sides flex shrink-0 border-y border-line" data-testid="compare-sides">
             <SideCommits
               ref="sideA"
               :name="names.a"
-              :count="compare.comparison.onlyInA"
+              :count="compare.comparison?.onlyInA ?? null"
               :list="compare.sides.a"
               :lane="lanes.a"
+              :pending="compare.comparing"
               class="border-r border-line"
               @activate="(hash) => void compare.openCommit(hash)"
               @load-more="compare.loadMore('a')"
             />
             <SideCommits
               :name="names.b"
-              :count="compare.comparison.onlyInB"
+              :count="compare.comparison?.onlyInB ?? null"
               :list="compare.sides.b"
               :lane="lanes.b"
+              :pending="compare.comparing"
               @activate="(hash) => void compare.openCommit(hash)"
               @load-more="compare.loadMore('b')"
             />
@@ -224,7 +228,8 @@ defineExpose({ focusSides: () => sideA.value?.focus() });
 </template>
 
 <style scoped>
-/* The side lists take 200px (four rows and the header); off the scale. */
+/* The side lists block is 200px tall (the 32px header and six 28px rows, scrolling inside),
+   since a side can hold thousands of commits; off the scale. */
 .compare-sides {
   height: 200px;
 }

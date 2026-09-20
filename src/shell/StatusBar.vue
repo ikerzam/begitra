@@ -163,7 +163,7 @@ const hints = computed(() => {
     </span>
     <span
       v-else-if="operations.current && repo.state.kind !== 'error'"
-      class="flex items-center gap-2 text-fg-secondary"
+      class="flex items-center gap-2 text-fg-muted"
       data-testid="status-operation"
     >
       {{ operationText }}

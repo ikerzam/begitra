@@ -449,7 +449,7 @@
   },
   "compare": {
     "title": "Comparar",
-    "pickEndpoint": "Elegir el lado {side}",
+    "endpoint": "Lado {side}: {label}",
     "swap": "Intercambiar lados",
     "mergeBase": "Merge base",
     "counting": "Contando commits…",
@@ -468,7 +468,7 @@
       "fastForwardBody": "{a} no tiene commits propios desde el merge base, así que el merge mueve el puntero sin commit de merge.",
       "upToDate": "{b} ya forma parte de {a}",
       "clean": "{b} se fusiona limpiamente en {a}",
-      "conflicts": "{n} ficheros entrarían en conflicto si {b} se fusionara en {a}",
+      "conflicts": "{n} fichero entraría en conflicto si {b} se fusionara en {a} | {n} ficheros entrarían en conflicto si {b} se fusionara en {a}",
       "previewOnly": "Solo es una vista previa. No se escribe nada hasta que fusiones en un terminal.",
       "failed": "No se pudo calcular la vista previa del merge. {message} Las listas de commits y el resumen de ficheros siguen siendo correctos."
     }

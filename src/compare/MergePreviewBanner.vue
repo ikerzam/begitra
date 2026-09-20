@@ -4,7 +4,7 @@
 // paths and the reminder that nothing is written, and the failure with
 // the raw git output while the lists stay.
 
-import { CircleAlert, CircleCheck, FastForward, LoaderCircle, Terminal } from "@lucide/vue";
+import { CircleAlert, CircleCheck, FastForward, Loader, Terminal } from "@lucide/vue";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -36,11 +36,10 @@ const title = computed(() => {
       return t("compare.preview.upToDate", names);
     case "clean":
       return t("compare.preview.clean", names);
-    case "conflicts":
-      return t("compare.preview.conflicts", {
-        ...names,
-        n: n(props.preview?.conflicts.length ?? 0),
-      });
+    case "conflicts": {
+      const count = props.preview?.conflicts.length ?? 0;
+      return t("compare.preview.conflicts", { ...names, n: n(count) }, count);
+    }
     default:
       return "";
   }
@@ -56,8 +55,9 @@ const errorMessage = computed(() => {
 </script>
 
 <template>
-  <!-- 16px inset from the panel edges on the strong border. -->
-  <div class="px-4 py-3" data-testid="merge-preview">
+  <!-- Inset from the panel edges: 12px at the sides, 8px above and
+       4px below, before the hairline of the side lists. -->
+  <div class="px-3 pt-2 pb-1" data-testid="merge-preview">
     <ErrorBanner
       v-if="props.error"
       :message="errorMessage"
@@ -73,11 +73,12 @@ const errorMessage = computed(() => {
       data-testid="merge-preview-loading"
     >
       <div class="flex items-center gap-3">
-        <LoaderCircle :size="16" :stroke-width="1.5" aria-hidden="true" class="text-fg-secondary" />
+        <Loader :size="16" :stroke-width="1.5" aria-hidden="true" class="text-fg-secondary" />
         <span class="text-fg">{{ t("compare.preview.computing") }}</span>
       </div>
-      <div class="preview-progress pl-7">
-        <Progress indeterminate :label="t('compare.preview.computing')" />
+      <div class="flex items-center gap-3">
+        <span aria-hidden="true" class="w-icon shrink-0" />
+        <Progress class="preview-progress" indeterminate :label="t('compare.preview.computing')" />
       </div>
     </div>
     <div
@@ -97,7 +98,7 @@ const errorMessage = computed(() => {
       />
       <div class="flex min-w-0 flex-1 flex-col gap-2">
         <p class="font-medium text-fg">{{ title }}</p>
-        <p v-if="body" class="text-fg-secondary">{{ body }}</p>
+        <p v-if="body" class="text-fg-muted">{{ body }}</p>
         <template v-if="kind === 'conflicts'">
           <ul class="flex flex-col gap-1 font-mono text-mono-sm text-fg-secondary">
             <li v-for="path in props.preview?.conflicts" :key="path" data-testid="conflict-path">
@@ -109,7 +110,7 @@ const errorMessage = computed(() => {
       </div>
       <Button
         v-if="kind === 'conflicts'"
-        variant="secondary"
+        variant="ghost"
         class="shrink-0"
         :icon="Terminal"
         @click="emit('openTerminal')"
@@ -121,8 +122,8 @@ const errorMessage = computed(() => {
 </template>
 
 <style scoped>
-/* The loading bar is 320px wide; off the spacing scale. */
+/* The loading bar is 240px wide; off the spacing scale. */
 .preview-progress {
-  width: 320px;
+  width: 240px;
 }
 </style>

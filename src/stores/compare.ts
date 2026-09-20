@@ -248,10 +248,16 @@ export const useCompareStore = defineStore("compare", () => {
   /** A side-list commit chosen with Enter: the graph selects it when it lists it, and review
    * focus opens on it. */
   async function openCommit(hash: string): Promise<void> {
-    const index = repo.commits.findIndex((commit) => commit.hash === hash);
-    if (index >= 0) repo.select(index);
+    selectCommit(hash);
     review.setTarget({ kind: "commit", hash });
     await shell.setLayoutMode("review");
+  }
+
+  /** Selects the commit in the graph when the loaded history lists it. */
+  function selectCommit(hash: string): boolean {
+    const index = repo.commits.findIndex((commit) => commit.hash === hash);
+    if (index >= 0) repo.select(index);
+    return index >= 0;
   }
 
   /** Refs moved: the endpoints may point elsewhere now. */
@@ -298,6 +304,7 @@ export const useCompareStore = defineStore("compare", () => {
     loadMore,
     openInReview,
     openCommit,
+    selectCommit,
     onRepoChanged,
   };
 });

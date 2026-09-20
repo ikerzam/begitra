@@ -27,9 +27,11 @@ const props = withDefaults(
     count: number | null;
     list: SideList;
     lane: number;
+    /** The comparison is still counting: skeleton rows until the walk can start. */
+    pending?: boolean;
     skeletonRows?: number;
   }>(),
-  { skeletonRows: 4 },
+  { pending: false, skeletonRows: 4 },
 );
 const emit = defineEmits<{ activate: [hash: string]; loadMore: [] }>();
 
@@ -43,7 +45,9 @@ const selectedIndex = ref(-1);
 
 const commits = computed(() => props.list.commits);
 const commitCount = computed(() => commits.value.length);
-const showSkeleton = computed(() => props.list.loading && commitCount.value === 0);
+const showSkeleton = computed(
+  () => (props.list.loading || props.pending) && commitCount.value === 0,
+);
 const rowCount = computed(() => commitCount.value + (showSkeleton.value ? props.skeletonRows : 0));
 const virtual = useVirtualRows(container, { rowHeight: ROW_HEIGHT, count: rowCount });
 const empty = computed(
@@ -104,7 +108,10 @@ watch(commits, (list, previous) => {
   if (list.length === 0 || list[0]?.hash !== previous?.[0]?.hash) selectedIndex.value = -1;
 });
 
-const tabStop = computed(() => (selectedIndex.value >= 0 ? selectedIndex.value : 0));
+// One row is always the tab stop: the selected one, else the first rendered one.
+const tabStop = computed(() =>
+  selectedIndex.value >= 0 ? selectedIndex.value : virtual.range.value.start,
+);
 
 defineExpose({ focus: navigation.focus });
 </script>
@@ -112,10 +119,10 @@ defineExpose({ focus: navigation.focus });
 <template>
   <section class="flex min-h-0 min-w-0 flex-1 flex-col" :data-testid="`side-${props.name}`">
     <h3
-      class="flex h-panel-header shrink-0 items-center gap-2 px-3 text-base font-semibold text-fg"
+      class="flex h-panel-header shrink-0 items-center gap-2 border-b border-line px-3 text-md font-medium text-fg"
     >
       <span class="truncate">{{ t("compare.onlyIn", { name: props.name }) }}</span>
-      <span v-if="props.count !== null" class="text-fg-muted" data-testid="side-count">
+      <span v-if="props.count !== null" class="text-sm text-fg-muted" data-testid="side-count">
         {{ n(props.count) }}
       </span>
     </h3>

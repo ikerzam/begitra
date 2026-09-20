@@ -45,20 +45,22 @@ const binaryStatus = computed(() =>
     class="flex h-panel-header shrink-0 items-center gap-3 border-b border-line px-3 whitespace-nowrap"
   >
     <template v-if="props.file">
-      <span
-        class="min-w-0 flex-1 truncate font-mono text-mono-sm text-fg-secondary"
-        data-testid="diff-path"
-      >
-        {{ props.file.path }}
-      </span>
-      <span v-if="props.conflict" class="text-sm text-danger" data-testid="diff-conflict">
-        {{ t("review.wouldConflict") }}
-      </span>
-      <span v-if="props.file.isGenerated" class="text-sm text-fg-muted">
-        {{ t("detail.generatedLabel") }}
-      </span>
-      <span v-if="props.file.isBinary" class="text-sm text-fg-muted" data-testid="diff-binary">
-        {{ t("review.binaryStatus", { status: binaryStatus }) }}
+      <span class="flex min-w-0 flex-1 items-center gap-3">
+        <span
+          class="min-w-0 truncate font-mono text-mono-sm text-fg-secondary"
+          data-testid="diff-path"
+        >
+          {{ props.file.path }}
+        </span>
+        <span v-if="props.conflict" class="text-sm text-danger" data-testid="diff-conflict">
+          {{ t("review.wouldConflict") }}
+        </span>
+        <span v-if="props.file.isGenerated" class="text-sm text-fg-muted">
+          {{ t("detail.generatedLabel") }}
+        </span>
+        <span v-if="props.file.isBinary" class="text-sm text-fg-muted" data-testid="diff-binary">
+          {{ t("review.binaryStatus", { status: binaryStatus }) }}
+        </span>
       </span>
       <DiffStat
         v-if="!props.file.isBinary"
