@@ -74,6 +74,17 @@ impl Git2Engine {
         f(&repo)
     }
 
+    /// The repository's own git directory and the shared one (equal for a main repository;
+    /// `<owner>/.git/worktrees/<name>` and `<owner>/.git` for a linked worktree), for
+    /// watchers and other callers that need the metadata paths.
+    pub fn git_dirs(&self) -> (PathBuf, PathBuf) {
+        self.with_repo(|repo| Ok((normalize(repo.path()), normalize(repo.commondir()))))
+            .unwrap_or_else(|_| {
+                let gitdir = self.info.root.join(".git");
+                (gitdir.clone(), gitdir)
+            })
+    }
+
     /// The repository description with the current HEAD state, read now rather than at open
     /// time, so a branch switched outside the app is reported on the next open.
     pub fn describe_now(&self) -> GitResult<Repo> {

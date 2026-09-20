@@ -3,6 +3,7 @@
 //! commit, and a handful of skip folders (`node_modules`, `target`) holding directories the
 //! scanner must never enter.
 
+use std::collections::VecDeque;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -79,13 +80,12 @@ pub fn run(config: &Config) -> Result<Summary> {
     let mut repositories = 0u32;
     // Spread so the last repository lands before the directory budget runs out.
     let repo_every = (config.directories / (config.repositories + 1)).max(1);
-    let mut queue: Vec<(PathBuf, u32)> = vec![(out.clone(), 0)];
+    let mut queue: VecDeque<(PathBuf, u32)> = VecDeque::from([(out.clone(), 0)]);
     let mut counter = 0u32;
     while directories < config.directories {
-        let Some((parent, depth)) = queue.first().cloned() else {
+        let Some((parent, depth)) = queue.pop_front() else {
             break;
         };
-        queue.remove(0);
         for i in 0..FAN_OUT {
             if directories >= config.directories {
                 break;
@@ -119,7 +119,7 @@ pub fn run(config: &Config) -> Result<Summary> {
                 continue;
             }
             if depth < 4 {
-                queue.push((dir, depth + 1));
+                queue.push_back((dir, depth + 1));
             }
         }
     }

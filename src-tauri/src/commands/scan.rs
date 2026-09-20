@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use git_core::engine::Cancel as GitCancel;
 use git_core::summary::describe;
@@ -24,8 +24,8 @@ use crate::state::AppState;
 /// Summaries computed at once; each one opens the repository on its own thread.
 const SUMMARY_WORKERS: usize = 4;
 
-/// Time a summary may spend before its status is abandoned and `dirty` stays unknown.
-const SUMMARY_BUDGET: Duration = Duration::from_secs(2);
+/// How often the drain of in-flight summaries looks at the cancel flag.
+const DRAIN_POLL: Duration = Duration::from_millis(100);
 
 /// A whole scan may run this long before it is stopped.
 const SCAN_TIMEOUT: Duration = Duration::from_secs(20 * 60);
@@ -114,24 +114,29 @@ pub fn run_scan<S: Sink<ScanMessage>>(
         PathBuf,
         Result<git_core::summary::RepoSummary, git_core::error::GitError>,
     )>();
-    let workers: Vec<_> = (0..SUMMARY_WORKERS)
-        .map(|_| {
-            let work_rx = Arc::clone(&work_rx);
-            let result_tx = result_tx.clone();
-            let cancel = cancel.clone();
-            thread::spawn(move || loop {
+    let mut workers = Vec::with_capacity(SUMMARY_WORKERS);
+    for n in 0..SUMMARY_WORKERS {
+        let work_rx = Arc::clone(&work_rx);
+        let result_tx = result_tx.clone();
+        let cancel = cancel.clone();
+        let worker = thread::Builder::new()
+            .name(format!("begira-summary-{n}"))
+            .spawn(move || loop {
                 let next = work_rx.lock().ok().and_then(|rx| rx.recv().ok());
                 let Some(path) = next else { break };
                 if cancel.is_cancelled() {
                     break;
                 }
-                let result = describe_bounded(&path, &cancel);
+                // libgit2 has no cancel hook inside a status: the flag is honoured between
+                // repositories, and a huge working tree costs its status once.
+                let result = describe(&path, &cancel);
                 if result_tx.send((path, result)).is_err() {
                     break;
                 }
             })
-        })
-        .collect();
+            .map_err(|error| AppError::internal(format!("summary thread: {error}")))?;
+        workers.push(worker);
+    }
     drop(result_tx);
 
     let stamp = now();
@@ -193,9 +198,7 @@ pub fn run_scan<S: Sink<ScanMessage>>(
                 ScanEvent::FolderDone { folder, found } => {
                     let folder = normalise(&folder);
                     let seen = seen_by_root.remove(&folder).unwrap_or_default();
-                    let missing = match state.with_index(|index| {
-                        Ok(index.mark_missing_under_root(&folder, &seen, stamp)?)
-                    }) {
+                    let missing = match mark_missing(state, &folder, &seen, stamp) {
                         Ok(missing) => missing,
                         Err(error) => {
                             failure = Some(error);
@@ -228,47 +231,45 @@ pub fn run_scan<S: Sink<ScanMessage>>(
     if stopped {
         return Ok(());
     }
-    // The scanner is done: drain the summaries still in flight, unless cancelled.
-    for (path, result) in result_rx {
+    // The scanner is done: drain the summaries still in flight, looking at the cancel flag
+    // while waiting. A cancelled drain leaves the workers to finish their current status on
+    // their own (they exit once the receiver is gone).
+    loop {
         if cancel.is_cancelled() {
-            break;
+            return Err(AppError::cancelled());
         }
-        deliver_summary(state, stream, &path, result)?;
+        match result_rx.recv_timeout(DRAIN_POLL) {
+            Ok((path, result)) => deliver_summary(state, stream, &path, result)?,
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
     }
     for worker in workers {
         let _ = worker.join();
     }
-    cancel.check()?;
     Ok(())
 }
 
-/// A summary with a time budget: a timer flips a private cancel flag so a huge working tree
-/// leaves `dirty` unknown instead of holding the scan.
-fn describe_bounded(
-    path: &std::path::Path,
-    outer: &GitCancel,
-) -> Result<git_core::summary::RepoSummary, git_core::error::GitError> {
-    let budget = GitCancel::new();
-    let timer_flag = budget.clone();
-    let outer = outer.clone();
-    let (stop_tx, stop_rx) = mpsc::channel::<()>();
-    let timer = thread::spawn(move || {
-        let started = Instant::now();
-        while started.elapsed() < SUMMARY_BUDGET {
-            if stop_rx.recv_timeout(Duration::from_millis(50)).is_ok() {
-                return;
-            }
-            if outer.is_cancelled() {
-                timer_flag.cancel();
-                return;
-            }
+/// Flags the entries of `folder` the scan did not report again, unless their `.git` is still
+/// on disk (an unreadable subfolder, a lowered depth or a new skip name hid them, the
+/// repository itself is fine).
+fn mark_missing(
+    state: &AppState,
+    folder: &std::path::Path,
+    seen: &[PathBuf],
+    stamp: i64,
+) -> Result<Vec<PathBuf>, AppError> {
+    let candidates =
+        state.with_index(|index| Ok(index.mark_missing_under_root(folder, seen, stamp)?))?;
+    let mut missing = Vec::new();
+    for path in candidates {
+        if std::fs::symlink_metadata(path.join(".git")).is_ok() {
+            state.with_index(|index| Ok(index.mark_missing(&path, false)?))?;
+        } else {
+            missing.push(path);
         }
-        timer_flag.cancel();
-    });
-    let result = describe(path, &budget);
-    let _ = stop_tx.send(());
-    let _ = timer.join();
-    result
+    }
+    Ok(missing)
 }
 
 /// Stores a landed summary and streams the updated entry; a repository that vanished or
@@ -284,7 +285,7 @@ fn deliver_summary<S: Sink<ScanMessage>>(
             Ok(summary) => index.update_summary(path, &index_summary(summary), now())?,
             Err(error) => {
                 tracing::debug!(path = %path.display(), error = %error, "summary failed");
-                index.mark_missing(path, error.code() == "repo.not_found")?;
+                index.mark_missing(path, error.code() == crate::error::codes::REPO_NOT_FOUND)?;
             }
         }
         Ok(index.get(path)?)

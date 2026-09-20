@@ -28,7 +28,17 @@ pub fn scan(
     cancel: &Cancel,
     mut on_event: impl FnMut(ScanEvent) -> ControlFlow<()>,
 ) {
-    let skip: Vec<String> = options.skip.iter().map(|s| s.to_lowercase()).collect();
+    let skip: Vec<String> = options
+        .skip
+        .iter()
+        .map(|s| {
+            if cfg!(target_os = "linux") {
+                s.clone()
+            } else {
+                s.to_lowercase()
+            }
+        })
+        .collect();
     let mut scanned: u64 = 0;
     let mut found_total: u64 = 0;
     for folder in folders {
@@ -139,8 +149,7 @@ fn walk_folder(
             if !file_type.is_dir() {
                 continue;
             }
-            let lower = name.to_string_lossy().to_lowercase();
-            if skip.contains(&lower) {
+            if skipped(&name, skip) {
                 continue;
             }
             subdirs.push(entry.path());
@@ -166,13 +175,27 @@ fn walk_folder(
     Walk::Done
 }
 
+/// Whether `name` is on the skip list: exact on Linux, where `Build` and `build` are
+/// different folders, case-insensitive elsewhere. `skip` holds lowercase names.
+fn skipped(name: &std::ffi::OsStr, skip: &[String]) -> bool {
+    let Some(name) = name.to_str() else {
+        return false;
+    };
+    if cfg!(target_os = "linux") {
+        skip.iter().any(|s| s == name)
+    } else {
+        skip.iter().any(|s| s.eq_ignore_ascii_case(name))
+    }
+}
+
 /// What the `.git` entry at `git_path` makes of `dir`; `None` for a submodule checkout.
+/// A `.git` that is a symbolic link is followed, as git follows it.
 fn classify(dir: &Path, git_path: &Path, scan_root: &Path) -> Option<Found> {
     let name = dir
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| dir.to_string_lossy().into_owned());
-    let metadata = fs::symlink_metadata(git_path).ok()?;
+    let metadata = fs::metadata(git_path).ok()?;
     if metadata.is_dir() {
         return Some(Found {
             path: dir.to_path_buf(),

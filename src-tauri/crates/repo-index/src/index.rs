@@ -19,6 +19,8 @@ impl Index {
     /// is write-ahead so reads never wait for a write.
     pub fn open(path: &Path) -> IndexResult<Self> {
         let connection = Connection::open(path)?;
+        // A second instance of the app waits instead of failing at once.
+        connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.pragma_update(None, "journal_mode", "WAL")?;
         connection.pragma_update(None, "synchronous", "NORMAL")?;
         connection.pragma_update(None, "foreign_keys", "ON")?;
@@ -154,6 +156,13 @@ impl Index {
         self.connection.execute(
             "DELETE FROM repos WHERE scan_root = ?1 AND pinned = 0 AND last_opened_at IS NULL",
             params![text],
+        )?;
+        // Worktrees whose repository just went (and that were never pinned or opened).
+        self.connection.execute(
+            "DELETE FROM repos WHERE kind = 'worktree' AND pinned = 0 AND last_opened_at IS NULL
+               AND parent_path IS NOT NULL
+               AND parent_path NOT IN (SELECT path FROM repos WHERE kind = 'main')",
+            [],
         )?;
         self.connection.execute(
             "UPDATE repos SET scan_root = NULL WHERE scan_root = ?1",

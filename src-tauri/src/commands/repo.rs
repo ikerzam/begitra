@@ -9,6 +9,7 @@ use tauri::State;
 use crate::error::AppError;
 use crate::ops::{run_blocking, DEFAULT_TIMEOUT};
 use crate::state::AppState;
+use crate::watcher::WatchBasesExt;
 
 /// Opens the repository containing `path` (or reuses the open engine) and describes it.
 #[tauri::command]
@@ -20,28 +21,33 @@ pub async fn open_repository(
 ) -> Result<Repo, AppError> {
     let app = state.inner().clone();
     let worker = app.clone();
-    run_blocking(app.ops(), &op_id, DEFAULT_TIMEOUT, move |cancel| {
+    let repo = run_blocking(app.ops(), &op_id, DEFAULT_TIMEOUT, move |_cancel| {
         // The engine may have been opened earlier; HEAD is read now so a branch switched
         // outside the app is reported on this open.
         let engine = worker.open(&path)?;
-        let repo = engine.describe_now()?;
-        // The index learns about every opened repository and its recents order; a failure
-        // there is logged, never a reason to refuse the open.
-        if let Err(error) = crate::commands::index::refresh_entry(&worker, &repo.root, &cancel)
-            .and_then(|_| {
-                worker.with_index(|index| {
+        engine.describe_now()
+    })
+    .await?;
+    // The index learns about every opened repository and its recents order off the open's
+    // critical path (the summary runs a status); a failure there is logged, never shown.
+    let recorder = app.clone();
+    let root = repo.root.clone();
+    tokio::task::spawn_blocking(move || {
+        let cancel = git_core::engine::Cancel::never();
+        let outcome =
+            crate::commands::index::refresh_entry(&recorder, &root, &cancel).and_then(|_| {
+                recorder.with_index(|index| {
                     Ok(index.record_open(
-                        &crate::commands::index::normalise(&repo.root),
+                        &crate::commands::index::normalise(&root),
                         crate::commands::index::now(),
                     )?)
                 })
-            })
-        {
+            });
+        if let Err(error) = outcome {
             tracing::warn!(error = %error, "the index could not record the open");
         }
-        Ok::<_, AppError>(repo)
-    })
-    .await
+    });
+    Ok(repo)
 }
 
 /// Starts the filesystem watcher of the open repository at `root` (replacing the watcher of
@@ -60,17 +66,27 @@ pub async fn watch_repository(
     }
     let previous = tokio::task::spawn_blocking(move || {
         let handle = app.clone();
-        let watcher = crate::watcher::RepoWatcher::start(&root, move |payload| {
+        let bases = match shared.engine_for(&root) {
+            Some(engine) => engine.watch_bases(),
+            None => crate::watcher::WatchBases::main(&root),
+        };
+        let watcher = crate::watcher::RepoWatcher::start(bases, move |payload| {
             if let Err(error) = crate::events::emit_repo_changed(&handle, &payload) {
                 tracing::warn!(error = %error, "repo:changed could not be emitted");
             }
         })
         .map_err(|error| {
+            let detail = match error.kind {
+                notify::ErrorKind::Io(ref io) if io.raw_os_error() == Some(28) => {
+                    "too many watched folders for this system (inotify limit)".to_owned()
+                }
+                _ => error.to_string(),
+            };
             AppError::new(
                 crate::error::codes::WATCHER_UNAVAILABLE,
                 "Changes in this repository will not be detected automatically",
             )
-            .with_detail(error.to_string())
+            .with_detail(detail)
         })?;
         Ok::<_, AppError>(shared.set_watcher(root, watcher))
     })

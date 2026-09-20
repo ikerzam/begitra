@@ -36,9 +36,11 @@ pub struct RepoSummary {
     pub dirty: Option<bool>,
 }
 
-/// Describes the repository at `path` for the index. Cheap parts first (HEAD, upstream, tip);
-/// the dirty flag runs a status with untracked files and no rename detection and is left
-/// unknown when `cancel` is set before it finishes, so a huge tree never stalls a scan.
+/// Describes the repository at `path` for the index. Cheap parts first (HEAD, upstream, tip,
+/// counts capped at [`COUNT_CAP`]); the dirty flag runs a status with untracked files and no
+/// rename detection. libgit2 offers no cancel hook inside a status, so a huge working tree
+/// costs its status once; `cancel` is honoured before it and makes the flag unknown after
+/// it.
 #[tracing::instrument(level = "debug", skip_all, fields(path = %path.display()))]
 pub fn describe(path: &Path, cancel: &Cancel) -> GitResult<RepoSummary> {
     let repo = Repository::open(path).map_err(|error| match error.code() {
@@ -84,7 +86,7 @@ pub fn describe(path: &Path, cancel: &Cancel) -> GitResult<RepoSummary> {
         .map(|commit| commit.time().seconds());
 
     let (ahead, behind) = match (current_branch.as_deref(), tip) {
-        (Some(branch), Some(local)) => upstream_counts(&repo, branch, local)?,
+        (Some(branch), Some(local)) => upstream_counts(&repo, branch, local, cancel)?,
         _ => (None, None),
     };
     cancel.check()?;
@@ -109,6 +111,7 @@ fn upstream_counts(
     repo: &Repository,
     branch: &str,
     local: git2::Oid,
+    cancel: &Cancel,
 ) -> GitResult<(Option<u32>, Option<u32>)> {
     let full_name = format!("refs/heads/{branch}");
     let upstream = match repo.branch_upstream_name(&full_name) {
@@ -127,12 +130,39 @@ fn upstream_counts(
     let Some(target) = target else {
         return Ok((None, None));
     };
-    let (ahead, behind) = repo.graph_ahead_behind(local, target)?;
-    Ok((
-        Some(u32::try_from(ahead).unwrap_or(u32::MAX)),
-        Some(u32::try_from(behind).unwrap_or(u32::MAX)),
-    ))
+    let ahead = bounded_count(repo, local, target, cancel)?;
+    let behind = bounded_count(repo, target, local, cancel)?;
+    Ok((Some(ahead), Some(behind)))
 }
+
+/// Commits reachable from `from` and not from `hide`, counted at most up to
+/// [`COUNT_CAP`] (a stale fork diverged by a million commits is not worth walking for a
+/// list), checking the cancel flag every thousand commits.
+fn bounded_count(
+    repo: &Repository,
+    from: git2::Oid,
+    hide: git2::Oid,
+    cancel: &Cancel,
+) -> GitResult<u32> {
+    let mut walk = repo.revwalk()?;
+    walk.push(from)?;
+    walk.hide(hide)?;
+    let mut count: u32 = 0;
+    for step in walk {
+        step?;
+        count += 1;
+        if count >= COUNT_CAP {
+            break;
+        }
+        if count.is_multiple_of(1_000) {
+            cancel.check()?;
+        }
+    }
+    Ok(count)
+}
+
+/// Most commits counted on either side of an upstream comparison.
+pub const COUNT_CAP: u32 = 100_000;
 
 /// Whether the working tree has any change; `None` when the status was cancelled or failed.
 fn dirty_flag(repo: &Repository, cancel: &Cancel) -> Option<bool> {

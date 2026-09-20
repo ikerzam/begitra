@@ -3,11 +3,12 @@
 //! event with the changed paths relative to the root.
 
 use std::collections::BTreeSet;
-use std::path::{Component, Path};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::path::{Component, Path, PathBuf};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use git_core::engine::GitEngine;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 
 use crate::events::{RepoChangeKind, RepoChanged};
@@ -18,33 +19,92 @@ pub const DEBOUNCE: Duration = Duration::from_millis(150);
 /// Most paths carried by one event; the kinds still cover everything.
 pub const MAX_PATHS: usize = 200;
 
+/// Where the git metadata of the watched repository lives, so paths can be classified.
+#[derive(Clone, Debug)]
+pub struct WatchBases {
+    /// Working tree root.
+    pub root: PathBuf,
+    /// The repository's own git directory: `<root>/.git` for a main repository, the
+    /// `.git/worktrees/<name>` folder of the owner for a linked worktree.
+    pub gitdir: PathBuf,
+    /// The shared git directory (refs, packed-refs, objects); equals `gitdir` for a main
+    /// repository.
+    pub commondir: PathBuf,
+}
+
+/// The watch bases of an open engine.
+pub trait WatchBasesExt {
+    /// Root, own git directory and shared git directory.
+    fn watch_bases(&self) -> WatchBases;
+}
+
+impl WatchBasesExt for git_core::git2_engine::Git2Engine {
+    fn watch_bases(&self) -> WatchBases {
+        let (gitdir, commondir) = self.git_dirs();
+        WatchBases {
+            root: self.repo().root.clone(),
+            gitdir,
+            commondir,
+        }
+    }
+}
+
+impl WatchBases {
+    /// Bases of a main repository at `root`.
+    pub fn main(root: &Path) -> Self {
+        let gitdir = root.join(".git");
+        Self {
+            root: root.to_path_buf(),
+            commondir: gitdir.clone(),
+            gitdir,
+        }
+    }
+
+    fn is_linked(&self) -> bool {
+        self.gitdir != self.root.join(".git")
+    }
+}
+
 /// A running watcher; dropping it stops the watch and the debounce thread.
 pub struct RepoWatcher {
-    _watcher: RecommendedWatcher,
-    stop: Sender<()>,
+    watcher: Option<RecommendedWatcher>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl RepoWatcher {
-    /// Starts watching `root` recursively; `emit` receives one payload per debounced batch.
-    /// Fails when the platform watcher cannot be created or the root cannot be watched (too
-    /// many watches, an unsupported filesystem), which the caller reports as a warning.
+    /// Starts watching the working tree of `bases` recursively and, for a linked worktree,
+    /// its own git directory and the shared refs of its owner; `emit` receives one payload
+    /// per debounced batch. Fails when the platform watcher cannot be created or a path
+    /// cannot be watched (too many watches, an unsupported filesystem), which the caller
+    /// reports as a warning.
     pub fn start(
-        root: &Path,
+        bases: WatchBases,
         emit: impl Fn(RepoChanged) + Send + 'static,
     ) -> Result<Self, notify::Error> {
         let (raw_tx, raw_rx) = mpsc::channel::<notify::Result<notify::Event>>();
         let mut watcher = notify::recommended_watcher(raw_tx)?;
-        watcher.watch(root, RecursiveMode::Recursive)?;
-        let (stop, stop_rx) = mpsc::channel::<()>();
-        let root = root.to_path_buf();
+        watcher.watch(&bases.root, RecursiveMode::Recursive)?;
+        if bases.is_linked() {
+            // HEAD and the index of a linked worktree live in its own git directory; its
+            // refs are the owner's.
+            watcher.watch(&bases.gitdir, RecursiveMode::Recursive)?;
+            for shared in ["HEAD", "packed-refs"] {
+                let path = bases.commondir.join(shared);
+                if path.exists() {
+                    watcher.watch(&path, RecursiveMode::NonRecursive)?;
+                }
+            }
+            let refs = bases.commondir.join("refs");
+            if refs.is_dir() {
+                watcher.watch(&refs, RecursiveMode::Recursive)?;
+            }
+        }
         let thread = thread::Builder::new()
             .name("begira-watcher".to_owned())
-            .spawn(move || debounce_loop(&root, &raw_rx, &stop_rx, emit))
+            .spawn(move || debounce_loop(&bases, &raw_rx, emit))
             .map_err(notify::Error::io)?;
         Ok(Self {
-            _watcher: watcher,
-            stop,
+            watcher: Some(watcher),
             thread: Some(thread),
         })
     }
@@ -52,7 +112,9 @@ impl RepoWatcher {
 
 impl Drop for RepoWatcher {
     fn drop(&mut self) {
-        let _ = self.stop.send(());
+        // Dropping the platform watcher closes the event sender, which wakes the debounce
+        // thread at once through `Disconnected`.
+        drop(self.watcher.take());
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
@@ -61,24 +123,26 @@ impl Drop for RepoWatcher {
 
 /// Collects raw events, waits [`DEBOUNCE`] after the first of a batch, and emits the batch.
 fn debounce_loop(
-    root: &Path,
+    bases: &WatchBases,
     raw: &Receiver<notify::Result<notify::Event>>,
-    stop: &Receiver<()>,
     emit: impl Fn(RepoChanged),
 ) {
     let mut batch = Batch::default();
     let mut deadline: Option<Instant> = None;
     loop {
-        if stop.try_recv().is_ok() {
-            return;
-        }
-        let wait = deadline.map_or(Duration::from_millis(500), |d| {
+        let wait = deadline.map_or(Duration::from_secs(3600), |d| {
             d.saturating_duration_since(Instant::now())
         });
         match raw.recv_timeout(wait) {
             Ok(Ok(event)) => {
-                for path in &event.paths {
-                    batch.add(root, path);
+                if event.need_rescan() {
+                    // The platform lost events (a buffer overflow during a huge checkout):
+                    // everything may have changed.
+                    batch.add_everything();
+                } else {
+                    for path in &event.paths {
+                        batch.add(bases, path);
+                    }
                 }
                 if deadline.is_none() && !batch.is_empty() {
                     deadline = Some(Instant::now() + DEBOUNCE);
@@ -91,7 +155,7 @@ fn debounce_loop(
         if let Some(d) = deadline {
             if Instant::now() >= d {
                 deadline = None;
-                if let Some(payload) = batch.take(root) {
+                if let Some(payload) = batch.take(&bases.root) {
                     emit(payload);
                 }
             }
@@ -112,13 +176,14 @@ pub struct Batch {
 enum Kind {
     Refs,
     Index,
+    Worktrees,
     Status,
 }
 
 impl Batch {
-    /// Adds one changed path, classified by where it sits relative to `root`.
-    pub fn add(&mut self, root: &Path, path: &Path) {
-        let Some(classified) = classify(root, path) else {
+    /// Adds one changed path, classified by where it sits relative to the bases.
+    pub fn add(&mut self, bases: &WatchBases, path: &Path) {
+        let Some(classified) = classify(bases, path) else {
             return;
         };
         match classified {
@@ -127,6 +192,9 @@ impl Batch {
             }
             Classified::Index => {
                 self.kinds.insert(Kind::Index);
+            }
+            Classified::Worktrees => {
+                self.kinds.insert(Kind::Worktrees);
             }
             Classified::Status(relative) => {
                 self.kinds.insert(Kind::Status);
@@ -137,6 +205,14 @@ impl Batch {
                 }
             }
         }
+    }
+
+    /// Marks every kind changed with no path list (the platform lost events).
+    pub fn add_everything(&mut self) {
+        self.kinds
+            .extend([Kind::Refs, Kind::Index, Kind::Worktrees, Kind::Status]);
+        self.paths.clear();
+        self.dropped = true;
     }
 
     /// Whether nothing was collected.
@@ -155,6 +231,7 @@ impl Batch {
             .map(|kind| match kind {
                 Kind::Refs => RepoChangeKind::Refs,
                 Kind::Index => RepoChangeKind::Index,
+                Kind::Worktrees => RepoChangeKind::Worktrees,
                 Kind::Status => RepoChangeKind::Status,
             })
             .collect();
@@ -177,41 +254,74 @@ impl Batch {
 enum Classified {
     Refs,
     Index,
+    Worktrees,
     Status(String),
 }
 
-/// Where a changed path sits: `.git/HEAD`, `.git/refs/**`, `.git/packed-refs` and
-/// `.git/logs/**` are refs; `.git/index` is the index; other `.git` content (objects, lock
-/// files, hooks) is ignored; anything else is a working tree path, except lock files git
-/// writes while committing.
-fn classify(root: &Path, path: &Path) -> Option<Classified> {
-    let relative = path.strip_prefix(root).ok()?;
-    let components: Vec<String> = relative
-        .components()
-        .filter_map(|c| match c {
-            Component::Normal(name) => Some(name.to_string_lossy().into_owned()),
-            _ => None,
-        })
-        .collect();
-    let first = components.first()?;
-    // Lock files come and go while git writes; the write itself is what matters.
-    if components
-        .last()
-        .is_some_and(|last| last.ends_with(".lock"))
+/// Folder names whose content is never reported as a working tree change: build outputs
+/// and caches churn while nothing the user reviews changed.
+const NOISY: [&str; 6] = [
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    ".cache",
+    "__pycache__",
+];
+
+/// Where a changed path sits. Inside a git directory (the repository's own or the shared
+/// one): `HEAD`, `ORIG_HEAD`, `FETCH_HEAD`, `packed-refs`, `refs/**` and `logs/**` are refs;
+/// `index` is the index; `worktrees/**` is worktrees; lock files and everything else there
+/// (objects, hooks) are ignored. Under the working tree: a repository-relative path, except
+/// noisy folders and lock files.
+fn classify(bases: &WatchBases, path: &Path) -> Option<Classified> {
+    if let Some(inside) = strip(path, &bases.gitdir).or_else(|| strip(path, &bases.commondir)) {
+        return classify_git(&inside);
+    }
+    let inside = strip(path, &bases.root)?;
+    if inside.first().is_some_and(|first| first == ".git") {
+        return classify_git(&inside[1..]);
+    }
+    let last = inside.last()?;
+    if last.ends_with(".lock") && inside.len() == 1 && last == "index.lock" {
+        return None;
+    }
+    if inside
+        .first()
+        .is_some_and(|first| NOISY.contains(&first.as_str()))
     {
         return None;
     }
-    if first == ".git" {
-        let second = components.get(1)?;
-        return match second.as_str() {
-            "HEAD" | "ORIG_HEAD" | "FETCH_HEAD" | "packed-refs" | "refs" | "logs" => {
-                Some(Classified::Refs)
-            }
-            "index" => Some(Classified::Index),
-            _ => None,
-        };
+    Some(Classified::Status(inside.join("/")))
+}
+
+/// Components of `path` below `base`, as strings; `None` when `path` is not below `base`.
+fn strip(path: &Path, base: &Path) -> Option<Vec<String>> {
+    let relative = path.strip_prefix(base).ok()?;
+    Some(
+        relative
+            .components()
+            .filter_map(|c| match c {
+                Component::Normal(name) => Some(name.to_string_lossy().into_owned()),
+                _ => None,
+            })
+            .collect(),
+    )
+}
+
+fn classify_git(inside: &[String]) -> Option<Classified> {
+    let first = inside.first()?;
+    if inside.last().is_some_and(|last| last.ends_with(".lock")) {
+        return None;
     }
-    Some(Classified::Status(components.join("/")))
+    match first.as_str() {
+        "HEAD" | "ORIG_HEAD" | "FETCH_HEAD" | "packed-refs" | "refs" | "logs" => {
+            Some(Classified::Refs)
+        }
+        "index" => Some(Classified::Index),
+        "worktrees" => Some(Classified::Worktrees),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -220,19 +330,56 @@ mod tests {
 
     #[test]
     fn classifies_git_metadata_and_working_tree_paths() {
-        let root = std::path::PathBuf::from("/r");
+        let bases = WatchBases::main(Path::new("/r"));
+        let root = bases.root.clone();
         let mut batch = Batch::default();
-        batch.add(&root, Path::new("/r/.git/HEAD"));
-        batch.add(&root, Path::new("/r/.git/refs/heads/main"));
-        batch.add(&root, Path::new("/r/.git/refs/heads/main.lock"));
-        batch.add(&root, Path::new("/r/.git/objects/ab/cdef"));
-        batch.add(&root, Path::new("/r/.git/index"));
-        batch.add(&root, Path::new("/r/src/app.ts"));
-        batch.add(&root, Path::new("/r/src/app.ts"));
-        batch.add(&root, Path::new("/r/deep/dir/file.rs"));
-        batch.add(&root, Path::new("/r/.git/index.lock"));
-        batch.add(&root, Path::new("/elsewhere/file"));
+        batch.add(&bases, Path::new("/r/.git/HEAD"));
+        batch.add(&bases, Path::new("/r/.git/refs/heads/main"));
+        batch.add(&bases, Path::new("/r/.git/refs/heads/main.lock"));
+        batch.add(&bases, Path::new("/r/.git/objects/ab/cdef"));
+        batch.add(&bases, Path::new("/r/.git/index"));
+        batch.add(&bases, Path::new("/r/.git/worktrees/feature/HEAD"));
+        batch.add(&bases, Path::new("/r/src/app.ts"));
+        batch.add(&bases, Path::new("/r/src/app.ts"));
+        batch.add(&bases, Path::new("/r/deep/dir/file.rs"));
+        batch.add(&bases, Path::new("/r/Cargo.lock"));
+        batch.add(&bases, Path::new("/r/index.lock"));
+        batch.add(&bases, Path::new("/r/.git/index.lock"));
+        batch.add(&bases, Path::new("/r/target/debug/begira.exe"));
+        batch.add(&bases, Path::new("/elsewhere/file"));
         let payload = batch.take(&root).expect("payload");
+        assert_eq!(
+            payload.kinds,
+            vec![
+                RepoChangeKind::Refs,
+                RepoChangeKind::Index,
+                RepoChangeKind::Worktrees,
+                RepoChangeKind::Status
+            ]
+        );
+        assert_eq!(
+            payload.paths,
+            vec!["Cargo.lock", "deep/dir/file.rs", "src/app.ts"]
+        );
+        assert!(batch.take(&root).is_none());
+        // A ref lock alone is not a change.
+        batch.add(&bases, Path::new("/r/.git/refs/heads/main.lock"));
+        assert!(batch.take(&root).is_none());
+    }
+
+    #[test]
+    fn a_linked_worktree_reads_its_own_gitdir_and_the_shared_refs() {
+        let bases = WatchBases {
+            root: PathBuf::from("/wt/feature"),
+            gitdir: PathBuf::from("/main/.git/worktrees/feature"),
+            commondir: PathBuf::from("/main/.git"),
+        };
+        let mut batch = Batch::default();
+        batch.add(&bases, Path::new("/main/.git/worktrees/feature/HEAD"));
+        batch.add(&bases, Path::new("/main/.git/worktrees/feature/index"));
+        batch.add(&bases, Path::new("/main/.git/refs/heads/feature"));
+        batch.add(&bases, Path::new("/wt/feature/src/lib.rs"));
+        let payload = batch.take(&bases.root).expect("payload");
         assert_eq!(
             payload.kinds,
             vec![
@@ -241,32 +388,31 @@ mod tests {
                 RepoChangeKind::Status
             ]
         );
-        assert_eq!(payload.paths, vec!["deep/dir/file.rs", "src/app.ts"]);
-        assert!(batch.take(&root).is_none());
-        // A ref lock alone is not a change.
-        batch.add(&root, Path::new("/r/.git/refs/heads/main.lock"));
-        assert!(batch.take(&root).is_none());
+        assert_eq!(payload.paths, vec!["src/lib.rs"]);
     }
 
     #[test]
     fn too_many_paths_keep_the_kinds_and_drop_the_list() {
-        let root = std::path::PathBuf::from("/r");
+        let bases = WatchBases::main(Path::new("/r"));
         let mut batch = Batch::default();
         for i in 0..(MAX_PATHS + 10) {
-            batch.add(&root, &root.join(format!("f{i}.txt")));
+            batch.add(&bases, &bases.root.join(format!("f{i}.txt")));
         }
-        let payload = batch.take(&root).expect("payload");
+        let payload = batch.take(&bases.root).expect("payload");
         assert_eq!(payload.kinds, vec![RepoChangeKind::Status]);
         assert!(payload.paths.is_empty());
+        batch.add_everything();
+        let payload = batch.take(&bases.root).expect("payload");
+        assert_eq!(payload.kinds.len(), 4);
     }
 
     #[test]
-    fn a_real_watcher_debounces_a_burst_into_one_event() {
+    fn a_real_watcher_debounces_a_burst_into_one_event_and_drops_fast() {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path().to_path_buf();
         std::fs::create_dir_all(root.join(".git").join("refs").join("heads")).expect("mkdir");
         let (tx, rx) = mpsc::channel();
-        let watcher = RepoWatcher::start(&root, move |payload| {
+        let watcher = RepoWatcher::start(WatchBases::main(&root), move |payload| {
             let _ = tx.send(payload);
         })
         .expect("watcher starts");
@@ -290,6 +436,11 @@ mod tests {
             rx.recv_timeout(Duration::from_millis(400)).is_err(),
             "the burst arrived as one event"
         );
+        let started = Instant::now();
         drop(watcher);
+        assert!(
+            started.elapsed() < Duration::from_millis(200),
+            "drop is quick"
+        );
     }
 }

@@ -51,7 +51,9 @@ fn spawn_walk_eviction(state: AppState) {
 /// Opens the index database under the app data folder; when that fails the in-memory index
 /// serves the session and the failure is logged (the app stays usable).
 fn open_index(app: &tauri::App, state: &AppState) {
-    let path = match app.path().app_data_dir() {
+    // The local (non-roaming) data folder: the write-ahead log must not be synced apart
+    // from its database.
+    let path = match app.path().app_local_data_dir() {
         Ok(dir) => dir.join("index.sqlite"),
         Err(error) => {
             tracing::warn!(error = %error, "no app data folder: the index lives in memory");

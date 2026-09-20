@@ -63,7 +63,7 @@ pub fn refresh_entry(
         Ok(summary) => summary,
         Err(error) => {
             let code = error.code();
-            if code == "repo.not_found" {
+            if code == crate::error::codes::REPO_NOT_FOUND {
                 state.with_index(|index| Ok(index.mark_missing(&normalise(path), true)?))?;
             }
             return Err(AppError::from(error));

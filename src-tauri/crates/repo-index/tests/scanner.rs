@@ -127,7 +127,14 @@ fn skips_the_skip_list_symlinks_and_anything_deeper_than_the_limit() {
     let dir = tempfile::tempdir().expect("tempdir");
     let root = dir.path().join("code");
     init_repo(&root.join("node_modules").join("hidden"));
-    init_repo(&root.join("Target").join("also-hidden"));
+    // Case-insensitive on Windows and macOS, exact on Linux (where `Target` is a folder of
+    // its own).
+    let mixed = if cfg!(target_os = "linux") {
+        "target"
+    } else {
+        "Target"
+    };
+    init_repo(&root.join(mixed).join("also-hidden"));
     init_repo(&root.join("a").join("b").join("c").join("too-deep"));
     init_repo(&root.join("visible"));
     #[cfg(unix)]
