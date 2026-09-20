@@ -150,6 +150,7 @@ dependencies = [
  "criterion",
  "git-core",
  "git2",
+ "repo-index",
  "serde",
  "serde_json",
  "tempfile",
