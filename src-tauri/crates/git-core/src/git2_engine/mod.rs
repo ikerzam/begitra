@@ -38,6 +38,8 @@ pub struct Git2Engine {
     /// modification time: reading the index of a large repository costs a hundred
     /// milliseconds, and the verdict rarely changes.
     generated_attributes: Mutex<Option<(Option<std::time::SystemTime>, bool)>>,
+    /// Idle diff workers, each with a repository handle of its own (see `diff_pages`).
+    diff_workers: diff_pages::WorkerPool,
 }
 
 impl std::fmt::Debug for Git2Engine {
@@ -69,7 +71,13 @@ impl Git2Engine {
             info,
             repo: Mutex::new(repo),
             generated_attributes: Mutex::new(None),
+            diff_workers: diff_pages::new_pool(),
         })
+    }
+
+    /// The pool of idle diff workers.
+    fn diff_workers(&self) -> diff_pages::WorkerPool {
+        std::sync::Arc::clone(&self.diff_workers)
     }
 
     /// Whether any attributes file git would consult names `linguist-generated`, cached

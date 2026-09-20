@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use git_core::engine::{Cancel, DiffWalk, GitEngine};
 use git_core::error::GitError;
-use git_core::types::{ChangeSet, ChangeSetPage, DiffOptions, DiffTarget, FileChange};
+use git_core::types::{ChangeSetPage, DiffOptions, DiffTarget, FileChange};
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::State;
@@ -40,43 +40,6 @@ impl From<ChangeSetPage> for DiffPage {
             deletions: page.deletions,
             total_files: page.total_files,
             files: page.files,
-        }
-    }
-}
-
-/// Splits a change set into pages of [`FILES_PER_PAGE`] files; an empty change set yields one
-/// empty page so the receiver still gets the totals.
-pub fn pages(change_set: ChangeSet) -> Vec<DiffPage> {
-    let total_files = u32::try_from(change_set.files.len()).unwrap_or(u32::MAX);
-    let (additions, deletions) = (change_set.additions, change_set.deletions);
-    if change_set.files.is_empty() {
-        return vec![DiffPage {
-            additions,
-            deletions,
-            total_files,
-            files: Vec::new(),
-        }];
-    }
-    let mut files = change_set.files;
-    let mut result = Vec::with_capacity(files.len().div_ceil(FILES_PER_PAGE));
-    while !files.is_empty() {
-        let rest = files.split_off(files.len().min(FILES_PER_PAGE));
-        result.push(DiffPage {
-            additions,
-            deletions,
-            total_files,
-            files,
-        });
-        files = rest;
-    }
-    result
-}
-
-/// Streams the pages of `change_set` into `stream`.
-pub fn send_pages<S: Sink<DiffPage>>(stream: &mut Stream<DiffPage, S>, change_set: ChangeSet) {
-    for page in pages(change_set) {
-        if !stream.page(page) {
-            break;
         }
     }
 }
@@ -129,6 +92,7 @@ mod tests {
     use git_core::types::ChangeKind;
 
     use super::*;
+    use crate::channels::testing::Collector;
 
     fn file(n: usize) -> FileChange {
         FileChange {
@@ -146,32 +110,71 @@ mod tests {
         }
     }
 
+    /// A walk of `count` files, `per_page` at a time, with one added line per file.
+    struct FakeWalk {
+        count: usize,
+        per_page: usize,
+        next: usize,
+    }
+
+    impl DiffWalk for FakeWalk {
+        fn next_page(&mut self, _cancel: &Cancel) -> Result<ChangeSetPage, GitError> {
+            let end = (self.next + self.per_page).min(self.count);
+            let files: Vec<FileChange> = (self.next..end).map(file).collect();
+            self.next = end;
+            Ok(ChangeSetPage {
+                files,
+                additions: u32::try_from(end).unwrap_or(u32::MAX),
+                deletions: 0,
+                total_files: u32::try_from(self.count).unwrap_or(u32::MAX),
+                done: end >= self.count,
+            })
+        }
+    }
+
+    fn streamed(walk: &mut FakeWalk) -> Vec<DiffPage> {
+        let collector = Collector::<DiffPage>::default();
+        let mut stream = Stream::new(collector.clone());
+        stream_pages(&mut stream, walk, &Cancel::never()).expect("stream");
+        stream.done();
+        collector
+            .messages()
+            .into_iter()
+            .filter_map(|message| match message {
+                StreamMessage::Page { data, .. } => Some(data),
+                _ => None,
+            })
+            .collect()
+    }
+
     #[test]
-    fn splits_into_pages_of_200_with_totals_on_each() {
-        let change_set = ChangeSet {
-            files: (0..450).map(file).collect(),
-            additions: 450,
-            deletions: 0,
-        };
-        let pages = pages(change_set);
+    fn streams_the_engine_pages_with_running_totals() {
+        let pages = streamed(&mut FakeWalk {
+            count: 450,
+            per_page: 200,
+            next: 0,
+        });
         assert_eq!(
             pages.iter().map(|p| p.files.len()).collect::<Vec<_>>(),
             vec![200, 200, 50]
         );
-        assert!(pages
-            .iter()
-            .all(|p| p.total_files == 450 && p.additions == 450));
+        assert_eq!(
+            pages.iter().map(|p| p.additions).collect::<Vec<_>>(),
+            vec![200, 400, 450]
+        );
+        assert!(pages.iter().all(|p| p.total_files == 450));
         assert_eq!(pages[2].files[0].path, "f400.rs");
     }
 
     #[test]
     fn an_empty_change_set_is_one_empty_page() {
-        let pages = pages(ChangeSet {
-            files: vec![],
-            additions: 0,
-            deletions: 0,
+        let pages = streamed(&mut FakeWalk {
+            count: 0,
+            per_page: 200,
+            next: 0,
         });
         assert_eq!(pages.len(), 1);
         assert!(pages[0].files.is_empty());
+        assert_eq!(pages[0].total_files, 0);
     }
 }
