@@ -1,4 +1,5 @@
 import type { Channel } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { flushPromises } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
@@ -91,10 +92,12 @@ function backend(
     walkGate?: Promise<void>;
     /** Every diff ends with this error instead of pages. */
     failDiff?: boolean;
+    /** `watch_repository` rejects with `watcher.unavailable`. */
+    failWatch?: boolean;
   } = {},
 ) {
   const calls: string[] = [];
-  mockIPC((cmd, rawArgs) => {
+  const handler = (cmd: string, rawArgs?: unknown) => {
     const args = (rawArgs ?? {}) as Record<string, unknown>;
     calls.push(cmd);
     const send = (messages: unknown[], gate?: Promise<void>) => {
@@ -245,6 +248,21 @@ function backend(
         return null;
       case "list_repositories":
         return indexEntries;
+      case "refresh_repository":
+        return {
+          ...indexEntry(args["path"] as string, "r"),
+          summary: { ...indexEntry("/r", "r").summary, ahead: 7 },
+        };
+      case "watch_repository":
+        if (options.failWatch) {
+          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+          return Promise.reject({
+            code: "watcher.unavailable",
+            message: "Changes in this repository will not be detected automatically",
+            detail: "inotify limit reached",
+          });
+        }
+        return null;
       case "open_external":
         if (options.failExternal) {
           // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- Tauri rejects with the serialised AppError object
@@ -283,7 +301,8 @@ function backend(
       default:
         return null;
     }
-  });
+  };
+  mockIPC(handler, { shouldMockEvents: true });
   return calls;
 }
 
@@ -321,7 +340,111 @@ describe("HomeEmpty", () => {
   });
 });
 
+describe("launch and the watcher", () => {
+  it("reopens the last repository, watches it and refreshes on repo:changed", async () => {
+    await useSettingsStore().init(memoryStorage({ lastRepository: "/r" }), "windows");
+    const calls = backend();
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    await settle();
+    const repo = useRepoStore();
+    expect(repo.repo?.root).toBe("/r");
+    expect(calls).toContain("watch_repository");
+    expect(calls.filter((c) => c === "list_refs")).toHaveLength(1);
+    await emit("repo:changed", { repo: "/r", kinds: ["status"], paths: ["a.ts"] });
+    await settle();
+    expect(calls.filter((c) => c === "list_refs")).toHaveLength(1);
+    expect(calls.filter((c) => c === "refresh_repository")).toHaveLength(1);
+    expect(useIndexStore().find("/r")?.summary.ahead).toBe(7);
+    await emit("repo:changed", { repo: "/r", kinds: ["refs"], paths: [] });
+    await settle();
+    expect(calls.filter((c) => c === "list_refs")).toHaveLength(2);
+    await emit("repo:changed", { repo: "/elsewhere", kinds: ["refs"], paths: [] });
+    await settle();
+    expect(calls.filter((c) => c === "list_refs")).toHaveLength(2);
+    expect(useSettingsStore().values.lastRepository).toBe("/r");
+    wrapper.unmount();
+  });
+
+  it("leaves the home with the entry flagged and a toast when the last repository is gone", async () => {
+    await useSettingsStore().init(memoryStorage({ lastRepository: "/r" }), "windows");
+    backend({ failOpen: true });
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    await settle();
+    expect(useRepoStore().state.kind).toBe("empty");
+    expect(useSettingsStore().values.lastRepository).toBeNull();
+    expect(wrapper.find('[data-testid="home-screen"]').exists()).toBe(true);
+    const flagged = wrapper
+      .findAll('[data-testid="repo-row"]')
+      .find((row) => row.get('[data-testid="repo-row-name"]').text() === "r");
+    expect(flagged?.get('[data-testid="repo-row-missing"]').text()).toBe("not found");
+    const toasts = useToastsStore();
+    expect(toasts.toasts[0]?.message).toBe(
+      "Couldn't open /r. The folder was removed or is no longer a Git repository.",
+    );
+    expect(toasts.toasts[0]?.output).toContain("fatal");
+    wrapper.unmount();
+  });
+
+  it("says so when the watcher cannot start and keeps the repository open", async () => {
+    backend({ failWatch: true });
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    await useRepoStore().open("/r");
+    await settle();
+    expect(useRepoStore().state.kind).toBe("ready");
+    const toasts = useToastsStore();
+    expect(toasts.toasts).toHaveLength(1);
+    expect(toasts.toasts[0]?.kind).toBe("info");
+    expect(toasts.toasts[0]?.message).toBe(
+      "Changes in this repository will not be detected automatically.",
+    );
+    expect(toasts.toasts[0]?.output).toBe("inotify limit reached");
+    wrapper.unmount();
+  });
+
+  it("forgets the entry with Remove from list in the error state and goes home", async () => {
+    const calls = backend({ failOpen: true });
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    await useIndexStore().load();
+    await useIndexStore().open("/r");
+    await settle();
+    expect(useRepoStore().state.kind).toBe("error");
+    await wrapper
+      .get('[data-testid="graph-error"] button[data-variant="secondary"]')
+      .trigger("click");
+    await settle();
+    expect(calls).toContain("forget_repository");
+    expect(useRepoStore().state.kind).toBe("empty");
+    expect(useIndexStore().find("/r")).toBeUndefined();
+    expect(wrapper.find('[data-testid="home-screen"]').exists()).toBe(true);
+    wrapper.unmount();
+  });
+});
+
 describe("StatusBar", () => {
+  it("counts the index and shows the scan with its folder while no repository is open", async () => {
+    backend();
+    const wrapper = mountWithI18n(StatusBar);
+    expect(wrapper.get('[data-testid="status-index"]').text()).toBe("No repositories");
+    const index = useIndexStore();
+    await index.load();
+    await flushPromises();
+    expect(wrapper.get('[data-testid="status-index"]').text()).toBe("2 repositories");
+    index.scan = {
+      kind: "scanning",
+      folders: { "/home/iker/code": "scanning" },
+      scanned: 10,
+      found: 1,
+      current: "/home/iker/code",
+    };
+    useOperationsStore().start("scan-1", "operations.scanning");
+    await flushPromises();
+    expect(wrapper.get('[data-testid="status-operation"]').text()).toBe("Scanning /home/iker/code");
+    expect(wrapper.find('[data-testid="status-operation"] [role="progressbar"]').exists()).toBe(
+      true,
+    );
+    wrapper.unmount();
+  });
+
   it("shows the empty hints, then the branch, path, counts and progress", async () => {
     backend();
     const wrapper = mountWithI18n(StatusBar);

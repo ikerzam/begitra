@@ -117,7 +117,8 @@
     "hunks": "hunks",
     "markReviewed": "marcar revisado",
     "open": "abrir",
-    "detached": "HEAD separado"
+    "detached": "HEAD separado",
+    "repositories": "{n} repositorio | {n} repositorios"
   },
   "operations": {
     "opening": "Abriendo {name}",
@@ -299,7 +300,7 @@
     "spawnFailed": "No se pudo iniciar el comando. {message}",
     "indexDatabase": "No se ha podido guardar la lista de repositorios. {message}",
     "indexFolder": "No se ha podido escanear {path}. {message}",
-    "watcherUnavailable": "Los cambios en este repositorio no se detectarán automáticamente. {message}",
+    "watcherUnavailable": "Los cambios en este repositorio no se detectarán automáticamente.",
     "generic": "{message}"
   },
   "repoRow": {

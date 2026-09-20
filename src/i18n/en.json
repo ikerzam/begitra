@@ -117,7 +117,8 @@
     "hunks": "hunks",
     "markReviewed": "mark reviewed",
     "open": "open",
-    "detached": "detached HEAD"
+    "detached": "detached HEAD",
+    "repositories": "{n} repository | {n} repositories"
   },
   "operations": {
     "opening": "Opening {name}",
@@ -299,7 +300,7 @@
     "spawnFailed": "The command could not be started. {message}",
     "indexDatabase": "The repository list could not be saved. {message}",
     "indexFolder": "Couldn't scan {path}. {message}",
-    "watcherUnavailable": "Changes in this repository will not be detected automatically. {message}",
+    "watcherUnavailable": "Changes in this repository will not be detected automatically.",
     "generic": "{message}"
   },
   "repoRow": {

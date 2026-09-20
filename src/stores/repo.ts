@@ -20,6 +20,7 @@ import type {
 import type { StreamHandle } from "@/ipc/stream";
 
 import { useOperationsStore } from "./operations";
+import { useSettingsStore } from "./settings";
 
 export type RepoState =
   | { kind: "empty" }
@@ -50,6 +51,7 @@ export const PAGES_PER_REQUEST = 4;
 
 export const useRepoStore = defineStore("repo", () => {
   const operations = useOperationsStore();
+  const settings = useSettingsStore();
 
   const state = ref<RepoState>({ kind: "empty" });
   const repo = ref<Repo | null>(null);
@@ -148,6 +150,8 @@ export const useRepoStore = defineStore("repo", () => {
       }
       repo.value = opened;
       state.value = { kind: "ready" };
+      // The next launch reopens this repository.
+      void settings.update("lastRepository", opened.root);
       // The first page paints before the refs arrive: listing refs with their ahead/behind
       // counts takes longer than the first page on a repository with many branches.
       startWalk(opened.root);
@@ -305,11 +309,27 @@ export const useRepoStore = defineStore("repo", () => {
       });
   }
 
-  /** Closes the repository and returns to the empty shell. */
+  /** Lists the refs again (after a `repo:changed` with refs, or a branch switch outside). */
+  async function refreshRefs(): Promise<void> {
+    const root = repo.value?.root;
+    if (!root) return;
+    const myGeneration = generation;
+    try {
+      const listed = await ipc.listRefs(root);
+      if (myGeneration !== generation) return;
+      refs.value = listed;
+      refsLoaded.value = true;
+    } catch {
+      // The refs shown stay until the next change; nothing to tell the user yet.
+    }
+  }
+
+  /** Closes the repository and returns to the home screen, which the next launch shows too. */
   async function close(): Promise<void> {
     const root = repo.value?.root;
     reset();
     state.value = { kind: "empty" };
+    void settings.update("lastRepository", null);
     if (root) await ipc.closeRepository(root);
   }
 
@@ -339,6 +359,7 @@ export const useRepoStore = defineStore("repo", () => {
     open,
     loadMore,
     loadWorktrees,
+    refreshRefs,
     select,
     close,
     retry,

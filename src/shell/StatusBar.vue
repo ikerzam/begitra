@@ -7,17 +7,21 @@ import Kbd from "@/components/Kbd.vue";
 import LaneDot from "@/components/LaneDot.vue";
 import Progress from "@/components/Progress.vue";
 import { shortcutRegistry } from "@/shortcuts/registry";
+import { useIndexStore } from "@/stores/index";
 import { useOperationsStore } from "@/stores/operations";
 import { useRepoStore } from "@/stores/repo";
 import { useShellStore } from "@/stores/shell";
 
 import { branchLanes } from "./branchLanes";
-import { baseName, shortHash } from "./format";
+import { abbreviateHome, baseName, shortHash } from "./format";
+import { useHomeDir } from "./useHomeDir";
 
 const { t } = useI18n();
 const repo = useRepoStore();
 const shell = useShellStore();
+const index = useIndexStore();
 const operations = useOperationsStore();
+const home = useHomeDir();
 
 /** The open repository, or the folder being opened or that failed to open. */
 const path = computed(() => {
@@ -38,14 +42,28 @@ const branchLabel = computed(() => {
   return repo.repo?.currentBranch ?? "";
 });
 
+/** The folder the scan is walking, with the home folder as `~` ("Scanning ~/code"). */
+const scanFolder = computed(() => {
+  const scan = index.scan;
+  return scan.kind === "scanning" && scan.current ? abbreviateHome(scan.current, home.value) : "";
+});
+
 const operationText = computed(() => {
   const current = operations.current;
   if (!current) return "";
   return t(current.label, {
     name: repoName.value,
     hash: repo.detail ? shortHash(repo.detail.hash) : "",
-  });
+    folder: scanFolder.value,
+  }).trim();
 });
+
+/** With no repository open: how many the index holds, or that there are none. */
+const indexText = computed(() =>
+  index.counts.repositories > 0
+    ? t("statusBar.repositories", index.counts.repositories)
+    : t("statusBar.noRepositories"),
+);
 
 const hints = computed(() => {
   const registry = shortcutRegistry();
@@ -76,7 +94,7 @@ const hints = computed(() => {
     data-testid="status-bar"
   >
     <template v-if="repo.state.kind === 'empty'">
-      <span class="text-fg-secondary">{{ t("statusBar.noRepositories") }}</span>
+      <span class="text-fg-secondary" data-testid="status-index">{{ indexText }}</span>
     </template>
     <template v-else>
       <span
@@ -96,15 +114,15 @@ const hints = computed(() => {
       <span v-if="path" class="font-mono text-mono-sm text-fg-secondary" data-testid="status-path">
         {{ path }}
       </span>
-      <span
-        v-if="operations.current && repo.state.kind !== 'error'"
-        class="flex items-center gap-2 text-fg-secondary"
-        data-testid="status-operation"
-      >
-        {{ operationText }}
-        <Progress class="status-progress" indeterminate :label="operationText" />
-      </span>
     </template>
+    <span
+      v-if="operations.current && repo.state.kind !== 'error'"
+      class="flex items-center gap-2 text-fg-secondary"
+      data-testid="status-operation"
+    >
+      {{ operationText }}
+      <Progress class="status-progress" indeterminate :label="operationText" />
+    </span>
     <span class="ml-auto flex items-center gap-4 text-fg-muted" data-testid="status-hints">
       <span v-for="hint in hints" :key="hint.label" class="flex items-center gap-2">
         <Kbd :keys="hint.keys" />
