@@ -5,15 +5,21 @@
 
 use std::io::Read;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 use crate::engine::Cancel;
 use crate::error::{GitError, GitResult};
 
-/// How often a cancellable run polls the flag while git works.
-const CANCEL_POLL: Duration = Duration::from_millis(50);
+/// How often a cancellable run polls the flag while git works; also the latency between
+/// git exiting and the caller learning it.
+const CANCEL_POLL: Duration = Duration::from_millis(10);
+
+/// `CREATE_NO_WINDOW`: a child process without a console of its own.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// Captured output of a `git` invocation that exited successfully.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -50,10 +56,59 @@ pub fn command(cwd: &Path, args: &[&str]) -> Command {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         command.creation_flags(CREATE_NO_WINDOW);
     }
     command
+}
+
+/// Stops a running git and what it started, without waiting for it.
+///
+/// On Windows the `git` on PATH is normally Git for Windows' launcher (`Git\cmd\git.exe`),
+/// which runs the real `git.exe` as a child; killing the launcher alone leaves that child
+/// working and holding the pipes (and running the launcher's real binary directly breaks
+/// the hooks and aliases that need its shell), so the whole tree goes through `taskkill /T`
+/// (argv, no shell) while the launcher is still alive, which is what lets it find the
+/// children. That takes a tenth of a second, so it runs on a helper thread and the caller
+/// returns at once: readers of the pipes end when the tree is gone and must not be joined
+/// on the cancel path. Elsewhere the child is killed; a helper it spawned (a hook, an alias
+/// shell) ends on its own when its parent is gone.
+pub(crate) fn abort(child: Child) {
+    let slot = Arc::new(Mutex::new(Some(child)));
+    let worker = Arc::clone(&slot);
+    let spawned = thread::Builder::new()
+        .name("begira-git-abort".to_owned())
+        .spawn(move || {
+            if let Some(child) = take_child(&worker) {
+                stop_tree(child);
+            }
+        });
+    if spawned.is_err() {
+        if let Some(child) = take_child(&slot) {
+            stop_tree(child);
+        }
+    }
+}
+
+fn take_child(slot: &Mutex<Option<Child>>) -> Option<Child> {
+    slot.lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .take()
+}
+
+fn stop_tree(mut child: Child) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = Command::new("taskkill")
+            .args(["/T", "/F", "/PID", &child.id().to_string()])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW)
+            .status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 /// Runs `git <args>` in `cwd` and returns its output, or [`GitError::Cli`] when the process
@@ -94,52 +149,70 @@ pub struct CliExit {
 }
 
 /// Runs `git <args>` in `cwd` while polling `cancel` every [`CANCEL_POLL`]; a cancelled run
-/// kills git and returns [`GitError::Cancelled`]. Both pipes are drained by their own threads
-/// so git never blocks on a full one. The exit status is returned, not judged: callers that
-/// give a meaning to a non-zero status (`merge-tree` exits 1 on conflicts) read it here.
+/// stops git (see [`abort`]) and returns [`GitError::Cancelled`] at once, without waiting
+/// for the pipes: their reader threads end at end-of-file. Both pipes are drained by their
+/// own threads so git never blocks on a full one. The exit status is returned, not judged:
+/// callers that give a meaning to a non-zero status (`merge-tree` exits 1 on conflicts) read
+/// it here.
 pub fn run_git_cancellable(cwd: &Path, args: &[&str], cancel: &Cancel) -> GitResult<CliExit> {
     let joined = args.join(" ");
+    let start_failed = |what: &str, error: &dyn std::fmt::Display| GitError::Cli {
+        command: joined.clone(),
+        status: None,
+        stderr: format!("could not start {what}: {error}"),
+    };
     cancel.check()?;
     let mut child = command(cwd, args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|error| GitError::Cli {
-            command: joined.clone(),
-            status: None,
-            stderr: format!("could not start git: {error}"),
-        })?;
+        .map_err(|error| start_failed("git", &error))?;
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
-    let out_reader = thread::spawn(move || {
-        let mut bytes = Vec::new();
-        if let Some(mut pipe) = stdout {
-            let _ = pipe.read_to_end(&mut bytes);
+    let out_reader = thread::Builder::new()
+        .name("begira-git-out".to_owned())
+        .spawn(move || {
+            let mut bytes = Vec::new();
+            if let Some(mut pipe) = stdout {
+                let _ = pipe.read_to_end(&mut bytes);
+            }
+            bytes
+        });
+    let out_reader = match out_reader {
+        Ok(reader) => reader,
+        Err(error) => {
+            abort(child);
+            return Err(start_failed("the output thread", &error));
         }
-        bytes
-    });
-    let err_reader = thread::spawn(move || {
-        let mut bytes = Vec::new();
-        if let Some(mut pipe) = stderr {
-            let _ = pipe.read_to_end(&mut bytes);
+    };
+    let err_reader = thread::Builder::new()
+        .name("begira-git-err".to_owned())
+        .spawn(move || {
+            let mut bytes = Vec::new();
+            if let Some(mut pipe) = stderr {
+                let _ = pipe.read_to_end(&mut bytes);
+            }
+            String::from_utf8_lossy(&bytes).into_owned()
+        });
+    let err_reader = match err_reader {
+        Ok(reader) => reader,
+        Err(error) => {
+            abort(child);
+            return Err(start_failed("the error thread", &error));
         }
-        String::from_utf8_lossy(&bytes).into_owned()
-    });
+    };
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status,
             Ok(None) => {
                 if cancel.is_cancelled() {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    let _ = out_reader.join();
-                    let _ = err_reader.join();
+                    abort(child);
                     return Err(GitError::Cancelled);
                 }
                 thread::sleep(CANCEL_POLL);
             }
             Err(error) => {
-                let _ = child.kill();
+                abort(child);
                 return Err(GitError::Cli {
                     command: joined,
                     status: None,
@@ -176,6 +249,24 @@ mod tests {
         let cancelled = run_git_cancellable(Path::new("."), &["--version"], &cancel)
             .expect_err("cancelled before starting");
         assert_eq!(cancelled.code(), "op.cancelled");
+    }
+
+    #[test]
+    fn a_cancelled_run_stops_git_and_what_it_started() {
+        // A `!` alias runs through git's shell, so the tree is git, sh and sleep (behind Git
+        // for Windows' launcher when that is the `git` on PATH). Killing the direct child
+        // alone would leave the rest holding the pipe for the whole sleep.
+        let cancel = Cancel::new();
+        let flag = cancel.clone();
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(300));
+            flag.cancel();
+        });
+        let started = std::time::Instant::now();
+        let result = run_git_cancellable(Path::new("."), &["-c", "alias.w=!sleep 8", "w"], &cancel);
+        assert_eq!(result.expect_err("cancelled").code(), "op.cancelled");
+        let took = started.elapsed();
+        assert!(took < Duration::from_secs(4), "returned after {took:?}");
     }
 
     #[test]

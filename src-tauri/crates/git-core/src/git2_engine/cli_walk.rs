@@ -210,13 +210,17 @@ impl CliWalk {
             .unwrap_or_default()
     }
 
-    /// Kills the child if it still runs and joins the helpers, which end at the closed pipes.
+    /// Stops the child (and what it started) if it still runs. The helpers are left to end
+    /// at the closed pipes rather than joined: the tree dies on `abort`'s thread, a tenth
+    /// of a second later on Windows, and a cancelled page must not wait for it.
     fn stop(&mut self) {
-        if let Some(mut child) = self.child.take() {
-            let _ = child.kill();
-            let _ = child.wait();
+        if let Some(child) = self.child.take() {
+            cli::abort(child);
         }
-        self.join_helpers();
+        drop(self.lines.take());
+        drop(self.reader.take());
+        drop(self.writer.take());
+        drop(self.drain.take());
         self.finished = true;
     }
 
