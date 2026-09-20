@@ -295,6 +295,22 @@ impl Fixture {
         self.rev("HEAD")
     }
 
+    /// Removes the loose object of `spec` from the object store; returns its hash.
+    pub fn delete_object(&self, spec: &str) -> String {
+        let hash = self.rev(spec);
+        let path = self
+            .git_dir()
+            .join("objects")
+            .join(&hash[..2])
+            .join(&hash[2..]);
+        let mut permissions = fs::metadata(&path).expect("object exists").permissions();
+        #[allow(clippy::permissions_set_readonly_false)]
+        permissions.set_readonly(false);
+        fs::set_permissions(&path, permissions).expect("make object writable");
+        fs::remove_file(&path).expect("delete object");
+        hash
+    }
+
     /// `git rev-parse --verify <spec>`.
     pub fn rev(&self, spec: &str) -> String {
         self.git(&["rev-parse", "--verify", spec])

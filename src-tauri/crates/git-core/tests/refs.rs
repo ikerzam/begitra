@@ -413,3 +413,25 @@ fn branches_without_upstream_have_no_counts_however_many_there_are() {
     let develop = find(&refs, "refs/heads/develop");
     assert_eq!((develop.ahead, develop.behind), (Some(2), Some(3)));
 }
+
+/// A ref whose object is gone (an interrupted fetch, a prune) is skipped with a warning, as
+/// `git branch -a` does; the rest of the listing is intact. A truncated object stays an error.
+#[test]
+fn a_broken_ref_is_skipped_like_git() {
+    let mut f = Fixture::basic();
+    f.git(&["checkout", "-q", "-b", "broken"]);
+    f.write(
+        "broken.txt",
+        "x
+",
+    );
+    f.commit("only on broken");
+    f.git(&["checkout", "-q", "main"]);
+    f.delete_object("broken");
+    let engine = Git2Engine::open(&f.root).expect("open");
+    let refs = engine.refs(&Cancel::never()).expect("listing goes on");
+    assert!(refs.iter().all(|r| r.name != "broken"));
+    assert!(refs.iter().any(|r| r.name == "develop"));
+    let cli = f.git(&["for-each-ref", "--format=%(refname:short)", "refs/heads"]);
+    assert!(cli.lines().any(|line| line == "develop"));
+}

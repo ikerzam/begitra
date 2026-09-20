@@ -251,6 +251,13 @@ pub(crate) fn reference_error(repo: &Repository, oid: Option<Oid>, error: git2::
     }
 }
 
+/// Whether no object with `oid` exists in the store at all (as opposed to one that exists but
+/// cannot be read): a ref pointing at such an object is broken, and git ignores it with a
+/// warning rather than failing the listing.
+pub(crate) fn object_missing(repo: &Repository, oid: Oid) -> bool {
+    repo.odb().map(|odb| !odb.exists(oid)).unwrap_or(false)
+}
+
 /// Longest chain of tags followed when looking for an unreadable object.
 const MAX_TAG_DEPTH: usize = 16;
 

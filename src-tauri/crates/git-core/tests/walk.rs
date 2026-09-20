@@ -731,3 +731,24 @@ fn a_revision_whose_object_is_unreadable_is_corrupt_not_missing() {
         other => panic!("unexpected error {other:?}"),
     }
 }
+
+/// `git log --all` warns about a ref whose object is missing and lists the rest; so does the
+/// walk. An unreadable object that still exists stays `repo.corrupt_object`.
+#[test]
+fn a_broken_ref_is_skipped_by_the_all_walk() {
+    let mut f = Fixture::basic();
+    f.git(&["checkout", "-q", "-b", "broken"]);
+    f.write(
+        "broken.txt",
+        "x
+",
+    );
+    f.commit("only on broken");
+    f.git(&["checkout", "-q", "main"]);
+    f.delete_object("broken");
+    let engine = open(&f);
+    for order in [WalkOrder::DateTopo, WalkOrder::Lazy] {
+        let nodes = walk_all(&engine, &WalkScope::All, 500, order);
+        assert_eq!(hashes(&nodes), git_log(&f, &[], "main"), "{order:?}");
+    }
+}

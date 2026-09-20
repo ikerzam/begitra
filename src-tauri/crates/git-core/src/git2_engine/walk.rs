@@ -443,6 +443,17 @@ fn load_refs(repo: &Repository, cancel: &Cancel) -> GitResult<Vec<RefTarget>> {
             {
                 continue
             }
+            // A ref whose object is missing from the store is broken; `git log --all` warns
+            // and goes on without it.
+            Err(error)
+                if error.code() == ErrorCode::NotFound
+                    && reference
+                        .target()
+                        .is_some_and(|oid| super::object_missing(repo, oid)) =>
+            {
+                tracing::warn!(reference = %name, "ignoring a broken ref: its object is missing");
+                continue;
+            }
             Err(error) => return Err(super::reference_error(repo, reference.target(), error)),
         };
         let label = if symbolic { None } else { label(&name) };

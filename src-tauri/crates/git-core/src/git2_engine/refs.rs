@@ -144,7 +144,10 @@ struct Target {
     tag_message: Option<String>,
 }
 
-/// Resolves `reference` to its target; `None` for a symbolic ref whose target does not exist.
+/// Resolves `reference` to its target; `None` for a symbolic ref whose target does not exist
+/// and for a broken ref whose object is missing from the store (an interrupted fetch, an
+/// aggressive prune), which git ignores with a warning. An object that exists but cannot be
+/// read is [`GitError::CorruptObject`].
 fn resolve(repo: &Repository, reference: &Reference<'_>) -> GitResult<Option<Target>> {
     let direct = match reference.resolve() {
         Ok(direct) => direct,
@@ -154,9 +157,18 @@ fn resolve(repo: &Repository, reference: &Reference<'_>) -> GitResult<Option<Tar
     let Some(oid) = direct.target() else {
         return Ok(None);
     };
-    let object = repo
-        .find_object(oid, None)
-        .map_err(|error| GitError::object(&oid.to_string(), error))?;
+    let object = match repo.find_object(oid, None) {
+        Ok(object) => object,
+        Err(error) if error.code() == ErrorCode::NotFound && super::object_missing(repo, oid) => {
+            tracing::warn!(
+                reference = %String::from_utf8_lossy(reference.name_bytes()),
+                object = %oid,
+                "ignoring a broken ref: its object is missing"
+            );
+            return Ok(None);
+        }
+        Err(error) => return Err(GitError::object(&oid.to_string(), error)),
+    };
     let Some(tag) = object.as_tag() else {
         return Ok(Some(Target {
             peeled: oid,

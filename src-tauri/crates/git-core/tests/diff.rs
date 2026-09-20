@@ -164,22 +164,6 @@ fn with_multi_hunk_edit() -> Fixture {
     f
 }
 
-/// Removes the loose object of `spec` from the object store; returns its hash.
-fn delete_object(f: &Fixture, spec: &str) -> String {
-    let hash = f.rev(spec);
-    let path = f
-        .git_dir()
-        .join("objects")
-        .join(&hash[..2])
-        .join(&hash[2..]);
-    let mut permissions = fs::metadata(&path).expect("object exists").permissions();
-    #[allow(clippy::permissions_set_readonly_false)]
-    permissions.set_readonly(false);
-    fs::set_permissions(&path, permissions).expect("make object writable");
-    fs::remove_file(&path).expect("delete object");
-    hash
-}
-
 #[test]
 fn rename_matches_git_diff_m() {
     let f = Fixture::basic().with_rename();
@@ -649,7 +633,7 @@ fn missing_blob_is_reported_with_its_hash() {
     let mut f = Fixture::basic();
     f.append("README.md", "more\n");
     f.commit("edit readme");
-    let missing = delete_object(&f, "HEAD~1:README.md");
+    let missing = f.delete_object("HEAD~1:README.md");
     let error = engine(&f)
         .diff(&commit("HEAD"), &DiffOptions::default(), &Cancel::never())
         .expect_err("must fail");
