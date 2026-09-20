@@ -1,0 +1,12 @@
+[
+  {
+    "size": 6,
+    "isBinary": false,
+    "text": "hello\n"
+  },
+  {
+    "size": 5,
+    "isBinary": true,
+    "bytes": "iVBORwA="
+  }
+]

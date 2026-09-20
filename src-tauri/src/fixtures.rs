@@ -8,16 +8,20 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use git_core::types::{
-    ChangeKind, ChangeSet, CommitCount, CommitNode, DiffLine, DiffOptions, DiffTarget, Edge,
-    FileChange, Hunk, LineKind, Ref, RefKind, Repo, Signature, Span, StatusEntry, StatusOptions,
-    WalkFilter, WalkOptions, WalkOrder, WalkScope, WorkingTreeBase, Worktree,
+    BlobAt, BlobContent, ChangeKind, ChangeSet, CommitCount, CommitNode, DiffLine, DiffOptions,
+    DiffTarget, Edge, FileChange, Hunk, LineKind, Ref, RefKind, Repo, Signature, Span, StatusEntry,
+    StatusOptions, WalkFilter, WalkOptions, WalkOrder, WalkScope, WorkingTreeBase, Worktree,
 };
 use serde::Serialize;
+use syntax::{Highlight, Symbol, SymbolKind, Token, TokenClass};
 
-use repo_index::{IndexEntry, RepoKind, RepoSummary as IndexSummary, ScanOptions};
+use repo_index::{
+    Annotation, AnnotationKind, IndexEntry, RepoKind, RepoSummary as IndexSummary, ScanOptions,
+};
 
 use crate::channels::StreamMessage;
 use crate::commands::diff::DiffPage;
+use crate::commands::review::AnnotationWrite;
 use crate::commands::scan::ScanMessage;
 use crate::commands::system::pong;
 use crate::commands::walk::WalkPage;
@@ -580,6 +584,11 @@ fn write_fixtures() {
             DiffTarget::WorkingTree {
                 base: WorkingTreeBase::Index,
             },
+            DiffTarget::WorkingTree {
+                base: WorkingTreeBase::Revision {
+                    rev: "v1".to_owned(),
+                },
+            },
             DiffTarget::Index,
         ],
     );
@@ -595,5 +604,194 @@ fn write_fixtures() {
                 ignore_whitespace: true,
             },
         ],
+    );
+    write(
+        "blob-at",
+        &[
+            BlobAt::WorkingTree,
+            BlobAt::Revision {
+                rev: "HEAD".to_owned(),
+            },
+        ],
+    );
+    write(
+        "blob-contents",
+        &[
+            BlobContent {
+                size: 6,
+                is_binary: false,
+                text: Some("hello\n".to_owned()),
+                bytes: None,
+            },
+            BlobContent {
+                size: 5,
+                is_binary: true,
+                text: None,
+                bytes: Some("iVBORwA=".to_owned()),
+            },
+        ],
+    );
+    write(
+        "highlight",
+        &Highlight {
+            syntax: Some("Rust".to_owned()),
+            lines: vec![
+                vec![Token {
+                    start: 0,
+                    end: 7,
+                    class: TokenClass::Comment,
+                }],
+                vec![],
+                vec![
+                    Token {
+                        start: 0,
+                        end: 2,
+                        class: TokenClass::Keyword,
+                    },
+                    Token {
+                        start: 3,
+                        end: 7,
+                        class: TokenClass::Function,
+                    },
+                    Token {
+                        start: 10,
+                        end: 13,
+                        class: TokenClass::String,
+                    },
+                    Token {
+                        start: 14,
+                        end: 16,
+                        class: TokenClass::Number,
+                    },
+                    Token {
+                        start: 16,
+                        end: 17,
+                        class: TokenClass::Punctuation,
+                    },
+                    Token {
+                        start: 18,
+                        end: 21,
+                        class: TokenClass::Type,
+                    },
+                    Token {
+                        start: 21,
+                        end: 22,
+                        class: TokenClass::Plain,
+                    },
+                ],
+            ],
+        },
+    );
+    write(
+        "symbols",
+        &[
+            Symbol {
+                kind: SymbolKind::Struct,
+                name: "Foo".to_owned(),
+                start_line: 1,
+                end_line: 1,
+            },
+            Symbol {
+                kind: SymbolKind::Impl,
+                name: "Clone for Foo".to_owned(),
+                start_line: 3,
+                end_line: 6,
+            },
+            Symbol {
+                kind: SymbolKind::Method,
+                name: "clone".to_owned(),
+                start_line: 4,
+                end_line: 5,
+            },
+            Symbol {
+                kind: SymbolKind::Function,
+                name: "main".to_owned(),
+                start_line: 8,
+                end_line: 12,
+            },
+            Symbol {
+                kind: SymbolKind::Class,
+                name: "A".to_owned(),
+                start_line: 1,
+                end_line: 3,
+            },
+            Symbol {
+                kind: SymbolKind::Enum,
+                name: "E".to_owned(),
+                start_line: 1,
+                end_line: 1,
+            },
+            Symbol {
+                kind: SymbolKind::Interface,
+                name: "I".to_owned(),
+                start_line: 1,
+                end_line: 1,
+            },
+            Symbol {
+                kind: SymbolKind::Trait,
+                name: "T".to_owned(),
+                start_line: 1,
+                end_line: 1,
+            },
+            Symbol {
+                kind: SymbolKind::Type,
+                name: "Alias".to_owned(),
+                start_line: 1,
+                end_line: 1,
+            },
+            Symbol {
+                kind: SymbolKind::Module,
+                name: "m".to_owned(),
+                start_line: 1,
+                end_line: 3,
+            },
+            Symbol {
+                kind: SymbolKind::Property,
+                name: "P".to_owned(),
+                start_line: 2,
+                end_line: 2,
+            },
+            Symbol {
+                kind: SymbolKind::Constructor,
+                name: "A".to_owned(),
+                start_line: 2,
+                end_line: 2,
+            },
+        ],
+    );
+    write(
+        "annotations",
+        &[
+            Annotation {
+                path: "src/a.ts".to_owned(),
+                hunk: String::new(),
+                kind: AnnotationKind::Reviewed,
+                value: "1".to_owned(),
+                updated_at: 1_700_000_000,
+            },
+            Annotation {
+                path: "src/a.ts".to_owned(),
+                hunk: "@@ -1,2 +1,3 @@".to_owned(),
+                kind: AnnotationKind::Reviewed,
+                value: "1".to_owned(),
+                updated_at: 1_700_000_001,
+            },
+            Annotation {
+                path: "src/a.ts".to_owned(),
+                hunk: String::new(),
+                kind: AnnotationKind::Note,
+                value: "Check eviction when the worker pool is saturated.".to_owned(),
+                updated_at: 1_700_000_002,
+            },
+        ],
+    );
+    write(
+        "annotation-write",
+        &AnnotationWrite {
+            path: "src/a.ts".to_owned(),
+            hunk: String::new(),
+            kind: AnnotationKind::Note,
+            value: "note".to_owned(),
+        },
     );
 }

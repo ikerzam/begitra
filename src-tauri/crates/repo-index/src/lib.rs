@@ -7,6 +7,7 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod annotations;
 pub mod cancel;
 pub mod error;
 pub mod index;
@@ -17,4 +18,7 @@ pub mod types;
 pub use cancel::Cancel;
 pub use error::{IndexError, IndexResult};
 pub use index::Index;
-pub use types::{Found, IndexEntry, RepoKind, RepoSummary, ScanEvent, ScanOptions};
+pub use types::{
+    Annotation, AnnotationKey, AnnotationKind, Found, IndexEntry, RepoKind, RepoSummary, ScanEvent,
+    ScanOptions,
+};

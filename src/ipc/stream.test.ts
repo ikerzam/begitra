@@ -170,6 +170,7 @@ describe("stream", () => {
       similarity: 150,
       context: 3,
       intraLine: true,
+      ignoreWhitespace: false,
     });
     const error = await handle.done.catch((e: unknown) => e as AppError);
     expect((error as AppError).code).toBe("ipc.invalid_argument");

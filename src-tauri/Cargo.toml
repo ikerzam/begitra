@@ -69,6 +69,7 @@ tokio.workspace = true
 tokio-util.workspace = true
 shell-words.workspace = true
 repo-index.workspace = true
+syntax.workspace = true
 notify.workspace = true
 
 [dev-dependencies]

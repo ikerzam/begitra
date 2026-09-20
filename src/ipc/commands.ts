@@ -6,16 +6,22 @@ import * as v from "valibot";
 
 import { call, newOpId } from "./invoke";
 import {
+  AnnotationSchema,
+  BlobContentSchema,
   CommitCountSchema,
   DiffPageSchema,
+  HighlightSchema,
   IndexEntrySchema,
   PongSchema,
   RefSchema,
   RepoSchema,
   ScanMessageSchema,
   StatusEntrySchema,
+  SymbolSchema,
   WalkPageSchema,
   WorktreeSchema,
+  type AnnotationWrite,
+  type BlobAt,
   type DiffOptions,
   type DiffPage,
   type DiffTarget,
@@ -40,6 +46,7 @@ export const defaultDiffOptions: DiffOptions = {
   similarity: 50,
   context: 3,
   intraLine: true,
+  ignoreWhitespace: false,
 };
 
 export function ping(message: string) {
@@ -123,6 +130,36 @@ export function diff(
   opId?: string,
 ): StreamHandle {
   return stream("diff", { repo, target, options }, DiffPageSchema, onPage, opId);
+}
+
+/** One file whole at a revision or in the working tree (text, or base64 bytes when binary). */
+export function readBlob(repo: string, at: BlobAt, path: string, opId = newOpId("blob")) {
+  return call("read_blob", { repo, at, path, opId }, BlobContentSchema);
+}
+
+/** The token classes of a file's lines; empty for binary, unknown or oversized files. */
+export function highlightFile(repo: string, at: BlobAt, path: string, opId = newOpId("hl")) {
+  return call("highlight_file", { repo, at, path, opId }, HighlightSchema);
+}
+
+/** The declarations of a file; empty for a language without a grammar. */
+export function fileSymbols(repo: string, at: BlobAt, path: string, opId = newOpId("sym")) {
+  return call("file_symbols", { repo, at, path, opId }, v.array(SymbolSchema));
+}
+
+/** The marks and notes of a review target. */
+export function listAnnotations(repo: string, target: string) {
+  return call("list_annotations", { repo, target }, v.array(AnnotationSchema));
+}
+
+/** Writes or replaces one mark or note. */
+export function setAnnotation(repo: string, target: string, annotation: AnnotationWrite) {
+  return call("set_annotation", { repo, target, annotation }, v.null());
+}
+
+/** Removes one mark or note; resolves with whether it existed. */
+export function deleteAnnotation(repo: string, target: string, annotation: AnnotationWrite) {
+  return call("delete_annotation", { repo, target, annotation }, v.boolean());
 }
 
 /** Opens `path` with the first template that spawns; resolves with the argv that ran. */

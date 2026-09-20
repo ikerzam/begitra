@@ -25,6 +25,10 @@
     "message": "Sample message for diff.blob_missing"
   },
   {
+    "code": "blob.too_large",
+    "message": "Sample message for blob.too_large"
+  },
+  {
     "code": "worktree.missing_folder",
     "message": "Sample message for worktree.missing_folder"
   },

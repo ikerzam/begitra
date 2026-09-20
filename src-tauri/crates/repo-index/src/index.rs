@@ -37,6 +37,11 @@ impl Index {
         Ok(Self { connection })
     }
 
+    /// The connection, for the sibling modules (annotations).
+    pub(crate) fn connection(&self) -> &Connection {
+        &self.connection
+    }
+
     /// Records a repository or worktree found by the scanner (or opened by path when
     /// `found.scan_root` is empty), keeping its summary, pin and recents when it was known;
     /// `now` is the first-seen time of a new entry.

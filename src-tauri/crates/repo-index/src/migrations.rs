@@ -11,7 +11,7 @@ pub enum MigrationError {
 }
 
 /// Schema version after applying every migration in [`MIGRATIONS`].
-pub const CURRENT_VERSION: u32 = 2;
+pub const CURRENT_VERSION: u32 = 3;
 
 /// SQL for each migration, indexed by version minus one.
 const MIGRATIONS: &[&str] = &[
@@ -70,6 +70,19 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX repos_parent ON repos(parent_path);
     CREATE INDEX repos_root ON repos(scan_root);",
+    // Version 3: review state keyed by repository, target, path, hunk and kind, so
+    // a mark or a note is one upsert; the review table of version 1 was never written.
+    "DROP TABLE review_annotations;
+    CREATE TABLE annotations (
+        repo TEXT NOT NULL,
+        target TEXT NOT NULL,
+        path TEXT NOT NULL,
+        hunk TEXT NOT NULL DEFAULT '',
+        kind TEXT NOT NULL,
+        value TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (repo, target, path, hunk, kind)
+    );",
 ];
 
 /// Applies every pending migration and returns the resulting schema version.
@@ -102,7 +115,7 @@ mod tests {
             .expect("query runs")
             .collect::<Result<_, _>>()
             .expect("rows read");
-        assert_eq!(tables, vec!["repos", "review_annotations"]);
+        assert_eq!(tables, vec!["annotations", "repos"]);
     }
 
     #[test]

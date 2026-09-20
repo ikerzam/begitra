@@ -23,6 +23,14 @@
     "base": "index"
   },
   {
+    "kind": "working-tree",
+    "base": {
+      "revision": {
+        "rev": "v1"
+      }
+    }
+  },
+  {
     "kind": "index"
   }
 ]

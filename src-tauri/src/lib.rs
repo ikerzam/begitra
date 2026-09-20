@@ -112,6 +112,12 @@ pub fn run() {
             commands::walk::walk_continue,
             commands::walk::close_walk,
             commands::diff::diff,
+            commands::review::read_blob,
+            commands::review::highlight_file,
+            commands::review::file_symbols,
+            commands::review::list_annotations,
+            commands::review::set_annotation,
+            commands::review::delete_annotation,
         ])
         .run(tauri::generate_context!());
 

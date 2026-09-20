@@ -1,0 +1,23 @@
+[
+  {
+    "path": "src/a.ts",
+    "hunk": "",
+    "kind": "reviewed",
+    "value": "1",
+    "updatedAt": 1700000000
+  },
+  {
+    "path": "src/a.ts",
+    "hunk": "@@ -1,2 +1,3 @@",
+    "kind": "reviewed",
+    "value": "1",
+    "updatedAt": 1700000001
+  },
+  {
+    "path": "src/a.ts",
+    "hunk": "",
+    "kind": "note",
+    "value": "Check eviction when the worker pool is saturated.",
+    "updatedAt": 1700000002
+  }
+]

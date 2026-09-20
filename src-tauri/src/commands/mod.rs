@@ -5,6 +5,7 @@ pub mod diff;
 pub mod external;
 pub mod index;
 pub mod repo;
+pub mod review;
 pub mod scan;
 pub mod system;
 pub mod walk;

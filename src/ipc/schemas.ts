@@ -237,7 +237,10 @@ export const DiffPageSchema = v.object({
 });
 export type DiffPage = v.InferOutput<typeof DiffPageSchema>;
 
-export const WorkingTreeBaseSchema = v.picklist(["head", "index"]);
+export const WorkingTreeBaseSchema = v.union([
+  v.picklist(["head", "index"]),
+  v.object({ revision: v.object({ rev: v.string() }) }),
+]);
 export type WorkingTreeBase = v.InferOutput<typeof WorkingTreeBaseSchema>;
 
 export const DiffTargetSchema = v.variant("kind", [
@@ -255,8 +258,92 @@ export const DiffOptionsSchema = v.object({
   /** Context lines around each change; the engine clamps at 1,000. */
   context: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(1_000)),
   intraLine: v.boolean(),
+  /** Ignore every whitespace change, like `git diff -w`. */
+  ignoreWhitespace: v.optional(v.boolean(), false),
 });
 export type DiffOptions = v.InferOutput<typeof DiffOptionsSchema>;
+
+// --- Review: blobs, highlighting, symbols, annotations ------------------------------------
+
+export const BlobAtSchema = v.variant("kind", [
+  v.object({ kind: v.literal("working-tree") }),
+  v.object({ kind: v.literal("revision"), rev: v.string() }),
+]);
+export type BlobAt = v.InferOutput<typeof BlobAtSchema>;
+
+export const BlobContentSchema = v.object({
+  size: count,
+  isBinary: v.boolean(),
+  text: v.optional(v.string()),
+  /** Base64 of a binary file. */
+  bytes: v.optional(v.string()),
+});
+export type BlobContent = v.InferOutput<typeof BlobContentSchema>;
+
+export const TokenClassSchema = v.picklist([
+  "plain",
+  "comment",
+  "string",
+  "keyword",
+  "number",
+  "type",
+  "function",
+  "punctuation",
+]);
+export type TokenClass = v.InferOutput<typeof TokenClassSchema>;
+
+export const TokenSchema = v.object({ start: count, end: count, class: TokenClassSchema });
+export type Token = v.InferOutput<typeof TokenSchema>;
+
+export const HighlightSchema = v.object({
+  syntax: v.nullable(v.string()),
+  lines: v.array(v.array(TokenSchema)),
+});
+export type Highlight = v.InferOutput<typeof HighlightSchema>;
+
+export const SymbolKindSchema = v.picklist([
+  "function",
+  "method",
+  "class",
+  "struct",
+  "enum",
+  "interface",
+  "trait",
+  "type",
+  "module",
+  "impl",
+  "property",
+  "constructor",
+]);
+export type SymbolKind = v.InferOutput<typeof SymbolKindSchema>;
+
+export const SymbolSchema = v.object({
+  kind: SymbolKindSchema,
+  name: v.string(),
+  startLine: count,
+  endLine: count,
+});
+export type Symbol = v.InferOutput<typeof SymbolSchema>;
+
+export const AnnotationKindSchema = v.picklist(["reviewed", "note"]);
+export type AnnotationKind = v.InferOutput<typeof AnnotationKindSchema>;
+
+export const AnnotationSchema = v.object({
+  path: v.string(),
+  hunk: v.string(),
+  kind: AnnotationKindSchema,
+  value: v.string(),
+  updatedAt: int,
+});
+export type Annotation = v.InferOutput<typeof AnnotationSchema>;
+
+export const AnnotationWriteSchema = v.object({
+  path: v.pipe(v.string(), v.minLength(1)),
+  hunk: v.optional(v.string(), ""),
+  kind: AnnotationKindSchema,
+  value: v.optional(v.pipe(v.string(), v.maxLength(10_000)), ""),
+});
+export type AnnotationWrite = v.InferOutput<typeof AnnotationWriteSchema>;
 
 // --- Worktrees, events, misc --------------------------------------------------------------
 
@@ -369,6 +456,35 @@ export const commandArgs = {
   }),
   close_walk: v.object({ walkId: v.string() }),
   diff: v.object({ repo: path, target: DiffTargetSchema, options: DiffOptionsSchema, opId }),
+  read_blob: v.object({
+    repo: path,
+    at: BlobAtSchema,
+    path: v.pipe(v.string(), v.minLength(1)),
+    opId,
+  }),
+  highlight_file: v.object({
+    repo: path,
+    at: BlobAtSchema,
+    path: v.pipe(v.string(), v.minLength(1)),
+    opId,
+  }),
+  file_symbols: v.object({
+    repo: path,
+    at: BlobAtSchema,
+    path: v.pipe(v.string(), v.minLength(1)),
+    opId,
+  }),
+  list_annotations: v.object({ repo: path, target: v.pipe(v.string(), v.minLength(1)) }),
+  set_annotation: v.object({
+    repo: path,
+    target: v.pipe(v.string(), v.minLength(1)),
+    annotation: AnnotationWriteSchema,
+  }),
+  delete_annotation: v.object({
+    repo: path,
+    target: v.pipe(v.string(), v.minLength(1)),
+    annotation: AnnotationWriteSchema,
+  }),
   open_external: v.object({ templates: v.pipe(v.array(v.string()), v.minLength(1)), path }),
   watch_repository: v.object({ root: path }),
   list_repositories: v.object({}),

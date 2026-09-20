@@ -3,12 +3,14 @@
     "renames": true,
     "similarity": 50,
     "context": 3,
-    "intraLine": true
+    "intraLine": true,
+    "ignoreWhitespace": false
   },
   {
     "renames": false,
     "similarity": 70,
     "context": 0,
-    "intraLine": false
+    "intraLine": false,
+    "ignoreWhitespace": true
   }
 ]

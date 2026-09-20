@@ -2,7 +2,7 @@
 //! registry. Cloning the state clones a handle to the same maps, so commands can move it into
 //! blocking closures.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -12,6 +12,7 @@ use git_core::engine::{CommitWalk, GitEngine};
 use git_core::error::GitResult;
 use git_core::git2_engine::Git2Engine;
 use repo_index::Index;
+use syntax::Highlight;
 
 use crate::error::AppError;
 use crate::ops::Operations;
@@ -47,7 +48,12 @@ struct Inner {
     index: Mutex<Option<Index>>,
     /// The watcher of the open repository, with its root.
     watcher: Mutex<Option<(PathBuf, RepoWatcher)>>,
+    /// The token classes of the last files viewed, per repository, keyed by blob.
+    highlights: Mutex<HashMap<PathBuf, VecDeque<(String, Highlight)>>>,
 }
+
+/// Highlights kept per repository.
+const HIGHLIGHT_CACHE: usize = 32;
 
 /// Shared application state managed by Tauri.
 #[derive(Clone, Default)]
@@ -59,6 +65,35 @@ impl AppState {
     /// The operation registry.
     pub fn ops(&self) -> &Operations {
         &self.inner.ops
+    }
+
+    /// The cached token classes of `key` in the repository at `root`.
+    pub fn cached_highlight(&self, root: &Path, key: &str) -> Option<Highlight> {
+        let cache = self
+            .inner
+            .highlights
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        cache
+            .get(root)?
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, highlight)| highlight.clone())
+    }
+
+    /// Remembers the token classes of `key`, dropping the oldest beyond the cache size.
+    pub fn cache_highlight(&self, root: &Path, key: String, highlight: Highlight) {
+        let mut cache = self
+            .inner
+            .highlights
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let entries = cache.entry(root.to_path_buf()).or_default();
+        entries.retain(|(k, _)| k != &key);
+        entries.push_back((key, highlight));
+        while entries.len() > HIGHLIGHT_CACHE {
+            entries.pop_front();
+        }
     }
 
     /// Opens the index database at `path` (created and migrated when missing), replacing the

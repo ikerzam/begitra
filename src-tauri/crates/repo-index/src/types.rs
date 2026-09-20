@@ -4,6 +4,66 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+/// What an annotation records.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AnnotationKind {
+    /// The file (or the hunk) was marked reviewed; the value is `1`.
+    Reviewed,
+    /// A note on the file; the value is its text.
+    Note,
+}
+
+impl AnnotationKind {
+    /// The column value.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AnnotationKind::Reviewed => "reviewed",
+            AnnotationKind::Note => "note",
+        }
+    }
+
+    /// Parses the column value.
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "reviewed" => Some(AnnotationKind::Reviewed),
+            "note" => Some(AnnotationKind::Note),
+            _ => None,
+        }
+    }
+}
+
+/// One mark or note of a review target.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Annotation {
+    /// Repository-relative path of the file.
+    pub path: String,
+    /// The hunk's key, or empty for the whole file.
+    pub hunk: String,
+    /// A mark or a note.
+    pub kind: AnnotationKind,
+    /// `1` for a mark, the text of a note.
+    pub value: String,
+    /// Unix time of the last write.
+    pub updated_at: i64,
+}
+
+/// What one annotation is keyed by.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AnnotationKey<'a> {
+    /// Working tree root of the repository.
+    pub repo: &'a std::path::Path,
+    /// Stable key of the review target.
+    pub target: &'a str,
+    /// Repository-relative path of the file.
+    pub path: &'a str,
+    /// The hunk's key, or empty for the whole file.
+    pub hunk: &'a str,
+    /// A mark or a note.
+    pub kind: AnnotationKind,
+}
+
 /// What a found `.git` entry is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
