@@ -23,6 +23,8 @@ export interface PickerRow {
   lane: number;
   icon?: Component;
   choice: PickerChoice;
+  /** What an endpoint row names, for its icon; other sections know theirs. */
+  kind?: "branch" | "tag" | "commit";
 }
 
 export interface RangeQuery {
@@ -91,11 +93,13 @@ export function pickerRows(inputs: PickerInputs): PickerRow[] {
   }
   for (const ref of inputs.refs.filter((r) => r.kind === "tag")) {
     if (!matchesQuery(ref.name, query)) continue;
+    // The relative date of the tagged commit when the history holds it, else its hash.
+    const tagged = inputs.commits.find((c) => c.hash === ref.target);
     rows.push({
       key: `tag:${ref.fullName}`,
       section: "tags",
       label: ref.name,
-      context: shortHash(ref.target),
+      context: tagged ? inputs.ago(tagged.author.time) : shortHash(ref.target),
       lane: 0,
       choice: { kind: "revision", rev: ref.fullName },
     });
@@ -141,14 +145,22 @@ function rangeRows(range: RangeQuery, inputs: PickerInputs): PickerRow[] {
   ];
   for (const name of [range.from, range.to]) {
     const ref = inputs.refs.find((r) => r.name === name || r.fullName === name);
-    const commit = inputs.commits.find((c) => c.hash.startsWith(name));
+    const commit = inputs.commits.find((c) =>
+      ref ? c.hash === ref.target : c.hash.startsWith(name),
+    );
+    // "7f8e9d0  3d ago" when the commit is loaded, the hash alone otherwise.
+    const hash = ref ? shortHash(ref.target) : commit ? shortHash(commit.hash) : "";
+    const context = [hash, commit ? inputs.ago(commit.author.time) : ""]
+      .filter((part) => part !== "")
+      .join("  ");
     rows.push({
       key: `endpoint:${name}`,
       section: "endpoints",
       label: name,
-      context: ref ? shortHash(ref.target) : commit ? inputs.ago(commit.author.time) : "",
+      context,
       lane: ref ? (inputs.lanes.get(ref.fullName) ?? 0) : 0,
       choice: { kind: "revision", rev: ref?.fullName ?? name },
+      kind: ref ? (ref.kind === "tag" ? "tag" : "branch") : "commit",
     });
   }
   return rows;

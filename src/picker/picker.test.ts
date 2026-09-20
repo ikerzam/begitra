@@ -216,7 +216,7 @@ describe("PickerOverlay", () => {
     await flushPromises();
     const input = wrapper.get('[data-testid="picker-input"]');
     await input.setValue("zzz");
-    expect(wrapper.get('[data-testid="picker-empty"]').text()).toContain('Nothing matches "zzz"');
+    expect(wrapper.get('[data-testid="picker-empty"]').text()).toContain('No refs match "zzz"');
     await input.trigger("keydown", { key: "Escape" });
     expect(picker.mode).toBeNull();
     wrapper.unmount();

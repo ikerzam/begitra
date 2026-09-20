@@ -4,12 +4,22 @@
 // muted context, the range chips, the footer hints; ↑↓ move, ↵ chooses, Tab switches the
 // dots of a typed range, esc closes.
 
-import { GitBranch, GitCommitHorizontal, ListTree, Search, Tag, Terminal, X } from "@lucide/vue";
+import {
+  GitBranch,
+  GitCommitHorizontal,
+  GitCompare,
+  ListTree,
+  Search,
+  Tag,
+  Terminal,
+  X,
+} from "@lucide/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ErrorBanner from "@/components/ErrorBanner.vue";
 import IconButton from "@/components/IconButton.vue";
+import Input from "@/components/Input.vue";
 import Kbd from "@/components/Kbd.vue";
 import { laneTextClass } from "@/components/lanes";
 import SkeletonRow from "@/components/SkeletonRow.vue";
@@ -38,7 +48,7 @@ const now = useNow();
 
 const query = ref("");
 const cursor = ref(0);
-const input = ref<HTMLInputElement | null>(null);
+const input = ref<{ $el: HTMLElement } | null>(null);
 const list = ref<HTMLElement | null>(null);
 const dialog = ref<HTMLElement | null>(null);
 const trap = useFocusTrap(dialog);
@@ -101,7 +111,7 @@ const refsErrorMessage = computed(() => {
 const isEmpty = computed(() => !loading.value && rows.value.length === 0);
 
 const icons: Record<PickerSection, Component> = {
-  range: GitCommitHorizontal,
+  range: GitCompare,
   endpoints: GitBranch,
   branches: GitBranch,
   tags: Tag,
@@ -110,8 +120,9 @@ const icons: Record<PickerSection, Component> = {
 };
 
 function iconOf(row: PickerRow): Component {
-  if (row.section === "endpoints")
-    return row.choice.kind === "revision" && row.lane > 0 ? GitBranch : Tag;
+  if (row.section === "endpoints") {
+    return row.kind === "tag" ? Tag : row.kind === "commit" ? GitCommitHorizontal : GitBranch;
+  }
   return icons[row.section];
 }
 
@@ -173,7 +184,7 @@ let previouslyFocused: Element | null = null;
 
 onMounted(() => {
   previouslyFocused = document.activeElement;
-  void nextTick(() => input.value?.focus());
+  void nextTick(() => input.value?.$el.querySelector("input")?.focus());
 });
 
 onBeforeUnmount(() => {
@@ -203,22 +214,20 @@ watch(cursor, (index) => {
       @keydown="trap.onKeydown"
     >
       <div class="flex items-center justify-between gap-3 px-3 pt-3">
-        <h2 class="text-lg font-semibold text-fg" data-testid="picker-title">{{ title }}</h2>
+        <h2 class="text-md font-semibold text-fg" data-testid="picker-title">{{ title }}</h2>
         <IconButton :label="t('picker.close')" :icon="X" @click="picker.close()" />
       </div>
-      <div class="flex items-center gap-3 border-b border-line px-3 py-2">
-        <Search :size="16" :stroke-width="1.5" aria-hidden="true" class="text-fg-secondary" />
-        <input
+      <div class="px-3 py-2">
+        <Input
           ref="input"
           v-model="query"
-          type="text"
+          :icon="Search"
           role="combobox"
           aria-autocomplete="list"
           aria-controls="picker-list"
           :aria-expanded="rows.length > 0"
           :aria-activedescendant="rows.length > 0 ? optionId(cursor) : undefined"
           :placeholder="t('picker.placeholder')"
-          class="h-control min-w-0 flex-1 bg-transparent text-md text-fg outline-none placeholder:text-fg-muted"
           data-testid="picker-input"
           @keydown="onKeydown"
         />
@@ -240,7 +249,7 @@ watch(cursor, (index) => {
         >
           A...B
         </button>
-        <span class="text-md text-fg-secondary">{{ t("picker.rangeHelp") }}</span>
+        <span class="text-sm text-fg-muted">{{ t("picker.rangeHelp") }}</span>
       </div>
       <div
         id="picker-list"
@@ -262,7 +271,9 @@ watch(cursor, (index) => {
           <SkeletonRow v-for="n in 6" :key="n" :index="n" height="list" />
         </template>
         <template v-for="section in sections" :key="section.id">
-          <p class="picker-section text-sm text-fg-muted">{{ section.label }}</p>
+          <p class="picker-section text-sm text-fg-muted" role="presentation">
+            {{ section.label }}
+          </p>
           <div
             v-for="(row, index) in section.rows"
             :id="optionId(section.offset + index)"
@@ -270,7 +281,7 @@ watch(cursor, (index) => {
             role="option"
             :aria-selected="cursor === section.offset + index"
             :data-index="section.offset + index"
-            class="flex h-control cursor-default items-center gap-3 rounded-sm px-2 text-md text-fg"
+            class="flex h-control cursor-default items-center gap-2 rounded-sm px-2 text-md text-fg"
             :class="cursor === section.offset + index ? 'bg-selected' : 'hover:bg-hover'"
             data-testid="picker-row"
             @mousemove="cursor = section.offset + index"
