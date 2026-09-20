@@ -178,65 +178,10 @@ describe("WorktreesLayout", () => {
     expect(wrapper.get('[data-testid="worktrees-prune"]').attributes("disabled")).toBeDefined();
   });
 
-  it("adds a worktree from the dialog with the default path and selects the new row", async () => {
-    const { wrapper, calls } = await mountDashboard();
+  it("asks for the add dialog from the header", async () => {
+    const { wrapper } = await mountDashboard();
     await wrapper.get('[data-testid="worktrees-add"]').trigger("click");
-    await nextTick();
-    const dialog = wrapper.get('[role="dialog"]');
-    expect(dialog.text()).toContain("Add worktree");
-    expect(dialog.get('[data-testid="dialog-confirm"]').attributes("disabled")).toBeDefined();
-    await dialog
-      .get('[data-testid="add-worktree-name"] input, input[data-testid="add-worktree-name"]')
-      .setValue("claude/fix-tiles");
-    await nextTick();
-    const path = dialog.get<HTMLInputElement>(
-      '[data-testid="add-worktree-path"] input, input[data-testid="add-worktree-path"]',
-    );
-    expect(path.element.value).toBe("/r.worktrees/claude-fix-tiles");
-    expect(dialog.get('[data-testid="add-worktree-help"]').text()).toBe(
-      "Defaults to /r.worktrees/‹branch›. The folder must not exist yet.",
-    );
-    await settled();
-    expect(dialog.get('[data-testid="dialog-confirm"]').attributes("disabled")).toBeUndefined();
-    await dialog.get('[data-testid="dialog-confirm"]').trigger("click");
-    await settled();
-    await flushPromises();
-    expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
-    const add = calls.find((call) => call.cmd === "worktree_add");
-    expect(add?.args["request"]).toEqual({
-      path: "/r.worktrees/claude-fix-tiles",
-      branch: { kind: "new", name: "claude/fix-tiles", start: "main" },
-    });
-    expect(useWorktreesStore().selectedPath).toBe("/r.worktrees/claude-fix-tiles");
-    expect(rows(wrapper)).toHaveLength(4);
-  });
-
-  it("keeps the dialog open with git's output when the add fails, and refuses an existing folder", async () => {
-    const { wrapper } = await mountDashboard({ failWorktreeAdd: true, existingPaths: ["/taken"] });
-    useWorktreesStore().openAdd();
-    await nextTick();
-    const dialog = wrapper.get('[role="dialog"]');
-    const branch = dialog.get<HTMLSelectElement>("select");
-    await branch.setValue("develop");
-    await nextTick();
-    expect(dialog.find('[data-testid="add-worktree-start"]').exists()).toBe(false);
-    const path = dialog.get<HTMLInputElement>(
-      '[data-testid="add-worktree-path"] input, input[data-testid="add-worktree-path"]',
-    );
-    expect(path.element.value).toBe("/r.worktrees/develop");
-    await path.setValue("/taken");
-    await settled();
-    expect(dialog.text()).toContain("The folder must not exist yet.");
-    expect(dialog.get('[data-testid="dialog-confirm"]').attributes("disabled")).toBeDefined();
-    await path.setValue("/free");
-    await settled();
-    await dialog.get('[data-testid="dialog-confirm"]').trigger("click");
-    await settled();
-    await flushPromises();
-    expect(wrapper.find('[role="dialog"]').exists()).toBe(true);
-    const banner = wrapper.get('[data-testid="add-worktree-error"]');
-    expect(banner.text()).toContain("git reported an error.");
-    expect(banner.text()).toContain("already used by worktree");
+    expect(useWorktreesStore().addOpen).toBe(true);
   });
 
   it("shows the empty state when the repository has no linked worktree", async () => {
@@ -247,8 +192,7 @@ describe("WorktreesLayout", () => {
     expect(wrapper.get('[data-testid="worktrees-count"]').text()).toBe("0");
     expect(wrapper.find('[data-testid="worktree-table"]').exists()).toBe(false);
     await wrapper.get('[data-testid="worktrees-empty"] button').trigger("click");
-    await nextTick();
-    expect(wrapper.find('[role="dialog"]').exists()).toBe(true);
+    expect(useWorktreesStore().addOpen).toBe(true);
   });
 
   it("names a missing folder in the banner with Prune worktrees when the editor is asked for it", async () => {

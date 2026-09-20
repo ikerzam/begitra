@@ -2,8 +2,9 @@
 // The worktrees dashboard,
 // beside the shell's sidebar: the header with the count, "Prune" and "Add worktree",
 // the error banner when a write failed, the table (or the empty state when the repository
-// has no linked worktree), the add dialog, the confirmations and the row menu. The store
-// holds every decision; this file only routes the rows' actions to it.
+// has no linked worktree), the confirmations and the row menu; the add dialog is the shell's,
+// since ⇧⌘W opens it over any layout. The store holds every decision; this file only routes
+// the rows' actions to it.
 
 import { Eraser, Plus } from "@lucide/vue";
 import { computed, nextTick, ref } from "vue";
@@ -18,7 +19,6 @@ import { useExternal } from "@/shell/useExternal";
 import { useRepoStore } from "@/stores/repo";
 import { useWorktreesStore } from "@/stores/worktrees";
 
-import AddWorktreeDialog from "./AddWorktreeDialog.vue";
 import WorktreeContextMenu from "./WorktreeContextMenu.vue";
 import WorktreePrompts from "./WorktreePrompts.vue";
 import WorktreeTable from "./WorktreeTable.vue";
@@ -165,7 +165,6 @@ defineExpose({ focusRows: () => void table.value?.focus() });
         @menu="openMenu"
       />
     </div>
-    <AddWorktreeDialog v-if="worktrees.addOpen" @close="worktrees.closeAdd()" />
     <WorktreePrompts v-if="worktrees.prompt" :prompt="worktrees.prompt" />
     <WorktreeContextMenu
       v-if="menu && menuRow"

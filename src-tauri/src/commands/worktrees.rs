@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use git_core::engine::GitEngine;
-use git_core::types::{Worktree, WorktreeAdd, WorktreeBranch};
+use git_core::types::{RefKind, Worktree, WorktreeAdd, WorktreeBranch};
 use tauri::State;
 
 use crate::error::AppError;
@@ -65,6 +65,12 @@ fn validate_add(request: &WorktreeAdd) -> Result<(), AppError> {
     }
 }
 
+/// Whether two spellings name the same folder, on disk when both exist.
+fn same_folder(a: &Path, b: &Path) -> bool {
+    let canonical = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    a == b || canonical(a) == canonical(b)
+}
+
 /// Whether `path` is one of the repository's worktrees (the main one excluded when asked).
 fn listed_worktree(
     engine: &dyn GitEngine,
@@ -73,13 +79,9 @@ fn listed_worktree(
     cancel: &git_core::engine::Cancel,
 ) -> Result<(), AppError> {
     let listed = engine.worktrees(cancel)?;
-    let same = |a: &Path, b: &Path| {
-        let canonical = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-        a == b || canonical(a) == canonical(b)
-    };
     let found = listed
         .iter()
-        .any(|worktree| same(&worktree.path, path) && !(linked_only && worktree.is_main));
+        .any(|worktree| same_folder(&worktree.path, path) && !(linked_only && worktree.is_main));
     if found {
         Ok(())
     } else {
@@ -88,6 +90,28 @@ fn listed_worktree(
             "not a linked worktree of the repository",
         ))
     }
+}
+
+/// An existing branch to check out must be a local branch no worktree holds: given any
+/// other commit-ish git would check it out detached, and given a name that only a remote
+/// has it would create a tracking branch, neither of which the dialog offered.
+fn free_local_branch(
+    engine: &dyn GitEngine,
+    name: &str,
+    cancel: &git_core::engine::Cancel,
+) -> Result<(), AppError> {
+    let refs = engine.refs(cancel)?;
+    let branch = refs
+        .iter()
+        .find(|r| r.kind == RefKind::LocalBranch && r.name == name)
+        .ok_or_else(|| AppError::invalid_argument("name", "not a local branch"))?;
+    if branch.worktree.is_some() {
+        return Err(AppError::invalid_argument(
+            "name",
+            "checked out in a worktree already",
+        ));
+    }
+    Ok(())
 }
 
 /// Whether an absolute path exists, for the add dialog's inline check of its Path field
@@ -112,7 +136,11 @@ pub async fn worktree_add(
     let app = state.inner().clone();
     let worker = app.clone();
     run_blocking(app.ops(), &op_id, WRITE_TIMEOUT, move |cancel| {
-        worker.open(&repo)?.worktree_add(&request, &cancel)
+        let engine = worker.open(&repo)?;
+        if let WorktreeBranch::Existing { name } = &request.branch {
+            free_local_branch(engine.as_ref(), name, &cancel)?;
+        }
+        Ok::<_, AppError>(engine.worktree_add(&request, &cancel)?)
     })
     .await
 }
@@ -133,6 +161,14 @@ pub async fn worktree_remove(
     run_blocking(app.ops(), &op_id, WRITE_TIMEOUT, move |cancel| {
         let engine = worker.open(&repo)?;
         listed_worktree(engine.as_ref(), &path, true, &cancel)?;
+        // The worktree the app has open cannot go: the app would be left in a deleted
+        // folder. The user opens the main worktree (or another) first.
+        if same_folder(&GitEngine::repo(engine.as_ref()).root, &path) {
+            return Err(AppError::invalid_argument(
+                "path",
+                "the open repository; open another worktree first",
+            ));
+        }
         Ok::<_, AppError>(engine.worktree_remove(&path, force, &cancel)?)
     })
     .await

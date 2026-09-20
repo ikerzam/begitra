@@ -145,6 +145,137 @@ fn adds_worktrees_on_a_new_branch_an_existing_one_and_a_detached_revision() {
     );
 }
 
+/// git records a worktree under its real path (the on-disk case, `..` resolved); the engine
+/// finds the entry it added whatever spelling the request used.
+#[test]
+fn adds_under_any_spelling_of_the_path() {
+    let f = Fixture::basic();
+    let engine = engine(&f);
+    let lower = PathBuf::from(f.sibling("Wt-Case").to_string_lossy().to_lowercase());
+    let added = engine
+        .worktree_add(
+            &WorktreeAdd {
+                path: lower.clone(),
+                branch: WorktreeBranch::Detached {
+                    rev: "v1".to_owned(),
+                },
+            },
+            &Cancel::never(),
+        )
+        .expect("lowercased spelling");
+    assert!(same_path(&added.path, &lower));
+    let dotted = f.sibling("wt-dot").join("..").join("wt-dotdot");
+    let added = engine
+        .worktree_add(
+            &WorktreeAdd {
+                path: dotted.clone(),
+                branch: WorktreeBranch::Detached {
+                    rev: "v1".to_owned(),
+                },
+            },
+            &Cancel::never(),
+        )
+        .expect("a .. in the path");
+    assert!(same_path(&added.path, &f.sibling("wt-dotdot")));
+    assert!(!added.path.to_string_lossy().contains(".."));
+}
+
+/// A failing `post-checkout` hook makes `git worktree add` exit with the hook's status while
+/// keeping the worktree: the engine reports the failure, and the listing has the entry.
+#[test]
+fn a_failing_post_checkout_hook_fails_the_add_but_keeps_the_worktree() {
+    let f = Fixture::basic();
+    let hooks = f.git_dir().join("hooks");
+    fs::create_dir_all(&hooks).expect("hooks dir");
+    fs::write(hooks.join("post-checkout"), "#!/bin/sh\nexit 3\n").expect("hook");
+    let engine = engine(&f);
+    let path = f.sibling("wt-hooked");
+    let failed = engine
+        .worktree_add(
+            &WorktreeAdd {
+                path: path.clone(),
+                branch: WorktreeBranch::Detached {
+                    rev: "v1".to_owned(),
+                },
+            },
+            &Cancel::never(),
+        )
+        .expect_err("the hook's status");
+    assert_eq!(failed.code(), "git.cli_failed");
+    assert!(
+        matches!(
+            failed,
+            GitError::Cli {
+                status: Some(3),
+                ..
+            }
+        ),
+        "{failed:?}"
+    );
+    assert!(porcelain(&f)
+        .iter()
+        .any(|(p, _, _)| same_path(Path::new(p), &path)));
+}
+
+/// A lock reason is free text: one that quotes git's dirty wording must not turn the locked
+/// refusal into `worktree.dirty` (force would fail again; the user has to unlock).
+#[test]
+fn a_locked_worktree_is_refused_as_a_cli_failure_whatever_its_reason_says() {
+    let f = Fixture::basic().with_linked_worktree();
+    let engine = engine(&f);
+    let path = f.worktree_path();
+    engine
+        .worktree_lock(&path, Some("use --force to remove me"), &Cancel::never())
+        .expect("lock");
+    let refused = engine
+        .worktree_remove(&path, false, &Cancel::never())
+        .expect_err("locked");
+    assert_eq!(refused.code(), "git.cli_failed");
+    assert!(matches!(refused, GitError::Cli { ref stderr, .. } if stderr.contains("locked")));
+    let forced = engine
+        .worktree_remove(&path, true, &Cancel::never())
+        .expect_err("still locked");
+    assert_eq!(forced.code(), "git.cli_failed");
+    assert!(path.exists());
+}
+
+/// git runs in the main worktree, so an engine opened in a linked worktree removes that very
+/// worktree cleanly (from inside the folder, Windows refuses the deletion halfway).
+#[test]
+fn removes_the_worktree_the_engine_is_opened_in() {
+    let f = Fixture::basic().with_linked_worktree();
+    let path = f.worktree_path();
+    let engine = Git2Engine::open(&path).expect("open the worktree");
+    engine
+        .worktree_remove(&path, false, &Cancel::never())
+        .expect("remove");
+    assert!(!path.exists());
+    assert!(!porcelain(&f)
+        .iter()
+        .any(|(p, _, _)| same_path(Path::new(p), &path)));
+}
+
+/// An entry whose folder is gone is unregistered by `remove` as by `prune` (git 2.54 accepts
+/// a missing folder); the branch stays.
+#[test]
+fn removes_an_entry_whose_folder_is_gone() {
+    let f = Fixture::basic()
+        .with_linked_worktree()
+        .with_broken_worktrees();
+    let engine = engine(&f);
+    let gone = f.sibling("wt-gone");
+    engine
+        .worktree_remove(&gone, false, &Cancel::never())
+        .expect("remove a missing folder");
+    assert!(!porcelain(&f)
+        .iter()
+        .any(|(p, _, _)| same_path(Path::new(p), &gone)));
+    assert_eq!(
+        f.git(&["rev-parse", "--verify", "refs/heads/gone"]).len(),
+        40
+    );
+}
+
 #[test]
 fn removes_clean_worktrees_and_refuses_dirty_ones_until_forced() {
     let f = Fixture::basic().with_linked_worktree();

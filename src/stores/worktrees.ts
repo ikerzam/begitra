@@ -235,6 +235,8 @@ export const useWorktreesStore = defineStore("worktrees", () => {
     } catch (failed) {
       error.value = toAppError(failed);
       errorPath.value = request.path;
+      // git keeps the worktree when only its post-checkout hook failed: the list shows it.
+      void load();
       return null;
     } finally {
       operations.finish(opId);

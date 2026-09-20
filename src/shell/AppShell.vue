@@ -24,6 +24,7 @@ import { useShellStore } from "@/stores/shell";
 import { useToastsStore } from "@/stores/toasts";
 import { useWorktreesStore } from "@/stores/worktrees";
 import type { SidebarTab } from "@/stores/shell";
+import AddWorktreeDialog from "@/worktrees/AddWorktreeDialog.vue";
 import WorktreesLayout from "@/worktrees/WorktreesLayout.vue";
 
 import { errorText } from "./errorMessage";
@@ -222,6 +223,10 @@ async function removeFromList(): Promise<void> {
     <StatusBar />
     <PaletteOverlay v-if="shell.paletteOpen" />
     <PickerOverlay v-if="picker.mode" />
+    <AddWorktreeDialog
+      v-if="worktrees.addOpen && repo.state.kind === 'ready'"
+      @close="worktrees.closeAdd()"
+    />
     <ToastHost />
   </div>
 </template>
