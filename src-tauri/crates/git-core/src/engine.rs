@@ -1,6 +1,7 @@
 //! The [`GitEngine`] trait, the [`CommitWalk`] handle and the cancellation flag passed to long
 //! operations.
 
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -8,7 +9,7 @@ use crate::error::{GitError, GitResult};
 use crate::types::{
     BlobAt, BlobContent, ChangeSet, ChangeSetPage, CommitCount, Comparison, DiffOptions,
     DiffTarget, MergePreview, Page, Ref, Repo, StatusEntry, StatusOptions, WalkOptions, WalkScope,
-    Worktree,
+    Worktree, WorktreeAdd,
 };
 
 /// Cooperative cancellation flag checked by long operations between units of work.
@@ -164,4 +165,23 @@ pub trait GitEngine: Send + Sync {
 
     /// Lists the main worktree and every linked worktree.
     fn worktrees(&self, cancel: &Cancel) -> GitResult<Vec<Worktree>>;
+
+    /// Adds a worktree through `git worktree add` and returns its entry; git's refusal (a
+    /// branch checked out elsewhere, an existing folder, an unknown start point) is
+    /// [`GitError::Cli`] with its message.
+    fn worktree_add(&self, request: &WorktreeAdd, cancel: &Cancel) -> GitResult<Worktree>;
+
+    /// Removes a worktree through `git worktree remove`; without `force`, a worktree with
+    /// uncommitted changes is refused as [`GitError::WorktreeDirty`].
+    fn worktree_remove(&self, path: &Path, force: bool, cancel: &Cancel) -> GitResult<()>;
+
+    /// Unregisters the worktrees whose folders are missing (`git worktree prune`) and returns
+    /// the paths that went.
+    fn worktree_prune(&self, cancel: &Cancel) -> GitResult<Vec<PathBuf>>;
+
+    /// Locks a worktree (`git worktree lock`), with a reason when given.
+    fn worktree_lock(&self, path: &Path, reason: Option<&str>, cancel: &Cancel) -> GitResult<()>;
+
+    /// Unlocks a worktree (`git worktree unlock`).
+    fn worktree_unlock(&self, path: &Path, cancel: &Cancel) -> GitResult<()>;
 }

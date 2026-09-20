@@ -13,6 +13,7 @@ mod filter;
 mod refs;
 mod status;
 mod walk;
+mod worktree_ops;
 mod worktrees;
 
 use std::path::{Path, PathBuf};
@@ -24,7 +25,7 @@ use crate::engine::{Cancel, CommitWalk, DiffWalk, GitEngine};
 use crate::error::{GitError, GitResult};
 use crate::types::{
     BlobAt, BlobContent, CommitCount, Comparison, DiffOptions, DiffTarget, MergePreview, Ref, Repo,
-    StatusEntry, StatusOptions, WalkOptions, WalkScope, Worktree,
+    StatusEntry, StatusOptions, WalkOptions, WalkScope, Worktree, WorktreeAdd,
 };
 
 /// A repository opened with libgit2.
@@ -260,6 +261,26 @@ impl GitEngine for Git2Engine {
 
     fn worktrees(&self, cancel: &Cancel) -> GitResult<Vec<Worktree>> {
         worktrees::list(self, cancel)
+    }
+
+    fn worktree_add(&self, request: &WorktreeAdd, cancel: &Cancel) -> GitResult<Worktree> {
+        worktree_ops::add(self, request, cancel)
+    }
+
+    fn worktree_remove(&self, path: &Path, force: bool, cancel: &Cancel) -> GitResult<()> {
+        worktree_ops::remove(self, path, force, cancel)
+    }
+
+    fn worktree_prune(&self, cancel: &Cancel) -> GitResult<Vec<PathBuf>> {
+        worktree_ops::prune(self, cancel)
+    }
+
+    fn worktree_lock(&self, path: &Path, reason: Option<&str>, cancel: &Cancel) -> GitResult<()> {
+        worktree_ops::lock(self, path, reason, cancel)
+    }
+
+    fn worktree_unlock(&self, path: &Path, cancel: &Cancel) -> GitResult<()> {
+        worktree_ops::unlock(self, path, cancel)
     }
 }
 

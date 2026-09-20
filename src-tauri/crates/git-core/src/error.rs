@@ -58,6 +58,9 @@ pub enum GitError {
     /// A linked worktree's folder is missing from disk.
     #[error("the worktree folder {0} is missing")]
     WorktreeMissingFolder(PathBuf),
+    /// git refused to remove a worktree with uncommitted changes; `--force` would.
+    #[error("the worktree {0} has uncommitted changes")]
+    WorktreeDirty(PathBuf),
     /// The system `git` failed or could not be started.
     #[error("git {command} failed: {stderr}")]
     Cli {
@@ -89,6 +92,7 @@ impl GitError {
             GitError::BlobTooLarge { .. } => "blob.too_large",
             GitError::BlobUnreadable { .. } => "blob.unreadable",
             GitError::WorktreeMissingFolder(_) => "worktree.missing_folder",
+            GitError::WorktreeDirty(_) => "worktree.dirty",
             GitError::Cli { .. } => "git.cli_failed",
             GitError::Cancelled => "op.cancelled",
             GitError::Git(_) => "internal",
@@ -96,7 +100,7 @@ impl GitError {
     }
 
     /// Every code an engine error can carry, for the tests that keep the IPC list in sync.
-    pub const CODES: [&'static str; 12] = [
+    pub const CODES: [&'static str; 13] = [
         "repo.not_found",
         "repo.invalid",
         "repo.corrupt_object",
@@ -106,6 +110,7 @@ impl GitError {
         "blob.too_large",
         "blob.unreadable",
         "worktree.missing_folder",
+        "worktree.dirty",
         "git.cli_failed",
         "op.cancelled",
         "internal",
@@ -188,6 +193,7 @@ mod tests {
                 reason: String::new(),
             },
             GitError::WorktreeMissingFolder(PathBuf::from("x")),
+            GitError::WorktreeDirty(PathBuf::from("x")),
             GitError::Cli {
                 command: String::new(),
                 status: None,

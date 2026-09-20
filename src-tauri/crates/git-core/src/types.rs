@@ -211,6 +211,43 @@ pub struct CommitCount {
     pub capped: bool,
 }
 
+/// What a new worktree checks out.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
+pub enum WorktreeBranch {
+    /// A branch created for the worktree from `start` (`git worktree add -b`).
+    New {
+        /// Name of the branch to create.
+        name: String,
+        /// The revision the branch starts at.
+        start: String,
+    },
+    /// An existing local branch that no worktree has checked out.
+    Existing {
+        /// Name of the branch.
+        name: String,
+    },
+    /// A detached checkout of a revision (`git worktree add --detach`).
+    Detached {
+        /// The revision to check out.
+        rev: String,
+    },
+}
+
+/// A request to add a worktree.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeAdd {
+    /// Absolute path of the folder to create; it must not exist yet.
+    pub path: PathBuf,
+    /// What the worktree checks out.
+    pub branch: WorktreeBranch,
+}
+
 /// One page of a change set computed lazily: the files of the page, the running totals over
 /// the pages so far (the whole change set's once `done`), and the number of files the change
 /// set holds, known before the first page.

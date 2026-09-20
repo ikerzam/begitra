@@ -31,6 +31,8 @@ pub mod codes {
     pub const BLOB_UNREADABLE: &str = "blob.unreadable";
     /// A linked worktree's folder is missing.
     pub const WORKTREE_MISSING_FOLDER: &str = "worktree.missing_folder";
+    /// git refused to remove a worktree with uncommitted changes.
+    pub const WORKTREE_DIRTY: &str = "worktree.dirty";
     /// The system `git` failed; `detail` carries its stderr.
     pub const GIT_CLI_FAILED: &str = "git.cli_failed";
     /// A command argument did not match its type; `detail` names the field.
@@ -55,7 +57,7 @@ pub mod codes {
     pub const INTERNAL: &str = "internal";
 
     /// Every code, in the order of the declarations above.
-    pub const ALL: [&str; 20] = [
+    pub const ALL: [&str; 21] = [
         REPO_NOT_FOUND,
         REPO_INVALID,
         REPO_CORRUPT_OBJECT,
@@ -65,6 +67,7 @@ pub mod codes {
         BLOB_TOO_LARGE,
         BLOB_UNREADABLE,
         WORKTREE_MISSING_FOLDER,
+        WORKTREE_DIRTY,
         GIT_CLI_FAILED,
         IPC_INVALID_ARGUMENT,
         OP_CANCELLED,
