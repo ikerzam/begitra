@@ -13,7 +13,7 @@ use git_core::cli::run_git;
 use git_core::engine::{Cancel, GitEngine};
 use git_core::git2_engine::Git2Engine;
 use git_core::types::{
-    DiffOptions, DiffTarget, StatusOptions, WalkFilter, WalkOptions, WalkOrder, WalkScope,
+    BlobAt, DiffOptions, DiffTarget, StatusOptions, WalkFilter, WalkOptions, WalkOrder, WalkScope,
 };
 
 /// A benchmark repository that is present on disk.
@@ -383,6 +383,36 @@ fn diff_typical(c: &mut Criterion) {
     group.finish();
 }
 
+/// Reading the large text file whole at the large-file commit (the image diff and "Show new
+/// file" read at most two such blobs).
+fn read_blob(c: &mut Criterion) {
+    let mut group = c.benchmark_group("read_blob");
+    group.sample_size(20);
+    for target in present() {
+        let Some(commit) = target.large_diff.clone() else {
+            continue;
+        };
+        let file = match run_git(
+            &target.path,
+            &["diff-tree", "--no-commit-id", "--name-only", "-r", &commit],
+        ) {
+            Ok(out) => out.stdout.lines().next().unwrap_or("").trim().to_owned(),
+            Err(_) => continue,
+        };
+        if file.is_empty() {
+            continue;
+        }
+        let engine = engine(&target.path);
+        let at = BlobAt::Revision {
+            rev: commit.clone(),
+        };
+        group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+            b.iter(|| e.read_blob(&at, &file).expect("blob"));
+        });
+    }
+    group.finish();
+}
+
 fn merge_base(c: &mut Criterion) {
     let mut group = c.benchmark_group("merge_base");
     for target in present() {
@@ -421,6 +451,7 @@ criterion_group!(
     status,
     diff_large_file,
     diff_typical,
+    read_blob,
     merge_base,
     worktrees
 );

@@ -1,0 +1,21 @@
+[package]
+name = "syntax"
+description = "Token classes and declarations of source files for Begira's diff viewer (syntect, tree-sitter)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+syntect.workspace = true
+tree-sitter.workspace = true
+tree-sitter-typescript.workspace = true
+tree-sitter-javascript.workspace = true
+tree-sitter-python.workspace = true
+tree-sitter-rust.workspace = true
+tree-sitter-go.workspace = true
+tree-sitter-java.workspace = true
+tree-sitter-c-sharp.workspace = true

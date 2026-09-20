@@ -16,6 +16,11 @@ pub fn budget(id: &str) -> Option<Duration> {
         // A filter is an explicit action: first results within a second.
         ("walk_first_page_filtered", _) | ("path_history", _) => 1_000,
         ("diff_typical", _) => 100,
+        // Two blobs per image diff, on the select-to-diff path of a large file.
+        ("read_blob", _) => 200,
+        // Highlighting runs after the rows show; symbols after the diff of one file.
+        ("syntax", "highlight_large_file") => 1_000,
+        ("syntax", "symbols_typical") => 50,
         ("diff_large_file", _) | ("merge_base", _) => 500,
         ("status", _) => 2_000,
         ("discovery", "scan_first_result") => 100,
