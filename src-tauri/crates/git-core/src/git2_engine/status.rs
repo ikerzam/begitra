@@ -14,11 +14,15 @@
 //! - rename decisions rest on libgit2's line-signature similarity, which can differ from git's
 //!   byte-based score by a few points (66% against 80% on a three-line file in the tests), so a
 //!   rename close to the 50% threshold can be judged differently;
-//! - submodules are single entries and are never entered, as in git; their own state is not
-//!   inspected.
+//! - submodules are single entries and are never entered; a submodule whose commit moved or
+//!   whose tree is dirty is a modification, as in git (`SC..`, `S.M.`, `S..U`), except that
+//!   with untracked files left out git says nothing about a submodule holding only untracked
+//!   files while libgit2 still reports it modified.
 //!
 //! Ignored directories are expanded file by file when ignored paths are requested, matching
 //! `git status --ignored --untracked-files=all`.
+
+use std::sync::Once;
 
 use git2::{Status, StatusOptions as Git2StatusOptions, StatusShow};
 
@@ -40,10 +44,36 @@ pub(super) fn list(
 ) -> GitResult<Vec<StatusEntry>> {
     cancel.check()?;
     // A HEAD whose commit cannot be read is `repo.corrupt_object` with its hash, as every
-    // read reports it; git would only say "bad object HEAD".
-    engine.with_repo(super::check_head)?;
-    let mut args = vec!["status", "--porcelain=v2", "-z"];
-    args.push(if options.include_untracked {
+    // read reports it, on a handle that has not read the commit yet; once libgit2's object
+    // cache holds it, git's own error names the corrupt object instead.
+    let (git_dir, work_tree) = engine.with_repo(|repo| {
+        super::check_head(repo)?;
+        Ok((
+            repo.path().to_path_buf(),
+            repo.workdir().map(std::path::Path::to_path_buf),
+        ))
+    })?;
+    let root = GitEngine::repo(engine).root.clone();
+    // The repository is named outright rather than discovered from the folder, so a working
+    // tree that lives elsewhere (`core.worktree`) and a linked worktree both resolve.
+    let git_dir = format!("--git-dir={}", git_dir.display());
+    let work_tree = format!(
+        "--work-tree={}",
+        work_tree.unwrap_or(root.clone()).display()
+    );
+    // `--no-optional-locks`: a status refresh must never take `index.lock` or rewrite the
+    // index of the user's repository; it is a read.
+    let mut args = vec![
+        "--no-optional-locks",
+        git_dir.as_str(),
+        work_tree.as_str(),
+        "status",
+        "--porcelain=v2",
+        "-z",
+    ];
+    // Ignored paths are only found by the untracked scan, so it runs whenever either is
+    // wanted; the parser drops the untracked records when they were not.
+    args.push(if options.include_untracked || options.include_ignored {
         "--untracked-files=all"
     } else {
         "--untracked-files=no"
@@ -60,8 +90,19 @@ pub(super) fn list(
     } else {
         "--no-renames"
     });
-    match run_git_cancellable(&GitEngine::repo(engine).root, &args, cancel) {
-        Ok(exit) if exit.status == Some(0) => Ok(status_porcelain::parse(&exit.stdout)),
+    match run_git_cancellable(&root, &args, cancel) {
+        Ok(exit) if exit.status == Some(0) => {
+            // git exits 0 and lists nothing for a folder it could not read (a path over the
+            // Windows limit without `core.longpaths`, an unreadable directory): the warning
+            // is the only trace of a partial answer.
+            if !exit.stderr.trim().is_empty() {
+                tracing::warn!(stderr = %exit.stderr.trim(), "git status warned");
+            }
+            Ok(status_porcelain::parse(
+                &exit.stdout,
+                options.include_untracked,
+            ))
+        }
         Ok(exit) => Err(GitError::Cli {
             command: args.join(" "),
             status: exit.status,
@@ -69,7 +110,10 @@ pub(super) fn list(
         }),
         // git could not be started (not installed, not on PATH): libgit2 answers instead.
         Err(GitError::Cli { status: None, .. }) => {
-            tracing::warn!("git could not be started; the status falls back to libgit2");
+            static WARNED: Once = Once::new();
+            WARNED.call_once(|| {
+                tracing::warn!("git could not be started; the status falls back to libgit2");
+            });
             list_libgit2(engine, options, cancel)
         }
         Err(error) => Err(error),
@@ -87,8 +131,8 @@ pub(super) fn list_libgit2(
         let mut git_options = Git2StatusOptions::new();
         git_options
             .show(StatusShow::IndexAndWorkdir)
-            .include_untracked(options.include_untracked)
-            .recurse_untracked_dirs(options.include_untracked)
+            .include_untracked(options.include_untracked || options.include_ignored)
+            .recurse_untracked_dirs(options.include_untracked || options.include_ignored)
             .include_ignored(options.include_ignored)
             .recurse_ignored_dirs(options.include_ignored)
             .renames_head_to_index(options.renames)
@@ -105,6 +149,14 @@ pub(super) fn list_libgit2(
                 cancel.check()?;
             }
             if let Some(mut mapped) = map_entry(&entry) {
+                // The untracked scan ran for the ignored paths only: a purely untracked
+                // entry goes, and one that is also a change keeps the change alone.
+                if mapped.untracked && !options.include_untracked {
+                    if mapped.staged.is_none() && mapped.unstaged.is_none() && !mapped.ignored {
+                        continue;
+                    }
+                    mapped.untracked = false;
+                }
                 // `git add -N` records an intent to add: git shows the path as an unstaged
                 // addition (`.A`), while libgit2 reports INDEX_NEW plus WT_MODIFIED.
                 if mapped.staged == Some(ChangeKind::Added)

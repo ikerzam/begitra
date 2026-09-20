@@ -60,8 +60,9 @@ fn kind(letter: char) -> Option<ChangeKind> {
     }
 }
 
-/// Parses one porcelain v2 line (`1`, `2`, `u`, `?` and `!` records).
-fn parse_line(line: &str) -> Expected {
+/// Parses one porcelain v2 `-z` record (`1`, `2`, `u`, `?` and `!`); a `2` record's original
+/// path is the record that follows it.
+fn parse_line(line: &str, orig: Option<&str>) -> Expected {
     let (record, rest) = line.split_once(' ').expect("record type");
     match record {
         "1" => {
@@ -74,12 +75,11 @@ fn parse_line(line: &str) -> Expected {
             expected
         }
         "2" => {
-            // XY sub mH mI mW hH hI Xscore path<TAB>origPath
+            // XY sub mH mI mW hH hI Xscore path (then the original path as its own record)
             let fields: Vec<&str> = rest.splitn(9, ' ').collect();
-            let (path, orig) = fields[8].split_once('\t').expect("rename paths");
             let mut xy = fields[0].chars();
-            let mut expected = Expected::plain(path);
-            expected.old_path = Some(orig.to_owned());
+            let mut expected = Expected::plain(fields[8]);
+            expected.old_path = Some(orig.expect("rename original path").to_owned());
             expected.staged = kind(xy.next().expect("x"));
             expected.unstaged = kind(xy.next().expect("y"));
             expected
@@ -106,18 +106,34 @@ fn parse_line(line: &str) -> Expected {
     }
 }
 
-/// `git status --porcelain=v2 --untracked-files=all [--ignored]`, sorted by path.
+/// `git status --porcelain=v2 -z --untracked-files=all [--ignored]`, sorted by path. The
+/// `-z` form prints every path verbatim; the line form C-quotes unicode, tabs and backslashes.
 fn porcelain(f: &Fixture, ignored: bool) -> Vec<Expected> {
-    let mut args = vec!["status", "--porcelain=v2", "--untracked-files=all"];
+    porcelain_with(f, ignored, true)
+}
+
+/// Like [`porcelain`], keeping or dropping the `?` records.
+fn porcelain_with(f: &Fixture, ignored: bool, untracked: bool) -> Vec<Expected> {
+    let mut args = vec!["status", "--porcelain=v2", "-z", "--untracked-files=all"];
     if ignored {
         args.push("--ignored");
     }
     let output = f.git(&args);
-    let mut expected: Vec<Expected> = output
-        .lines()
-        .filter(|line| !line.is_empty())
-        .map(parse_line)
-        .collect();
+    let records: Vec<&str> = output.split('\0').filter(|r| !r.is_empty()).collect();
+    let mut expected = Vec::new();
+    let mut i = 0;
+    while i < records.len() {
+        let record = records[i];
+        let orig = record.starts_with("2 ").then(|| {
+            i += 1;
+            records[i]
+        });
+        let parsed = parse_line(record, orig);
+        if untracked || !parsed.untracked {
+            expected.push(parsed);
+        }
+        i += 1;
+    }
     expected.sort_by(|a, b| a.path.cmp(&b.path));
     expected
 }
@@ -181,6 +197,192 @@ fn untracked_files_can_be_left_out() {
     let entries = observed(&f, &options);
     assert!(entries.iter().all(|e| !e.untracked), "{entries:?}");
     assert_eq!(entries.len(), 2, "{entries:?}");
+    assert_eq!(entries, porcelain_with(&f, false, false));
+}
+
+/// `git status --untracked-files=no --ignored` lists no ignored path at all (the ignored
+/// ones are found by the untracked scan), so the engine runs the scan and drops the
+/// untracked records itself.
+#[test]
+fn ignored_files_can_be_listed_without_the_untracked_ones() {
+    let f = Fixture::basic().with_mixed_status();
+    f.write("build/deep/x.o", "o\n");
+    f.append(".gitignore", "build/\n");
+    let options = StatusOptions {
+        include_untracked: false,
+        include_ignored: true,
+        ..StatusOptions::default()
+    };
+    let entries = observed(&f, &options);
+    assert_eq!(entries, porcelain_with(&f, true, false));
+    assert!(entries.iter().all(|e| !e.untracked), "{entries:?}");
+    let ignored: Vec<&str> = entries
+        .iter()
+        .filter(|e| e.ignored)
+        .map(|e| e.path.as_str())
+        .collect();
+    assert_eq!(ignored, ["build/deep/x.o", "ignored.log"]);
+    let git = f.git(&[
+        "status",
+        "--porcelain=v2",
+        "--untracked-files=no",
+        "--ignored",
+    ]);
+    assert!(
+        !git.contains("ignored.log"),
+        "git -uno lists no ignored path: {git}"
+    );
+}
+
+/// The working tree can live away from the `.git` folder (`core.worktree`); git is told
+/// both outright instead of discovering them from the folder it runs in.
+#[test]
+fn a_working_tree_configured_elsewhere_is_found() {
+    let f = Fixture::basic();
+    let elsewhere = f.sibling("elsewhere");
+    std::fs::create_dir_all(elsewhere.join("src")).expect("folder");
+    for relative in ["README.md", "src/lib.rs", "src/dev.rs", "docs/guide.md"] {
+        let target = elsewhere.join(relative);
+        std::fs::create_dir_all(target.parent().expect("parent")).expect("folder");
+        std::fs::copy(f.root.join(relative), target).expect("copy");
+    }
+    std::fs::write(elsewhere.join("README.md"), "# Elsewhere\n").expect("write");
+    std::fs::write(elsewhere.join("elsewhere-untracked.txt"), "new\n").expect("write");
+    f.git(&[
+        "config",
+        "core.worktree",
+        elsewhere.to_str().expect("utf-8"),
+    ]);
+    let entries = observed(&f, &StatusOptions::default());
+    assert_eq!(entries, porcelain(&f, false));
+    let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
+    assert_eq!(paths, ["README.md", "elsewhere-untracked.txt"]);
+}
+
+/// A path removed from the index but still on disk is one entry on every option set: staged
+/// deletion plus the untracked or ignored flag git prints as a second record.
+#[test]
+fn a_path_removed_from_the_index_but_on_disk_is_one_entry() {
+    let mut f = Fixture::basic().with_mixed_status();
+    f.write("build.log", "old\n");
+    f.git(&["add", "-f", "build.log"]);
+    f.commit("track a log");
+    f.append(".gitignore", "*.log\n");
+    f.commit("ignore logs");
+    f.git(&["rm", "-q", "--cached", "src/lib.rs"]);
+    f.git(&["rm", "-q", "--cached", "build.log"]);
+    let git = f.git(&[
+        "status",
+        "--porcelain=v2",
+        "--untracked-files=all",
+        "--ignored",
+    ]);
+    assert!(git.lines().any(|l| l == "? src/lib.rs"), "{git}");
+    assert!(git.lines().any(|l| l == "! build.log"), "{git}");
+    assert_eq!(git.lines().filter(|l| l.ends_with("src/lib.rs")).count(), 2);
+    let engine = Git2Engine::open(&f.root).expect("open");
+    for (options, lib_untracked, log_ignored) in [
+        (StatusOptions::default(), true, false),
+        (
+            StatusOptions {
+                include_ignored: true,
+                ..StatusOptions::default()
+            },
+            true,
+            true,
+        ),
+        (
+            StatusOptions {
+                include_untracked: false,
+                include_ignored: true,
+                ..StatusOptions::default()
+            },
+            false,
+            true,
+        ),
+        (
+            StatusOptions {
+                include_untracked: false,
+                ..StatusOptions::default()
+            },
+            false,
+            false,
+        ),
+    ] {
+        for (label, entries) in [
+            (
+                "git",
+                engine.status(&options, &Cancel::never()).expect("status"),
+            ),
+            (
+                "libgit2",
+                engine
+                    .status_through_libgit2(&options, &Cancel::never())
+                    .expect("fallback"),
+            ),
+        ] {
+            let context = format!("{label} {options:?}: {entries:?}");
+            let lib: Vec<&StatusEntry> =
+                entries.iter().filter(|e| e.path == "src/lib.rs").collect();
+            assert_eq!(lib.len(), 1, "{context}");
+            assert_eq!(lib[0].staged, Some(ChangeKind::Deleted), "{context}");
+            assert_eq!(lib[0].untracked, lib_untracked, "{context}");
+            assert!(!lib[0].ignored, "{context}");
+            let log: Vec<&StatusEntry> = entries.iter().filter(|e| e.path == "build.log").collect();
+            assert_eq!(log.len(), 1, "{context}");
+            assert_eq!(log[0].staged, Some(ChangeKind::Deleted), "{context}");
+            assert_eq!(log[0].ignored, log_ignored, "{context}");
+            assert!(!log[0].untracked, "{context}");
+        }
+    }
+}
+
+/// Submodule letters map like any other: a moved commit (`SC..`), a dirty tree (`S.M.`) and
+/// untracked files inside (`S..U`) are all a modification of the submodule path.
+#[test]
+fn submodule_states_match_porcelain_v2() {
+    let mut f = Fixture::basic();
+    let sub_origin = f.sibling("sub-origin");
+    std::fs::create_dir_all(&sub_origin).expect("folder");
+    f.git_in(&sub_origin, &["init", "-q", "-b", "main"]);
+    std::fs::write(sub_origin.join("inner.txt"), "one\n").expect("write");
+    f.git_in(&sub_origin, &["add", "inner.txt"]);
+    f.git_in(&sub_origin, &["commit", "-q", "-m", "inner one"]);
+    f.git(&[
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "add",
+        "-q",
+        sub_origin.to_str().expect("utf-8"),
+        "sub",
+    ]);
+    f.commit("add submodule");
+    assert_eq!(
+        observed(&f, &StatusOptions::default()),
+        Vec::<Expected>::new()
+    );
+    let sub = f.root.join("sub");
+    // S..U: untracked inside.
+    std::fs::write(sub.join("loose.txt"), "loose\n").expect("write");
+    let expected = porcelain(&f, false);
+    assert_eq!(expected.len(), 1, "{expected:?}");
+    assert_eq!(observed(&f, &StatusOptions::default()), expected);
+    // S.M.: dirty tree inside.
+    std::fs::remove_file(sub.join("loose.txt")).expect("remove");
+    std::fs::write(sub.join("inner.txt"), "one\ntwo\n").expect("write");
+    assert_eq!(
+        observed(&f, &StatusOptions::default()),
+        porcelain(&f, false)
+    );
+    // SC..: the submodule's commit moved.
+    f.git_in(&sub, &["commit", "-q", "-a", "-m", "inner two"]);
+    let expected = porcelain(&f, false);
+    assert_eq!(observed(&f, &StatusOptions::default()), expected);
+    let entry = &expected[0];
+    assert_eq!(entry.path, "sub");
+    assert_eq!(entry.unstaged, Some(ChangeKind::Modified));
+    assert_eq!(entry.staged, None);
 }
 
 #[test]
@@ -321,11 +523,34 @@ fn unborn_repository_reports_staged_and_untracked_files() {
 #[test]
 fn paths_with_spaces_and_unicode_are_reported_as_git_prints_them() {
     let f = Fixture::basic();
-    f.write("dir with space/ünïcödé.txt", "x\n");
+    f.write(
+        "dir with space/ünïcödé.txt",
+        "x
+",
+    );
     let entries = engine_status(&f, &StatusOptions::default());
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].path, "dir with space/ünïcödé.txt");
     assert!(entries[0].untracked);
+    assert_eq!(
+        observed(&f, &StatusOptions::default()),
+        porcelain(&f, false)
+    );
+    // A backslash is a separator on Windows; elsewhere it is a character git C-quotes in
+    // the line form and prints verbatim with `-z`.
+    #[cfg(not(windows))]
+    {
+        f.write(r"back\slash.txt", "x\n");
+        let entries = engine_status(&f, &StatusOptions::default());
+        assert!(
+            entries.iter().any(|e| e.path == r"back\slash.txt"),
+            "{entries:?}"
+        );
+        assert_eq!(
+            observed(&f, &StatusOptions::default()),
+            porcelain(&f, false)
+        );
+    }
 }
 
 #[test]
@@ -409,7 +634,17 @@ three
         "four
 ",
     );
+    // Removed from the index but still on disk: git prints a deletion and an untracked
+    // path, the engine one entry that is both, on either path.
+    f.git(&["rm", "-q", "--cached", "src/lib.rs"]);
     let engine = Git2Engine::open(&f.root).expect("open");
+    let listed = engine
+        .status(&StatusOptions::default(), &Cancel::never())
+        .expect("status");
+    let cached: Vec<&StatusEntry> = listed.iter().filter(|e| e.path == "src/lib.rs").collect();
+    assert_eq!(cached.len(), 1);
+    assert_eq!(cached[0].staged, Some(ChangeKind::Deleted));
+    assert!(cached[0].untracked);
     for options in [
         StatusOptions::default(),
         StatusOptions {
@@ -418,6 +653,15 @@ three
         },
         StatusOptions {
             include_untracked: false,
+            ..StatusOptions::default()
+        },
+        StatusOptions {
+            include_untracked: false,
+            include_ignored: true,
+            ..StatusOptions::default()
+        },
+        StatusOptions {
+            renames: false,
             ..StatusOptions::default()
         },
     ] {
@@ -439,6 +683,28 @@ fn a_truncated_head_is_reported_as_corrupt() {
         .expect_err("must fail")
     {
         GitError::CorruptObject { hash: reported, .. } => assert_eq!(reported, hash),
+        other => panic!("unexpected error {other:?}"),
+    }
+}
+
+/// Once the handle has read the HEAD commit, libgit2's object cache answers the check and
+/// git's own failure, naming the object, is what comes back.
+#[test]
+fn a_head_truncated_after_a_status_fails_through_git() {
+    let f = Fixture::basic();
+    let engine = Git2Engine::open(&f.root).expect("open");
+    engine
+        .status(&StatusOptions::default(), &Cancel::never())
+        .expect("status");
+    let hash = f.truncate_object("HEAD");
+    match engine
+        .status(&StatusOptions::default(), &Cancel::never())
+        .expect_err("must fail")
+    {
+        GitError::Cli { status, stderr, .. } => {
+            assert_eq!(status, Some(128), "{stderr}");
+            assert!(stderr.contains(&hash), "{stderr}");
+        }
         other => panic!("unexpected error {other:?}"),
     }
 }

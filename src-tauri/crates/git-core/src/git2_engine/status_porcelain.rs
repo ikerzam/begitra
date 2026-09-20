@@ -17,15 +17,19 @@
 
 use crate::types::{ChangeKind, StatusEntry};
 
-/// Parses the NUL-separated output of `git status --porcelain=v2 -z`, sorted by path bytes.
+/// Parses the NUL-separated output of `git status --porcelain=v2 -z`, sorted by path bytes,
+/// one entry per path: a file removed from the index but still on disk (`git rm --cached`),
+/// which git prints as a deletion and an untracked path, is one entry that is both, as
+/// libgit2 reports it. Untracked records are dropped when `include_untracked` is off (the
+/// scan then ran for the ignored paths only).
 ///
 /// A record the parser does not understand is skipped rather than failing the status: a
 /// future git may add a record type, and the rest of the listing is still right.
-pub(super) fn parse(output: &[u8]) -> Vec<StatusEntry> {
+pub(super) fn parse(output: &[u8], include_untracked: bool) -> Vec<StatusEntry> {
     let mut records = output
         .split(|&byte| byte == 0)
         .filter(|record| !record.is_empty());
-    let mut entries = Vec::new();
+    let mut entries = Vec::with_capacity(output.iter().filter(|&&byte| byte == 0).count());
     while let Some(record) = records.next() {
         let Some((&kind, rest)) = record.split_first() else {
             continue;
@@ -39,7 +43,7 @@ pub(super) fn parse(output: &[u8]) -> Vec<StatusEntry> {
                 renamed(rest, original)
             }
             b'u' => unmerged(rest),
-            b'?' => Some(StatusEntry {
+            b'?' if include_untracked && !rest.is_empty() => Some(StatusEntry {
                 path: lossy(rest),
                 old_path: None,
                 staged: None,
@@ -48,7 +52,7 @@ pub(super) fn parse(output: &[u8]) -> Vec<StatusEntry> {
                 ignored: false,
                 conflicted: false,
             }),
-            b'!' => Some(StatusEntry {
+            b'!' if !rest.is_empty() => Some(StatusEntry {
                 path: lossy(rest),
                 old_path: None,
                 staged: None,
@@ -63,8 +67,32 @@ pub(super) fn parse(output: &[u8]) -> Vec<StatusEntry> {
             entries.push(entry);
         }
     }
-    entries.sort_unstable_by(|a, b| a.path.as_bytes().cmp(b.path.as_bytes()));
-    entries
+    entries.sort_by(|a, b| {
+        a.path
+            .as_bytes()
+            .cmp(b.path.as_bytes())
+            .then(a.untracked.cmp(&b.untracked))
+    });
+    merge_same_paths(entries)
+}
+
+/// Folds consecutive entries of one path into one: the deletion carries the untracked flag.
+fn merge_same_paths(entries: Vec<StatusEntry>) -> Vec<StatusEntry> {
+    let mut merged: Vec<StatusEntry> = Vec::with_capacity(entries.len());
+    for entry in entries {
+        match merged.last_mut() {
+            Some(last) if last.path == entry.path => {
+                last.untracked |= entry.untracked;
+                last.ignored |= entry.ignored;
+                last.conflicted |= entry.conflicted;
+                last.staged = last.staged.or(entry.staged);
+                last.unstaged = last.unstaged.or(entry.unstaged);
+                last.old_path = last.old_path.take().or(entry.old_path);
+            }
+            _ => merged.push(entry),
+        }
+    }
+    merged
 }
 
 /// The first of `count` space-separated fields of a record (the `XY` state) and the path
@@ -174,14 +202,19 @@ mod tests {
             "! build/out.o\0",
             "1 .D N... 100644 100644 000000 e69de29 e69de29 gone.txt\0",
             "1 MM S.M. 160000 160000 160000 e69de29 e69de29 sub\0",
+            "2 C. N... 100644 100644 100644 e69de29 e69de29 C90 copy.txt\0src/lib.rs\0",
+            "1 D. N... 100644 000000 100644 e69de29 0000000 cached.txt\0",
+            "? cached.txt\0",
         );
-        let parsed = parse(output.as_bytes());
+        let parsed = parse(output.as_bytes(), true);
         let paths: Vec<&str> = parsed.iter().map(|entry| entry.path.as_str()).collect();
         assert_eq!(
             paths,
             [
                 "build/out.o",
+                "cached.txt",
                 "conflict.txt",
+                "copy.txt",
                 "gone.txt",
                 "moved.rs",
                 "new name.txt",
@@ -260,17 +293,56 @@ mod tests {
                 ..entry("sub")
             }
         );
+        assert_eq!(
+            by_path("copy.txt"),
+            StatusEntry {
+                old_path: Some("src/lib.rs".to_owned()),
+                staged: Some(ChangeKind::Copied),
+                ..entry("copy.txt")
+            }
+        );
+        // `git rm --cached`: the deletion and the untracked path are one entry, as libgit2's.
+        assert_eq!(
+            by_path("cached.txt"),
+            StatusEntry {
+                staged: Some(ChangeKind::Deleted),
+                untracked: true,
+                ..entry("cached.txt")
+            }
+        );
+        assert_eq!(parsed.iter().filter(|e| e.path == "cached.txt").count(), 1);
+    }
+
+    #[test]
+    fn drops_untracked_records_when_they_were_not_asked_for_and_keeps_bytes_lossy() {
+        let output = b"? scratch.txt\0! build/out.o\0? \xff\xfe.bin\0";
+        let without = parse(output, false);
+        assert_eq!(without.len(), 1);
+        assert!(without[0].ignored);
+        let with = parse(output, true);
+        assert_eq!(with.len(), 3);
+        assert!(with
+            .iter()
+            .any(|e| e.path == "\u{fffd}\u{fffd}.bin" && e.untracked));
     }
 
     #[test]
     fn skips_what_it_does_not_understand_and_empty_output() {
-        assert!(parse(b"").is_empty());
-        assert!(parse(b"\0\0").is_empty());
-        let parsed = parse(b"# branch.oid abc\0z something new\0? kept.txt\0");
+        assert!(parse(b"", true).is_empty());
+        assert!(parse(b"\0\0", true).is_empty());
+        let parsed = parse(b"# branch.oid abc\0z something new\0? kept.txt\0", true);
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].path, "kept.txt");
-        // A truncated record yields nothing rather than a panic.
-        assert!(parse(b"1 .M N...\0").is_empty());
-        assert!(parse(b"2 R. N... 100644 100644 100644 e69de29 e69de29 R100 lone\0").len() == 1);
+        // A truncated record yields nothing rather than a panic; an empty path neither.
+        assert!(parse(b"1 .M N...\0", true).is_empty());
+        assert!(parse(b"?\0! \0", true).is_empty());
+        assert!(
+            parse(
+                b"2 R. N... 100644 100644 100644 e69de29 e69de29 R100 lone\0",
+                true
+            )
+            .len()
+                == 1
+        );
     }
 }
