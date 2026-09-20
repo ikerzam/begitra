@@ -149,6 +149,43 @@ export type WalkOptions = v.InferOutput<typeof WalkOptionsSchema>;
 export const CommitCountSchema = v.object({ count, capped: v.boolean() });
 export type CommitCount = v.InferOutput<typeof CommitCountSchema>;
 
+export const EndpointSchema = v.object({ rev: v.string(), hash: v.string() });
+export type Endpoint = v.InferOutput<typeof EndpointSchema>;
+
+export const ComparisonRelationSchema = v.picklist([
+  "same",
+  "fast-forward",
+  "up-to-date",
+  "diverged",
+]);
+export type ComparisonRelation = v.InferOutput<typeof ComparisonRelationSchema>;
+
+/** Two revisions side by side: the base, what each has that the other lacks, the relation. */
+export const ComparisonSchema = v.object({
+  a: EndpointSchema,
+  b: EndpointSchema,
+  base: v.object({ hash: v.string(), time: v.number() }),
+  onlyInA: count,
+  onlyInB: count,
+  relation: ComparisonRelationSchema,
+});
+export type Comparison = v.InferOutput<typeof ComparisonSchema>;
+
+export const MergePreviewKindSchema = v.picklist([
+  "fast-forward",
+  "up-to-date",
+  "clean",
+  "conflicts",
+]);
+export type MergePreviewKind = v.InferOutput<typeof MergePreviewKindSchema>;
+
+/** What merging b into a would do; the paths that would conflict, sorted and unique. */
+export const MergePreviewSchema = v.object({
+  kind: MergePreviewKindSchema,
+  conflicts: v.array(v.string()),
+});
+export type MergePreview = v.InferOutput<typeof MergePreviewSchema>;
+
 // --- Status -------------------------------------------------------------------------------
 
 export const ChangeKindSchema = v.picklist([
@@ -438,6 +475,14 @@ export type Pong = v.InferOutput<typeof PongSchema>;
 
 const opId = v.pipe(v.string(), v.minLength(1));
 const path = v.pipe(v.string(), v.minLength(1));
+/** A revision as an endpoint: not empty, at most 200 characters, never shaped like an option. */
+const revision = v.pipe(
+  v.string(),
+  v.trim(),
+  v.minLength(1),
+  v.maxLength(200),
+  v.check((rev) => !rev.startsWith("-"), "starts with a dash"),
+);
 
 export const commandArgs = {
   ping: v.object({ message: v.string() }),
@@ -448,6 +493,8 @@ export const commandArgs = {
   list_refs: v.object({ repo: path, opId }),
   status: v.object({ repo: path, options: StatusOptionsSchema, opId }),
   merge_base: v.object({ repo: path, a: v.string(), b: v.string(), opId }),
+  compare: v.object({ repo: path, a: revision, b: revision, opId }),
+  merge_preview: v.object({ repo: path, a: revision, b: revision, opId }),
   count_commits: v.object({ repo: path, scope: WalkScopeSchema, opId }),
   list_worktrees: v.object({ repo: path, opId }),
   walk_commits: v.object({

@@ -8,6 +8,8 @@ import { call, newOpId } from "./invoke";
 import {
   AnnotationSchema,
   BlobContentSchema,
+  ComparisonSchema,
+  MergePreviewSchema,
   CommitCountSchema,
   DiffPageSchema,
   HighlightSchema,
@@ -84,6 +86,16 @@ export function status(
 
 export function mergeBase(repo: string, a: string, b: string, opId = newOpId("merge-base")) {
   return call("merge_base", { repo, a, b, opId }, v.string());
+}
+
+/** The merge base, the counts of commits only on each side and the relation of two revisions. */
+export function compare(repo: string, a: string, b: string, opId = newOpId("compare")) {
+  return call("compare", { repo, a, b, opId }, ComparisonSchema);
+}
+
+/** What merging `b` into `a` would do; never changes a ref, the index or a working tree. */
+export function mergePreview(repo: string, a: string, b: string, opId = newOpId("preview")) {
+  return call("merge_preview", { repo, a, b, opId }, MergePreviewSchema);
 }
 
 /** How many commits a scope holds (capped at 100,000 with `capped` set). */

@@ -8,8 +8,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use git_core::types::{
-    BlobAt, BlobContent, ChangeKind, ChangeSet, CommitCount, CommitNode, DiffLine, DiffOptions,
-    DiffTarget, Edge, FileChange, Hunk, LineKind, Ref, RefKind, Repo, Signature, Span, StatusEntry,
+    BaseCommit, BlobAt, BlobContent, ChangeKind, ChangeSet, CommitCount, CommitNode, Comparison,
+    ComparisonRelation, DiffLine, DiffOptions, DiffTarget, Edge, Endpoint, FileChange, Hunk,
+    LineKind, MergePreview, MergePreviewKind, Ref, RefKind, Repo, Signature, Span, StatusEntry,
     StatusOptions, WalkFilter, WalkOptions, WalkOrder, WalkScope, WorkingTreeBase, Worktree,
 };
 use serde::Serialize;
@@ -518,6 +519,51 @@ fn write_fixtures() {
             count: 100_000,
             capped: true,
         },
+    );
+    write(
+        "comparison",
+        &Comparison {
+            a: Endpoint {
+                rev: "main".to_owned(),
+                hash: "a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4".to_owned(),
+            },
+            b: Endpoint {
+                rev: "claude/fix-auth".to_owned(),
+                hash: "9f3e21b0a1b2c3d4e5f67890a1b2c3d4e5f67890".to_owned(),
+            },
+            base: BaseCommit {
+                hash: "7f8e9d0a1b2c3d4e5f67890a1b2c3d4e5f678901".to_owned(),
+                time: 1_726_000_000,
+            },
+            only_in_a: 4,
+            only_in_b: 3,
+            relation: ComparisonRelation::Diverged,
+        },
+    );
+    write(
+        "merge-previews",
+        &[
+            MergePreview {
+                kind: MergePreviewKind::Conflicts,
+                conflicts: vec![
+                    "apps/api/src/auth/middleware.ts".to_owned(),
+                    "apps/api/src/auth/refresh.ts".to_owned(),
+                    "apps/api/src/index.ts".to_owned(),
+                ],
+            },
+            MergePreview {
+                kind: MergePreviewKind::FastForward,
+                conflicts: Vec::new(),
+            },
+            MergePreview {
+                kind: MergePreviewKind::Clean,
+                conflicts: Vec::new(),
+            },
+            MergePreview {
+                kind: MergePreviewKind::UpToDate,
+                conflicts: Vec::new(),
+            },
+        ],
     );
     write(
         "walk-scopes",

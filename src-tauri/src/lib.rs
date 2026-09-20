@@ -118,6 +118,8 @@ pub fn run() {
             commands::review::list_annotations,
             commands::review::set_annotation,
             commands::review::delete_annotation,
+            commands::compare::compare,
+            commands::compare::merge_preview,
         ])
         .run(tauri::generate_context!());
 

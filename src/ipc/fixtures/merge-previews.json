@@ -1,0 +1,22 @@
+[
+  {
+    "kind": "conflicts",
+    "conflicts": [
+      "apps/api/src/auth/middleware.ts",
+      "apps/api/src/auth/refresh.ts",
+      "apps/api/src/index.ts"
+    ]
+  },
+  {
+    "kind": "fast-forward",
+    "conflicts": []
+  },
+  {
+    "kind": "clean",
+    "conflicts": []
+  },
+  {
+    "kind": "up-to-date",
+    "conflicts": []
+  }
+]
