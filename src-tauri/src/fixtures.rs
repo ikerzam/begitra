@@ -8,9 +8,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use git_core::types::{
-    ChangeKind, ChangeSet, CommitNode, DiffLine, DiffOptions, DiffTarget, Edge, FileChange, Hunk,
-    LineKind, Ref, RefKind, Repo, Signature, Span, StatusEntry, StatusOptions, WalkOptions,
-    WalkOrder, WalkScope, WorkingTreeBase, Worktree,
+    ChangeKind, ChangeSet, CommitCount, CommitNode, DiffLine, DiffOptions, DiffTarget, Edge,
+    FileChange, Hunk, LineKind, Ref, RefKind, Repo, Signature, Span, StatusEntry, StatusOptions,
+    WalkFilter, WalkOptions, WalkOrder, WalkScope, WorkingTreeBase, Worktree,
 };
 use serde::Serialize;
 
@@ -509,6 +509,13 @@ fn write_fixtures() {
     );
     write("pong", &pong("hello".to_owned()));
     write(
+        "commit-count",
+        &CommitCount {
+            count: 100_000,
+            capped: true,
+        },
+    );
+    write(
         "walk-scopes",
         &[
             WalkScope::All,
@@ -528,6 +535,18 @@ fn write_fixtures() {
             WalkOptions {
                 page_size: 100,
                 order: WalkOrder::Lazy,
+                filter: None,
+            },
+            WalkOptions {
+                page_size: 500,
+                order: WalkOrder::Lazy,
+                filter: Some(WalkFilter {
+                    text: Some("auth".to_owned()),
+                    author: Some("claude".to_owned()),
+                    since: Some(1_704_067_200),
+                    until: Some(1_735_689_600),
+                    paths: vec!["apps/api".to_owned()],
+                }),
             },
         ],
     );

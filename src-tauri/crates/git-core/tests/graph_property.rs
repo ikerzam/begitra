@@ -107,6 +107,7 @@ fn walk_all(engine: &Git2Engine, page_size: usize, order: WalkOrder) -> Vec<Comm
     let options = WalkOptions {
         page_size: u32::try_from(page_size).expect("page size"),
         order,
+        filter: None,
     };
     let mut walk = engine
         .walk(&WalkScope::All, &options, &Cancel::never())

@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use git_core::engine::{Cancel, GitEngine};
 use git_core::error::GitError;
 use git_core::git2_engine::Git2Engine;
-use git_core::types::{CommitNode, Page, WalkOptions, WalkOrder, WalkScope};
+use git_core::types::{CommitNode, Page, WalkFilter, WalkOptions, WalkOrder, WalkScope};
 use support::Fixture;
 
 const PAGE_SIZES: [usize; 3] = [2, 3, 500];
@@ -36,6 +36,7 @@ fn walk_pages(
     let options = WalkOptions {
         page_size: u32::try_from(page_size).expect("page size"),
         order,
+        filter: None,
     };
     let mut walk = engine
         .walk(scope, &options, &Cancel::never())
@@ -572,6 +573,7 @@ fn corrupt_object_in_lazy_order_returns_the_commits_read_so_far_then_the_error()
     let options = WalkOptions {
         page_size: 500,
         order: WalkOrder::Lazy,
+        filter: None,
     };
     let mut walk = engine
         .walk(&WalkScope::All, &options, &Cancel::never())
@@ -599,6 +601,7 @@ fn corrupt_object_in_date_topo_order_fails_the_first_page() {
     let options = WalkOptions {
         page_size: 500,
         order: WalkOrder::DateTopo,
+        filter: None,
     };
     let mut walk = engine
         .walk(&WalkScope::All, &options, &Cancel::never())
@@ -620,6 +623,7 @@ fn cancellation_stops_within_100ms() {
     let options = WalkOptions {
         page_size: 500,
         order: WalkOrder::Lazy,
+        filter: None,
     };
     let mut walk = engine
         .walk(&WalkScope::All, &options, &cancel)
@@ -665,6 +669,7 @@ fn first_page_of_a_long_history_reads_only_what_it_shows() {
         let options = WalkOptions {
             page_size: 500,
             order,
+            filter: None,
         };
         let started = Instant::now();
         let mut walk = engine
@@ -750,5 +755,279 @@ fn a_broken_ref_is_skipped_by_the_all_walk() {
     for order in [WalkOrder::DateTopo, WalkOrder::Lazy] {
         let nodes = walk_all(&engine, &WalkScope::All, 500, order);
         assert_eq!(hashes(&nodes), git_log(&f, &[], "main"), "{order:?}");
+    }
+}
+
+fn filtered(filter: WalkFilter) -> WalkOptions {
+    WalkOptions {
+        filter: Some(filter),
+        ..WalkOptions::default()
+    }
+}
+
+fn walk_filtered(engine: &Git2Engine, scope: &WalkScope, options: &WalkOptions) -> Vec<CommitNode> {
+    let mut walk = engine.walk(scope, options, &Cancel::never()).expect("walk");
+    let mut nodes = Vec::new();
+    loop {
+        let page = walk.next_page(&Cancel::never()).expect("page");
+        let done = page.done;
+        nodes.extend(page.commits);
+        if done {
+            break;
+        }
+    }
+    nodes
+}
+
+/// Text, author and date filters keep git's order and match git's own selection; a filtered
+/// walk is flat.
+#[test]
+fn filters_match_git_log_selection_and_flatten_the_layout() {
+    let f = Fixture::basic();
+    let engine = open(&f);
+    // Subject text: git's --grep on the message.
+    let nodes = walk_filtered(
+        &engine,
+        &WalkScope::All,
+        &filtered(WalkFilter {
+            text: Some("Develop".to_owned()),
+            ..WalkFilter::default()
+        }),
+    );
+    assert_eq!(
+        hashes(&nodes),
+        git_log(&f, &["--date-order", "-i", "--grep=develop"], "--all")
+    );
+    assert!(nodes.iter().all(|n| n.lane == 0 && n.edges.is_empty()));
+    assert!(!nodes.is_empty());
+    // A hash prefix matches through the text filter.
+    let head = f.rev("HEAD");
+    let nodes = walk_filtered(
+        &engine,
+        &WalkScope::All,
+        &filtered(WalkFilter {
+            text: Some(head[..7].to_owned()),
+            ..WalkFilter::default()
+        }),
+    );
+    assert_eq!(hashes(&nodes), vec![head.clone()]);
+    // Author: every fixture commit has the same author, so a wrong name yields nothing and
+    // the right one everything.
+    let none = walk_filtered(
+        &engine,
+        &WalkScope::All,
+        &filtered(WalkFilter {
+            author: Some("nobody-here".to_owned()),
+            ..WalkFilter::default()
+        }),
+    );
+    assert!(none.is_empty());
+    let author = f.git(&["log", "-1", "--format=%an"]);
+    let all = walk_filtered(
+        &engine,
+        &WalkScope::All,
+        &filtered(WalkFilter {
+            author: Some(author.to_uppercase()),
+            ..WalkFilter::default()
+        }),
+    );
+    assert_eq!(hashes(&all), git_log(&f, &["--date-order"], "--all"));
+    // Dates: committer time bounds, like --since and --until.
+    let times: Vec<i64> = f
+        .git(&["log", "--all", "--date-order", "--format=%ct"])
+        .lines()
+        .map(|l| l.parse().expect("time"))
+        .collect();
+    let since = times[times.len() / 2];
+    let nodes = walk_filtered(
+        &engine,
+        &WalkScope::All,
+        &filtered(WalkFilter {
+            since: Some(since),
+            ..WalkFilter::default()
+        }),
+    );
+    let expected = git_log(&f, &["--date-order", &format!("--since=@{since}")], "--all");
+    assert_eq!(hashes(&nodes), expected);
+    let until = times[times.len() / 2];
+    let nodes = walk_filtered(
+        &engine,
+        &WalkScope::All,
+        &filtered(WalkFilter {
+            until: Some(until),
+            ..WalkFilter::default()
+        }),
+    );
+    let expected = git_log(&f, &["--date-order", &format!("--until=@{until}")], "--all");
+    assert_eq!(hashes(&nodes), expected);
+}
+
+/// A filter that matches nothing still ends with a done page, and an inactive filter (empty
+/// text) keeps the lane layout.
+#[test]
+fn an_empty_filter_keeps_lanes_and_no_match_ends_done() {
+    let f = Fixture::basic();
+    let engine = open(&f);
+    let plain = walk_filtered(
+        &engine,
+        &WalkScope::All,
+        &filtered(WalkFilter {
+            text: Some("   ".to_owned()),
+            ..WalkFilter::default()
+        }),
+    );
+    assert!(plain.iter().any(|n| !n.edges.is_empty()));
+    let mut walk = engine
+        .walk(
+            &WalkScope::All,
+            &filtered(WalkFilter {
+                text: Some("no such words anywhere".to_owned()),
+                ..WalkFilter::default()
+            }),
+            &Cancel::never(),
+        )
+        .expect("walk");
+    let page = walk.next_page(&Cancel::never()).expect("page");
+    assert!(page.commits.is_empty());
+    assert!(page.done);
+}
+
+/// The path filter equals `git rev-list <scope> --date-order -- <paths>`: a file, a
+/// directory, a renamed file (history stops at the rename, as git's does without
+/// `--follow`), a path that never existed; it composes with the text filter.
+#[test]
+fn path_history_matches_git_rev_list() {
+    let f = Fixture::basic().with_rename();
+    let engine = open(&f);
+    let by_paths = |paths: &[&str], scope: &WalkScope, text: Option<&str>| {
+        walk_filtered(
+            &engine,
+            scope,
+            &filtered(WalkFilter {
+                paths: paths.iter().map(|p| (*p).to_owned()).collect(),
+                text: text.map(str::to_owned),
+                ..WalkFilter::default()
+            }),
+        )
+    };
+    let cases: [(&[&str], WalkScope, &str); 4] = [
+        (&["src/lib.rs"], WalkScope::All, "--all"),
+        (&["src"], WalkScope::All, "--all"),
+        (
+            &["docs/guide.md", "README.md"],
+            WalkScope::Ref {
+                name: "main".to_owned(),
+            },
+            "main",
+        ),
+        (
+            &["src/dev.rs"],
+            WalkScope::Range {
+                exclude: "main~2".to_owned(),
+                include: "develop".to_owned(),
+            },
+            "main~2..develop",
+        ),
+    ];
+    for (paths, scope, git_scope) in cases {
+        let nodes = by_paths(paths, &scope, None);
+        let mut args = vec!["rev-list", "--date-order", git_scope, "--"];
+        args.extend_from_slice(paths);
+        let expected: Vec<String> = f.git(&args).lines().map(str::to_owned).collect();
+        assert_eq!(hashes(&nodes), expected, "{paths:?} on {git_scope}");
+        assert!(nodes.iter().all(|n| n.lane == 0 && n.edges.is_empty()));
+    }
+    assert!(by_paths(&["never/existed.txt"], &WalkScope::All, None).is_empty());
+    let with_text = by_paths(&["src"], &WalkScope::All, Some("develop"));
+    let expected: Vec<String> = f
+        .git(&[
+            "rev-list",
+            "--date-order",
+            "-i",
+            "--grep=develop",
+            "--all",
+            "--",
+            "src",
+        ])
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(hashes(&with_text), expected);
+}
+
+/// A path walk over many commits is paged and stops within 200 ms of a cancel, killing git.
+#[test]
+fn path_history_pages_and_cancels() {
+    let mut f = Fixture::basic();
+    for i in 0..30 {
+        f.append("README.md", &format!("line {i}\n"));
+        f.commit(&format!("readme {i}"));
+    }
+    let engine = open(&f);
+    let options = WalkOptions {
+        page_size: 10,
+        filter: Some(WalkFilter {
+            paths: vec!["README.md".to_owned()],
+            ..WalkFilter::default()
+        }),
+        ..WalkOptions::default()
+    };
+    let mut walk = engine
+        .walk(&WalkScope::All, &options, &Cancel::never())
+        .expect("walk");
+    let first = walk.next_page(&Cancel::never()).expect("page");
+    assert_eq!(first.commits.len(), 10);
+    assert!(!first.done);
+    let cancel = Cancel::new();
+    cancel.cancel();
+    let started = std::time::Instant::now();
+    let error = walk.next_page(&cancel).expect_err("cancelled");
+    assert!(matches!(error, GitError::Cancelled), "{error:?}");
+    assert!(started.elapsed() < std::time::Duration::from_millis(200));
+    let after = walk.next_page(&Cancel::never()).expect("empty done page");
+    assert!(after.commits.is_empty() && after.done);
+    let unknown = engine
+        .walk(
+            &WalkScope::Ref {
+                name: "no-such-branch".to_owned(),
+            },
+            &options,
+            &Cancel::never(),
+        )
+        .err()
+        .expect("unknown ref");
+    assert_eq!(unknown.code(), "refs.not_found");
+}
+
+/// The bounded count equals `git rev-list --count` for every scope kind.
+#[test]
+fn commit_count_matches_git_rev_list_count() {
+    let f = Fixture::basic();
+    let engine = open(&f);
+    for (scope, git_scope) in [
+        (WalkScope::All, "--all"),
+        (
+            WalkScope::Ref {
+                name: "develop".to_owned(),
+            },
+            "develop",
+        ),
+        (
+            WalkScope::Range {
+                exclude: "main~2".to_owned(),
+                include: "develop".to_owned(),
+            },
+            "main~2..develop",
+        ),
+    ] {
+        let count = engine
+            .count_commits(&scope, &Cancel::never())
+            .expect("count");
+        let expected: u32 = f
+            .git(&["rev-list", "--count", git_scope])
+            .parse()
+            .expect("number");
+        assert_eq!(count.count, expected, "{git_scope}");
+        assert!(!count.capped);
     }
 }

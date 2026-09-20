@@ -126,11 +126,26 @@ export type WalkScope = v.InferOutput<typeof WalkScopeSchema>;
 export const WalkOrderSchema = v.picklist(["date-topo", "lazy"]);
 export type WalkOrder = v.InferOutput<typeof WalkOrderSchema>;
 
+const filterText = v.pipe(v.string(), v.maxLength(200));
+
+export const WalkFilterSchema = v.object({
+  text: v.optional(filterText),
+  author: v.optional(filterText),
+  since: v.optional(v.number()),
+  until: v.optional(v.number()),
+  paths: v.optional(v.pipe(v.array(v.pipe(v.string(), v.minLength(1))), v.maxLength(20))),
+});
+export type WalkFilter = v.InferOutput<typeof WalkFilterSchema>;
+
 export const WalkOptionsSchema = v.object({
   pageSize: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(500)),
   order: WalkOrderSchema,
+  filter: v.optional(WalkFilterSchema),
 });
 export type WalkOptions = v.InferOutput<typeof WalkOptionsSchema>;
+
+export const CommitCountSchema = v.object({ count, capped: v.boolean() });
+export type CommitCount = v.InferOutput<typeof CommitCountSchema>;
 
 // --- Status -------------------------------------------------------------------------------
 
@@ -336,6 +351,7 @@ export const commandArgs = {
   list_refs: v.object({ repo: path, opId }),
   status: v.object({ repo: path, options: StatusOptionsSchema, opId }),
   merge_base: v.object({ repo: path, a: v.string(), b: v.string(), opId }),
+  count_commits: v.object({ repo: path, scope: WalkScopeSchema, opId }),
   list_worktrees: v.object({ repo: path, opId }),
   walk_commits: v.object({
     repo: path,

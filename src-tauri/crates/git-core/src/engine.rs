@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use crate::error::{GitError, GitResult};
 use crate::types::{
-    ChangeSet, DiffOptions, DiffTarget, Page, Ref, Repo, StatusEntry, StatusOptions, WalkOptions,
-    WalkScope, Worktree,
+    ChangeSet, CommitCount, DiffOptions, DiffTarget, Page, Ref, Repo, StatusEntry, StatusOptions,
+    WalkOptions, WalkScope, Worktree,
 };
 
 /// Cooperative cancellation flag checked by long operations between units of work.
@@ -86,6 +86,10 @@ pub trait GitEngine: Send + Sync {
         options: &WalkOptions,
         cancel: &Cancel,
     ) -> GitResult<Box<dyn CommitWalk>>;
+
+    /// Counts the commits of `scope` up to [`crate::types::COUNT_CAP`], reporting whether the
+    /// cap was hit; cancellable.
+    fn count_commits(&self, scope: &WalkScope, cancel: &Cancel) -> GitResult<CommitCount>;
 
     /// Reports the state of every changed, untracked (and, on request, ignored) path of the
     /// working tree, respecting `.gitignore`.

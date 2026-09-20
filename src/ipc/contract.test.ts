@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
   AppErrorSchema,
   ChangeSetSchema,
+  CommitCountSchema,
   CommitNodeSchema,
   DiffOptionsSchema,
   DiffPageSchema,
@@ -49,6 +50,7 @@ const schemas: Record<string, v.GenericSchema> = {
   "app-errors.json": v.array(AppErrorSchema),
   "repo-changed.json": RepoChangedSchema,
   "pong.json": PongSchema,
+  "commit-count.json": CommitCountSchema,
   "walk-scopes.json": v.array(WalkScopeSchema),
   "walk-options.json": v.array(WalkOptionsSchema),
   "status-options.json": v.array(StatusOptionsSchema),

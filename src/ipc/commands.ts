@@ -6,6 +6,7 @@ import * as v from "valibot";
 
 import { call, newOpId } from "./invoke";
 import {
+  CommitCountSchema,
   DiffPageSchema,
   IndexEntrySchema,
   PongSchema,
@@ -75,6 +76,11 @@ export function status(
 
 export function mergeBase(repo: string, a: string, b: string, opId = newOpId("merge-base")) {
   return call("merge_base", { repo, a, b, opId }, v.string());
+}
+
+/** How many commits a scope holds (capped at 100,000 with `capped` set). */
+export function countCommits(repo: string, scope: WalkScope, opId = newOpId("count")) {
+  return call("count_commits", { repo, scope, opId }, CommitCountSchema);
 }
 
 export function listWorktrees(repo: string, opId = newOpId("worktrees")) {

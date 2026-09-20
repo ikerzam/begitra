@@ -34,10 +34,10 @@ use super::Git2Engine;
 use crate::engine::{Cancel, CommitWalk};
 use crate::error::{GitError, GitResult};
 use crate::graph::LaneLayout;
-use crate::types::{CommitNode, Page, Signature, WalkOptions, WalkOrder, WalkScope};
+use crate::types::{CommitNode, Page, Signature, WalkFilter, WalkOptions, WalkOrder, WalkScope};
 
 /// Largest page a walk produces; [`WalkOptions::page_size`] is clamped to `1..=MAX_PAGE_SIZE`.
-const MAX_PAGE_SIZE: usize = 500;
+pub(super) const MAX_PAGE_SIZE: usize = 500;
 
 /// Commits read between two cancellation checks.
 const CANCEL_EVERY: usize = 100;
@@ -63,12 +63,18 @@ pub(super) fn start(
     let head = head_commit(&repo)?;
     let (seeds, exclude) = resolve_scope(&repo, scope, &refs, head)?;
     let decorations = decorations(&refs, head);
+    let filter = options
+        .filter
+        .as_ref()
+        .filter(|filter| filter.is_active())
+        .cloned();
     Ok(Box::new(Walk::new(
         repo,
         options.order,
         usize::try_from(options.page_size)
             .unwrap_or(MAX_PAGE_SIZE)
             .clamp(1, MAX_PAGE_SIZE),
+        filter,
         seeds,
         exclude,
         decorations,
@@ -99,6 +105,8 @@ struct Walk {
     repo: Repository,
     order: WalkOrder,
     page_size: usize,
+    /// Commits kept; with a filter the layout is flat.
+    filter: Option<WalkFilter>,
     /// Commits the scope starts from, in insertion order, without duplicates.
     seeds: Vec<Oid>,
     /// Revision whose ancestry is left out (`Range` scope).
@@ -127,6 +135,7 @@ impl Walk {
         repo: Repository,
         order: WalkOrder,
         page_size: usize,
+        filter: Option<WalkFilter>,
         seeds: Vec<Oid>,
         exclude: Option<Oid>,
         decorations: HashMap<Oid, Vec<String>>,
@@ -135,6 +144,7 @@ impl Walk {
             repo,
             order,
             page_size,
+            filter,
             seeds,
             exclude,
             decorations,
@@ -389,18 +399,34 @@ impl CommitWalk for Walk {
         }
 
         let mut commits = Vec::with_capacity(self.page_size);
+        let mut walked: usize = 0;
         while commits.len() < self.page_size {
-            if !commits.is_empty() && commits.len().is_multiple_of(CANCEL_EVERY) {
+            walked += 1;
+            if walked.is_multiple_of(CANCEL_EVERY) {
                 self.checkpoint(cancel)?;
             }
             let Some(entry) = self.heap.pop() else {
                 break;
             };
-            let (node, to_queue) = match self.emit(entry.oid) {
+            let (mut node, to_queue) = match self.emit(entry.oid) {
                 Ok(emitted) => emitted,
                 Err(error) => return self.fail(commits, error),
             };
-            commits.push(node);
+            let kept = match &self.filter {
+                Some(filter) => filter.matches(&node),
+                None => true,
+            };
+            if kept {
+                if self.filter.is_some() {
+                    // Lines between non-adjacent commits would not be parent edges.
+                    node.lane = 0;
+                    node.edges.clear();
+                    node.overflow = 0;
+                }
+                // Pushed before the parents are queued, so an unreadable parent still
+                // leaves this row in the partial page.
+                commits.push(node);
+            }
             for parent in to_queue {
                 if let Err(error) = self.queue(parent) {
                     return self.fail(commits, error);
@@ -416,6 +442,49 @@ impl CommitWalk for Walk {
             done: self.finished,
         })
     }
+}
+
+/// Seeds and exclusion of `scope` on `repo`, for callers that walk without the layout.
+pub(super) fn scope_of(
+    repo: &Repository,
+    scope: &WalkScope,
+    cancel: &Cancel,
+) -> GitResult<(Vec<Oid>, Option<Oid>)> {
+    let refs = load_refs(repo, cancel)?;
+    let head = head_commit(repo)?;
+    resolve_scope(repo, scope, &refs, head)
+}
+
+/// A flat node (lane 0, no edges) for `commit`, with its decorations; the CLI walk and
+/// counts use it, the walker builds its own with the layout.
+pub(super) fn node_of(
+    commit: &git2::Commit<'_>,
+    decorations: &HashMap<Oid, Vec<String>>,
+) -> CommitNode {
+    let oid = commit.id();
+    let (subject, body) = split_message(commit.message_raw_bytes());
+    CommitNode {
+        hash: oid.to_string(),
+        parents: commit.parent_ids().map(|p| p.to_string()).collect(),
+        author: signature(&commit.author()),
+        committer: signature(&commit.committer()),
+        subject,
+        body,
+        refs: decorations.get(&oid).cloned().unwrap_or_default(),
+        lane: 0,
+        edges: Vec::new(),
+        overflow: 0,
+    }
+}
+
+/// The decoration map of `repo` (short ref names per commit, `HEAD` first).
+pub(super) fn decorations_for(
+    repo: &Repository,
+    cancel: &Cancel,
+) -> GitResult<HashMap<Oid, Vec<String>>> {
+    let refs = load_refs(repo, cancel)?;
+    let head = head_commit(repo)?;
+    Ok(decorations(&refs, head))
 }
 
 /// Every ref under `refs/` that peels to a commit, sorted by full name.

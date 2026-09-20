@@ -6,5 +6,18 @@
   {
     "pageSize": 100,
     "order": "lazy"
+  },
+  {
+    "pageSize": 500,
+    "order": "lazy",
+    "filter": {
+      "text": "auth",
+      "author": "claude",
+      "since": 1704067200,
+      "until": 1735689600,
+      "paths": [
+        "apps/api"
+      ]
+    }
   }
 ]

@@ -30,6 +30,61 @@ pub struct WalkPage {
     pub done: bool,
 }
 
+/// Longest text or author filter, in characters.
+const MAX_FILTER_TEXT: usize = 200;
+
+/// Most paths of a path filter.
+const MAX_FILTER_PATHS: usize = 20;
+
+/// Rejects filters the frontend should never send: overlong text, too many paths, a path
+/// that escapes the repository or an inverted date range.
+fn validate_filter(options: &WalkOptions) -> Result<(), AppError> {
+    let Some(filter) = &options.filter else {
+        return Ok(());
+    };
+    for (field, value) in [("text", &filter.text), ("author", &filter.author)] {
+        if value
+            .as_ref()
+            .is_some_and(|v| v.chars().count() > MAX_FILTER_TEXT)
+        {
+            return Err(AppError::invalid_argument(
+                field,
+                format!("longer than {MAX_FILTER_TEXT} characters"),
+            ));
+        }
+    }
+    if filter.paths.len() > MAX_FILTER_PATHS {
+        return Err(AppError::invalid_argument(
+            "paths",
+            format!("more than {MAX_FILTER_PATHS} paths"),
+        ));
+    }
+    for path in &filter.paths {
+        let escapes = path.is_empty()
+            || path.starts_with('/')
+            || path.starts_with('\\')
+            || path.starts_with('-')
+            || std::path::Path::new(path).components().any(|c| {
+                matches!(
+                    c,
+                    std::path::Component::ParentDir | std::path::Component::Prefix(_)
+                )
+            });
+        if escapes {
+            return Err(AppError::invalid_argument(
+                "paths",
+                format!("{path:?} is not a repository-relative path"),
+            ));
+        }
+    }
+    if let (Some(since), Some(until)) = (filter.since, filter.until) {
+        if since > until {
+            return Err(AppError::invalid_argument("since", "later than until"));
+        }
+    }
+    Ok(())
+}
+
 /// Most pages one call streams; the timeout grows with the pages.
 const MAX_PAGES_PER_CALL: u32 = 64;
 
@@ -105,6 +160,7 @@ pub async fn walk_commits(
     let app = state.inner().clone();
     let worker = app.clone();
     let (max_pages, timeout) = pages_and_timeout(max_pages);
+    validate_filter(&options)?;
     run_stream(
         app.ops(),
         &op_id,

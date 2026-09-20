@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use git_core::engine::GitEngine;
-use git_core::types::{Ref, Repo, StatusEntry, StatusOptions, Worktree};
+use git_core::types::{CommitCount, Ref, Repo, StatusEntry, StatusOptions, WalkScope, Worktree};
 use tauri::State;
 
 use crate::error::AppError;
@@ -144,6 +144,23 @@ pub async fn status(
     let worker = app.clone();
     run_blocking(app.ops(), &op_id, DEFAULT_TIMEOUT, move |cancel| {
         worker.open(&repo)?.status(&options, &cancel)
+    })
+    .await
+}
+
+/// How many commits `scope` holds, at most `COUNT_CAP`.
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip(state))]
+pub async fn count_commits(
+    state: State<'_, AppState>,
+    repo: PathBuf,
+    scope: WalkScope,
+    op_id: String,
+) -> Result<CommitCount, AppError> {
+    let app = state.inner().clone();
+    let worker = app.clone();
+    run_blocking(app.ops(), &op_id, DEFAULT_TIMEOUT, move |cancel| {
+        worker.open(&repo)?.count_commits(&scope, &cancel)
     })
     .await
 }

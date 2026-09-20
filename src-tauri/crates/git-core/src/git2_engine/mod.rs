@@ -3,6 +3,8 @@
 //! One submodule per operation family (`refs`, `walk`, `status`, `diff`, `worktrees`); this
 //! module owns the repository handle and the `open` logic.
 
+mod cli_walk;
+mod count;
 mod diff;
 mod refs;
 mod status;
@@ -17,8 +19,8 @@ use git2::{ErrorClass, ErrorCode, Oid, Repository};
 use crate::engine::{Cancel, CommitWalk, GitEngine};
 use crate::error::{GitError, GitResult};
 use crate::types::{
-    ChangeSet, DiffOptions, DiffTarget, Ref, Repo, StatusEntry, StatusOptions, WalkOptions,
-    WalkScope, Worktree,
+    ChangeSet, CommitCount, DiffOptions, DiffTarget, Ref, Repo, StatusEntry, StatusOptions,
+    WalkOptions, WalkScope, Worktree,
 };
 
 /// A repository opened with libgit2.
@@ -137,7 +139,19 @@ impl GitEngine for Git2Engine {
         options: &WalkOptions,
         cancel: &Cancel,
     ) -> GitResult<Box<dyn CommitWalk>> {
-        walk::start(self, scope, options, cancel)
+        let by_path = options
+            .filter
+            .as_ref()
+            .is_some_and(|filter| !filter.paths.is_empty());
+        if by_path {
+            cli_walk::start(self, scope, options, cancel)
+        } else {
+            walk::start(self, scope, options, cancel)
+        }
+    }
+
+    fn count_commits(&self, scope: &WalkScope, cancel: &Cancel) -> GitResult<CommitCount> {
+        count::count(self, scope, cancel)
     }
 
     fn status(&self, options: &StatusOptions, cancel: &Cancel) -> GitResult<Vec<StatusEntry>> {

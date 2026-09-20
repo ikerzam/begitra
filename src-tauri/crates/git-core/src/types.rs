@@ -183,6 +183,9 @@ pub struct WalkOptions {
     pub page_size: u32,
     /// Ordering; see [`WalkOrder`].
     pub order: WalkOrder,
+    /// Which commits to keep; `None` keeps every commit of the scope.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<WalkFilter>,
 }
 
 impl Default for WalkOptions {
@@ -190,7 +193,101 @@ impl Default for WalkOptions {
         Self {
             page_size: 500,
             order: WalkOrder::default(),
+            filter: None,
         }
+    }
+}
+
+/// Most commits a count walks before it stops and reports the cap.
+pub const COUNT_CAP: u32 = 100_000;
+
+/// How many commits a scope holds, or at least [`COUNT_CAP`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitCount {
+    /// Commits counted, at most [`COUNT_CAP`].
+    pub count: u32,
+    /// Whether the count stopped at the cap.
+    pub capped: bool,
+}
+
+/// Which commits a walk keeps. Every field is optional and they compose with AND; a walk with
+/// any field set produces a flat layout (lane 0, no edges), since lines between non-adjacent
+/// commits would not be parent edges.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WalkFilter {
+    /// Case-insensitive text found in the subject, the body, the author's name or email, or a
+    /// prefix of the hash.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// Case-insensitive text found in the author's name or email.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Committer time at or after this unix time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<i64>,
+    /// Committer time at or before this unix time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<i64>,
+    /// Repository-relative paths (files or directories) the commit must touch; the history is
+    /// produced by `git rev-list -- <paths>`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paths: Vec<String>,
+}
+
+impl WalkFilter {
+    /// Whether any field is set.
+    pub fn is_active(&self) -> bool {
+        self.text.as_deref().is_some_and(|t| !t.trim().is_empty())
+            || self.author.as_deref().is_some_and(|a| !a.trim().is_empty())
+            || self.since.is_some()
+            || self.until.is_some()
+            || !self.paths.is_empty()
+    }
+
+    /// Whether the metadata part of the filter (everything but `paths`) keeps `node`.
+    pub fn matches(&self, node: &CommitNode) -> bool {
+        if let Some(text) = self
+            .text
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+        {
+            let needle = text.to_lowercase();
+            let hit = node.subject.to_lowercase().contains(&needle)
+                || node.body.to_lowercase().contains(&needle)
+                || node.author.name.to_lowercase().contains(&needle)
+                || node.author.email.to_lowercase().contains(&needle)
+                || node.hash.starts_with(&needle);
+            if !hit {
+                return false;
+            }
+        }
+        if let Some(author) = self
+            .author
+            .as_deref()
+            .map(str::trim)
+            .filter(|a| !a.is_empty())
+        {
+            let needle = author.to_lowercase();
+            if !(node.author.name.to_lowercase().contains(&needle)
+                || node.author.email.to_lowercase().contains(&needle))
+            {
+                return false;
+            }
+        }
+        if let Some(since) = self.since {
+            if node.committer.time < since {
+                return false;
+            }
+        }
+        if let Some(until) = self.until {
+            if node.committer.time > until {
+                return false;
+            }
+        }
+        true
     }
 }
 

@@ -171,6 +171,7 @@ fn walk_first_page(c: &mut Criterion) {
         let options = WalkOptions {
             page_size: 500,
             order: WalkOrder::Lazy,
+            filter: None,
         };
         group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
             b.iter(|| {
@@ -195,6 +196,7 @@ fn walk_first_page_date_topo(c: &mut Criterion) {
         let options = WalkOptions {
             page_size: 500,
             order: WalkOrder::DateTopo,
+            filter: None,
         };
         group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
             b.iter(|| {
@@ -216,6 +218,7 @@ fn walk_ten_pages(c: &mut Criterion) {
         let options = WalkOptions {
             page_size: 500,
             order: WalkOrder::Lazy,
+            filter: None,
         };
         group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
             b.iter(|| {
