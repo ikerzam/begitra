@@ -121,7 +121,8 @@
   "operations": {
     "opening": "Opening {name}",
     "loadingHistory": "Loading history",
-    "loadingDiff": "Computing diff for {hash}"
+    "loadingDiff": "Computing diff for {hash}",
+    "scanning": "Scanning {folder}"
   },
   "home": {
     "title": "Repositories",
