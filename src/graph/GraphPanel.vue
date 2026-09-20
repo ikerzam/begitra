@@ -13,7 +13,6 @@ import ErrorBanner from "@/components/ErrorBanner.vue";
 import type { CommitNode } from "@/ipc/schemas";
 import { errorText } from "@/shell/errorMessage";
 import { shortHash } from "@/shell/format";
-import { useShortcut } from "@/shortcuts/useShortcut";
 import { useGraphStore } from "@/stores/graph";
 import { useRepoStore } from "@/stores/repo";
 import { useToastsStore } from "@/stores/toasts";
@@ -66,11 +65,6 @@ function selectParent(hash: string): void {
   else toasts.push({ kind: "info", message: t("detail.parentNotLoaded") });
   hover.hide();
 }
-
-useShortcut("diff-from", () => {
-  const commit = repo.selectedCommit;
-  if (commit) actions.diffFrom(commit);
-});
 
 watch(
   () => repo.selectedIndex,

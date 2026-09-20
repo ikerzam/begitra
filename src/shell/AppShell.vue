@@ -11,6 +11,8 @@ import DropTarget from "@/discovery/DropTarget.vue";
 import { useDragDrop } from "@/discovery/useDragDrop";
 import type { FileChange } from "@/ipc/schemas";
 import PaletteOverlay from "@/palette/PaletteOverlay.vue";
+import PickerOverlay from "@/picker/PickerOverlay.vue";
+import { usePickerStore } from "@/stores/picker";
 import { baseName } from "@/shell/format";
 import { installShortcuts, useShortcut } from "@/shortcuts/useShortcut";
 import { useIndexStore } from "@/stores/index";
@@ -37,6 +39,7 @@ const index = useIndexStore();
 const settings = useSettingsStore();
 const toasts = useToastsStore();
 const reviewStore = useReviewStore();
+const picker = usePickerStore();
 const { openFolder } = useOpenFolder();
 const external = useExternal();
 const { dragging } = useDragDrop((path) => void index.open(path));
@@ -53,6 +56,9 @@ useShortcut("review-focus", () => void shell.setLayoutMode("review"));
 useShortcut("toggle-sidebar", () => void shell.toggleSidebar());
 useShortcut("open-terminal", () => void external.openTerminal());
 useShortcut("open-editor", () => void external.openEditor());
+useShortcut("diff-from", () => {
+  if (repo.state.kind === "ready") picker.open({ kind: "diff-from" });
+});
 
 let uninstall: (() => void) | undefined;
 const onResize = () => shell.setWindowWidth(window.innerWidth);
@@ -151,6 +157,7 @@ async function removeFromList(): Promise<void> {
     </div>
     <StatusBar />
     <PaletteOverlay v-if="shell.paletteOpen" />
+    <PickerOverlay v-if="picker.mode" />
     <ToastHost />
   </div>
 </template>

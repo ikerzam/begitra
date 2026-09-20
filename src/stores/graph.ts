@@ -151,12 +151,29 @@ export const useGraphStore = defineStore("graph", () => {
     apply();
   }
 
+  /** The pins drive the review target: `base..end` (HEAD without an end); none follows the selection. */
+  function syncTarget(): void {
+    const base = review.diffBase;
+    if (base) {
+      review.setTarget({
+        kind: "range",
+        from: base,
+        to: review.rangeEnd ?? "HEAD",
+        threeDot: false,
+      });
+    } else if (review.chosenTarget?.kind === "range") {
+      review.setTarget(null);
+    }
+  }
+
   function setDiffBase(hash: string | null): void {
     review.setDiffBase(hash);
+    syncTarget();
   }
 
   function setRangeEnd(hash: string | null): void {
     review.setRangeEnd(hash);
+    syncTarget();
   }
 
   function noteAuthors(commits: CommitNode[], from: number): void {

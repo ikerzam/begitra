@@ -60,6 +60,8 @@ export const useRepoStore = defineStore("repo", () => {
   const refs = ref<GitRef[]>([]);
   /** Whether the refs of the open repository have arrived (they load after the first page). */
   const refsLoaded = ref(false);
+  /** The failure of the last refs listing; the refs shown stay as they were. */
+  const refsError = ref<AppError | null>(null);
   // Commits are appended by the thousand and never edited in place: a shallow ref avoids a
   // reactive proxy per commit.
   const commits = shallowRef<CommitNode[]>([]);
@@ -104,6 +106,7 @@ export const useRepoStore = defineStore("repo", () => {
     repo.value = null;
     refs.value = [];
     refsLoaded.value = false;
+    refsError.value = null;
     commits.value = [];
     walk.value = null;
     walkScope.value = { kind: "all" };
@@ -397,8 +400,10 @@ export const useRepoStore = defineStore("repo", () => {
       if (myGeneration !== generation) return;
       refs.value = listed;
       refsLoaded.value = true;
-    } catch {
-      // The refs shown stay until the next change; nothing to tell the user yet.
+      refsError.value = null;
+    } catch (error) {
+      // The refs shown stay until the next change; the picker reports the failure.
+      if (myGeneration === generation) refsError.value = toAppError(error);
     }
   }
 
@@ -423,6 +428,7 @@ export const useRepoStore = defineStore("repo", () => {
     repo,
     refs,
     refsLoaded,
+    refsError,
     commits,
     walk,
     walkScope,
