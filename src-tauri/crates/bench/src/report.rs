@@ -20,6 +20,8 @@ pub fn budget(id: &str) -> Option<Duration> {
         ("read_blob", _) => 200,
         // Highlighting runs after the rows show; symbols after the diff of one file.
         ("syntax", "highlight_large_file") => 1_000,
+        // The highlighter stops itself after its 1.5 s budget with the lines done so far.
+        ("syntax", "highlight_large_typescript") => 1_600,
         ("syntax", "symbols_typical") => 50,
         ("diff_large_file", _) | ("merge_base", _) => 500,
         ("status", _) => 2_000,

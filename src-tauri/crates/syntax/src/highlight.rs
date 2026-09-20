@@ -5,23 +5,32 @@
 //! for facts); the other classes are kept for a later, richer treatment.
 
 use std::sync::OnceLock;
+use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 use syntect::parsing::{ParseState, Scope, ScopeStack, ScopeStackOp, SyntaxReference, SyntaxSet};
 
-use crate::{within_caps, Cancelled, CANCEL_EVERY};
+use crate::{within_caps, Cancelled, CANCEL_EVERY, TIME_BUDGET};
 
 /// The class of a token.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum TokenClass {
+    /// Anything not listed below; never reported, since a line's gaps are plain.
     Plain,
+    /// A comment, painted muted by the viewer.
     Comment,
+    /// A string literal, painted secondary by the viewer.
     String,
+    /// A keyword or storage modifier.
     Keyword,
+    /// A numeric literal.
     Number,
+    /// A type name.
     Type,
+    /// A function or method name, at its declaration or call.
     Function,
+    /// Punctuation and operators.
     Punctuation,
 }
 
@@ -29,8 +38,11 @@ pub enum TokenClass {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Token {
+    /// First byte of the span.
     pub start: u32,
+    /// One past the last byte of the span.
     pub end: u32,
+    /// The class of the span.
     pub class: TokenClass,
 }
 
@@ -40,7 +52,11 @@ pub struct Token {
 pub struct Highlight {
     /// The syntax used, `None` when the file was not recognised or exceeded the caps.
     pub syntax: Option<String>,
+    /// The non-plain tokens of each line, in order; a line without an entry (the time budget
+    /// ran out, or the grammar failed mid-file) is plain.
     pub lines: Vec<Vec<Token>>,
+    /// Whether every line was classified; `false` when [`TIME_BUDGET`] ran out first.
+    pub complete: bool,
 }
 
 fn syntax_set() -> &'static SyntaxSet {
@@ -131,7 +147,8 @@ fn class_of_scope(scope: Scope) -> Option<TokenClass> {
 }
 
 /// Classifies `text` (the whole file) as `path`; `cancelled` is polled every
-/// [`CANCEL_EVERY`] lines. A file over the caps or without a known syntax yields no tokens.
+/// [`CANCEL_EVERY`] lines, and the work stops after [`TIME_BUDGET`] with the lines done so
+/// far (`complete` false). A file over the caps or without a known syntax yields no tokens.
 pub fn highlight(
     path: &str,
     text: &str,
@@ -147,24 +164,38 @@ pub fn highlight(
     if syntax.name == "Plain Text" {
         return Ok(Highlight::default());
     }
+    let started = Instant::now();
     let mut state = ParseState::new(syntax);
     let mut stack = ScopeStack::new();
     let mut lines = Vec::new();
+    let mut complete = true;
     // The newline-aware syntaxes expect the line terminator.
     for (index, line) in split_lines(text).enumerate() {
-        if index % CANCEL_EVERY == 0 && cancelled() {
-            return Err(Cancelled);
+        if index % CANCEL_EVERY == 0 {
+            if cancelled() {
+                return Err(Cancelled);
+            }
+            if index > 0 && started.elapsed() > TIME_BUDGET {
+                complete = false;
+                break;
+            }
         }
         let ops = match state.parse_line(line, set) {
             Ok(ops) => ops,
             // A grammar that fails mid-file leaves the rest plain rather than failing the view.
-            Err(_) => break,
+            Err(_) => {
+                complete = false;
+                break;
+            }
         };
-        lines.push(classify_line(line, &ops, &mut stack));
+        let mut tokens = classify_line(line, &ops, &mut stack);
+        tokens.shrink_to_fit();
+        lines.push(tokens);
     }
     Ok(Highlight {
         syntax: Some(syntax.name.clone()),
         lines,
+        complete,
     })
 }
 
@@ -313,5 +344,37 @@ mod tests {
             Some("Python")
         );
         assert_eq!(highlight("a.rs", "fn a() {}\n", &|| true), Err(Cancelled));
+    }
+
+    #[test]
+    fn byte_and_line_caps_and_late_cancellation() {
+        // Over 2 MB in few lines.
+        let wide = format!("{}\n", "x".repeat(10_000)).repeat(220);
+        assert_eq!(
+            highlight("a.rs", &wide, &never).expect("ok"),
+            Highlight::default()
+        );
+        // One line over 16 KB.
+        let long_line = format!("let s = \"{}\";\n", "y".repeat(20_000));
+        assert_eq!(
+            highlight("a.rs", &long_line, &never).expect("ok"),
+            Highlight::default()
+        );
+        // A cancel raised after the first check is seen at the next one.
+        let calls = std::cell::Cell::new(0usize);
+        let later = || {
+            calls.set(calls.get() + 1);
+            calls.get() > 1
+        };
+        let text = "fn a() {}\n".repeat(1_200);
+        assert_eq!(highlight("a.rs", &text, &later), Err(Cancelled));
+        assert_eq!(calls.get(), 2);
+    }
+
+    #[test]
+    fn complete_is_reported() {
+        let result = highlight("a.rs", "fn a() {}\n", &never).expect("ok");
+        assert!(result.complete);
+        assert_eq!(result.lines.len(), 1);
     }
 }

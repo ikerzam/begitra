@@ -3,8 +3,10 @@
 //! the name from the grammar's `name` field (the `type` field of a Rust `impl`, the declarator
 //! of a JavaScript `const f = () => {}`), in document order, nested declarations included.
 
+use std::ops::ControlFlow;
+
 use serde::{Deserialize, Serialize};
-use tree_sitter::{Language, Node, Parser};
+use tree_sitter::{Language, Node, ParseOptions, Parser};
 
 use crate::{within_caps, Cancelled, CANCEL_EVERY};
 
@@ -12,17 +14,29 @@ use crate::{within_caps, Cancelled, CANCEL_EVERY};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SymbolKind {
+    /// A free function (or an arrow function bound to a `const`).
     Function,
+    /// A method of a class, struct, trait or interface.
     Method,
+    /// A class.
     Class,
+    /// A struct (or a C# record).
     Struct,
+    /// An enum.
     Enum,
+    /// An interface.
     Interface,
+    /// A Rust trait.
     Trait,
+    /// A type alias.
     Type,
+    /// A module or namespace.
     Module,
+    /// A Rust `impl` block, named after its type.
     Impl,
+    /// A property with a body (a getter or setter).
     Property,
+    /// A constructor.
     Constructor,
 }
 
@@ -30,9 +44,13 @@ pub enum SymbolKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Symbol {
+    /// What the declaration declares.
     pub kind: SymbolKind,
+    /// The declared name.
     pub name: String,
+    /// First line of the declaration, 1-based.
     pub start_line: u32,
+    /// Last line of the declaration, 1-based, inclusive.
     pub end_line: u32,
 }
 
@@ -170,9 +188,30 @@ impl Lang {
     }
 }
 
-/// Lists the declarations of `text` as `path`; `cancelled` is polled every [`CANCEL_EVERY`]
-/// nodes. A file of another language, over the caps, or that the grammar cannot parse at all
-/// yields an empty list.
+/// Parses `text` with the grammar of `lang`; `None` when the grammar cannot be loaded, the
+/// parser gave up, or `cancelled` returned true while it ran (the parser polls it as it goes).
+fn parse(lang: Lang, text: &str, cancelled: &dyn Fn() -> bool) -> Option<tree_sitter::Tree> {
+    let mut parser = Parser::new();
+    parser.set_language(&lang.language()).ok()?;
+    let bytes = text.as_bytes();
+    let mut progress = |_: &tree_sitter::ParseState| {
+        if cancelled() {
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        }
+    };
+    let options = ParseOptions::new().progress_callback(&mut progress);
+    parser.parse_with_options(
+        &mut |offset, _| bytes.get(offset..).unwrap_or(&[]),
+        None,
+        Some(options),
+    )
+}
+
+/// Lists the declarations of `text` as `path`; `cancelled` is polled by the parser as it
+/// progresses and every [`CANCEL_EVERY`] nodes of the walk. A file of another language, over
+/// the caps, or that the grammar cannot parse at all yields an empty list.
 pub fn symbols(
     path: &str,
     text: &str,
@@ -184,12 +223,13 @@ pub fn symbols(
     if !within_caps(text) {
         return Ok(Vec::new());
     }
-    let mut parser = Parser::new();
-    if parser.set_language(&lang.language()).is_err() {
-        return Ok(Vec::new());
-    }
-    let Some(tree) = parser.parse(text, None) else {
-        return Ok(Vec::new());
+    let Some(tree) = parse(lang, text, cancelled) else {
+        // The parser gives nothing back when the progress callback stopped it.
+        return if cancelled() {
+            Err(Cancelled)
+        } else {
+            Ok(Vec::new())
+        };
     };
     let mut found = Vec::new();
     let mut visited = 0usize;
@@ -346,5 +386,17 @@ mod tests {
         let big = "fn a() {}\n".repeat(60_000);
         assert!(names("a.rs", &big).is_empty());
         assert_eq!(symbols("a.rs", "fn a() {}\n", &|| true), Err(Cancelled));
+        // A long line over the cap.
+        let long_line = format!("const S = \"{}\";\n", "y".repeat(20_000));
+        assert!(names("a.ts", &long_line).is_empty());
+    }
+
+    #[test]
+    fn the_parser_polls_the_flag() {
+        let text = "function f() { return 1; }\n".repeat(5_000);
+        assert!(parse(Lang::TypeScript, &text, &never).is_some());
+        // The parser polls after a few operations, well before a 5,000-function file ends.
+        assert!(parse(Lang::TypeScript, &text, &|| true).is_none());
+        assert_eq!(symbols("a.ts", &text, &|| true), Err(Cancelled));
     }
 }

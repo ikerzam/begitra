@@ -48,6 +48,22 @@ fn highlight_large_file(c: &mut Criterion) {
     group.finish();
 }
 
+/// The slowest common grammar: the JavaScript syntax TypeScript files use takes about five
+/// times longer per line than Rust's.
+fn highlight_large_typescript(c: &mut Criterion) {
+    let mut group = c.benchmark_group("syntax");
+    group.sample_size(10);
+    let source = typescript_source(10_000);
+    group.bench_with_input(
+        BenchmarkId::from_parameter("highlight_large_typescript"),
+        &source,
+        |b, text| {
+            b.iter(|| syntax::highlight("src/service.ts", text, &never).expect("highlight"));
+        },
+    );
+    group.finish();
+}
+
 fn symbols_typical(c: &mut Criterion) {
     let mut group = c.benchmark_group("syntax");
     group.sample_size(20);
@@ -62,5 +78,10 @@ fn symbols_typical(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, highlight_large_file, symbols_typical);
+criterion_group!(
+    benches,
+    highlight_large_file,
+    highlight_large_typescript,
+    symbols_typical
+);
 criterion_main!(benches);
