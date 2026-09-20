@@ -280,6 +280,7 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
             [{ start: 4, end: 8, class: "function" }],
             [],
           ],
+          complete: true,
         };
       case "file_symbols":
         return [{ kind: "function", name: "main", startLine: 1, endLine: 4 }];

@@ -27,6 +27,8 @@ pub mod codes {
     pub const DIFF_BLOB_MISSING: &str = "diff.blob_missing";
     /// A file is larger than what the app reads whole.
     pub const BLOB_TOO_LARGE: &str = "blob.too_large";
+    /// A working tree file could not be read; `detail` carries the OS reason.
+    pub const BLOB_UNREADABLE: &str = "blob.unreadable";
     /// A linked worktree's folder is missing.
     pub const WORKTREE_MISSING_FOLDER: &str = "worktree.missing_folder";
     /// The system `git` failed; `detail` carries its stderr.
@@ -53,7 +55,7 @@ pub mod codes {
     pub const INTERNAL: &str = "internal";
 
     /// Every code, in the order of the declarations above.
-    pub const ALL: [&str; 19] = [
+    pub const ALL: [&str; 20] = [
         REPO_NOT_FOUND,
         REPO_INVALID,
         REPO_CORRUPT_OBJECT,
@@ -61,6 +63,7 @@ pub mod codes {
         REFS_UNRELATED_HISTORIES,
         DIFF_BLOB_MISSING,
         BLOB_TOO_LARGE,
+        BLOB_UNREADABLE,
         WORKTREE_MISSING_FOLDER,
         GIT_CLI_FAILED,
         IPC_INVALID_ARGUMENT,
@@ -159,6 +162,7 @@ impl From<GitError> for AppError {
                 Some(reason.clone())
             }
             GitError::Cli { stderr, .. } => Some(stderr.clone()),
+            GitError::BlobUnreadable { reason, .. } => Some(reason.clone()),
             _ => None,
         };
         Self {

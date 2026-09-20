@@ -29,6 +29,10 @@
     "message": "Sample message for blob.too_large"
   },
   {
+    "code": "blob.unreadable",
+    "message": "Sample message for blob.unreadable"
+  },
+  {
     "code": "worktree.missing_folder",
     "message": "Sample message for worktree.missing_folder"
   },

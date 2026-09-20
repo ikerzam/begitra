@@ -48,12 +48,34 @@ struct Inner {
     index: Mutex<Option<Index>>,
     /// The watcher of the open repository, with its root.
     watcher: Mutex<Option<(PathBuf, RepoWatcher)>>,
-    /// The token classes of the last files viewed, per repository, keyed by blob.
-    highlights: Mutex<HashMap<PathBuf, VecDeque<(String, Highlight)>>>,
+    /// The token classes of the last files viewed, per repository, keyed by path and content.
+    highlights: Mutex<HashMap<PathBuf, VecDeque<CachedHighlight>>>,
+}
+
+/// One cached highlight with the bytes it holds.
+struct CachedHighlight {
+    key: String,
+    bytes: usize,
+    highlight: Arc<Highlight>,
 }
 
 /// Highlights kept per repository.
 const HIGHLIGHT_CACHE: usize = 32;
+/// Bytes of tokens the highlights of one process may hold together (the budget keeps the
+/// idle footprint under 200 MB; a dense 50,000-line file is about 10 MB).
+const HIGHLIGHT_CACHE_BYTES: usize = 48 * 1024 * 1024;
+
+/// Heap bytes a highlight holds: the token vectors and one header per line.
+fn highlight_bytes(highlight: &Highlight) -> usize {
+    highlight
+        .lines
+        .iter()
+        .map(|line| {
+            std::mem::size_of::<Vec<syntax::Token>>()
+                + line.capacity() * std::mem::size_of::<syntax::Token>()
+        })
+        .sum()
+}
 
 /// Shared application state managed by Tauri.
 #[derive(Clone, Default)]
@@ -67,8 +89,9 @@ impl AppState {
         &self.inner.ops
     }
 
-    /// The cached token classes of `key` in the repository at `root`.
-    pub fn cached_highlight(&self, root: &Path, key: &str) -> Option<Highlight> {
+    /// The cached token classes of `key` in the repository at `root`; the handle is cloned
+    /// under the lock, never the tokens.
+    pub fn cached_highlight(&self, root: &Path, key: &str) -> Option<Arc<Highlight>> {
         let cache = self
             .inner
             .highlights
@@ -77,23 +100,58 @@ impl AppState {
         cache
             .get(root)?
             .iter()
-            .find(|(k, _)| k == key)
-            .map(|(_, highlight)| highlight.clone())
+            .find(|entry| entry.key == key)
+            .map(|entry| Arc::clone(&entry.highlight))
     }
 
-    /// Remembers the token classes of `key`, dropping the oldest beyond the cache size.
-    pub fn cache_highlight(&self, root: &Path, key: String, highlight: Highlight) {
+    /// Remembers the token classes of `key`, dropping the oldest entries beyond the count
+    /// per repository and beyond the byte bound of the process.
+    pub fn cache_highlight(&self, root: &Path, key: String, highlight: Arc<Highlight>) {
+        let bytes = highlight_bytes(&highlight);
         let mut cache = self
             .inner
             .highlights
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let entries = cache.entry(root.to_path_buf()).or_default();
-        entries.retain(|(k, _)| k != &key);
-        entries.push_back((key, highlight));
+        entries.retain(|entry| entry.key != key);
+        entries.push_back(CachedHighlight {
+            key,
+            bytes,
+            highlight,
+        });
         while entries.len() > HIGHLIGHT_CACHE {
             entries.pop_front();
         }
+        // The byte bound is per process: the oldest entry of the fullest repository goes
+        // first, so the one just added is the last of its repository to go.
+        let mut total: usize = cache.values().flatten().map(|entry| entry.bytes).sum();
+        while total > HIGHLIGHT_CACHE_BYTES {
+            let fullest = cache
+                .iter_mut()
+                .max_by_key(|(_, entries)| entries.iter().map(|entry| entry.bytes).sum::<usize>());
+            let Some((_, entries)) = fullest else {
+                break;
+            };
+            match entries.pop_front() {
+                Some(dropped) => total -= dropped.bytes,
+                None => break,
+            }
+        }
+        cache.retain(|_, entries| !entries.is_empty());
+    }
+
+    /// Bytes of tokens the highlight cache holds.
+    #[cfg(test)]
+    fn highlight_cache_bytes(&self) -> usize {
+        self.inner
+            .highlights
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .values()
+            .flatten()
+            .map(|entry| entry.bytes)
+            .sum()
     }
 
     /// Opens the index database at `path` (created and migrated when missing), replacing the
@@ -221,6 +279,11 @@ impl AppState {
             }
         });
         drop(walks);
+        self.inner
+            .highlights
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(root);
         let watcher = self.take_watcher(root).map(|(_, watcher)| watcher);
         if engine.is_none() && dropped.is_empty() && watcher.is_none() {
             return None;
@@ -401,5 +464,61 @@ mod tests {
         assert_eq!(closed.walks.len(), 1);
         assert!(state.close(Path::new("/a")).is_none());
         assert_eq!(state.walk_count(), 0);
+    }
+
+    /// A highlight of `lines` lines with `per_line` tokens each.
+    fn highlight_of(lines: usize, per_line: usize) -> Arc<Highlight> {
+        let token = syntax::Token {
+            start: 0,
+            end: 1,
+            class: syntax::TokenClass::Keyword,
+        };
+        Arc::new(Highlight {
+            syntax: Some("Rust".to_owned()),
+            lines: (0..lines).map(|_| vec![token.clone(); per_line]).collect(),
+            complete: true,
+        })
+    }
+
+    #[test]
+    fn highlights_are_keyed_replaced_bounded_and_dropped_with_the_repository() {
+        let state = AppState::default();
+        let root = Path::new("/a");
+        state.cache_highlight(root, "a.rs:1".to_owned(), highlight_of(2, 1));
+        let first = state.cached_highlight(root, "a.rs:1").expect("cached");
+        assert_eq!(first.lines.len(), 2);
+        assert!(state.cached_highlight(root, "a.rs:2").is_none());
+        // The same key replaces the entry rather than adding one.
+        state.cache_highlight(root, "a.rs:1".to_owned(), highlight_of(3, 1));
+        assert_eq!(
+            state
+                .cached_highlight(root, "a.rs:1")
+                .expect("replaced")
+                .lines
+                .len(),
+            3
+        );
+        let bytes_of_three = state.highlight_cache_bytes();
+        // The count bound per repository keeps the newest 32.
+        for i in 0..40 {
+            state.cache_highlight(root, format!("f{i}.rs"), highlight_of(1, 1));
+        }
+        assert!(state.cached_highlight(root, "a.rs:1").is_none());
+        assert!(state.cached_highlight(root, "f7.rs").is_none());
+        assert!(state.cached_highlight(root, "f8.rs").is_some());
+        assert!(state.highlight_cache_bytes() < bytes_of_three * 32);
+        // The byte bound of the process evicts the oldest entries of the fullest repository.
+        let dense = highlight_of(50_000, 20);
+        assert!(highlight_bytes(&dense) > HIGHLIGHT_CACHE_BYTES / 4);
+        for i in 0..6 {
+            state.cache_highlight(Path::new("/b"), format!("d{i}.rs"), Arc::clone(&dense));
+        }
+        assert!(state.highlight_cache_bytes() <= HIGHLIGHT_CACHE_BYTES);
+        assert!(state.cached_highlight(Path::new("/b"), "d0.rs").is_none());
+        assert!(state.cached_highlight(Path::new("/b"), "d5.rs").is_some());
+        // Closing a repository drops its highlights.
+        state.close(Path::new("/b"));
+        assert!(state.cached_highlight(Path::new("/b"), "d5.rs").is_none());
+        assert!(state.cached_highlight(root, "f39.rs").is_some());
     }
 }

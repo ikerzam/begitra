@@ -28,6 +28,7 @@ export const errorCodes = [
   "refs.unrelated_histories",
   "diff.blob_missing",
   "blob.too_large",
+  "blob.unreadable",
   "worktree.missing_folder",
   "git.cli_failed",
   "ipc.invalid_argument",
@@ -298,8 +299,16 @@ export type Token = v.InferOutput<typeof TokenSchema>;
 export const HighlightSchema = v.object({
   syntax: v.nullable(v.string()),
   lines: v.array(v.array(TokenSchema)),
+  /** False when the highlighter's time budget ran out: the lines past the last are plain. */
+  complete: v.boolean(),
 });
 export type Highlight = v.InferOutput<typeof HighlightSchema>;
+
+/** A run of lines the viewer shows, 1-based and inclusive. */
+export interface LineRange {
+  start: number;
+  end: number;
+}
 
 export const SymbolKindSchema = v.picklist([
   "function",
@@ -466,6 +475,9 @@ export const commandArgs = {
     repo: path,
     at: BlobAtSchema,
     path: v.pipe(v.string(), v.minLength(1)),
+    ranges: v.nullable(
+      v.array(v.object({ start: v.pipe(count, v.minValue(1)), end: v.pipe(count, v.minValue(1)) })),
+    ),
     opId,
   }),
   file_symbols: v.object({

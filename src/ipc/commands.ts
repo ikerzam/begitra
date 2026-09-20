@@ -25,6 +25,7 @@ import {
   type DiffOptions,
   type DiffPage,
   type DiffTarget,
+  type LineRange,
   type RepoChanged,
   type ScanMessage,
   type ScanOptions,
@@ -137,9 +138,18 @@ export function readBlob(repo: string, at: BlobAt, path: string, opId = newOpId(
   return call("read_blob", { repo, at, path, opId }, BlobContentSchema);
 }
 
-/** The token classes of a file's lines; empty for binary, unknown or oversized files. */
-export function highlightFile(repo: string, at: BlobAt, path: string, opId = newOpId("hl")) {
-  return call("highlight_file", { repo, at, path, opId }, HighlightSchema);
+/**
+ * The token classes of a file's lines; empty for binary, unknown or oversized files. With
+ * `ranges`, only those lines carry tokens (the rest come back empty).
+ */
+export function highlightFile(
+  repo: string,
+  at: BlobAt,
+  path: string,
+  ranges: LineRange[] | null = null,
+  opId = newOpId("hl"),
+) {
+  return call("highlight_file", { repo, at, path, ranges, opId }, HighlightSchema);
 }
 
 /** The declarations of a file; empty for a language without a grammar. */

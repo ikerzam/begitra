@@ -676,10 +676,11 @@ fn write_fixtures() {
                     Token {
                         start: 21,
                         end: 22,
-                        class: TokenClass::Plain,
+                        class: TokenClass::Punctuation,
                     },
                 ],
             ],
+            complete: true,
         },
     );
     write(

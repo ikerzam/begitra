@@ -3,7 +3,9 @@
 //! persisted per repository and target (`list_annotations`, `set_annotation`,
 //! `delete_annotation`).
 
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use git_core::engine::GitEngine;
 use git_core::error::GitError;
@@ -36,22 +38,58 @@ pub async fn read_blob(
     .await
 }
 
-/// Reads the text of `path` at `at`; a binary file has no text to classify.
+/// Reads the text of `path` at `at`; a binary file has no text to classify. The key names
+/// the path (the syntax comes from its extension) and the content, never the revision: a
+/// branch that moved or a working-tree edit of the same size must not hit the cache.
 fn text_of(
     engine: &dyn GitEngine,
     at: &BlobAt,
     path: &str,
 ) -> Result<Option<(String, String)>, GitError> {
     let blob = engine.read_blob(at, path)?;
-    let key = match at {
-        BlobAt::Revision { rev } => format!("{rev}:{path}"),
-        BlobAt::WorkingTree => format!("working-tree:{path}:{}", blob.size),
-    };
-    Ok(blob.text.map(|text| (key, text)))
+    Ok(blob.text.map(|text| {
+        let mut hasher = DefaultHasher::new();
+        text.hash(&mut hasher);
+        (format!("{path}:{:016x}", hasher.finish()), text)
+    }))
+}
+
+/// A run of lines the viewer shows, 1-based and inclusive.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LineRange {
+    pub start: u32,
+    pub end: u32,
+}
+
+/// The highlight with only the lines inside `ranges` kept; the others come back empty, so a
+/// 50,000-line file whose diff touches two hunks ships two hunks' worth of tokens.
+fn slice(highlight: &Highlight, ranges: &[LineRange]) -> Highlight {
+    let lines = highlight
+        .lines
+        .iter()
+        .enumerate()
+        .map(|(index, tokens)| {
+            let number = index as u32 + 1;
+            if ranges
+                .iter()
+                .any(|range| range.start <= number && number <= range.end)
+            {
+                tokens.clone()
+            } else {
+                Vec::new()
+            }
+        })
+        .collect();
+    Highlight {
+        syntax: highlight.syntax.clone(),
+        lines,
+        complete: highlight.complete,
+    }
 }
 
 /// The token classes of `path` at `at`; a binary, unknown or oversized file has none. The
-/// result is cached per repository for the last files viewed.
+/// result is cached per repository for the last files viewed; with `ranges`, only those
+/// lines carry tokens.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state))]
 pub async fn highlight_file(
@@ -59,6 +97,7 @@ pub async fn highlight_file(
     repo: PathBuf,
     at: BlobAt,
     path: String,
+    ranges: Option<Vec<LineRange>>,
     op_id: String,
 ) -> Result<Highlight, AppError> {
     let app = state.inner().clone();
@@ -69,13 +108,25 @@ pub async fn highlight_file(
         let Some((key, text)) = text_of(engine.as_ref(), &at, &path)? else {
             return Ok(Highlight::default());
         };
-        if let Some(cached) = worker.cached_highlight(&root, &key) {
-            return Ok(cached);
-        }
-        let result = syntax::highlight(&path, &text, &|| cancel.is_cancelled())
-            .map_err(|_| GitError::Cancelled)?;
-        worker.cache_highlight(&root, key, result.clone());
-        Ok::<_, GitError>(result)
+        let highlight = match worker.cached_highlight(&root, &key) {
+            Some(cached) => cached,
+            None => {
+                let computed = Arc::new(
+                    syntax::highlight(&path, &text, &|| cancel.is_cancelled())
+                        .map_err(|_| GitError::Cancelled)?,
+                );
+                // A highlight cut short by its time budget is not kept: the next request
+                // may have the time.
+                if computed.complete {
+                    worker.cache_highlight(&root, key, Arc::clone(&computed));
+                }
+                computed
+            }
+        };
+        Ok::<_, GitError>(match ranges {
+            Some(ranges) => slice(&highlight, &ranges),
+            None => (*highlight).clone(),
+        })
     })
     .await
 }
@@ -119,16 +170,46 @@ pub struct AnnotationWrite {
 
 /// Longest note kept, in characters.
 const MAX_NOTE_CHARS: usize = 10_000;
+/// Longest path, hunk key and target kept, in bytes: they form the key of every row.
+const MAX_PATH_BYTES: usize = 4_096;
+const MAX_KEY_BYTES: usize = 512;
 
-fn validate(write: &AnnotationWrite) -> Result<(), AppError> {
+/// Checks a write and normalises it: a mark's value is always `1`.
+fn validate(target: &str, write: &mut AnnotationWrite) -> Result<(), AppError> {
     if write.path.is_empty() {
         return Err(AppError::invalid_argument("path", "empty"));
     }
-    if write.value.chars().count() > MAX_NOTE_CHARS {
+    if write.path.len() > MAX_PATH_BYTES {
         return Err(AppError::invalid_argument(
-            "value",
-            format!("longer than {MAX_NOTE_CHARS} characters"),
+            "path",
+            format!("longer than {MAX_PATH_BYTES} bytes"),
         ));
+    }
+    if write.hunk.len() > MAX_KEY_BYTES {
+        return Err(AppError::invalid_argument(
+            "hunk",
+            format!("longer than {MAX_KEY_BYTES} bytes"),
+        ));
+    }
+    if target.is_empty() || target.len() > MAX_KEY_BYTES {
+        return Err(AppError::invalid_argument(
+            "target",
+            format!("empty or longer than {MAX_KEY_BYTES} bytes"),
+        ));
+    }
+    match write.kind {
+        AnnotationKind::Reviewed => write.value = "1".to_owned(),
+        AnnotationKind::Note => {
+            if write.value.trim().is_empty() {
+                return Err(AppError::invalid_argument("value", "empty note"));
+            }
+            if write.value.chars().count() > MAX_NOTE_CHARS {
+                return Err(AppError::invalid_argument(
+                    "value",
+                    format!("longer than {MAX_NOTE_CHARS} characters"),
+                ));
+            }
+        }
     }
     Ok(())
 }
@@ -155,14 +236,14 @@ pub async fn list_annotations(
 
 /// Writes or replaces one mark or note.
 #[tauri::command]
-#[tracing::instrument(level = "debug", skip(state))]
+#[tracing::instrument(level = "debug", skip(state, annotation), fields(path = %annotation.path, kind = ?annotation.kind))]
 pub async fn set_annotation(
     state: State<'_, AppState>,
     repo: PathBuf,
     target: String,
-    annotation: AnnotationWrite,
+    mut annotation: AnnotationWrite,
 ) -> Result<(), AppError> {
-    validate(&annotation)?;
+    validate(&target, &mut annotation)?;
     let app = state.inner().clone();
     tokio::task::spawn_blocking(move || {
         let repo = normalise(&repo);
@@ -181,7 +262,7 @@ pub async fn set_annotation(
 
 /// Removes one mark or note; returns whether it existed.
 #[tauri::command]
-#[tracing::instrument(level = "debug", skip(state))]
+#[tracing::instrument(level = "debug", skip(state, annotation), fields(path = %annotation.path, kind = ?annotation.kind))]
 pub async fn delete_annotation(
     state: State<'_, AppState>,
     repo: PathBuf,
@@ -208,6 +289,11 @@ pub async fn delete_annotation(
 mod tests {
     use super::*;
 
+    fn check(target: &str, write: &AnnotationWrite) -> Result<AnnotationWrite, AppError> {
+        let mut write = write.clone();
+        validate(target, &mut write).map(|()| write)
+    }
+
     #[test]
     fn writes_are_validated() {
         let ok = AnnotationWrite {
@@ -216,19 +302,74 @@ mod tests {
             kind: AnnotationKind::Note,
             value: "x".repeat(10_000),
         };
-        assert!(validate(&ok).is_ok());
+        assert!(check("abc", &ok).is_ok());
         let long = AnnotationWrite {
             value: "x".repeat(10_001),
             ..ok.clone()
         };
         assert_eq!(
-            validate(&long).expect_err("too long").message,
+            check("abc", &long).expect_err("too long").message,
             "Invalid argument value"
         );
         let empty = AnnotationWrite {
             path: String::new(),
+            ..ok.clone()
+        };
+        assert!(check("abc", &empty).is_err());
+        let blank = AnnotationWrite {
+            value: "  \n".to_owned(),
+            ..ok.clone()
+        };
+        assert!(check("abc", &blank).is_err());
+        let long_path = AnnotationWrite {
+            path: "p".repeat(4_097),
+            ..ok.clone()
+        };
+        assert!(check("abc", &long_path).is_err());
+        let long_hunk = AnnotationWrite {
+            hunk: "h".repeat(513),
+            ..ok.clone()
+        };
+        assert!(check("abc", &long_hunk).is_err());
+        assert!(check("", &ok).is_err());
+        assert!(check(&"t".repeat(513), &ok).is_err());
+        let mark = AnnotationWrite {
+            kind: AnnotationKind::Reviewed,
+            value: "yes".to_owned(),
             ..ok
         };
-        assert!(validate(&empty).is_err());
+        assert_eq!(check("abc", &mark).expect("mark").value, "1");
+    }
+
+    #[test]
+    fn slices_keep_only_the_requested_lines() {
+        let token = |start: u32| syntax::Token {
+            start,
+            end: start + 1,
+            class: syntax::TokenClass::Keyword,
+        };
+        let full = Highlight {
+            syntax: Some("Rust".to_owned()),
+            lines: vec![
+                vec![token(0)],
+                vec![token(1)],
+                vec![token(2)],
+                vec![token(3)],
+            ],
+            complete: true,
+        };
+        let sliced = slice(
+            &full,
+            &[
+                LineRange { start: 2, end: 2 },
+                LineRange { start: 4, end: 9 },
+            ],
+        );
+        assert_eq!(
+            sliced.lines,
+            vec![vec![], vec![token(1)], vec![], vec![token(3)]]
+        );
+        assert_eq!(sliced.syntax.as_deref(), Some("Rust"));
+        assert!(sliced.complete);
     }
 }

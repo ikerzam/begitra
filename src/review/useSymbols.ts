@@ -73,10 +73,13 @@ export function useSymbols(
 ) {
   const symbols = ref<FileSymbol[]>([]);
   let serial = 0;
+  let inFlight: string | null = null;
 
   async function load(): Promise<void> {
     serial += 1;
     const mine = serial;
+    if (inFlight) void ipc.cancelOperation(inFlight).catch(() => undefined);
+    inFlight = null;
     symbols.value = [];
     const repoRoot = root.value;
     const current = target.value;
@@ -84,19 +87,60 @@ export function useSymbols(
     if (!repoRoot || !current || !open || open.isBinary) return;
     const side = fileSides(current, open).new;
     if (!side) return;
+    const opId = newOpId("sym");
+    inFlight = opId;
     try {
-      const listed = await ipc.fileSymbols(repoRoot, side.at, side.path, newOpId("sym"));
+      const listed = await ipc.fileSymbols(repoRoot, side.at, side.path, opId);
       if (mine === serial) symbols.value = listed;
     } catch {
       // No symbols for this file: the keys do nothing.
+    } finally {
+      if (inFlight === opId) inFlight = null;
     }
   }
 
-  watch([root, () => target.value, () => file.value?.path], () => void load(), {
-    immediate: true,
-  });
+  // The file object changes whenever the change set reloads, so an edit that keeps the
+  // path asks again.
+  watch([root, () => target.value, file], () => void load(), { immediate: true });
 
   const changed = computed(() => changedSymbols(symbols.value, rows.value));
 
   return { symbols, changed, reload: load };
+}
+
+/** What the symbol jumps need from the virtual list: where rows sit and how to get there. */
+export interface SymbolViewport {
+  scrollTop: Ref<number>;
+  rowTop: (index: number) => number;
+  scrollToRow: (index: number) => void;
+}
+
+/**
+ * The next (`step` 1) or previous (`-1`) changed symbol from the row at the top of the
+ * viewport; scrolls to it and returns its name, or null when the file has none.
+ */
+export function jumpToSymbol(
+  changed: ChangedSymbol[],
+  viewport: SymbolViewport,
+  step: 1 | -1,
+): string | null {
+  if (changed.length === 0) return null;
+  const top = viewport.scrollTop.value;
+  let index = -1;
+  if (step > 0) {
+    index = changed.findIndex((entry) => viewport.rowTop(entry.row) > top + 1);
+    if (index < 0) index = 0;
+  } else {
+    index = changed.length - 1;
+    for (let i = changed.length - 1; i >= 0; i -= 1) {
+      if (viewport.rowTop(changed[i]!.row) < top - 1) {
+        index = i;
+        break;
+      }
+    }
+  }
+  const entry = changed[index];
+  if (!entry) return null;
+  viewport.scrollToRow(entry.row);
+  return entry.symbol.name;
 }
