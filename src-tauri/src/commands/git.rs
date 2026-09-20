@@ -31,7 +31,7 @@ fn validate_executable(path: &Path) -> Result<(), AppError> {
 }
 
 /// Looks for git at the configured executable, on PATH and in the platform's common
-/// locations; `git.cli_failed` when none runs.
+/// locations; `git.not_started` when none runs.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state))]
 pub async fn detect_git(
@@ -39,15 +39,15 @@ pub async fn detect_git(
     op_id: String,
 ) -> Result<GitDetection, AppError> {
     let app = state.inner().clone();
-    run_blocking(app.ops(), &op_id, DEFAULT_TIMEOUT, move |_cancel| {
-        cli::detect_git().map_err(AppError::from)
+    run_blocking(app.ops(), &op_id, DEFAULT_TIMEOUT, move |cancel| {
+        cli::detect_git(&cancel).map_err(AppError::from)
     })
     .await
 }
 
 /// Makes the engine's CLI run `path` (an empty path returns to `git` on PATH) once
 /// `<path> --version` has answered; a program that is not git is refused and the previous
-/// executable stays in use.
+/// executable stays in use. The path comes back absolute when it has a folder in it.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state))]
 pub async fn set_git_executable(
@@ -64,8 +64,8 @@ pub async fn set_git_executable(
         Some(candidate)
     };
     let app = state.inner().clone();
-    run_blocking(app.ops(), &op_id, DEFAULT_TIMEOUT, move |_cancel| {
-        cli::set_git_executable(chosen.as_deref()).map_err(AppError::from)
+    run_blocking(app.ops(), &op_id, DEFAULT_TIMEOUT, move |cancel| {
+        cli::set_git_executable(chosen.as_deref(), &cancel).map_err(AppError::from)
     })
     .await
 }

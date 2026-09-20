@@ -31,6 +31,7 @@ export const errorCodes = [
   "blob.unreadable",
   "worktree.missing_folder",
   "worktree.dirty",
+  "git.not_started",
   "git.cli_failed",
   "ipc.invalid_argument",
   "op.cancelled",

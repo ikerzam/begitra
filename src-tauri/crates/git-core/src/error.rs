@@ -61,7 +61,16 @@ pub enum GitError {
     /// git refused to remove a worktree with uncommitted changes; `--force` would.
     #[error("the worktree {0} has uncommitted changes")]
     WorktreeDirty(PathBuf),
-    /// The system `git` failed or could not be started.
+    /// The git executable could not be started at all (not installed, not on PATH, not
+    /// runnable, or silent past the probe's deadline); nothing ran.
+    #[error("git could not be started ({command}): {reason}")]
+    GitNotStarted {
+        /// The arguments that were going to be passed, joined by spaces.
+        command: String,
+        /// The OS error or the deadline.
+        reason: String,
+    },
+    /// The system `git` failed.
     #[error("git {command} failed: {stderr}")]
     Cli {
         /// The arguments that were passed, joined by spaces, for diagnostics.
@@ -93,6 +102,7 @@ impl GitError {
             GitError::BlobUnreadable { .. } => "blob.unreadable",
             GitError::WorktreeMissingFolder(_) => "worktree.missing_folder",
             GitError::WorktreeDirty(_) => "worktree.dirty",
+            GitError::GitNotStarted { .. } => "git.not_started",
             GitError::Cli { .. } => "git.cli_failed",
             GitError::Cancelled => "op.cancelled",
             GitError::Git(_) => "internal",
@@ -100,7 +110,7 @@ impl GitError {
     }
 
     /// Every code an engine error can carry, for the tests that keep the IPC list in sync.
-    pub const CODES: [&'static str; 13] = [
+    pub const CODES: [&'static str; 14] = [
         "repo.not_found",
         "repo.invalid",
         "repo.corrupt_object",
@@ -111,6 +121,7 @@ impl GitError {
         "blob.unreadable",
         "worktree.missing_folder",
         "worktree.dirty",
+        "git.not_started",
         "git.cli_failed",
         "op.cancelled",
         "internal",
@@ -194,6 +205,10 @@ mod tests {
             },
             GitError::WorktreeMissingFolder(PathBuf::from("x")),
             GitError::WorktreeDirty(PathBuf::from("x")),
+            GitError::GitNotStarted {
+                command: String::new(),
+                reason: String::new(),
+            },
             GitError::Cli {
                 command: String::new(),
                 status: None,

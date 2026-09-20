@@ -73,26 +73,25 @@ pub(super) fn parse(output: &[u8], include_untracked: bool) -> Vec<StatusEntry> 
             .cmp(b.path.as_bytes())
             .then(a.untracked.cmp(&b.untracked))
     });
-    merge_same_paths(entries)
+    merge_same_paths(&mut entries);
+    entries
 }
 
-/// Folds consecutive entries of one path into one: the deletion carries the untracked flag.
-fn merge_same_paths(entries: Vec<StatusEntry>) -> Vec<StatusEntry> {
-    let mut merged: Vec<StatusEntry> = Vec::with_capacity(entries.len());
-    for entry in entries {
-        match merged.last_mut() {
-            Some(last) if last.path == entry.path => {
-                last.untracked |= entry.untracked;
-                last.ignored |= entry.ignored;
-                last.conflicted |= entry.conflicted;
-                last.staged = last.staged.or(entry.staged);
-                last.unstaged = last.unstaged.or(entry.unstaged);
-                last.old_path = last.old_path.take().or(entry.old_path);
-            }
-            _ => merged.push(entry),
+/// Folds consecutive entries of one path into one, in place: the deletion carries the
+/// untracked flag.
+fn merge_same_paths(entries: &mut Vec<StatusEntry>) {
+    entries.dedup_by(|entry, kept| {
+        if kept.path != entry.path {
+            return false;
         }
-    }
-    merged
+        kept.untracked |= entry.untracked;
+        kept.ignored |= entry.ignored;
+        kept.conflicted |= entry.conflicted;
+        kept.staged = kept.staged.or(entry.staged);
+        kept.unstaged = kept.unstaged.or(entry.unstaged);
+        kept.old_path = kept.old_path.take().or(entry.old_path.take());
+        true
+    });
 }
 
 /// The first of `count` space-separated fields of a record (the `XY` state) and the path

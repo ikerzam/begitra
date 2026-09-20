@@ -409,6 +409,7 @@
     "refNotFound": "That branch or commit does not exist any more. {message}",
     "cancelled": "The operation was cancelled.",
     "timeout": "The operation took too long and was stopped.",
+    "gitNotStarted": "git could not be started. {message} Set the git executable in Settings.",
     "gitFailed": "git reported an error. {message}",
     "spawnFailed": "The command could not be started. {message}",
     "indexDatabase": "The repository list could not be saved. {message}",

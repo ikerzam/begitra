@@ -41,6 +41,10 @@
     "message": "Sample message for worktree.dirty"
   },
   {
+    "code": "git.not_started",
+    "message": "Sample message for git.not_started"
+  },
+  {
     "code": "git.cli_failed",
     "message": "Sample message for git.cli_failed",
     "detail": "fatal: raw output"

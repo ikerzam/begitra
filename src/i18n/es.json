@@ -409,6 +409,7 @@
     "refNotFound": "Esa rama o commit ya no existe. {message}",
     "cancelled": "La operación se canceló.",
     "timeout": "La operación tardó demasiado y se detuvo.",
+    "gitNotStarted": "No se ha podido iniciar git. {message} Indica el ejecutable de git en Ajustes.",
     "gitFailed": "git devolvió un error. {message}",
     "spawnFailed": "No se pudo iniciar el comando. {message}",
     "indexDatabase": "No se ha podido guardar la lista de repositorios. {message}",

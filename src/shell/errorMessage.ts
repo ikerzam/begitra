@@ -22,6 +22,8 @@ export function errorText(error: Pick<AppError, "code" | "message">, path = ""):
       return { key: "errors.cancelled", params };
     case "op.timeout":
       return { key: "errors.timeout", params };
+    case "git.not_started":
+      return { key: "errors.gitNotStarted", params };
     case "git.cli_failed":
       return { key: "errors.gitFailed", params };
     case "external.spawn_failed":

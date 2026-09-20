@@ -33,6 +33,8 @@ pub mod codes {
     pub const WORKTREE_MISSING_FOLDER: &str = "worktree.missing_folder";
     /// git refused to remove a worktree with uncommitted changes.
     pub const WORKTREE_DIRTY: &str = "worktree.dirty";
+    /// The git executable could not be started; `detail` carries the reason.
+    pub const GIT_NOT_STARTED: &str = "git.not_started";
     /// The system `git` failed; `detail` carries its stderr.
     pub const GIT_CLI_FAILED: &str = "git.cli_failed";
     /// A command argument did not match its type; `detail` names the field.
@@ -57,7 +59,7 @@ pub mod codes {
     pub const INTERNAL: &str = "internal";
 
     /// Every code, in the order of the declarations above.
-    pub const ALL: [&str; 21] = [
+    pub const ALL: [&str; 22] = [
         REPO_NOT_FOUND,
         REPO_INVALID,
         REPO_CORRUPT_OBJECT,
@@ -68,6 +70,7 @@ pub mod codes {
         BLOB_UNREADABLE,
         WORKTREE_MISSING_FOLDER,
         WORKTREE_DIRTY,
+        GIT_NOT_STARTED,
         GIT_CLI_FAILED,
         IPC_INVALID_ARGUMENT,
         OP_CANCELLED,
@@ -164,6 +167,7 @@ impl From<GitError> for AppError {
             GitError::Invalid { reason, .. } | GitError::CorruptObject { reason, .. } => {
                 Some(reason.clone())
             }
+            GitError::GitNotStarted { reason, .. } => Some(reason.clone()),
             GitError::Cli { stderr, .. } => Some(stderr.clone()),
             GitError::BlobUnreadable { reason, .. } => Some(reason.clone()),
             _ => None,

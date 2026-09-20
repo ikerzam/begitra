@@ -59,7 +59,7 @@ pub(super) fn list(
     let git_dir = format!("--git-dir={}", git_dir.display());
     let work_tree = format!(
         "--work-tree={}",
-        work_tree.unwrap_or(root.clone()).display()
+        work_tree.unwrap_or_else(|| root.clone()).display()
     );
     // `--no-optional-locks`: a status refresh must never take `index.lock` or rewrite the
     // index of the user's repository; it is a read.
@@ -96,7 +96,14 @@ pub(super) fn list(
             // Windows limit without `core.longpaths`, an unreadable directory): the warning
             // is the only trace of a partial answer.
             if !exit.stderr.trim().is_empty() {
-                tracing::warn!(stderr = %exit.stderr.trim(), "git status warned");
+                static WARNED: Once = Once::new();
+                if WARNED.is_completed() {
+                    tracing::debug!(stderr = %exit.stderr.trim(), "git status warned");
+                } else {
+                    WARNED.call_once(|| {
+                        tracing::warn!(stderr = %exit.stderr.trim(), "git status warned");
+                    });
+                }
             }
             Ok(status_porcelain::parse(
                 &exit.stdout,
@@ -109,7 +116,7 @@ pub(super) fn list(
             stderr: exit.stderr,
         }),
         // git could not be started (not installed, not on PATH): libgit2 answers instead.
-        Err(GitError::Cli { status: None, .. }) => {
+        Err(GitError::GitNotStarted { .. }) => {
             static WARNED: Once = Once::new();
             WARNED.call_once(|| {
                 tracing::warn!("git could not be started; the status falls back to libgit2");
