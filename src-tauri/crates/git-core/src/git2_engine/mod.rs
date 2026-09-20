@@ -1,7 +1,8 @@
 //! libgit2 implementation of [`GitEngine`].
 //!
-//! One submodule per operation family (`refs`, `walk`, `status`, `diff`, `worktrees`); this
-//! module owns the repository handle and the `open` logic.
+//! One submodule per operation family (`refs`, `walk`, `count`, `status`, `diff`, `blob`,
+//! `compare`, `worktrees`, `worktree_ops`, `staging` with `patch`); this module owns the
+//! repository handle and the `open` logic.
 
 mod blob;
 mod cli_walk;
@@ -10,7 +11,7 @@ mod count;
 mod diff;
 mod diff_pages;
 mod filter;
-mod patch;
+pub mod patch;
 mod refs;
 mod staging;
 mod status;

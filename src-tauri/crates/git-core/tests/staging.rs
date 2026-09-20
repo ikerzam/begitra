@@ -426,6 +426,116 @@ fn a_file_without_a_trailing_newline_stages_as_git_adds_it() {
 }
 
 #[test]
+fn half_of_an_end_of_file_change_is_refused_and_the_pair_stages_alone() {
+    let mut f = Fixture::basic();
+    f.write("tail.txt", "a\nb");
+    f.commit("no trailing newline");
+    f.write("tail.txt", "a\nb\nc");
+    let e = engine(&f);
+    // Changed lines: -b (no newline), +b, +c (no newline). Only +c: refused, nothing staged.
+    let only_c = selection(&e, &UNSTAGED, "tail.txt", |_, i| i == 2);
+    let error = e
+        .apply_selection(&only_c, SelectionTarget::Stage, &Cancel::never())
+        .expect_err("half of the end-of-file change");
+    assert!(
+        error.to_string().contains("select the last line"),
+        "{error}"
+    );
+    assert_eq!(f.git(&["diff", "--cached", "--stat"]), "");
+    // The pair alone: the index gets `a\nb\n`.
+    let pair = selection(&e, &UNSTAGED, "tail.txt", |_, i| i < 2);
+    e.apply_selection(&pair, SelectionTarget::Stage, &Cancel::never())
+        .expect("the pair");
+    // The fixture's git output is trimmed, so the size tells the trailing newline apart.
+    assert_eq!(f.git(&["show", ":tail.txt"]), "a\nb");
+    assert_eq!(
+        f.git(&["cat-file", "-s", &f.git(&["rev-parse", ":tail.txt"])]),
+        "4",
+        "a, newline, b, newline"
+    );
+    assert_eq!(read(&f, "tail.txt"), "a\nb\nc");
+}
+
+#[test]
+fn odd_paths_round_trip_through_git_apply() {
+    let mut f = Fixture::basic();
+    for path in ["dir with space/file.txt", "ünïcödé/näme.txt"] {
+        f.write(path, "one\ntwo\n");
+    }
+    f.commit("odd paths");
+    for path in ["dir with space/file.txt", "ünïcödé/näme.txt"] {
+        f.write(path, "one\nTWO\nthree\n");
+    }
+    let e = engine(&f);
+    for path in ["dir with space/file.txt", "ünïcödé/näme.txt"] {
+        // Changed lines: -two, +TWO, +three; stage the first pair.
+        let chosen = selection(&e, &UNSTAGED, path, |_, i| i < 2);
+        e.apply_selection(&chosen, SelectionTarget::Stage, &Cancel::never())
+            .expect("stage lines of an odd path");
+        assert_eq!(index_content(&f, path), "one\nTWO");
+        let staged = selection(&e, &STAGED, path, |_, _| true);
+        e.apply_selection(&staged, SelectionTarget::Unstage, &Cancel::never())
+            .expect("unstage them again");
+        assert_eq!(index_content(&f, path), "one\ntwo");
+    }
+}
+
+#[test]
+fn a_linked_worktree_stages_into_its_own_index() {
+    let f = Fixture::basic().with_linked_worktree();
+    let worktree = f.worktree_path();
+    std::fs::write(worktree.join("README.md"), "# In the worktree\n").expect("write");
+    let e = Git2Engine::open(&worktree).expect("open the worktree");
+    e.stage_paths(&strings(&["README.md"]), &Cancel::never())
+        .expect("stage");
+    assert_eq!(
+        f.git_in(&worktree, &["diff", "--cached", "--name-only"]),
+        "README.md"
+    );
+    assert_eq!(
+        f.git(&["diff", "--cached", "--name-only"]),
+        "",
+        "the main index is untouched"
+    );
+    let hash = e
+        .commit(
+            &CommitRequest {
+                message: "worktree commit".to_owned(),
+                amend: false,
+                signoff: false,
+            },
+            &Cancel::never(),
+        )
+        .expect("commit in the worktree");
+    assert_eq!(f.git_in(&worktree, &["rev-parse", "HEAD"]), hash);
+    assert_eq!(f.git(&["rev-parse", "feature/wt"]), hash);
+    assert_ne!(f.head(), hash, "main's HEAD stays");
+}
+
+#[test]
+fn comment_lines_of_a_message_are_stripped_as_an_editor_session_would() {
+    let f = Fixture::basic();
+    f.write("a.txt", "a\n");
+    f.git(&["add", "a.txt"]);
+    engine(&f)
+        .commit(
+            &CommitRequest {
+                message:
+                    "# Please enter the subject\n\nreal subject\n\n# a comment\nbody line\n\n\n"
+                        .to_owned(),
+                amend: false,
+                signoff: false,
+            },
+            &Cancel::never(),
+        )
+        .expect("commit");
+    assert_eq!(
+        f.git(&["log", "-1", "--format=%B"]),
+        "real subject\n\nbody line"
+    );
+}
+
+#[test]
 fn crlf_files_apply_byte_for_byte() {
     let mut f = Fixture::basic();
     f.write("win.txt", "one\r\ntwo\r\nthree\r\n");

@@ -7,8 +7,16 @@ export interface ErrorText {
   params: Record<string, string>;
 }
 
-export function errorText(error: Pick<AppError, "code" | "message">, path = ""): ErrorText {
+export function errorText(
+  error: Pick<AppError, "code" | "message"> & { detail?: string | null },
+  path = "",
+): ErrorText {
   const params = { path, message: error.message };
+  // git could not take `index.lock`: another git holds the index, or a killed one left the
+  // file behind; the sentence names the file so the user can clear a stale one.
+  if (error.code === "git.cli_failed" && error.detail?.includes("index.lock")) {
+    return { key: "errors.indexLock", params };
+  }
   switch (error.code) {
     case "repo.not_found":
       return { key: "errors.repoNotFound", params };

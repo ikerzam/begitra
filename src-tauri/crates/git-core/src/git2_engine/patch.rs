@@ -9,48 +9,107 @@
 //! dropped. Counts are recomputed from the lines written and the other side's start from
 //! the running delta, so the header is right by construction; git then checks every context
 //! line against the file and refuses a stale selection.
+//!
+//! One selection cannot be written: a line without a trailing newline can only be the last
+//! line of its side, so the pair of lines that changes the end of a file (the old last line
+//! without its newline, the new one) must be selected together, else git would join two
+//! lines when it applies the marker. [`problem`] names it; the bridge refuses it before the
+//! engine runs and [`build`] refuses it again.
 
 use std::fmt::Write;
 
-use crate::types::{ChangeKind, LineKind, PatchSelection, SelectedHunk};
+use crate::types::{ChangeKind, LineKind, PatchSelection, SelectedHunk, SelectedLine};
 
-/// The unified diff of `selection`; `None` when no line is selected.
-pub(crate) fn build(selection: &PatchSelection, reverse: bool) -> Option<String> {
-    let hunks: Vec<&SelectedHunk> = selection
-        .hunks
+/// Whether a hunk takes part: at least one changed line selected.
+fn takes_part(hunk: &SelectedHunk) -> bool {
+    hunk.lines
         .iter()
-        .filter(|hunk| {
-            hunk.lines
-                .iter()
-                .any(|line| line.selected && line.kind != LineKind::Context)
-        })
-        .collect();
-    if hunks.is_empty() {
-        return None;
+        .any(|line| line.selected && line.kind != LineKind::Context)
+}
+
+/// Whether every changed line of the selection is selected.
+pub(crate) fn is_whole(selection: &PatchSelection) -> bool {
+    selection.hunks.iter().all(|hunk| {
+        hunk.lines
+            .iter()
+            .all(|line| line.selected || line.kind == LineKind::Context)
+    })
+}
+
+/// The marker a line gets in the patch, or `None` when the folding drops it.
+fn marker(line: &SelectedLine, reverse: bool) -> Option<char> {
+    match (line.kind, line.selected, reverse) {
+        (LineKind::Context, _, _) => Some(' '),
+        (LineKind::Added, true, _) => Some('+'),
+        (LineKind::Removed, true, _) => Some('-'),
+        // Unselected: the side the file matches keeps the line as context.
+        (LineKind::Added, false, true) | (LineKind::Removed, false, false) => Some(' '),
+        (LineKind::Added, false, false) | (LineKind::Removed, false, true) => None,
     }
-    let whole = hunks.len() == selection.hunks.len()
-        && selection.hunks.iter().all(|hunk| {
-            hunk.lines
+}
+
+/// Why `selection` cannot be written as a patch, if it cannot: a `no_newline` line that
+/// would not be the last of its side (git would join it with the line after it).
+pub fn problem(selection: &PatchSelection, reverse: bool) -> Option<String> {
+    let hunks: Vec<&SelectedHunk> = selection.hunks.iter().filter(|h| takes_part(h)).collect();
+    for (index, hunk) in hunks.iter().enumerate() {
+        let last_hunk = index + 1 == hunks.len();
+        let written: Vec<(char, bool)> = hunk
+            .lines
+            .iter()
+            .filter_map(|line| marker(line, reverse).map(|m| (m, line.no_newline)))
+            .collect();
+        for (position, (mark, no_newline)) in written.iter().enumerate() {
+            if !no_newline {
+                continue;
+            }
+            let later = &written[position + 1..];
+            let on_old = *mark != '+';
+            let on_new = *mark != '-';
+            let followed = later
                 .iter()
-                .all(|line| line.selected || line.kind == LineKind::Context)
-        });
-    let quoted = quote(&selection.path);
+                .any(|(m, _)| (on_old && *m != '+') || (on_new && *m != '-'));
+            if followed || !last_hunk {
+                return Some(format!(
+                    "the end of {} changes without a newline; select the last line's removal and addition together",
+                    selection.path
+                ));
+            }
+        }
+    }
+    None
+}
+
+/// The unified diff of `selection`: `Ok(None)` when no line is selected, `Err` with the
+/// reason when it cannot be written (see [`problem`]).
+pub(crate) fn build(selection: &PatchSelection, reverse: bool) -> Result<Option<String>, String> {
+    let hunks: Vec<&SelectedHunk> = selection.hunks.iter().filter(|h| takes_part(h)).collect();
+    if hunks.is_empty() {
+        return Ok(None);
+    }
+    if let Some(reason) = problem(selection, reverse) {
+        return Err(reason);
+    }
+    let whole = hunks.len() == selection.hunks.len() && is_whole(selection);
+    // git quotes the whole `a/path`, prefix included, when the name needs it.
+    let a = quote(&format!("a/{}", selection.path));
+    let b = quote(&format!("b/{}", selection.path));
     let mut out = String::new();
-    let _ = writeln!(out, "diff --git a/{quoted} b/{quoted}");
+    let _ = writeln!(out, "diff --git {a} {b}");
     match selection.status {
         ChangeKind::Added if whole => {
             let _ = writeln!(out, "new file mode 100644");
             let _ = writeln!(out, "--- /dev/null");
-            let _ = writeln!(out, "+++ b/{quoted}");
+            let _ = writeln!(out, "+++ {b}");
         }
         ChangeKind::Deleted if whole => {
             let _ = writeln!(out, "deleted file mode 100644");
-            let _ = writeln!(out, "--- a/{quoted}");
+            let _ = writeln!(out, "--- {a}");
             let _ = writeln!(out, "+++ /dev/null");
         }
         _ => {
-            let _ = writeln!(out, "--- a/{quoted}");
-            let _ = writeln!(out, "+++ b/{quoted}");
+            let _ = writeln!(out, "--- {a}");
+            let _ = writeln!(out, "+++ {b}");
         }
     }
     // Lines the new side has more than the old one over the hunks written so far.
@@ -60,13 +119,8 @@ pub(crate) fn build(selection: &PatchSelection, reverse: bool) -> Option<String>
         let mut old_count: u32 = 0;
         let mut new_count: u32 = 0;
         for line in &hunk.lines {
-            let marker = match (line.kind, line.selected, reverse) {
-                (LineKind::Context, _, _) => ' ',
-                (LineKind::Added, true, _) => '+',
-                (LineKind::Removed, true, _) => '-',
-                // Unselected: the side the file matches keeps the line as context.
-                (LineKind::Added, false, true) | (LineKind::Removed, false, false) => ' ',
-                (LineKind::Added, false, false) | (LineKind::Removed, false, true) => continue,
+            let Some(marker) = marker(line, reverse) else {
+                continue;
             };
             match marker {
                 ' ' => {
@@ -83,23 +137,17 @@ pub(crate) fn build(selection: &PatchSelection, reverse: bool) -> Option<String>
                 body.push_str("\\ No newline at end of file\n");
             }
         }
-        // The side the file matches keeps the start the diff gave it (one less when the
-        // folding took every line of that side, so that it names the line before, as git
-        // prints an empty side); the other side's start follows from the running delta,
-        // with git's convention that an empty side names the line before the hunk.
+        // The side the file matches keeps every line of the hunk and the start the diff gave
+        // it (the starts must belong to the lines given); the other side's start follows from
+        // the running delta, with git's convention that an empty side names the line before
+        // the hunk.
         let empty_old = i64::from(old_count == 0);
         let empty_new = i64::from(new_count == 0);
         let (old_start, new_start) = if reverse {
-            let mut known = i64::from(hunk.new_start);
-            if new_count == 0 && hunk.new_lines > 0 {
-                known -= 1;
-            }
+            let known = i64::from(hunk.new_start);
             (known - delta - empty_old + empty_new, known)
         } else {
-            let mut known = i64::from(hunk.old_start);
-            if old_count == 0 && hunk.old_lines > 0 {
-                known -= 1;
-            }
+            let known = i64::from(hunk.old_start);
             (known, known + delta + empty_old - empty_new)
         };
         let old_start = u32::try_from(old_start.max(0)).unwrap_or(u32::MAX);
@@ -113,7 +161,7 @@ pub(crate) fn build(selection: &PatchSelection, reverse: bool) -> Option<String>
         out.push_str(&body);
         delta += i64::from(new_count) - i64::from(old_count);
     }
-    Some(out)
+    Ok(Some(out))
 }
 
 /// `start,count`, with the count left out when it is 1, as git prints it.
@@ -205,6 +253,7 @@ mod tests {
             ),
             false,
         )
+        .expect("valid")
         .expect("selected");
         assert_eq!(
             patch,
@@ -230,6 +279,7 @@ mod tests {
             ),
             false,
         )
+        .expect("valid")
         .expect("selected");
         assert!(patch.ends_with("@@ -1,2 +1,2 @@\n a\n-b\n+B\n"), "{patch}");
     }
@@ -252,6 +302,7 @@ mod tests {
             ),
             true,
         )
+        .expect("valid")
         .expect("selected");
         assert!(patch.ends_with("@@ -1,2 +1,2 @@\n-b\n A\n+B\n"), "{patch}");
     }
@@ -291,6 +342,7 @@ mod tests {
             ),
             false,
         )
+        .expect("valid")
         .expect("selected");
         assert!(patch.contains("@@ -1 +1,3 @@\n x\n+one\n+two\n"), "{patch}");
         assert!(!patch.contains("-z"), "{patch}");
@@ -299,14 +351,60 @@ mod tests {
 
     #[test]
     fn nothing_selected_is_no_patch() {
-        assert!(build(
-            &selection(
-                ChangeKind::Modified,
-                vec![hunk(1, 1, vec![line(LineKind::Added, "a", false)])]
+        assert_eq!(
+            build(
+                &selection(
+                    ChangeKind::Modified,
+                    vec![hunk(1, 1, vec![line(LineKind::Added, "a", false)])]
+                ),
+                false
             ),
-            false
-        )
-        .is_none());
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn a_no_newline_line_that_is_not_the_last_of_its_side_is_refused() {
+        // `a\nb` became `a\nb\nc`: the diff is ` a`, `-b\`, `+b`, `+c\`.
+        let mut old_b = line(LineKind::Removed, "b", false);
+        old_b.no_newline = true;
+        let mut new_c = line(LineKind::Added, "c", true);
+        new_c.no_newline = true;
+        let lines = vec![
+            line(LineKind::Context, "a", false),
+            old_b,
+            line(LineKind::Added, "b", false),
+            new_c,
+        ];
+        // Only `+c` selected, forward: `-b\` folds into context before `+c`.
+        let only_c = selection(ChangeKind::Modified, vec![hunk(1, 1, lines.clone())]);
+        let refused = build(&only_c, false).expect_err("refused");
+        assert!(refused.contains("select the last line"), "{refused}");
+        assert!(problem(&only_c, false).is_some());
+        // The pair selected and `+c` not: `-b\` is the last of the old side.
+        let mut pair = lines.clone();
+        pair[1].selected = true;
+        pair[2].selected = true;
+        pair[3].selected = false;
+        let with_pair = selection(ChangeKind::Modified, vec![hunk(1, 1, pair)]);
+        assert!(problem(&with_pair, false).is_none());
+        let patch = build(&with_pair, false).expect("valid").expect("selected");
+        assert!(
+            patch.ends_with(" a\n-b\n\\ No newline at end of file\n+b\n"),
+            "{patch}"
+        );
+        // Everything selected is fine in both directions.
+        let mut all = lines;
+        for l in &mut all {
+            l.selected = true;
+        }
+        let whole = selection(ChangeKind::Modified, vec![hunk(1, 1, all)]);
+        assert!(problem(&whole, false).is_none() && problem(&whole, true).is_none());
+        // Reverse: the pair selected, `+c\` unselected becomes context after `-b\`.
+        let mut reverse_pair = whole.hunks[0].lines.clone();
+        reverse_pair[3].selected = false;
+        let reverse = selection(ChangeKind::Modified, vec![hunk(1, 1, reverse_pair)]);
+        assert!(problem(&reverse, true).is_some());
     }
 
     #[test]
@@ -319,6 +417,7 @@ mod tests {
             &selection(ChangeKind::Added, vec![hunk(0, 1, lines.clone())]),
             false,
         )
+        .expect("valid")
         .expect("selected");
         assert!(
             whole.contains(
@@ -332,6 +431,7 @@ mod tests {
             &selection(ChangeKind::Added, vec![hunk(0, 1, partial)]),
             true,
         )
+        .expect("valid")
         .expect("selected");
         assert!(
             edit.contains("--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1,2 @@\n a\n+b\n"),
@@ -358,6 +458,7 @@ mod tests {
             ),
             false,
         )
+        .expect("valid")
         .expect("selected");
         assert!(
             patch.ends_with(" c\n-old\n+end\n\\ No newline at end of file\n"),

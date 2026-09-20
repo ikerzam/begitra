@@ -14,8 +14,9 @@ use git_core::engine::{Cancel, GitEngine};
 use git_core::error::GitError;
 use git_core::git2_engine::Git2Engine;
 use git_core::types::{
-    BlobAt, DiffOptions, DiffTarget, StatusOptions, WalkFilter, WalkOptions, WalkOrder, WalkScope,
-    WorktreeAdd, WorktreeBranch,
+    BlobAt, DiffOptions, DiffTarget, PatchSelection, SelectedHunk, SelectedLine, SelectionTarget,
+    StatusOptions, WalkFilter, WalkOptions, WalkOrder, WalkScope, WorkingTreeBase, WorktreeAdd,
+    WorktreeBranch,
 };
 
 /// A benchmark repository that is present on disk.
@@ -679,6 +680,131 @@ fn worktree_add_remove(c: &mut Criterion) {
     group.finish();
 }
 
+/// The first `count` tracked files of a repository, as git lists them.
+fn tracked_files(path: &Path, count: usize) -> Vec<String> {
+    run_git(path, &["ls-files", "-z"])
+        .map(|output| {
+            output
+                .stdout
+                .split('\0')
+                .filter(|p| !p.is_empty())
+                .take(count)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Appends a line to every file, so that each is a one-hunk modification.
+fn touch_files(root: &Path, files: &[String]) {
+    for file in files {
+        let path = root.join(file);
+        if let Ok(mut content) = std::fs::read(&path) {
+            content.extend_from_slice(b"bench line\n");
+            let _ = std::fs::write(&path, content);
+        }
+    }
+}
+
+/// Staging and unstaging ten thousand modified files: the pathspec list travels on stdin,
+/// git hashes every file on the add. Restores the tree afterwards. No budget.
+fn stage_unstage_10k(c: &mut Criterion) {
+    let mut group = c.benchmark_group("stage_unstage_10k");
+    group.sample_size(10);
+    for target in present() {
+        let engine = engine(&target.path);
+        let files = tracked_files(&target.path, 10_000);
+        if files.len() < 10_000 {
+            eprintln!(
+                "skipping stage_unstage_10k on {}: fewer than 10,000 tracked files",
+                target.name
+            );
+            continue;
+        }
+        touch_files(&target.path, &files);
+        group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+            b.iter(|| {
+                e.stage_paths(&files, &Cancel::never()).expect("stage");
+                e.unstage_paths(&files, &Cancel::never()).expect("unstage");
+            });
+        });
+        engine
+            .discard_paths(&files, &[], &Cancel::never())
+            .expect("restore the tree");
+    }
+    group.finish();
+}
+
+/// Staging and unstaging a selection of one hunk of 5,000 added lines through `git apply`.
+/// Restores the file afterwards. No budget.
+fn apply_selection_5k(c: &mut Criterion) {
+    let mut group = c.benchmark_group("apply_selection_5k");
+    group.sample_size(10);
+    for target in present() {
+        let engine = engine(&target.path);
+        let Some(file) = tracked_files(&target.path, 1).pop() else {
+            continue;
+        };
+        let path = target.path.join(&file);
+        let Ok(original) = std::fs::read(&path) else {
+            continue;
+        };
+        let mut edited = original.clone();
+        if !edited.ends_with(b"\n") {
+            edited.push(b'\n');
+        }
+        for i in 0..5_000 {
+            edited.extend_from_slice(format!("bench line {i}\n").as_bytes());
+        }
+        std::fs::write(&path, &edited).expect("write the edited file");
+        let unstaged = DiffTarget::WorkingTree {
+            base: WorkingTreeBase::Index,
+        };
+        let change = engine
+            .diff(&unstaged, &DiffOptions::default(), &Cancel::never())
+            .expect("diff")
+            .files
+            .into_iter()
+            .find(|f| f.path == file)
+            .expect("the edited file is in the diff");
+        let selection = PatchSelection {
+            path: file.clone(),
+            status: change.status,
+            hunks: change
+                .hunks
+                .iter()
+                .map(|hunk| SelectedHunk {
+                    old_start: hunk.old_start,
+                    old_lines: hunk.old_lines,
+                    new_start: hunk.new_start,
+                    new_lines: hunk.new_lines,
+                    lines: hunk
+                        .lines
+                        .iter()
+                        .map(|line| SelectedLine {
+                            kind: line.kind,
+                            text: line.text.clone(),
+                            no_newline: line.no_newline,
+                            selected: true,
+                        })
+                        .collect(),
+                })
+                .collect(),
+        };
+        group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+            b.iter(|| {
+                e.apply_selection(&selection, SelectionTarget::Stage, &Cancel::never())
+                    .expect("stage the selection");
+                // The staged diff of the file is the same hunk, reversed out of the index.
+                e.apply_selection(&selection, SelectionTarget::Unstage, &Cancel::never())
+                    .expect("unstage the selection");
+            });
+        });
+        std::fs::write(&path, &original).expect("restore the file");
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     open,
@@ -702,6 +828,8 @@ criterion_group!(
     merge_preview,
     worktrees,
     worktree_dashboard,
-    worktree_add_remove
+    worktree_add_remove,
+    stage_unstage_10k,
+    apply_selection_5k
 );
 criterion_main!(benches);

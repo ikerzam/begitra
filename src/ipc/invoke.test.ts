@@ -59,7 +59,7 @@ describe("checkArgs", () => {
     expect(refused(() => checkArgs("stage_paths", { repo: "/r", paths: [], opId: "op" }))).toMatch(
       /^paths: /,
     );
-    for (const bad of ["../outside.txt", "/etc/passwd", "C:/x", "-flag", "a/../../b"]) {
+    for (const bad of ["../outside.txt", "/etc/passwd", "C:/x", "a/../../b"]) {
       expect(
         refused(() => checkArgs("stage_paths", { repo: "/r", paths: [bad], opId: "op" })),
         bad,
@@ -81,8 +81,8 @@ describe("checkArgs", () => {
       refused(() =>
         checkArgs("apply_selection", {
           repo: "/r",
-          request: {
-            target: "stage",
+          target: "stage",
+          selection: {
             path: "a.txt",
             status: "modified",
             hunks: [
@@ -98,7 +98,7 @@ describe("checkArgs", () => {
           opId: "op",
         }),
       ),
-    ).toMatch(/^request: /);
+    ).toMatch(/^selection: /);
   });
 });
 

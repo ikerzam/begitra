@@ -434,14 +434,13 @@ export const SelectedHunkSchema = v.object({
 });
 export type SelectedHunk = v.InferOutput<typeof SelectedHunkSchema>;
 
-/** A selection of hunks and lines of one file with what it is applied to. */
-export const SelectionRequestSchema = v.object({
-  target: SelectionTargetSchema,
+/** A selection of hunks and lines of one file. */
+export const PatchSelectionSchema = v.object({
   path: v.string(),
   status: ChangeKindSchema,
   hunks: v.array(SelectedHunkSchema),
 });
-export type SelectionRequest = v.InferOutput<typeof SelectionRequestSchema>;
+export type PatchSelection = v.InferOutput<typeof PatchSelectionSchema>;
 
 export const CommitRequestSchema = v.object({
   message: v.string(),
@@ -563,7 +562,6 @@ const repoPath = v.pipe(
   v.string(),
   v.minLength(1),
   v.maxLength(4096),
-  v.check((p) => !p.startsWith("-"), "starts with a dash"),
   v.check((p) => !p.startsWith("/") && !p.startsWith("\\") && !/^[A-Za-z]:/.test(p), "absolute"),
   v.check((p) => !p.split(/[/\\]/).includes(".."), "has `..`"),
 );
@@ -628,10 +626,11 @@ export const commandArgs = {
   }),
   apply_selection: v.object({
     repo: path,
-    request: v.pipe(
-      SelectionRequestSchema,
+    target: SelectionTargetSchema,
+    selection: v.pipe(
+      PatchSelectionSchema,
       v.check(
-        (r) => r.hunks.some((h) => h.lines.some((l) => l.selected && l.kind !== "context")),
+        (s) => s.hunks.some((h) => h.lines.some((l) => l.selected && l.kind !== "context")),
         "no selected line",
       ),
     ),

@@ -413,6 +413,7 @@
     "cancelled": "The operation was cancelled.",
     "timeout": "The operation took too long and was stopped.",
     "gitNotStarted": "git could not be started. {message} Set the git executable in Settings.",
+    "indexLock": "git could not take the index lock (index.lock). Another git process may be running; if none is, delete .git/index.lock and try again. {message}",
     "gitFailed": "git reported an error. {message}",
     "spawnFailed": "The command could not be started. {message}",
     "indexDatabase": "The repository list could not be saved. {message}",

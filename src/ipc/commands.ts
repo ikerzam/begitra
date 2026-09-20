@@ -28,7 +28,8 @@ import {
   type AnnotationWrite,
   type BlobAt,
   type CommitRequest,
-  type SelectionRequest,
+  type PatchSelection,
+  type SelectionTarget,
   type DiffOptions,
   type DiffPage,
   type DiffTarget,
@@ -132,10 +133,11 @@ export function discardPaths(
 /** Applies a selection of hunks and lines to the index or the working tree. */
 export function applySelection(
   repo: string,
-  request: SelectionRequest,
+  target: SelectionTarget,
+  selection: PatchSelection,
   opId = newOpId("apply-selection"),
 ) {
-  return call("apply_selection", { repo, request, opId }, v.null());
+  return call("apply_selection", { repo, target, selection, opId }, v.null());
 }
 
 /** Commits the index; hooks run; the call cannot be cancelled. */

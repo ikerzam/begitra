@@ -77,11 +77,13 @@ pub trait DiffWalk: Send {
     fn next_page(&mut self, cancel: &Cancel) -> GitResult<ChangeSetPage>;
 }
 
-/// Read-only Git operations, implemented once per backend (libgit2 first).
+/// The Git operations, implemented once per backend (libgit2 for the reads, the git CLI for
+/// every write, so hooks, templates, filters and signing behave as in the user's terminal).
 ///
 /// Every operation returns plain data from [`crate::types`], never panics on repository
 /// content, and maps failures to [`GitError`] with a stable code. Long operations take a
-/// [`Cancel`] handle and check it between commits, files and hunks.
+/// [`Cancel`] handle and check it between commits, files and hunks; a write is an explicit
+/// user action and runs through argv, never a shell.
 pub trait GitEngine: Send + Sync {
     /// Human-readable backend name, for diagnostics.
     fn backend_name(&self) -> &'static str;
@@ -205,7 +207,11 @@ pub trait GitEngine: Send + Sync {
 
     /// Applies a selection of hunks and lines with `git apply`: to the index, reversed to
     /// the index, or reversed to the working tree. git checks the context, so a file that
-    /// changed since the diff was taken is refused as [`GitError::Cli`] with nothing applied.
+    /// changed since the diff was taken is refused as [`GitError::Cli`] with nothing applied;
+    /// a selection with no changed line selected does nothing; a selection that cannot be
+    /// written (the end of the file changed without a newline and only half of that change
+    /// is selected; see `git2_engine::patch::problem`) is [`GitError::Git`] and the bridge
+    /// refuses it first.
     fn apply_selection(
         &self,
         selection: &PatchSelection,

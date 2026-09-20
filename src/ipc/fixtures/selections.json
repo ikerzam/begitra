@@ -1,6 +1,5 @@
 [
   {
-    "target": "stage",
     "path": "src/main.rs",
     "status": "modified",
     "hunks": [
@@ -45,7 +44,6 @@
     ]
   },
   {
-    "target": "discard",
     "path": "dir with space/ünïcödé.txt",
     "status": "added",
     "hunks": [

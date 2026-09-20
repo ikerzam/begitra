@@ -365,7 +365,7 @@ pub fn run_git_cancellable(cwd: &Path, args: &[&str], cancel: &Cancel) -> GitRes
 pub fn run_git_with_input(
     cwd: &Path,
     args: &[&str],
-    input: &[u8],
+    input: Vec<u8>,
     cancel: &Cancel,
 ) -> GitResult<CliExit> {
     run_polled(
@@ -373,7 +373,7 @@ pub fn run_git_with_input(
         args.join(" "),
         cancel,
         None,
-        Some(input.to_vec()),
+        Some(input),
     )
 }
 
@@ -618,7 +618,7 @@ mod tests {
         let hashed = run_git_with_input(
             Path::new("."),
             &["hash-object", "--stdin"],
-            &big,
+            big.clone(),
             &Cancel::never(),
         )
         .expect("git is installed");
@@ -626,17 +626,33 @@ mod tests {
         let expected = run_git_with_input(
             Path::new("."),
             &["hash-object", "--stdin"],
-            &big,
+            big.clone(),
             &Cancel::never(),
         )
         .expect("again");
         assert_eq!(hashed.stdout, expected.stdout);
         assert_eq!(hashed.stdout.len(), 41, "one hash and a newline");
+        // git that never reads its input: the writer sees the broken pipe and the run ends
+        // with git's own status, well before the input would have been written.
+        let started = Instant::now();
+        let ignored = run_git_with_input(Path::new("."), &["--version"], big, &Cancel::never())
+            .expect("runs");
+        assert_eq!(ignored.status, Some(0));
+        assert!(ignored.stdout.starts_with(b"git version"));
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
         let cancel = Cancel::new();
         cancel.cancel();
-        let cancelled =
-            run_git_with_input(Path::new("."), &["hash-object", "--stdin"], b"x", &cancel)
-                .expect_err("cancelled before starting");
+        let cancelled = run_git_with_input(
+            Path::new("."),
+            &["hash-object", "--stdin"],
+            b"x".to_vec(),
+            &cancel,
+        )
+        .expect_err("cancelled before starting");
         assert_eq!(cancelled.code(), "op.cancelled");
     }
 

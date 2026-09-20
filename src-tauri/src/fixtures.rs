@@ -11,9 +11,9 @@ use git_core::types::{
     BaseCommit, BlobAt, BlobContent, ChangeKind, ChangeSet, CommitContext, CommitCount, CommitNode,
     CommitRequest, Comparison, ComparisonRelation, DiffLine, DiffOptions, DiffTarget, Edge,
     Endpoint, FileChange, GitDetection, Hunk, LineKind, MergePreview, MergePreviewKind,
-    PatchSelection, Ref, RefKind, Repo, SelectedHunk, SelectedLine, SelectionTarget, Signature,
-    Span, StatusEntry, StatusOptions, WalkFilter, WalkOptions, WalkOrder, WalkScope,
-    WorkingTreeBase, Worktree, WorktreeAdd, WorktreeBranch,
+    PatchSelection, Ref, RefKind, Repo, SelectedHunk, SelectedLine, Signature, Span, StatusEntry,
+    StatusOptions, WalkFilter, WalkOptions, WalkOrder, WalkScope, WorkingTreeBase, Worktree,
+    WorktreeAdd, WorktreeBranch,
 };
 use serde::Serialize;
 use syntax::{Highlight, Symbol, SymbolKind, Token, TokenClass};
@@ -26,7 +26,7 @@ use crate::channels::StreamMessage;
 use crate::commands::diff::DiffPage;
 use crate::commands::review::AnnotationWrite;
 use crate::commands::scan::ScanMessage;
-use crate::commands::staging::{CommitResult, SelectionRequest};
+use crate::commands::staging::CommitResult;
 use crate::commands::system::pong;
 use crate::commands::walk::WalkPage;
 use crate::error::{codes, AppError};
@@ -372,7 +372,7 @@ fn walk_page() -> WalkPage {
     }
 }
 
-fn selection_requests() -> Vec<SelectionRequest> {
+fn selections() -> Vec<PatchSelection> {
     let line = |kind: LineKind, text: &str, selected: bool| SelectedLine {
         kind,
         text: text.to_owned(),
@@ -393,21 +393,15 @@ fn selection_requests() -> Vec<SelectionRequest> {
         ],
     };
     vec![
-        SelectionRequest {
-            target: SelectionTarget::Stage,
-            selection: PatchSelection {
-                path: "src/main.rs".to_owned(),
-                status: ChangeKind::Modified,
-                hunks: vec![hunk.clone()],
-            },
+        PatchSelection {
+            path: "src/main.rs".to_owned(),
+            status: ChangeKind::Modified,
+            hunks: vec![hunk.clone()],
         },
-        SelectionRequest {
-            target: SelectionTarget::Discard,
-            selection: PatchSelection {
-                path: "dir with space/ünïcödé.txt".to_owned(),
-                status: ChangeKind::Added,
-                hunks: vec![hunk],
-            },
+        PatchSelection {
+            path: "dir with space/ünïcödé.txt".to_owned(),
+            status: ChangeKind::Added,
+            hunks: vec![hunk],
         },
     ]
 }
@@ -577,7 +571,7 @@ fn write_fixtures() {
             },
         ],
     );
-    write("selection-requests", &selection_requests());
+    write("selections", &selections());
     write(
         "commit-requests",
         &[
