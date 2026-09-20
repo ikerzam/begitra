@@ -7,6 +7,7 @@ import { defineStore } from "pinia";
 import * as v from "valibot";
 import { computed, ref } from "vue";
 
+import { defaultSkipFolders } from "@/ipc/commands";
 import { detectPlatform, type Platform } from "@/shortcuts/platform";
 
 export type LayoutMode = "graph" | "review";
@@ -29,9 +30,20 @@ export interface Settings {
   locale: Locale;
   /** Ids of the last commands run from the palette, most recent first. */
   paletteRecents: string[];
+  /** Absolute paths the scanner walks for repositories. */
+  scanRoots: string[];
+  /** Folder names the scanner never enters. */
+  skipFolders: string[];
+  /** How deep under a scan folder the scanner goes (0 is the folder itself). */
+  maxDepth: number;
+  /** Root of the repository to reopen at launch; null starts on the home screen. */
+  lastRepository: string | null;
+  /** Unix seconds of the last finished or stopped scan; null when none ran. */
+  lastScanAt: number | null;
 }
 
 const px = v.pipe(v.number(), v.minValue(0), v.maxValue(10_000));
+const path = v.pipe(v.string(), v.minLength(1));
 
 const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } = {
   terminalCommand: v.pipe(v.string(), v.minLength(1)),
@@ -41,6 +53,11 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   layoutMode: v.picklist(["graph", "review"]),
   locale: v.picklist(["en", "es"]),
   paletteRecents: v.array(v.string()),
+  scanRoots: v.array(path),
+  skipFolders: v.array(path),
+  maxDepth: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(32)),
+  lastRepository: v.nullable(path),
+  lastScanAt: v.nullable(v.pipe(v.number(), v.minValue(0))),
 };
 
 export const settingsKeys = Object.keys(schemas) as (keyof Settings)[];
@@ -73,6 +90,11 @@ export function defaultSettings(platform: Platform): Settings {
     layoutMode: "graph",
     locale: "en",
     paletteRecents: [],
+    scanRoots: [],
+    skipFolders: [...defaultSkipFolders],
+    maxDepth: 6,
+    lastRepository: null,
+    lastScanAt: null,
   };
 }
 

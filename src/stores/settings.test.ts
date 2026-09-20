@@ -1,6 +1,8 @@
 import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { defaultSkipFolders } from "@/ipc/commands";
+
 import {
   defaultSettings,
   FLUSH_DELAY_MS,
@@ -39,6 +41,55 @@ describe("settings store", () => {
       files: 280,
       reviewRail: 280,
     });
+  });
+
+  it("starts discovery with no scan folders, the default skip list, depth 6 and no last repository", () => {
+    const defaults = defaultSettings("linux");
+    expect(defaults.scanRoots).toEqual([]);
+    expect(defaults.skipFolders).toEqual(defaultSkipFolders);
+    expect(defaults.skipFolders).toContain("node_modules");
+    expect(defaults.maxDepth).toBe(6);
+    expect(defaults.lastRepository).toBeNull();
+    expect(defaults.lastScanAt).toBeNull();
+  });
+
+  it("keeps stored discovery keys that are valid and drops the rest", async () => {
+    const store = useSettingsStore();
+    await store.init(
+      memoryStorage({
+        scanRoots: ["/home/iker/code", "/home/iker/wt"],
+        skipFolders: "node_modules",
+        maxDepth: 99,
+        lastRepository: "/home/iker/code/geoportal",
+        lastScanAt: 1_704_070_000,
+      }),
+      "linux",
+    );
+    expect(store.values.scanRoots).toEqual(["/home/iker/code", "/home/iker/wt"]);
+    expect(store.values.skipFolders).toEqual(defaultSkipFolders);
+    expect(store.values.maxDepth).toBe(6);
+    expect(store.values.lastRepository).toBe("/home/iker/code/geoportal");
+    expect(store.values.lastScanAt).toBe(1_704_070_000);
+
+    setActivePinia(createPinia());
+    const invalid = useSettingsStore();
+    await invalid.init(
+      memoryStorage({ scanRoots: ["", 3], maxDepth: 0, lastRepository: 12 }),
+      "linux",
+    );
+    expect(invalid.values.scanRoots).toEqual([]);
+    expect(invalid.values.maxDepth).toBe(0);
+    expect(invalid.values.lastRepository).toBeNull();
+  });
+
+  it("writes the last repository through and clears it with null", async () => {
+    const store = useSettingsStore();
+    const storage = memoryStorage();
+    await store.init(storage, "windows");
+    await persisted(store.update("lastRepository", "C:\code\begira"));
+    expect(storage.data.get("lastRepository")).toBe("C:\code\begira");
+    await persisted(store.update("lastRepository", null));
+    expect(storage.data.get("lastRepository")).toBeNull();
   });
 
   it("overlays stored values and ignores invalid ones", async () => {
