@@ -10,6 +10,7 @@
     "tauri": "tauri",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:perf": "vitest run --config vitest.perf.config.ts",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

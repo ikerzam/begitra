@@ -8,5 +8,5 @@
     "strict": true,
     "types": ["node"]
   },
-  "include": ["vite.config.ts", "eslint.config.js", "scripts/**/*.mjs"]
+  "include": ["vite.config.ts", "vitest.perf.config.ts", "eslint.config.js", "scripts/**/*.mjs"]
 }
