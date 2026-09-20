@@ -10,13 +10,14 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use bench::{fetch, generate, report, repos, Error};
+use bench::{fetch, generate, report, repos, tree, Error};
 
-const USAGE: &str = "usage: bench <generate | fetch-real | report> [options]
-  generate    [--out DIR] [--worktrees-dir DIR] [--commits N] [--branches N] [--worktrees N]
-              [--files N] [--seed N] [--force] [--no-gc]
-  fetch-real  [--out DIR] [--url URL]
-  report      [--criterion DIR] [--commit HASH] [--machine NAME] [--date YYYY-MM-DD]";
+const USAGE: &str = "usage: bench <generate | generate-tree | fetch-real | report> [options]
+  generate       [--out DIR] [--worktrees-dir DIR] [--commits N] [--branches N] [--worktrees N]
+                 [--files N] [--seed N] [--force] [--no-gc]
+  generate-tree  [--out DIR] [--directories N] [--repositories N] [--force]
+  fetch-real     [--out DIR] [--url URL]
+  report         [--criterion DIR] [--commit HASH] [--machine NAME] [--date YYYY-MM-DD]";
 
 /// Minimal `--key value` / `--flag` parser; no dependency needed for three subcommands.
 struct Args {
@@ -109,6 +110,22 @@ fn run() -> Result<(), Error> {
             );
             let summary = generate::run(&config)?;
             print!("{summary}");
+            Ok(())
+        }
+        Some("generate-tree") => {
+            let defaults = tree::Config::default();
+            let config = tree::Config {
+                out: args.get("out").map(PathBuf::from).unwrap_or(defaults.out),
+                directories: args.number("directories", defaults.directories)?,
+                repositories: args.number("repositories", defaults.repositories)?,
+                force: args.flag("force"),
+            };
+            eprintln!("bench generate-tree: {}", config.out.display());
+            let summary = tree::run(&config)?;
+            println!(
+                "directories {} repositories {}",
+                summary.directories, summary.repositories
+            );
             Ok(())
         }
         Some("fetch-real") => {

@@ -16,6 +16,8 @@ pub fn budget(id: &str) -> Option<Duration> {
         ("diff_typical", _) => 100,
         ("diff_large_file", _) | ("merge_base", _) => 500,
         ("status", _) => 2_000,
+        ("discovery", "scan_first_result") => 100,
+        ("discovery", "scan_full") => 2_000,
         ("worktrees", "synthetic") => 50,
         ("worktrees", _) => 500,
         _ => return None,

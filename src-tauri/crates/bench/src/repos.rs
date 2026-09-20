@@ -34,6 +34,11 @@ pub fn real() -> PathBuf {
     repos_dir().join("real")
 }
 
+/// The folder tree of the discovery benchmark (`bench generate-tree`).
+pub fn discovery() -> PathBuf {
+    repos_dir().join("discovery")
+}
+
 /// Whether `path` is a git working tree with at least one commit.
 pub fn is_repository(path: &Path) -> bool {
     git2::Repository::open(path)

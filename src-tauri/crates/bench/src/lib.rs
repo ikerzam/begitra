@@ -8,6 +8,7 @@ pub mod fetch;
 pub mod generate;
 pub mod report;
 pub mod repos;
+pub mod tree;
 
 /// Failure of a bench subcommand.
 #[derive(Debug, thiserror::Error)]
