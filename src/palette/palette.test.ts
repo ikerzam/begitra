@@ -34,6 +34,9 @@ const labels: Record<string, string> = {
   "palette.commandsById.toggle-hide-generated": "Show or hide generated files",
   "palette.commandsById.toggle-hide-lockfiles": "Show or hide lockfiles",
   "palette.commandsById.toggle-hide-tests": "Show or hide test files",
+  "palette.commandsById.compare-with": "Compare with…",
+  "palette.commandsById.swap-comparison": "Swap comparison sides",
+  "palette.commandsById.compare-open-review": "Open comparison in review",
   "palette.commandsById.locale-en": "Language: English",
   "palette.commandsById.locale-es": "Language: Spanish",
 };
@@ -127,6 +130,18 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
     toggleFilter: (key) => {
       calls.push(`filter:${key}`);
     },
+    compareWith: () => {
+      calls.push("compareWith");
+    },
+    inComparison: () => false,
+    swapComparison: () => {
+      calls.push("swapComparison");
+      return Promise.resolve();
+    },
+    openComparisonInReview: () => {
+      calls.push("openComparisonInReview");
+      return Promise.resolve();
+    },
   };
 }
 
@@ -177,6 +192,7 @@ describe("usePalette", () => {
       "toggle-layout",
       "toggle-wrap",
       "toggle-whitespace",
+      "compare-with",
       "toggle-hide-generated",
       "toggle-hide-lockfiles",
       "toggle-hide-tests",

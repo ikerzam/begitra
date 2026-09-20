@@ -27,6 +27,7 @@ const emit = defineEmits<{
   copyHash: [];
   selectParent: [hash: string];
   diffFrom: [];
+  compareWith: [];
   enter: [];
   leave: [];
 }>();
@@ -134,9 +135,8 @@ onMounted(() => {
       <Button
         variant="ghost"
         :icon="GitCompareArrows"
-        disabled
-        :title="t('graph.compareLater')"
         data-testid="hover-compare"
+        @click="emit('compareWith')"
       >
         {{ t("graph.compareWith") }}
       </Button>

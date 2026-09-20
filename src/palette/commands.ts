@@ -46,6 +46,11 @@ export interface PaletteActions {
   runShortcut: (id: string) => void;
   toggleOverview: () => void;
   toggleFilter: (key: "hideGenerated" | "hideLockfiles" | "hideTests") => void;
+  /** Opens the picker of "Compare with…" for the selected commit or the current branch. */
+  compareWith: () => void;
+  inComparison: () => boolean;
+  swapComparison: () => Promise<void>;
+  openComparisonInReview: () => Promise<void>;
 }
 
 export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
@@ -181,6 +186,25 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       enabled: () => withRepo() && actions.inReview(),
       run: () => actions.runShortcut(id),
     })),
+    {
+      id: "compare-with",
+      labelKey: "palette.commandsById.compare-with",
+      shortcutId: "compare-with",
+      enabled: withRepo,
+      run: actions.compareWith,
+    },
+    {
+      id: "swap-comparison",
+      labelKey: "palette.commandsById.swap-comparison",
+      enabled: () => withRepo() && actions.inComparison(),
+      run: actions.swapComparison,
+    },
+    {
+      id: "compare-open-review",
+      labelKey: "palette.commandsById.compare-open-review",
+      enabled: () => withRepo() && actions.inComparison(),
+      run: actions.openComparisonInReview,
+    },
     {
       id: "toggle-overview",
       labelKey: "palette.commandsById.toggle-overview",

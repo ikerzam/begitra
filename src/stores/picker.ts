@@ -1,23 +1,46 @@
-// The picker overlay: what it is open for ("Diff from…" or "Compare with…"),
-// and what a choice does. The overlay only renders and reports the choice.
+// The picker overlay: what it is open for ("Diff from…", or "Compare <subject> with…" for
+// one side of a comparison), and what a choice does. The overlay only renders and reports
+// the choice.
 
 import { defineStore } from "pinia";
 import { ref } from "vue";
 
+import { shortHash } from "@/shell/format";
+
+import { useCompareStore, type CompareSide } from "./compare";
+import { useRepoStore } from "./repo";
 import { useReviewStore, type ReviewTarget } from "./review";
+import type { CompareEndpoint } from "./settings";
 import { useShellStore } from "./shell";
 
-export type PickerMode = { kind: "diff-from" } | { kind: "compare"; subject: string };
+export type PickerMode =
+  | { kind: "diff-from" }
+  | {
+      kind: "compare";
+      /** The side being picked. */
+      side: CompareSide;
+      /** The endpoint of the other side, named in the title. */
+      other: CompareEndpoint;
+    };
 
 /** What a row of the picker stands for. */
 export type PickerChoice =
-  | { kind: "revision"; rev: string }
+  | { kind: "revision"; rev: string; label?: string }
   | { kind: "range"; from: string; to: string; threeDot: boolean }
   | { kind: "worktree"; path: string; branch: string | null };
+
+/** The folder name of a worktree path, for its label. */
+export function worktreeLabel(path: string): string {
+  const trimmed = path.replace(/[\\/]+$/, "");
+  const cut = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  return cut >= 0 ? trimmed.slice(cut + 1) : trimmed;
+}
 
 export const usePickerStore = defineStore("picker", () => {
   const review = useReviewStore();
   const shell = useShellStore();
+  const repo = useRepoStore();
+  const compare = useCompareStore();
 
   const mode = ref<PickerMode | null>(null);
 
@@ -57,8 +80,29 @@ export const usePickerStore = defineStore("picker", () => {
       }
       review.setTarget(target);
       await shell.setLayoutMode("review");
+      return;
     }
-    // A "compare" choice only closes the picker.
+    const chosen = endpointOf(choice);
+    if (!chosen) return;
+    const a = current.side === "a" ? chosen : current.other;
+    const b = current.side === "b" ? chosen : current.other;
+    await compare.open(a, b);
+  }
+
+  /** The endpoint a choice names; a range names none (compare mode lists no Range group). */
+  function endpointOf(choice: PickerChoice): CompareEndpoint | null {
+    switch (choice.kind) {
+      case "revision":
+        return { kind: "revision", rev: choice.rev, label: choice.label ?? shortHash(choice.rev) };
+      case "worktree": {
+        // A worktree is its checked-out commit: the branch, or the detached HEAD's hash.
+        const head = repo.worktrees.find((worktree) => worktree.path === choice.path)?.head;
+        const rev = choice.branch ?? head;
+        return rev ? { kind: "worktree", rev, label: worktreeLabel(choice.path) } : null;
+      }
+      case "range":
+        return null;
+    }
   }
 
   return { mode, open, close, choose };

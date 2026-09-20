@@ -14,6 +14,7 @@ import { onRepoChanged } from "@/ipc/events";
 import type { RepoChanged } from "@/ipc/schemas";
 import { useIndexStore } from "@/stores/index";
 import { useRepoStore } from "@/stores/repo";
+import { useCompareStore } from "@/stores/compare";
 import { useReviewStore } from "@/stores/review";
 import { useToastsStore } from "@/stores/toasts";
 
@@ -25,6 +26,7 @@ export function useRepoWatcher(): void {
   const index = useIndexStore();
   const toasts = useToastsStore();
   const review = useReviewStore();
+  const compare = useCompareStore();
   let unlisten: UnlistenFn | undefined;
   let disposed = false;
 
@@ -45,6 +47,7 @@ export function useRepoWatcher(): void {
     if (change.kinds.includes("refs")) void repo.refreshRefs();
     if (change.kinds.includes("worktrees")) void repo.loadWorktrees();
     review.onRepoChanged(change.kinds);
+    compare.onRepoChanged(change.kinds);
     void index.refresh(root);
   }
 

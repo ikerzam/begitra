@@ -119,7 +119,7 @@ describe("pickerRows", () => {
       ["commits", "0000000  commit 1", "3h ago"],
     ]);
     expect(rows[0]?.lane).toBe(1);
-    expect(rows[0]?.choice).toEqual({ kind: "revision", rev: "refs/heads/main" });
+    expect(rows[0]?.choice).toEqual({ kind: "revision", rev: "refs/heads/main", label: "main" });
     expect(rows[5]?.choice).toEqual({
       kind: "worktree",
       path: "/wt/claude-tiles",

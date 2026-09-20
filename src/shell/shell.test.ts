@@ -290,6 +290,17 @@ function backend(
           });
         }
         return ["code", "/r"];
+      case "compare":
+        return {
+          a: { rev: args["a"], hash: commit(0).hash },
+          b: { rev: args["b"], hash: commit(2).hash },
+          base: { hash: commit(2).hash, time: 1_700_000_000 },
+          onlyInA: 2,
+          onlyInB: 0,
+          relation: "up-to-date",
+        };
+      case "merge_preview":
+        return { kind: "up-to-date", conflicts: [] };
       case "list_worktrees":
         return [
           {
@@ -529,6 +540,39 @@ describe("AppShell", () => {
     await settle();
     expect(wrapper.findAll('[data-testid="graph-row"]')).toHaveLength(3);
     expect(document.activeElement).toBe(search);
+    wrapper.unmount();
+  });
+
+  it("opens the comparison from the shortcut, shows its layout and hints, and restores it", async () => {
+    backend();
+    const shell = useShellStore();
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    shell.setWindowWidth(1440);
+    await useRepoStore().open("/r");
+    await settle();
+    // ⇧⌘C with the first commit selected opens the picker with that commit as A.
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "C", ctrlKey: true, shiftKey: true }));
+    await settle();
+    const title = wrapper.get('[data-testid="picker-title"]').text();
+    expect(title).toBe(`Compare ${commit(0).hash.slice(0, 7)} with…`);
+    // Choosing a branch opens the compare layout on it.
+    const input = wrapper.get('[data-testid="picker-input"]');
+    await input.setValue("origin/main");
+    await input.trigger("keydown", { key: "Enter" });
+    await settle();
+    expect(shell.layoutMode).toBe("compare");
+    expect(wrapper.find('[data-testid="compare-layout"]').exists()).toBe(true);
+    expect(wrapper.get('[data-testid="compare-endpoint-b"]').text()).toBe("origin/main");
+    expect(wrapper.get('[data-testid="merge-preview-up-to-date"]').text()).toContain(
+      "origin/main is already part of",
+    );
+    expect(wrapper.get('[data-testid="status-hints"]').text()).toContain("commits");
+    expect(useSettingsStore().values.compare?.b.label).toBe("origin/main");
+    // ⌘1 leaves to the graph; the endpoints stay for the next launch.
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "1", ctrlKey: true }));
+    await settle();
+    expect(wrapper.find('[data-testid="graph-focus"]').exists()).toBe(true);
+    expect(useSettingsStore().values.compare).not.toBeNull();
     wrapper.unmount();
   });
 

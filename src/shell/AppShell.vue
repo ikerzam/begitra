@@ -11,11 +11,12 @@ import DropTarget from "@/discovery/DropTarget.vue";
 import { useDragDrop } from "@/discovery/useDragDrop";
 import type { FileChange } from "@/ipc/schemas";
 import PaletteOverlay from "@/palette/PaletteOverlay.vue";
+import CompareLayout from "@/compare/CompareLayout.vue";
 import PickerOverlay from "@/picker/PickerOverlay.vue";
-import { usePickerStore } from "@/stores/picker";
-import { baseName } from "@/shell/format";
+import { baseName, shortHash } from "@/shell/format";
 import { installShortcuts, useShortcut } from "@/shortcuts/useShortcut";
 import { useIndexStore } from "@/stores/index";
+import { usePickerStore } from "@/stores/picker";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
 import { useSettingsStore } from "@/stores/settings";
@@ -49,6 +50,25 @@ const reviewLayout = ref<{ focusFiles(): void } | null>(null);
 
 const repositoryName = computed(() => (repo.repo ? baseName(repo.repo.root) : null));
 const reviewMode = computed(() => shell.layoutMode === "review" && repo.state.kind === "ready");
+const compareMode = computed(
+  () =>
+    shell.layoutMode === "compare" &&
+    repo.state.kind === "ready" &&
+    settings.values.compare !== null,
+);
+
+/** "Compare with…": the selected commit in graph focus, else the current branch, as A. */
+function compareWith(): void {
+  if (repo.state.kind !== "ready") return;
+  const commit = shell.layoutMode === "graph" ? repo.selectedCommit : undefined;
+  const branch = repo.currentBranch;
+  const other = commit
+    ? { kind: "revision" as const, rev: commit.hash, label: shortHash(commit.hash) }
+    : branch
+      ? { kind: "revision" as const, rev: branch.fullName, label: branch.name }
+      : null;
+  if (other) picker.open({ kind: "compare", side: "b", other });
+}
 
 useShortcut("palette", () => shell.togglePalette());
 useShortcut("graph-focus", () => void shell.setLayoutMode("graph"));
@@ -56,6 +76,7 @@ useShortcut("review-focus", () => void shell.setLayoutMode("review"));
 useShortcut("toggle-sidebar", () => void shell.toggleSidebar());
 useShortcut("open-terminal", () => void external.openTerminal());
 useShortcut("open-editor", () => void external.openEditor());
+useShortcut("compare-with", compareWith);
 useShortcut("diff-from", () => {
   if (repo.state.kind === "ready") picker.open({ kind: "diff-from" });
 });
@@ -146,6 +167,7 @@ async function removeFromList(): Promise<void> {
     />
     <div class="relative flex min-h-0 flex-1">
       <ReviewFocusLayout v-if="reviewMode" ref="reviewLayout" />
+      <CompareLayout v-else-if="compareMode" />
       <GraphFocusLayout
         v-else
         ref="graphLayout"

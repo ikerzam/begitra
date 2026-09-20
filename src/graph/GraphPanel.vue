@@ -192,6 +192,12 @@ defineExpose({ focus: () => rows.value?.focus() });
           hover.hide();
         }
       "
+      @compare-with="
+        () => {
+          actions.compareWith(hoverCommit!);
+          hover.hide();
+        }
+      "
     />
     <CommitContextMenu
       v-if="menu"
@@ -201,6 +207,7 @@ defineExpose({ focus: () => rows.value?.focus() });
       @copy-hash="withMenuCommit(actions.copyHash)"
       @copy-message="withMenuCommit(actions.copyMessage)"
       @diff-from="withMenuCommit(actions.diffFrom)"
+      @compare-with="withMenuCommit(actions.compareWith)"
       @range-end="withMenuCommit(actions.rangeEnd)"
       @open-terminal="() => void actions.openTerminal()"
       @open-editor="() => void actions.openEditor()"

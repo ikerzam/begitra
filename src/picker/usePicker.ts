@@ -63,11 +63,13 @@ export interface PickerInputs {
   words: { current: string; worktree: string };
   /** Most recent commits listed. Default 20. */
   recentLimit?: number;
+  /** Whether a typed `A..B` yields the Range group (not in compare mode). Default true. */
+  ranges?: boolean;
 }
 
 /** Rows for the query, grouped as branches, tags, worktrees and recent commits. */
 export function pickerRows(inputs: PickerInputs): PickerRow[] {
-  const range = parseRange(inputs.query);
+  const range = inputs.ranges === false ? null : parseRange(inputs.query);
   if (range) return rangeRows(range, inputs);
   const query = inputs.query.trim();
   const rows: PickerRow[] = [];
@@ -88,7 +90,7 @@ export function pickerRows(inputs: PickerInputs): PickerRow[] {
       label: ref.name,
       context: parts.join(" "),
       lane: inputs.lanes.get(ref.fullName) ?? 0,
-      choice: { kind: "revision", rev: ref.fullName },
+      choice: { kind: "revision", rev: ref.fullName, label: ref.name },
     });
   }
   for (const ref of inputs.refs.filter((r) => r.kind === "tag")) {
@@ -101,7 +103,7 @@ export function pickerRows(inputs: PickerInputs): PickerRow[] {
       label: ref.name,
       context: tagged ? inputs.ago(tagged.author.time) : shortHash(ref.target),
       lane: 0,
-      choice: { kind: "revision", rev: ref.fullName },
+      choice: { kind: "revision", rev: ref.fullName, label: ref.name },
     });
   }
   for (const worktree of inputs.worktrees.filter((w) => !w.isMain)) {
@@ -125,7 +127,7 @@ export function pickerRows(inputs: PickerInputs): PickerRow[] {
       label,
       context: inputs.ago(commit.author.time),
       lane: 0,
-      choice: { kind: "revision", rev: commit.hash },
+      choice: { kind: "revision", rev: commit.hash, label: shortHash(commit.hash) },
     });
   }
   return rows;
@@ -159,7 +161,7 @@ function rangeRows(range: RangeQuery, inputs: PickerInputs): PickerRow[] {
       label: name,
       context,
       lane: ref ? (inputs.lanes.get(ref.fullName) ?? 0) : 0,
-      choice: { kind: "revision", rev: ref?.fullName ?? name },
+      choice: { kind: "revision", rev: ref?.fullName ?? name, label: ref?.name ?? name },
       kind: ref ? (ref.kind === "tag" ? "tag" : "branch") : "commit",
     });
   }

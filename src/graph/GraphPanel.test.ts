@@ -147,7 +147,7 @@ describe("GraphPanel hover card and context menu", () => {
     expect(card.get('[data-testid="hover-subject"]').text()).toBe("commit 7");
     expect(card.get('[data-testid="hover-hash"]').text()).toBe(fakeCommit(7).hash);
     expect(card.text()).toContain("claude@x");
-    expect(card.get('[data-testid="hover-compare"]').attributes("disabled")).toBeDefined();
+    expect(card.get('[data-testid="hover-compare"]').attributes("disabled")).toBeUndefined();
     // Into the card and back out: it stays, then goes after the grace period.
     await row.trigger("pointerleave");
     await card.trigger("pointerenter");
@@ -202,7 +202,7 @@ describe("GraphPanel hover card and context menu", () => {
       "Open in terminal",
       "Open in editor",
     ]);
-    expect(wrapper.get('[data-testid="menu-compare"]').attributes("aria-disabled")).toBe("true");
+    expect(wrapper.get('[data-testid="menu-compare"]').attributes("aria-disabled")).toBeUndefined();
     await wrapper.get('[data-testid="menu-copy-hash"]').trigger("click");
     await flushPromises();
     expect(writeText).toHaveBeenCalledWith(fakeCommit(4).hash);

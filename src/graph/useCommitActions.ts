@@ -8,6 +8,7 @@ import type { CommitNode } from "@/ipc/schemas";
 import { shortHash } from "@/shell/format";
 import { useExternal } from "@/shell/useExternal";
 import { useGraphStore } from "@/stores/graph";
+import { usePickerStore } from "@/stores/picker";
 import { useToastsStore } from "@/stores/toasts";
 
 /** Writes `text` to the clipboard; false when the webview offers none. */
@@ -27,6 +28,7 @@ export function useCommitActions() {
   const graph = useGraphStore();
   const toasts = useToastsStore();
   const external = useExternal();
+  const picker = usePickerStore();
 
   async function copy(text: string, doneKey: string, params: Record<string, string>) {
     if (await copyText(text)) {
@@ -46,6 +48,12 @@ export function useCommitActions() {
         {},
       ),
     diffFrom: (commit: CommitNode) => graph.setDiffBase(commit.hash),
+    compareWith: (commit: CommitNode) =>
+      picker.open({
+        kind: "compare",
+        side: "b",
+        other: { kind: "revision", rev: commit.hash, label: shortHash(commit.hash) },
+      }),
     rangeEnd: (commit: CommitNode) => graph.setRangeEnd(commit.hash),
     openTerminal: () => external.openTerminal(),
     openEditor: () => external.openEditor(),

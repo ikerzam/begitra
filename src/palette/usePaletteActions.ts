@@ -11,6 +11,7 @@ import type { IndexEntry } from "@/ipc/schemas";
 import { useExternal } from "@/shell/useExternal";
 import { useOpenFolder } from "@/shell/useOpenFolder";
 import { useIndexStore } from "@/stores/index";
+import { useCompareStore } from "@/stores/compare";
 import { usePickerStore } from "@/stores/picker";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
@@ -31,6 +32,7 @@ export function usePaletteActions(): PaletteActions {
   const external = useExternal();
   const review = useReviewStore();
   const picker = usePickerStore();
+  const compare = useCompareStore();
 
   return {
     hasRepository: () => repo.state.kind === "ready",
@@ -89,6 +91,10 @@ export function usePaletteActions(): PaletteActions {
       else shell.hideReviewRail();
     },
     toggleFilter: (key) => review.setFilter(key, !review.filters[key]),
+    compareWith: () => void shortcutRegistry().run("compare-with"),
+    inComparison: () => shell.layoutMode === "compare",
+    swapComparison: () => compare.swap(),
+    openComparisonInReview: () => compare.openInReview(),
   };
 }
 

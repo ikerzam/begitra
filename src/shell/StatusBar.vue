@@ -10,6 +10,7 @@ import { shortcutRegistry } from "@/shortcuts/registry";
 import { useIndexStore } from "@/stores/index";
 import { useOperationsStore } from "@/stores/operations";
 import { useRepoStore } from "@/stores/repo";
+import { useCompareStore } from "@/stores/compare";
 import { targetLabel, useReviewStore } from "@/stores/review";
 import { useShellStore } from "@/stores/shell";
 
@@ -23,6 +24,7 @@ const shell = useShellStore();
 const index = useIndexStore();
 const operations = useOperationsStore();
 const review = useReviewStore();
+const compare = useCompareStore();
 const home = useHomeDir();
 
 /** The open repository, or the folder being opened or that failed to open. */
@@ -68,6 +70,8 @@ const operationText = computed(() => {
     hash: repo.detail ? shortHash(repo.detail.hash) : "",
     folder: scanFolder.value,
     target: target ? targetLabel(target) || t(`review.target.${target.kind}`) : "",
+    a: compare.endpoints?.a.label ?? "",
+    b: compare.endpoints?.b.label ?? "",
   }).trim();
 });
 
@@ -100,6 +104,13 @@ const hints = computed(() => {
       { keys: "j/k", label: t("statusBar.files") },
       { keys: "n/p", label: t("statusBar.hunks") },
       { keys: "r", label: t("statusBar.markReviewed") },
+    ];
+  }
+  if (shell.layoutMode === "compare") {
+    return [
+      { keys: "j/k", label: t("statusBar.commits") },
+      { keys: "↵", label: t("statusBar.review") },
+      { keys: registry.hint("palette"), label: t("statusBar.commands") },
     ];
   }
   return [

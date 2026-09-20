@@ -26,7 +26,7 @@ import SkeletonRow from "@/components/SkeletonRow.vue";
 import { useFocusTrap } from "@/components/useFocusTrap";
 import { branchLanes } from "@/shell/branchLanes";
 import { errorText } from "@/shell/errorMessage";
-import { relativeDate, shortHash } from "@/shell/format";
+import { relativeDate } from "@/shell/format";
 import { useExternal } from "@/shell/useExternal";
 import { useNow } from "@/shell/useNow";
 import { usePickerStore } from "@/stores/picker";
@@ -58,8 +58,9 @@ const title = computed(() => {
   if (!mode) return "";
   return mode.kind === "diff-from"
     ? t("picker.diffFrom")
-    : t("picker.compareWith", { subject: shortHash(mode.subject) });
+    : t("picker.compareWith", { subject: mode.other.label });
 });
+const compareMode = computed(() => picker.mode?.kind === "compare");
 
 function ago(seconds: number): string {
   const rel = relativeDate(seconds, now.value);
@@ -75,6 +76,7 @@ const rows = computed(() =>
     lanes: branchLanes(repo.refs),
     ago,
     words: { current: t("picker.current"), worktree: t("picker.worktreeAt") },
+    ranges: !compareMode.value,
   }),
 );
 
@@ -100,7 +102,7 @@ const sections = computed(() => {
     .filter((section) => section.rows.length > 0);
 });
 
-const range = computed(() => parseRange(query.value));
+const range = computed(() => (compareMode.value ? null : parseRange(query.value)));
 const loading = computed(() => repo.state.kind === "ready" && !repo.refsLoaded);
 const refsError = computed(() => repo.refsError);
 const refsErrorMessage = computed(() => {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // The context menu of a commit row: copy hash and message, diff from
-// here, compare with… (disabled), select as range end, open in terminal and in
+// here, compare with…, select as range end, open in terminal and in
 // editor. Opened at the pointer, or under the focused row from the keyboard.
 
 import { Code, Copy, FileDiff, GitCommitHorizontal, GitCompareArrows, Terminal } from "@lucide/vue";
@@ -17,6 +17,7 @@ const emit = defineEmits<{
   copyHash: [];
   copyMessage: [];
   diffFrom: [];
+  compareWith: [];
   rangeEnd: [];
   openTerminal: [];
   openEditor: [];
@@ -48,9 +49,8 @@ const copyHint = formatShortcut("mod+c", shortcutRegistry().platform);
     <ContextMenuItem
       :label="t('graph.compareWith')"
       :icon="GitCompareArrows"
-      disabled
-      :title="t('graph.compareLater')"
       data-testid="menu-compare"
+      @select="emit('compareWith')"
     />
     <ContextMenuItem
       :label="t('graph.selectRangeEnd')"
