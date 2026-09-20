@@ -397,6 +397,26 @@ describe("launch and the watcher", () => {
     wrapper.unmount();
   });
 
+  it("reopens on the worktrees dashboard when the app closed there", async () => {
+    await useSettingsStore().init(
+      memoryStorage({ lastRepository: "/r", layoutMode: "worktrees" }),
+      "windows",
+    );
+    backend();
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    await settle();
+    expect(useRepoStore().repo?.root).toBe("/r");
+    expect(useShellStore().layoutMode).toBe("worktrees");
+    expect(useShellStore().sidebarTab).toBe("worktrees");
+    expect(wrapper.find('[data-testid="worktrees-layout"]').exists()).toBe(true);
+    // ⌘1 returns to the graph with the tab still open.
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "1", ctrlKey: true }));
+    await settle();
+    expect(useShellStore().layoutMode).toBe("graph");
+    expect(useShellStore().sidebarTab).toBe("worktrees");
+    wrapper.unmount();
+  });
+
   it("leaves the home with the entry flagged and a toast when the last repository is gone", async () => {
     await useSettingsStore().init(memoryStorage({ lastRepository: "/r" }), "windows");
     backend({ failOpen: true });
