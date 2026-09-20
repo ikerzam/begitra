@@ -228,6 +228,46 @@ fn skewed() -> Fixture {
     f
 }
 
+/// A repository with `count` commits in one line, each changing `file.txt`, written with
+/// libgit2 (no processes); for the path walk over many lines.
+fn chain_touching(count: usize) -> Fixture {
+    let f = Fixture::empty();
+    let repo = git2::Repository::open(&f.root).expect("open with git2");
+    let mut parent: Option<git2::Oid> = None;
+    for i in 0..count {
+        let blob = repo
+            .blob(
+                format!(
+                    "line {i}
+"
+                )
+                .as_bytes(),
+            )
+            .expect("blob");
+        let mut builder = repo.treebuilder(None).expect("tree builder");
+        builder.insert("file.txt", blob, 0o100644).expect("entry");
+        let tree_id = builder.write().expect("tree");
+        let tree = repo.find_tree(tree_id).expect("tree object");
+        let time = git2::Time::new(1_704_067_200 + 60 * i as i64, 0);
+        let signature =
+            git2::Signature::new("Chain", "chain@example.com", &time).expect("signature");
+        let parent_commit = parent.map(|oid| repo.find_commit(oid).expect("parent commit"));
+        let parents: Vec<&git2::Commit> = parent_commit.iter().collect();
+        let oid = repo
+            .commit(
+                Some("HEAD"),
+                &signature,
+                &signature,
+                &format!("touch {i}"),
+                &tree,
+                &parents,
+            )
+            .expect("commit");
+        parent = Some(oid);
+    }
+    f
+}
+
 /// A repository with `count` commits in one line, written with libgit2 (no processes).
 fn chain(count: usize) -> Fixture {
     let f = Fixture::empty();
@@ -912,6 +952,49 @@ fn filters_match_git_log_selection_and_flatten_the_layout() {
     assert_eq!(hashes(&nodes), expected);
 }
 
+/// `since` is a plain filter over every commit, like `git rev-list --since-as-filter`: under
+/// clock skew git's `--since` stops at the first old commit and drops its ancestry, which
+/// would hide the newer commits behind it.
+#[test]
+fn since_filters_every_commit_under_clock_skew() {
+    // An old commit between two new ones: git's --since stops at it and hides the history
+    // behind it; the filter keeps every commit newer than the bound.
+    let mut f = Fixture::basic();
+    let now = f.now();
+    f.set_clock(now - 20 * 24 * 3600);
+    f.write(
+        "old.txt",
+        "committed with a clock twenty days behind
+",
+    );
+    f.commit("old clock");
+    f.set_clock(now);
+    f.tick();
+    f.write(
+        "new.txt",
+        "committed now
+",
+    );
+    f.commit("new clock");
+    let engine = open(&f);
+    let since = now - 10 * 24 * 3600;
+    let nodes = walk_filtered(
+        &engine,
+        &WalkScope::All,
+        &filtered(WalkFilter {
+            since: Some(since),
+            ..WalkFilter::default()
+        }),
+    );
+    let as_filter = git_log(&f, &[&format!("--since-as-filter=@{since}")], "--all");
+    assert_eq!(hashes(&nodes), as_filter);
+    let stopping = git_log(&f, &[&format!("--since=@{since}")], "--all");
+    assert!(
+        as_filter.len() > stopping.len(),
+        "the fixture shows the difference"
+    );
+}
+
 /// A filter that matches nothing still ends with a done page, and an inactive filter (empty
 /// text) keeps the lane layout.
 #[test]
@@ -1014,6 +1097,140 @@ fn path_history_matches_git_rev_list() {
         .map(str::to_owned)
         .collect();
     assert_eq!(hashes(&exact), expected);
+}
+
+/// A path walk whose lines pile up behind a small first page (git far ahead of the pages,
+/// the reader blocked on the full channel) still cancels and drops within 200 ms each.
+#[test]
+fn path_history_cancels_and_drops_with_lines_pending() {
+    let f = chain_touching(1_500);
+    let engine = open(&f);
+    let options = WalkOptions {
+        page_size: 10,
+        filter: Some(WalkFilter {
+            paths: vec!["file.txt".to_owned()],
+            ..WalkFilter::default()
+        }),
+        order: WalkOrder::Lazy,
+    };
+    let mut walk = engine
+        .walk(&WalkScope::All, &options, &Cancel::never())
+        .expect("walk");
+    let first = walk.next_page(&Cancel::never()).expect("page");
+    assert_eq!(first.commits.len(), 10);
+    // Let git run ahead until the channel and its pipe are full.
+    thread::sleep(Duration::from_millis(500));
+    let cancel = Cancel::new();
+    cancel.cancel();
+    let started = Instant::now();
+    let error = walk.next_page(&cancel).expect_err("cancelled");
+    assert!(matches!(error, GitError::Cancelled), "{error:?}");
+    assert!(
+        started.elapsed() < Duration::from_millis(200),
+        "{:?}",
+        started.elapsed()
+    );
+    let started = Instant::now();
+    drop(walk);
+    assert!(
+        started.elapsed() < Duration::from_millis(200),
+        "{:?}",
+        started.elapsed()
+    );
+    // The same with a walk dropped while git is still writing.
+    let walk = engine
+        .walk(&WalkScope::All, &options, &Cancel::never())
+        .expect("walk");
+    thread::sleep(Duration::from_millis(300));
+    let started = Instant::now();
+    drop(walk);
+    assert!(
+        started.elapsed() < Duration::from_millis(200),
+        "{:?}",
+        started.elapsed()
+    );
+}
+
+/// git dying on a corrupt object mid-history is `repo.corrupt_object` with the rows before
+/// it, like the libgit2 walk.
+#[test]
+fn path_history_reports_a_corrupt_object_like_the_walker() {
+    let f = Fixture::basic();
+    let corrupt = f.truncate_object("HEAD~1");
+    let engine = open(&f);
+    let mut walk = engine
+        .walk(
+            &WalkScope::Ref {
+                name: "main".to_owned(),
+            },
+            &filtered(WalkFilter {
+                paths: vec!["README.md".to_owned(), "docs".to_owned(), "src".to_owned()],
+                ..WalkFilter::default()
+            }),
+            &Cancel::never(),
+        )
+        .expect("walk");
+    let mut rows = Vec::new();
+    let error = loop {
+        match walk.next_page(&Cancel::never()) {
+            Ok(page) => {
+                rows.extend(page.commits);
+                if page.done {
+                    match walk.next_page(&Cancel::never()) {
+                        Err(error) => break error,
+                        Ok(_) => panic!("expected the parked error"),
+                    }
+                }
+            }
+            Err(error) => break error,
+        }
+    };
+    match error {
+        GitError::CorruptObject { hash, .. } => assert!(corrupt.starts_with(&hash), "{hash}"),
+        other => panic!("expected repo.corrupt_object, got {other:?}"),
+    }
+    // The merge at the tip needs the corrupt parent's tree, so git dies before its first line.
+    assert!(rows.iter().all(|row| row.hash != corrupt));
+}
+
+/// The author filter takes the identity as git prints it, `Name <email>`.
+#[test]
+fn author_filter_matches_the_printed_identity() {
+    let f = Fixture::basic();
+    let engine = open(&f);
+    let count = |author: &str| {
+        walk_filtered(
+            &engine,
+            &WalkScope::All,
+            &filtered(WalkFilter {
+                author: Some(author.to_owned()),
+                ..WalkFilter::default()
+            }),
+        )
+        .len()
+    };
+    let all = walk_filtered(&engine, &WalkScope::All, &filtered(WalkFilter::default())).len();
+    assert!(all > 0);
+    for needle in [
+        "Fixture <fixture@example.com>",
+        "fixture <",
+        "example.com>",
+        "<fixture",
+    ] {
+        let expected = f
+            .git(&[
+                "rev-list",
+                "--all",
+                "-i",
+                "-F",
+                &format!("--author={needle}"),
+            ])
+            .lines()
+            .count();
+        assert_eq!(count(needle), expected, "{needle:?}");
+        assert_eq!(count(needle), all, "{needle:?}");
+    }
+    assert_eq!(count("nobody <nobody@example.com>"), 0);
 }
 
 /// A path walk over many commits is paged and stops within 200 ms of a cancel, killing git.

@@ -65,15 +65,30 @@ impl Needle {
 pub(super) struct Matcher {
     text: Option<Needle>,
     author: Option<Needle>,
+    /// The author needle names an identity (`Name <email>`), matched as git prints it.
+    author_identity: bool,
     since: Option<i64>,
     until: Option<i64>,
 }
 
+/// Whether `signature`, printed as `Name <email>`, holds the needle.
+fn identity_holds(signature: &git2::Signature<'_>, needle: &Needle) -> bool {
+    let mut identity =
+        Vec::with_capacity(signature.name_bytes().len() + signature.email_bytes().len() + 3);
+    identity.extend_from_slice(signature.name_bytes());
+    identity.extend_from_slice(b" <");
+    identity.extend_from_slice(signature.email_bytes());
+    identity.push(b'>');
+    needle.found_in(&identity)
+}
+
 impl Matcher {
     pub(super) fn new(filter: &WalkFilter) -> Self {
+        let author = filter.author.as_deref().map(str::trim).unwrap_or_default();
         Matcher {
             text: filter.text.as_deref().and_then(Needle::new),
-            author: filter.author.as_deref().and_then(Needle::new),
+            author: Needle::new(author),
+            author_identity: author.contains('<') || author.contains('>'),
             since: filter.since,
             until: filter.until,
         }
@@ -92,9 +107,10 @@ impl Matcher {
         }
         if let Some(author) = &self.author {
             let signature = commit.author();
-            if !(author.found_in(signature.name_bytes())
-                || author.found_in(signature.email_bytes()))
-            {
+            let held = author.found_in(signature.name_bytes())
+                || author.found_in(signature.email_bytes())
+                || (self.author_identity && identity_holds(&signature, author));
+            if !held {
                 return false;
             }
         }

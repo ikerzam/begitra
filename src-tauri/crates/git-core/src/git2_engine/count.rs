@@ -74,12 +74,6 @@ fn count_from(
     let mut count: u32 = 0;
     while let Some(oid) = stack.pop() {
         count += 1;
-        if count >= cap {
-            return Ok(CommitCount {
-                count,
-                capped: true,
-            });
-        }
         if count.is_multiple_of(CANCEL_EVERY) {
             cancel.check()?;
         }
@@ -90,6 +84,13 @@ fn count_from(
             if !excluded.contains(&parent) && seen.insert(parent) {
                 stack.push(parent);
             }
+        }
+        // Exactly `cap` commits is not capped: the cap only cuts a longer history.
+        if count >= cap && !stack.is_empty() {
+            return Ok(CommitCount {
+                count,
+                capped: true,
+            });
         }
     }
     Ok(CommitCount {
@@ -149,6 +150,14 @@ mod tests {
             CommitCount {
                 count: 4,
                 capped: true
+            }
+        );
+        let exact = count_from(&repo, &[tip], &none, 10, &Cancel::never()).expect("count");
+        assert_eq!(
+            exact,
+            CommitCount {
+                count: 10,
+                capped: false
             }
         );
     }

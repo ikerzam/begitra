@@ -140,10 +140,11 @@ impl GitEngine for Git2Engine {
         options: &WalkOptions,
         cancel: &Cancel,
     ) -> GitResult<Box<dyn CommitWalk>> {
+        // An empty path is no path: git would take `:(literal)` alone as the whole tree.
         let by_path = options
             .filter
             .as_ref()
-            .is_some_and(|filter| !filter.paths.is_empty());
+            .is_some_and(|filter| filter.paths.iter().any(|path| !path.is_empty()));
         if by_path {
             cli_walk::start(self, scope, options, cancel)
         } else {

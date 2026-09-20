@@ -41,8 +41,9 @@ use crate::types::{CommitNode, Page, WalkOptions, WalkOrder, WalkScope};
 const PAGE_BUDGET: Duration = Duration::from_millis(200);
 /// How often cancellation is checked while waiting for a line.
 const CANCEL_POLL: Duration = Duration::from_millis(50);
-/// Lines the reader thread may run ahead of the pages; git is paused beyond it.
-const LINE_BUFFER: usize = 4_096;
+/// Lines the reader thread may run ahead of the pages; git is paused beyond it (the pipe
+/// fills and it blocks on its write), so a walk nobody pages costs nothing.
+const LINE_BUFFER: usize = 256;
 /// Most bytes of stderr kept for the error report.
 const STDERR_CAP: usize = 64 * 1024;
 
@@ -64,7 +65,13 @@ pub(super) fn start(
         args.push("--date-order".to_owned());
     }
     args.push("--".to_owned());
-    args.extend(filter.paths.iter().map(|path| format!(":(literal){path}")));
+    args.extend(
+        filter
+            .paths
+            .iter()
+            .filter(|path| !path.is_empty())
+            .map(|path| format!(":(literal){path}")),
+    );
     let argv: Vec<&str> = args.iter().map(String::as_str).collect();
     let command_text = args.join(" ");
     let cli_error = |stderr: String| GitError::Cli {
@@ -137,7 +144,7 @@ pub(super) fn start(
     Ok(Box::new(CliWalk {
         repo,
         child: Some(child),
-        lines,
+        lines: Some(lines),
         reader: Some(reader),
         writer: Some(writer),
         drain: Some(drain),
@@ -155,7 +162,8 @@ pub(super) fn start(
 struct CliWalk {
     repo: Repository,
     child: Option<Child>,
-    lines: Receiver<io::Result<String>>,
+    /// Taken on stop, so a reader blocked on a full channel sees the receiver gone and ends.
+    lines: Option<Receiver<io::Result<String>>>,
     reader: Option<JoinHandle<()>>,
     writer: Option<JoinHandle<()>>,
     drain: Option<JoinHandle<String>>,
@@ -170,11 +178,10 @@ struct CliWalk {
 impl CliWalk {
     /// A walk with nothing to list, already done.
     fn empty(repo: Repository, command: String) -> Self {
-        let (_, lines) = mpsc::sync_channel(1);
         CliWalk {
             repo,
             child: None,
-            lines,
+            lines: None,
             reader: None,
             writer: None,
             drain: None,
@@ -187,8 +194,10 @@ impl CliWalk {
         }
     }
 
-    /// Joins the helper threads; they end once the child's pipes close.
+    /// Joins the helper threads; they end once the child's pipes close and, for the reader,
+    /// once the receiver is gone (it may be blocked on a full channel).
     fn join_helpers(&mut self) -> String {
+        drop(self.lines.take());
         if let Some(reader) = self.reader.take() {
             let _ = reader.join();
         }
@@ -227,6 +236,12 @@ impl CliWalk {
         let stderr = self.join_helpers();
         if status.success() {
             Ok(())
+        } else if let Some(hash) = corrupt_object(&stderr) {
+            // git stops at an unreadable object the way the libgit2 walk does.
+            Err(GitError::CorruptObject {
+                hash,
+                reason: stderr.trim().to_owned(),
+            })
         } else {
             Err(GitError::Cli {
                 command: self.command.clone(),
@@ -276,6 +291,20 @@ impl Drop for CliWalk {
     }
 }
 
+/// The hash git names when it dies on a missing or corrupt object (`fatal: bad object
+/// <hash>`, `error: object file ... is empty`, `fatal: loose object <hash> ... is corrupt`).
+fn corrupt_object(stderr: &str) -> Option<String> {
+    let lower = stderr.to_ascii_lowercase();
+    if !(lower.contains("corrupt") || lower.contains("bad object") || lower.contains("missing")) {
+        return None;
+    }
+    let hash = stderr
+        .split(|c: char| !c.is_ascii_hexdigit())
+        .find(|token| token.len() >= 7 && token.len() <= 40)
+        .unwrap_or("unknown");
+    Some(hash.to_owned())
+}
+
 impl CommitWalk for CliWalk {
     #[tracing::instrument(level = "trace", skip_all)]
     fn next_page(&mut self, cancel: &Cancel) -> GitResult<Page> {
@@ -295,7 +324,10 @@ impl CommitWalk for CliWalk {
                 self.stop();
                 return Err(GitError::Cancelled);
             }
-            let line = match self.lines.recv_timeout(CANCEL_POLL) {
+            let Some(lines) = self.lines.as_ref() else {
+                break;
+            };
+            let line = match lines.recv_timeout(CANCEL_POLL) {
                 Ok(Ok(line)) => line,
                 Ok(Err(error)) => {
                     let error = self.cli_error(error.to_string());
