@@ -376,6 +376,10 @@ describe("launch and the watcher", () => {
     await emit("repo:changed", { repo: "/elsewhere", kinds: ["refs"], paths: [] });
     await settle();
     expect(calls.filter((c) => c === "list_refs")).toHaveLength(2);
+    const worktreeListings = calls.filter((c) => c === "list_worktrees").length;
+    await emit("repo:changed", { repo: "/r", kinds: ["worktrees"], paths: [] });
+    await settle();
+    expect(calls.filter((c) => c === "list_worktrees")).toHaveLength(worktreeListings + 1);
     expect(useSettingsStore().values.lastRepository).toBe("/r");
     wrapper.unmount();
   });
