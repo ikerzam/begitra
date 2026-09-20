@@ -499,6 +499,18 @@ const revision = v.pipe(
   v.maxLength(200),
   v.check((rev) => !rev.startsWith("-"), "starts with a dash"),
 );
+/** A worktree's folder: absolute on the backend's side too; at most 4,096 characters here. */
+const worktreePath = v.pipe(
+  path,
+  v.maxLength(4096),
+  v.check((p) => !p.startsWith("-"), "starts with a dash"),
+);
+/** A lock reason: at most 200 characters, never shaped like an option. */
+const lockReason = v.pipe(
+  v.string(),
+  v.maxLength(200),
+  v.check((reason) => !reason.trimStart().startsWith("-"), "starts with a dash"),
+);
 
 export const commandArgs = {
   ping: v.object({ message: v.string() }),
@@ -514,7 +526,7 @@ export const commandArgs = {
   worktree_add: v.object({
     repo: path,
     request: v.object({
-      path,
+      path: worktreePath,
       branch: v.variant("kind", [
         v.object({ kind: v.literal("new"), name: revision, start: revision }),
         v.object({ kind: v.literal("existing"), name: revision }),
@@ -523,16 +535,16 @@ export const commandArgs = {
     }),
     opId,
   }),
-  worktree_remove: v.object({ repo: path, path, force: v.boolean(), opId }),
+  worktree_remove: v.object({ repo: path, path: worktreePath, force: v.boolean(), opId }),
   worktree_prune: v.object({ repo: path, opId }),
   worktree_lock: v.object({
     repo: path,
-    path,
-    reason: v.nullable(v.pipe(v.string(), v.maxLength(200))),
+    path: worktreePath,
+    reason: v.nullable(lockReason),
     opId,
   }),
-  worktree_unlock: v.object({ repo: path, path, opId }),
-  path_exists: v.object({ path }),
+  worktree_unlock: v.object({ repo: path, path: worktreePath, opId }),
+  path_exists: v.object({ path: worktreePath }),
   count_commits: v.object({ repo: path, scope: WalkScopeSchema, opId }),
   list_worktrees: v.object({ repo: path, opId }),
   walk_commits: v.object({

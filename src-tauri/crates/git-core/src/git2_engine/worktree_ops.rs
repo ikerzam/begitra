@@ -32,7 +32,12 @@ fn main_root(engine: &Git2Engine, cancel: &Cancel) -> GitResult<PathBuf> {
 /// Runs `git <args>` in the main worktree and turns a non-zero status into [`GitError::Cli`].
 fn git(engine: &Git2Engine, args: &[&str], cancel: &Cancel) -> GitResult<CliExit> {
     let cwd = main_root(engine, cancel)?;
-    let exit = run_git_cancellable(&cwd, args, cancel)?;
+    git_in(&cwd, args, cancel)
+}
+
+/// [`git`] in a known folder.
+fn git_in(cwd: &Path, args: &[&str], cancel: &Cancel) -> GitResult<CliExit> {
+    let exit = run_git_cancellable(cwd, args, cancel)?;
     if exit.status == Some(0) {
         Ok(exit)
     } else {
@@ -84,9 +89,13 @@ pub(super) fn add(
         }
     }
     let cwd = main_root(engine, cancel)?;
-    if let Err(error) = git(engine, &args, cancel) {
-        if matches!(error, GitError::Cancelled) {
-            roll_back_add(&cwd, &request.path);
+    let common_dir = engine.with_repo(|repo| Ok(repo.commondir().to_path_buf()))?;
+    // Only what this add creates is ever rolled back: a folder that existed before is the
+    // user's, and a cancel that lands before git registered the entry created nothing.
+    let existed = request.path.exists();
+    if let Err(error) = git_in(&cwd, &args, cancel) {
+        if matches!(error, GitError::Cancelled) && !existed {
+            roll_back_add(&cwd, &common_dir, &request.path);
         }
         return Err(error);
     }
@@ -108,8 +117,12 @@ pub(super) fn add(
 /// lands on its own thread a moment later, and git's removal races the dying checkout
 /// (it unregisters the entry but leaves the files still being written), so the folder is
 /// deleted directly once git no longer claims it, and the attempts are repeated until it
-/// is gone.
-fn roll_back_add(cwd: &Path, path: &Path) {
+/// is gone. Nothing is deleted unless git had registered an entry for the folder: that is
+/// the proof the folder is the add's own (git registers before it creates the folder).
+fn roll_back_add(cwd: &Path, common_dir: &Path, path: &Path) {
+    if !registered_at(common_dir, path) {
+        return;
+    }
     let path_text = path.to_string_lossy().into_owned();
     for _ in 0..20 {
         std::thread::sleep(std::time::Duration::from_millis(250));
@@ -128,6 +141,21 @@ fn roll_back_add(cwd: &Path, path: &Path) {
     if path.exists() {
         tracing::warn!(path = %path.display(), "a cancelled worktree add could not be rolled back");
     }
+}
+
+/// Whether some entry under `<common dir>/worktrees` records `path` as its folder (each
+/// `gitdir` file holds `<folder>/.git`).
+fn registered_at(common_dir: &Path, path: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(common_dir.join("worktrees")) else {
+        return false;
+    };
+    entries.filter_map(Result::ok).any(|entry| {
+        std::fs::read_to_string(entry.path().join("gitdir")).is_ok_and(|gitdir| {
+            Path::new(gitdir.trim())
+                .parent()
+                .is_some_and(|folder| same_folder(folder, path))
+        })
+    })
 }
 
 /// Removes a worktree; see [`crate::engine::GitEngine::worktree_remove`].

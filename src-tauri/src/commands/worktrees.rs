@@ -17,6 +17,9 @@ use crate::state::AppState;
 /// Longest branch name, revision or lock reason accepted.
 const MAX_TEXT_CHARS: usize = 200;
 
+/// Longest path accepted (the OS refuses far shorter ones; the bound keeps the error ours).
+const MAX_PATH_CHARS: usize = 4096;
+
 /// Adding a worktree checks out the whole tree and removing one deletes it: a minute each on
 /// the benchmark repositories (96,038 files; 58,430 files in 35,604 directories), so they
 /// get ten minutes instead of the default thirty seconds. A timeout kills git mid-checkout;
@@ -46,8 +49,15 @@ fn validate_path(field: &str, path: &Path) -> Result<(), AppError> {
     if !path.is_absolute() {
         return Err(AppError::invalid_argument(field, "not an absolute path"));
     }
-    if path.to_string_lossy().starts_with('-') {
+    let text = path.to_string_lossy();
+    if text.starts_with('-') {
         return Err(AppError::invalid_argument(field, "starts with a dash"));
+    }
+    if text.chars().count() > MAX_PATH_CHARS {
+        return Err(AppError::invalid_argument(
+            field,
+            format!("longer than {MAX_PATH_CHARS} characters"),
+        ));
     }
     Ok(())
 }
@@ -284,5 +294,10 @@ mod tests {
         };
         assert!(validate_add(&empty).is_err());
         assert!(validate_text("reason", &"r".repeat(201)).is_err());
+        let long = temp.join("x".repeat(5_000));
+        assert_eq!(
+            validate_path("path", &long).expect_err("too long").code,
+            "ipc.invalid_argument"
+        );
     }
 }

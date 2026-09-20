@@ -356,6 +356,35 @@ fn a_cancelled_add_is_rolled_back() {
     );
 }
 
+/// A cancel that lands before git runs creates nothing and rolls nothing back: a folder that
+/// was there before the add stays, with its files.
+#[test]
+fn a_cancel_before_git_runs_leaves_an_existing_folder_alone() {
+    let f = Fixture::basic();
+    let engine = engine(&f);
+    let path = f.sibling("wt-precious");
+    fs::create_dir_all(path.join("sub")).expect("folder");
+    fs::write(path.join("sub").join("precious.txt"), "keep\n").expect("file");
+    let cancel = Cancel::new();
+    cancel.cancel();
+    let refused = engine
+        .worktree_add(
+            &WorktreeAdd {
+                path: path.clone(),
+                branch: WorktreeBranch::Detached {
+                    rev: "v1".to_owned(),
+                },
+            },
+            &cancel,
+        )
+        .expect_err("cancelled");
+    assert_eq!(refused.code(), "op.cancelled");
+    assert!(path.join("sub").join("precious.txt").exists());
+    assert!(!porcelain(&f)
+        .iter()
+        .any(|(p, _, _)| same_path(Path::new(p), &path)));
+}
+
 /// An entry whose admin directory libgit2 cannot open (its `gitdir` file gone) is pruned by
 /// git and reported under its name.
 #[test]
