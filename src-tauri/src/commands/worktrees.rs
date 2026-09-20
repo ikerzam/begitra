@@ -4,6 +4,7 @@
 //! and a remove or lock must name a worktree the repository lists.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use git_core::engine::GitEngine;
 use git_core::types::{Worktree, WorktreeAdd, WorktreeBranch};
@@ -15,6 +16,12 @@ use crate::state::AppState;
 
 /// Longest branch name, revision or lock reason accepted.
 const MAX_TEXT_CHARS: usize = 200;
+
+/// Adding a worktree checks out the whole tree and removing one deletes it: a minute each on
+/// the benchmark repositories (96,038 files; 58,430 files in 35,604 directories), so they
+/// get ten instead of the default thirty seconds. A timeout kills git mid-checkout and leaves
+/// the entry locked ("initializing") with a partial folder, which Unlock and Remove clean.
+const WRITE_TIMEOUT: Duration = Duration::from_secs(600);
 
 fn validate_text(field: &str, value: &str) -> Result<(), AppError> {
     if value.trim().is_empty() {
@@ -104,7 +111,7 @@ pub async fn worktree_add(
     validate_add(&request)?;
     let app = state.inner().clone();
     let worker = app.clone();
-    run_blocking(app.ops(), &op_id, DEFAULT_TIMEOUT, move |cancel| {
+    run_blocking(app.ops(), &op_id, WRITE_TIMEOUT, move |cancel| {
         worker.open(&repo)?.worktree_add(&request, &cancel)
     })
     .await
@@ -123,7 +130,7 @@ pub async fn worktree_remove(
     validate_path("path", &path)?;
     let app = state.inner().clone();
     let worker = app.clone();
-    run_blocking(app.ops(), &op_id, DEFAULT_TIMEOUT, move |cancel| {
+    run_blocking(app.ops(), &op_id, WRITE_TIMEOUT, move |cancel| {
         let engine = worker.open(&repo)?;
         listed_worktree(engine.as_ref(), &path, true, &cancel)?;
         Ok::<_, AppError>(engine.worktree_remove(&path, force, &cancel)?)
