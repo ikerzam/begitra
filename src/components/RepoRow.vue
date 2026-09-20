@@ -69,7 +69,7 @@ function onKeydown(event: KeyboardEvent): void {
         v-if="props.nested"
         aria-hidden="true"
         data-testid="repo-row-connector"
-        class="mr-2 ml-2 inline-block size-3 shrink-0 border-b border-l border-line-strong"
+        class="mr-2 ml-1 inline-block size-3 shrink-0 border-b border-l border-line-strong"
       />
       <span class="truncate text-fg">{{ props.name }}</span>
     </span>

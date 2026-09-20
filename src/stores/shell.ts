@@ -40,7 +40,8 @@ export const useShellStore = defineStore("shell", () => {
   const windowWidth = ref(1440);
   const reviewRailPreference = ref<ReviewRailPreference>("auto");
   const paletteOpen = ref(false);
-  const sidebarTab = ref<SidebarTab>("branches");
+  /** Repos while nothing is open (the home screen); the shell switches to Branches on open. */
+  const sidebarTab = ref<SidebarTab>("repos");
 
   const layoutMode = computed<LayoutMode>(() => settings.values.layoutMode);
   const sidebarCollapsed = computed(() => settings.values.sidebarCollapsed);

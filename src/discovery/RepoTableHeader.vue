@@ -30,7 +30,7 @@ function sortBy(column: SortColumn | undefined): void {
 
 <template>
   <div
-    class="repo-table-columns grid h-control shrink-0 items-center gap-4 border-b border-line px-3 text-sm whitespace-nowrap text-fg-muted"
+    class="repo-table-columns grid h-control shrink-0 items-center gap-4 border-b border-l-2 border-line border-l-transparent px-3 text-sm whitespace-nowrap text-fg-muted"
     data-testid="repo-table-columns"
   >
     <template v-for="column in columns" :key="column.id">

@@ -82,11 +82,12 @@ async function launch(): Promise<void> {
   }
 }
 
-// The sidebar follows the repository: the Repos tab on failure, the branches once open.
+// The sidebar follows the repository: the Repos tab on failure and at home, the branches
+// once open.
 watch(
   () => repo.state.kind,
   (kind) => {
-    if (kind === "error") shell.setSidebarTab("repos");
+    if (kind === "error" || kind === "empty") shell.setSidebarTab("repos");
     if (kind === "ready") shell.setSidebarTab("branches");
   },
 );
