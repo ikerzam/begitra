@@ -9,12 +9,13 @@
 //!   header libgit2 prints for the patch (the binding does not expose the delta field); git's
 //!   byte-based score differs by a few points (90 against 89, 66 against 80 in the tests), so a
 //!   rename close to the threshold can be judged differently;
-//! - copies are detected from modified sources, like `git diff -C`; `git diff -M` alone
-//!   reports no copies;
+//! - copies are not detected, like `git diff -M` without `-C`: detecting them makes every
+//!   modified file a candidate source, which cost more than the whole rest of a large diff;
 //! - working tree diffs drop files that only differ by line endings under `text=auto` (git
 //!   compares the filtered content; libgit2 reports a modified delta without hunks);
 //! - `linguist-generated` is read from the index and the working copy (`.gitattributes` as
-//!   checked out), not from the compared commit;
+//!   checked out), not from the compared commit, and only when some attributes file of the
+//!   repository names the attribute at all (each lookup costs a stat per directory level);
 //! - an unborn HEAD counts as the empty tree, where `git diff HEAD` fails.
 
 use std::path::Path;
@@ -25,44 +26,169 @@ use git2::{
     IndexEntryExtendedFlag, ObjectType, Oid, Patch, Repository, Tree,
 };
 
-use super::Git2Engine;
 use crate::diff::{hunk_header, line_text, mark_intra_line_spans, parse_similarity};
 use crate::engine::Cancel;
 use crate::error::{GitError, GitResult};
 use crate::flags;
 use crate::types::{
-    ChangeKind, ChangeSet, DiffLine, DiffOptions, DiffTarget, FileChange, Hunk, LineKind,
-    WorkingTreeBase,
+    ChangeKind, DiffLine, DiffOptions, DiffTarget, FileChange, Hunk, LineKind, WorkingTreeBase,
 };
 
-/// Computes a diff; see [`crate::engine::GitEngine::diff`].
+/// A diff ready to be read page by page: the delta list with renames found, the order the
+/// files are listed in, and what every page needs to know about the target.
+pub(super) struct Prepared<'r> {
+    diff: Diff<'r>,
+    /// Delta indices in listing order (by the path a file is listed under).
+    order: Vec<usize>,
+    /// Whether the new side's blobs live in the object store (not for the working tree).
+    probe_new_side: bool,
+    working_tree: bool,
+    /// The index, for the flags git honours and libgit2 does not (working tree diffs only).
+    index_file: Option<git2::Index>,
+    /// Whether any attributes file names `linguist-generated`; without one no lookup runs.
+    generated_attributes: bool,
+}
+
+impl Prepared<'_> {
+    /// Files the change set lists (an upper bound for working tree and whitespace diffs).
+    pub(super) fn total_files(&self) -> usize {
+        self.order.len()
+    }
+}
+
+/// Builds the delta list of `target` and finds its renames, without reading any patch.
 #[tracing::instrument(level = "debug", skip_all)]
-pub(super) fn compute(
-    engine: &Git2Engine,
+pub(super) fn prepare<'r>(
+    repo: &'r Repository,
     target: &DiffTarget,
     options: &DiffOptions,
-    cancel: &Cancel,
-) -> GitResult<ChangeSet> {
-    engine.with_repo(|repo| {
-        cancel.check()?;
-        // Working tree files are not objects, so their ids never resolve in the object store.
-        let probe_new_side = !matches!(target, DiffTarget::WorkingTree { .. });
-        let mut diff = build_diff(repo, target, options)?;
-        if options.renames {
-            let threshold = u16::from(options.similarity.min(100));
-            let mut find = DiffFindOptions::new();
-            // libgit2 would ignore whitespace in the similarity score; git does not, so a
-            // reindented file is an add and a delete for both.
-            find.renames(true)
-                .copies(true)
-                .rename_threshold(threshold)
-                .copy_threshold(threshold)
-                .dont_ignore_whitespace(true);
-            let found = diff.find_similar(Some(&mut find));
-            found.map_err(|error| blob_error(repo, diff.deltas(), probe_new_side, error))?;
+    generated_attributes: bool,
+) -> GitResult<Prepared<'r>> {
+    // Working tree files are not objects, so their ids never resolve in the object store.
+    let probe_new_side = !matches!(target, DiffTarget::WorkingTree { .. });
+    let working_tree = matches!(target, DiffTarget::WorkingTree { .. });
+    let mut diff = build_diff(repo, target, options)?;
+    if options.renames {
+        let threshold = u16::from(options.similarity.min(100));
+        let mut find = DiffFindOptions::new();
+        // libgit2 would ignore whitespace in the similarity score; git does not, so a
+        // reindented file is an add and a delete for both. Copies are off, as for `-M`.
+        find.renames(true)
+            .copies(false)
+            .rename_threshold(threshold)
+            .dont_ignore_whitespace(true);
+        let found = diff.find_similar(Some(&mut find));
+        found.map_err(|error| blob_error(repo, diff.deltas(), probe_new_side, error))?;
+    }
+    // Files are listed by the path they are shown under, like `git diff --name-status`;
+    // libgit2 sorts a renamed delta by its old path.
+    let mut order: Vec<usize> = (0..diff.deltas().len()).collect();
+    let listed_path = |index: usize| -> Vec<u8> {
+        diff.get_delta(index)
+            .and_then(|delta| {
+                delta
+                    .new_file()
+                    .path_bytes()
+                    .or_else(|| delta.old_file().path_bytes())
+                    .map(<[u8]>::to_vec)
+            })
+            .unwrap_or_default()
+    };
+    order.sort_by_cached_key(|&index| listed_path(index));
+    // The index flags git honours and libgit2 does not: a sparse checkout's absent files
+    // (`skip-worktree`) are not deletions, and `git add -N` is an addition.
+    let index_file = if working_tree {
+        Some(repo.index()?)
+    } else {
+        None
+    };
+    Ok(Prepared {
+        diff,
+        order,
+        probe_new_side,
+        working_tree,
+        index_file,
+        generated_attributes,
+    })
+}
+
+/// Whether any attributes file git would consult names `linguist-generated`: the
+/// `.gitattributes` files in the index, `$GIT_DIR/info/attributes`, and the file named by
+/// `core.attributesfile`. Most repositories name it nowhere, and each per-path lookup costs
+/// a stat per directory level.
+pub(super) fn generated_attributes_present(repo: &Repository) -> bool {
+    const NAME: &[u8] = b"linguist-generated";
+    let mentions = |bytes: &[u8]| bytes.windows(NAME.len()).any(|window| window == NAME);
+    if let Ok(index) = repo.index() {
+        for entry in index.iter() {
+            let is_attributes = entry.path.rsplit(|&b| b == b'/').next() == Some(b".gitattributes");
+            if is_attributes
+                && repo
+                    .find_blob(entry.id)
+                    .is_ok_and(|blob| mentions(blob.content()))
+            {
+                return true;
+            }
         }
-        let working_tree = matches!(target, DiffTarget::WorkingTree { .. });
-        collect(repo, &diff, options, probe_new_side, working_tree, cancel)
+    }
+    let mut files = vec![repo.path().join("info").join("attributes")];
+    if let Some(configured) = repo
+        .config()
+        .ok()
+        .and_then(|config| config.get_path("core.attributesfile").ok())
+    {
+        files.push(configured);
+    }
+    files
+        .iter()
+        .any(|file| std::fs::read(file).is_ok_and(|bytes| mentions(&bytes)))
+}
+
+/// The target with every revision resolved to a commit hash and a three-dot range turned
+/// into its base against its tip, so a worker on a cold repository handle has no revision
+/// to parse and no merge base to walk (a merge base on a cold handle costs two hundred
+/// milliseconds on the kernel; on the engine's warm handle, a tenth of that). Unknown
+/// revisions and unrelated histories fail here, before any thread starts.
+pub(super) fn resolve_target(repo: &Repository, target: &DiffTarget) -> GitResult<DiffTarget> {
+    let hash = |rev: &str| super::resolve_commit(repo, rev).map(|oid| oid.to_string());
+    Ok(match target {
+        DiffTarget::Commit { hash: rev } => DiffTarget::Commit { hash: hash(rev)? },
+        DiffTarget::Commits { from, to }
+        | DiffTarget::Range {
+            from,
+            to,
+            three_dot: false,
+        } => DiffTarget::Commits {
+            from: hash(from)?,
+            to: hash(to)?,
+        },
+        DiffTarget::Range {
+            from,
+            to,
+            three_dot: true,
+        } => {
+            let from_commit = super::resolve_commit(repo, from)?;
+            let to_commit = super::resolve_commit(repo, to)?;
+            let base =
+                repo.merge_base(from_commit, to_commit)
+                    .map_err(|error| match error.code() {
+                        ErrorCode::NotFound => GitError::UnrelatedHistories {
+                            a: from.clone(),
+                            b: to.clone(),
+                        },
+                        _ => GitError::from(error),
+                    })?;
+            DiffTarget::Commits {
+                from: base.to_string(),
+                to: to_commit.to_string(),
+            }
+        }
+        DiffTarget::WorkingTree {
+            base: WorkingTreeBase::Revision { rev },
+        } => DiffTarget::WorkingTree {
+            base: WorkingTreeBase::Revision { rev: hash(rev)? },
+        },
+        other => other.clone(),
     })
 }
 
@@ -377,31 +503,27 @@ fn head_tree(repo: &Repository) -> GitResult<Option<Tree<'_>>> {
     }
 }
 
-/// Builds the [`FileChange`]s of every delta.
+/// The files of one page: the `FileChange`s of the deltas at positions `range` of the
+/// listing order, with the lines they add and remove.
 ///
-/// With `working_tree` set, a modified text file without hunks and without a mode change is
-/// left out: libgit2 lists working tree files whose stat data changed although their filtered
-/// content did not (line endings under `text=auto`), where `git diff` shows nothing.
-fn collect(
+/// With a working tree target, a modified text file without hunks and without a mode change
+/// is left out: libgit2 lists working tree files whose stat data changed although their
+/// filtered content did not (line endings under `text=auto`), where `git diff` shows nothing.
+pub(super) fn collect_range(
     repo: &Repository,
-    diff: &Diff<'_>,
+    prepared: &Prepared<'_>,
     options: &DiffOptions,
-    probe_new_side: bool,
-    working_tree: bool,
+    range: std::ops::Range<usize>,
     cancel: &Cancel,
-) -> GitResult<ChangeSet> {
-    let count = diff.deltas().len();
-    let mut files = Vec::with_capacity(count);
+) -> GitResult<(Vec<FileChange>, u32, u32)> {
+    let diff = &prepared.diff;
+    let probe_new_side = prepared.probe_new_side;
+    let working_tree = prepared.working_tree;
+    let index_file = &prepared.index_file;
+    let mut files = Vec::with_capacity(range.len());
     let mut additions: u32 = 0;
     let mut deletions: u32 = 0;
-    // The index flags git honours and libgit2 does not: a sparse checkout's absent files
-    // (`skip-worktree`) are not deletions, and `git add -N` is an addition.
-    let index_file = if working_tree {
-        Some(repo.index()?)
-    } else {
-        None
-    };
-    for index in 0..count {
+    for &index in prepared.order.get(range).unwrap_or(&[]) {
         cancel.check()?;
         let Some(delta) = diff.get_delta(index) else {
             continue;
@@ -409,7 +531,7 @@ fn collect(
         let Some(mut status) = change_kind(delta.status()) else {
             continue;
         };
-        if let Some(index_file) = &index_file {
+        if let Some(index_file) = index_file {
             let path = delta
                 .old_file()
                 .path()
@@ -434,11 +556,12 @@ fn collect(
                 error,
             )
         })?;
+        let generated = prepared.generated_attributes;
         let file = match patch {
-            Some(mut patch) => file_change(repo, &mut patch, status, options, cancel)?,
+            Some(mut patch) => file_change(repo, &mut patch, status, options, generated, cancel)?,
             None => {
                 let meta = FileMeta::of(&delta, status);
-                assemble(repo, status, meta, None, 0, 0, Vec::new())
+                assemble(repo, status, meta, None, 0, 0, Vec::new(), generated)
             }
         };
         // A modified delta without hunks is a file `git diff` would not list: a working tree
@@ -455,12 +578,7 @@ fn collect(
         deletions = deletions.saturating_add(file.deletions);
         files.push(file);
     }
-    files.sort_by(|a, b| a.path.as_bytes().cmp(b.path.as_bytes()));
-    Ok(ChangeSet {
-        files,
-        additions,
-        deletions,
-    })
+    Ok((files, additions, deletions))
 }
 
 /// Reads the hunks and lines of one patch into a [`FileChange`].
@@ -469,6 +587,7 @@ fn file_change(
     patch: &mut Patch<'_>,
     status: ChangeKind,
     options: &DiffOptions,
+    generated_attributes: bool,
     cancel: &Cancel,
 ) -> GitResult<FileChange> {
     let meta = FileMeta::of(&patch.delta(), status);
@@ -539,7 +658,14 @@ fn file_change(
         });
     }
     Ok(assemble(
-        repo, status, meta, similarity, additions, deletions, hunks,
+        repo,
+        status,
+        meta,
+        similarity,
+        additions,
+        deletions,
+        hunks,
+        generated_attributes,
     ))
 }
 
@@ -576,6 +702,7 @@ impl FileMeta {
 }
 
 /// Completes a [`FileChange`] with the counts and the flags.
+#[allow(clippy::too_many_arguments)]
 fn assemble(
     repo: &Repository,
     status: ChangeKind,
@@ -584,13 +711,16 @@ fn assemble(
     additions: u32,
     deletions: u32,
     hunks: Vec<Hunk>,
+    generated_attributes: bool,
 ) -> FileChange {
     let is_large = flags::is_large(
         additions.saturating_add(deletions),
         meta.old_size,
         meta.new_size,
     );
-    let is_generated = attribute_generated(repo, &meta.path)
+    let is_generated = generated_attributes
+        .then(|| attribute_generated(repo, &meta.path))
+        .flatten()
         .unwrap_or_else(|| flags::is_generated_by_name(&meta.path));
     let is_test = flags::is_test(&meta.path);
     FileChange {

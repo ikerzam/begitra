@@ -3,10 +3,17 @@
 //! Used by the operations libgit2 does not cover (network, worktree add and remove) and by
 //! the tests that compare the engine with the CLI on fixture repositories.
 
+use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::thread;
+use std::time::Duration;
 
+use crate::engine::Cancel;
 use crate::error::{GitError, GitResult};
+
+/// How often a cancellable run polls the flag while git works.
+const CANCEL_POLL: Duration = Duration::from_millis(50);
 
 /// Captured output of a `git` invocation that exited successfully.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -75,9 +82,101 @@ pub fn run_git(cwd: &Path, args: &[&str]) -> GitResult<CliOutput> {
     }
 }
 
+/// The output of a `git` invocation whatever its status: the caller reads the code.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CliExit {
+    /// Exit status code, `None` when the process was killed by a signal.
+    pub status: Option<i32>,
+    /// Standard output, raw bytes (NUL-separated formats keep their bytes).
+    pub stdout: Vec<u8>,
+    /// Standard error, decoded as UTF-8 with replacement characters.
+    pub stderr: String,
+}
+
+/// Runs `git <args>` in `cwd` while polling `cancel` every [`CANCEL_POLL`]; a cancelled run
+/// kills git and returns [`GitError::Cancelled`]. Both pipes are drained by their own threads
+/// so git never blocks on a full one. The exit status is returned, not judged: callers that
+/// give a meaning to a non-zero status (`merge-tree` exits 1 on conflicts) read it here.
+pub fn run_git_cancellable(cwd: &Path, args: &[&str], cancel: &Cancel) -> GitResult<CliExit> {
+    let joined = args.join(" ");
+    cancel.check()?;
+    let mut child = command(cwd, args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| GitError::Cli {
+            command: joined.clone(),
+            status: None,
+            stderr: format!("could not start git: {error}"),
+        })?;
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let out_reader = thread::spawn(move || {
+        let mut bytes = Vec::new();
+        if let Some(mut pipe) = stdout {
+            let _ = pipe.read_to_end(&mut bytes);
+        }
+        bytes
+    });
+    let err_reader = thread::spawn(move || {
+        let mut bytes = Vec::new();
+        if let Some(mut pipe) = stderr {
+            let _ = pipe.read_to_end(&mut bytes);
+        }
+        String::from_utf8_lossy(&bytes).into_owned()
+    });
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if cancel.is_cancelled() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = out_reader.join();
+                    let _ = err_reader.join();
+                    return Err(GitError::Cancelled);
+                }
+                thread::sleep(CANCEL_POLL);
+            }
+            Err(error) => {
+                let _ = child.kill();
+                return Err(GitError::Cli {
+                    command: joined,
+                    status: None,
+                    stderr: format!("could not wait for git: {error}"),
+                });
+            }
+        }
+    };
+    let stdout = out_reader.join().unwrap_or_default();
+    let stderr = err_reader.join().unwrap_or_default();
+    Ok(CliExit {
+        status: status.code(),
+        stdout,
+        stderr,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cancellable_runs_report_the_status_and_stop_on_cancel() {
+        let version = run_git_cancellable(Path::new("."), &["--version"], &Cancel::never())
+            .expect("git is installed");
+        assert_eq!(version.status, Some(0));
+        assert!(version.stdout.starts_with(b"git version"));
+        let failed = run_git_cancellable(Path::new("."), &["no-such-subcommand"], &Cancel::never())
+            .expect("a failure is an exit status, not an error");
+        assert_ne!(failed.status, Some(0));
+        assert!(failed.stderr.contains("no-such-subcommand"));
+        let cancel = Cancel::new();
+        cancel.cancel();
+        let cancelled = run_git_cancellable(Path::new("."), &["--version"], &cancel)
+            .expect_err("cancelled before starting");
+        assert_eq!(cancelled.code(), "op.cancelled");
+    }
 
     #[test]
     fn reports_the_version() {

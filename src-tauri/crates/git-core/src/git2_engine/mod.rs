@@ -5,8 +5,10 @@
 
 mod blob;
 mod cli_walk;
+mod compare;
 mod count;
 mod diff;
+mod diff_pages;
 mod filter;
 mod refs;
 mod status;
@@ -18,11 +20,11 @@ use std::sync::Mutex;
 
 use git2::{ErrorClass, ErrorCode, Oid, Repository};
 
-use crate::engine::{Cancel, CommitWalk, GitEngine};
+use crate::engine::{Cancel, CommitWalk, DiffWalk, GitEngine};
 use crate::error::{GitError, GitResult};
 use crate::types::{
-    BlobAt, BlobContent, ChangeSet, CommitCount, DiffOptions, DiffTarget, Ref, Repo, StatusEntry,
-    StatusOptions, WalkOptions, WalkScope, Worktree,
+    BlobAt, BlobContent, CommitCount, Comparison, DiffOptions, DiffTarget, MergePreview, Ref, Repo,
+    StatusEntry, StatusOptions, WalkOptions, WalkScope, Worktree,
 };
 
 /// A repository opened with libgit2.
@@ -32,6 +34,10 @@ use crate::types::{
 pub struct Git2Engine {
     info: Repo,
     repo: Mutex<Repository>,
+    /// Whether some attributes file names `linguist-generated`, keyed by the index file's
+    /// modification time: reading the index of a large repository costs a hundred
+    /// milliseconds, and the verdict rarely changes.
+    generated_attributes: Mutex<Option<(Option<std::time::SystemTime>, bool)>>,
 }
 
 impl std::fmt::Debug for Git2Engine {
@@ -62,7 +68,32 @@ impl Git2Engine {
         Ok(Self {
             info,
             repo: Mutex::new(repo),
+            generated_attributes: Mutex::new(None),
         })
+    }
+
+    /// Whether any attributes file git would consult names `linguist-generated`, cached
+    /// until the index file changes.
+    pub(crate) fn generated_attributes_present(&self) -> bool {
+        let stamp = self
+            .with_repo(|repo| Ok(repo.path().join("index")))
+            .ok()
+            .and_then(|index| std::fs::metadata(index).ok())
+            .and_then(|metadata| metadata.modified().ok());
+        let mut cache = self
+            .generated_attributes
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some((known, present)) = *cache {
+            if known == stamp && stamp.is_some() {
+                return present;
+            }
+        }
+        let present = self
+            .with_repo(|repo| Ok(diff::generated_attributes_present(repo)))
+            .unwrap_or(false);
+        *cache = Some((stamp, present));
+        present
     }
 
     /// Runs `f` with the underlying libgit2 repository, serialised by the mutex.
@@ -161,13 +192,14 @@ impl GitEngine for Git2Engine {
         status::list(self, options, cancel)
     }
 
-    fn diff(
+    fn diff_pages(
         &self,
         target: &DiffTarget,
         options: &DiffOptions,
+        page_size: usize,
         cancel: &Cancel,
-    ) -> GitResult<ChangeSet> {
-        diff::compute(self, target, options, cancel)
+    ) -> GitResult<Box<dyn DiffWalk>> {
+        diff_pages::start(self, target, options, page_size, cancel)
     }
 
     fn merge_base(&self, a: &str, b: &str) -> GitResult<String> {
@@ -176,6 +208,14 @@ impl GitEngine for Git2Engine {
 
     fn read_blob(&self, at: &BlobAt, path: &str) -> GitResult<BlobContent> {
         blob::read(self, at, path)
+    }
+
+    fn compare(&self, a: &str, b: &str, cancel: &Cancel) -> GitResult<Comparison> {
+        compare::compare(self, a, b, cancel)
+    }
+
+    fn merge_preview(&self, a: &str, b: &str, cancel: &Cancel) -> GitResult<MergePreview> {
+        compare::merge_preview(self, a, b, cancel)
     }
 
     fn worktrees(&self, cancel: &Cancel) -> GitResult<Vec<Worktree>> {

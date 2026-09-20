@@ -1053,3 +1053,73 @@ fn rename_similarity_counts_whitespace_like_git() {
     assert_eq!(file(&set, "src/core.rs").status, ChangeKind::Added);
     assert_eq!(file(&set, "src/tools.rs").status, ChangeKind::Renamed);
 }
+
+#[test]
+fn pages_carry_the_files_in_order_with_running_totals() {
+    let mut f = with_multi_hunk_edit();
+    f.write("extra.txt", "a\nb\nc\n");
+    f.remove("README.md");
+    f.commit("more changes");
+    let whole = diff(&f, &commits("HEAD~2", "HEAD"));
+    assert!(whole.files.len() >= 3, "{}", whole.files.len());
+    let engine = engine(&f);
+    let mut walk = engine
+        .diff_pages(
+            &commits("HEAD~2", "HEAD"),
+            &DiffOptions::default(),
+            1,
+            &Cancel::never(),
+        )
+        .expect("start");
+    let mut paged = Vec::new();
+    let mut pages = 0;
+    loop {
+        let page = walk.next_page(&Cancel::never()).expect("page");
+        pages += 1;
+        assert_eq!(page.total_files as usize, whole.files.len());
+        assert!(page.files.len() <= 1);
+        paged.extend(page.files);
+        let so_far: (u32, u32) = paged.iter().fold((0, 0), |(a, d), file| {
+            (a + file.additions, d + file.deletions)
+        });
+        assert_eq!((page.additions, page.deletions), so_far);
+        if page.done {
+            break;
+        }
+    }
+    assert_eq!(pages, whole.files.len());
+    assert_eq!(paged, whole.files);
+    // After the last page the handle keeps answering empty done pages.
+    let after = walk.next_page(&Cancel::never()).expect("after done");
+    assert!(after.files.is_empty() && after.done);
+    assert_eq!(
+        (after.additions, after.deletions),
+        (whole.additions, whole.deletions)
+    );
+
+    // An unknown revision fails before any page; a cancelled handle stops.
+    let error = engine
+        .diff_pages(
+            &commits("nope", "HEAD"),
+            &DiffOptions::default(),
+            200,
+            &Cancel::never(),
+        )
+        .err()
+        .expect("unknown revision");
+    assert_eq!(error.code(), "refs.not_found");
+    let cancel = Cancel::new();
+    let mut walk = engine
+        .diff_pages(
+            &commits("HEAD~2", "HEAD"),
+            &DiffOptions::default(),
+            1,
+            &cancel,
+        )
+        .expect("start");
+    cancel.cancel();
+    assert_eq!(
+        walk.next_page(&cancel).expect_err("cancelled").code(),
+        "op.cancelled"
+    );
+}

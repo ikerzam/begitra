@@ -6,8 +6,9 @@ use std::sync::Arc;
 
 use crate::error::{GitError, GitResult};
 use crate::types::{
-    BlobAt, BlobContent, ChangeSet, CommitCount, DiffOptions, DiffTarget, Page, Ref, Repo,
-    StatusEntry, StatusOptions, WalkOptions, WalkScope, Worktree,
+    BlobAt, BlobContent, ChangeSet, ChangeSetPage, CommitCount, Comparison, DiffOptions,
+    DiffTarget, MergePreview, Page, Ref, Repo, StatusEntry, StatusOptions, WalkOptions, WalkScope,
+    Worktree,
 };
 
 /// Cooperative cancellation flag checked by long operations between units of work.
@@ -63,6 +64,18 @@ pub trait CommitWalk: Send {
     fn next_page(&mut self, cancel: &Cancel) -> GitResult<Page>;
 }
 
+/// A change set computed page by page.
+///
+/// The handle keeps the delta list (renames found once) between pages and computes the
+/// hunks of each page's files when asked, so the first files of a large change set reach the
+/// caller before the rest are read. Dropping the handle releases everything.
+pub trait DiffWalk: Send {
+    /// Produces the next page; the last one has `done == true`, and calling again after it
+    /// returns an empty done page. Cancellation through `cancel` returns
+    /// [`GitError::Cancelled`] within one file's work.
+    fn next_page(&mut self, cancel: &Cancel) -> GitResult<ChangeSetPage>;
+}
+
 /// Read-only Git operations, implemented once per backend (libgit2 first).
 ///
 /// Every operation returns plain data from [`crate::types`], never panics on repository
@@ -95,16 +108,51 @@ pub trait GitEngine: Send + Sync {
     /// working tree, respecting `.gitignore`.
     fn status(&self, options: &StatusOptions, cancel: &Cancel) -> GitResult<Vec<StatusEntry>>;
 
-    /// Computes the diff described by `target` with hunks, intra-line spans and flags.
+    /// Starts the diff described by `target` as pages of `page_size` files; see [`DiffWalk`].
+    /// Resolving the target and listing its files happens here, so an unknown revision fails
+    /// before any page.
+    fn diff_pages(
+        &self,
+        target: &DiffTarget,
+        options: &DiffOptions,
+        page_size: usize,
+        cancel: &Cancel,
+    ) -> GitResult<Box<dyn DiffWalk>>;
+
+    /// Computes the diff described by `target` whole, with hunks, intra-line spans and flags.
     fn diff(
         &self,
         target: &DiffTarget,
         options: &DiffOptions,
         cancel: &Cancel,
-    ) -> GitResult<ChangeSet>;
+    ) -> GitResult<ChangeSet> {
+        let mut walk = self.diff_pages(target, options, usize::MAX, cancel)?;
+        let mut files = Vec::new();
+        loop {
+            let page = walk.next_page(cancel)?;
+            files.extend(page.files);
+            if page.done {
+                return Ok(ChangeSet {
+                    files,
+                    additions: page.additions,
+                    deletions: page.deletions,
+                });
+            }
+        }
+    }
 
     /// Merge base of two revisions; [`GitError::UnrelatedHistories`] when there is none.
     fn merge_base(&self, a: &str, b: &str) -> GitResult<String>;
+
+    /// Both endpoints resolved, their merge base, the commits only on each side and how they
+    /// relate; [`GitError::UnrelatedHistories`] without a base, [`GitError::RefNotFound`]
+    /// for an endpoint that does not name a commit.
+    fn compare(&self, a: &str, b: &str, cancel: &Cancel) -> GitResult<Comparison>;
+
+    /// What merging `b` into `a` would do, through `git merge-tree` for the diverged case:
+    /// nothing the user can see changes (git may store the merged result as unreferenced
+    /// objects). Cancellation kills the child process.
+    fn merge_preview(&self, a: &str, b: &str, cancel: &Cancel) -> GitResult<MergePreview>;
 
     /// Reads one file whole at a revision or in the working tree, at most 20 MB
     /// ([`GitError::BlobTooLarge`]); an unknown path is [`GitError::RefNotFound`].

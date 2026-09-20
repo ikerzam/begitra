@@ -1,10 +1,11 @@
-//! Diffs as a stream of file pages, so large change sets reach the UI progressively.
+//! Diffs as a stream of file pages, so large change sets reach the UI progressively: the
+//! engine lists the files first and reads the hunks of each page when the page is asked for.
 
 use std::path::PathBuf;
 
-use git_core::engine::GitEngine;
+use git_core::engine::{Cancel, DiffWalk, GitEngine};
 use git_core::error::GitError;
-use git_core::types::{ChangeSet, DiffOptions, DiffTarget, FileChange};
+use git_core::types::{ChangeSet, ChangeSetPage, DiffOptions, DiffTarget, FileChange};
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::State;
@@ -17,18 +18,30 @@ use crate::state::AppState;
 /// Files per streamed page.
 pub const FILES_PER_PAGE: usize = 200;
 
-/// One streamed page of a diff. Totals are repeated on every page.
+/// One streamed page of a diff. The totals are the running sums over the pages so far (the
+/// whole change set's on the last page); `total_files` is known from the first page.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiffPage {
-    /// Added lines over the whole change set.
+    /// Added lines over the pages so far.
     pub additions: u32,
-    /// Removed lines over the whole change set.
+    /// Removed lines over the pages so far.
     pub deletions: u32,
     /// Number of files in the whole change set.
     pub total_files: u32,
     /// Files of this page, in change set order.
     pub files: Vec<FileChange>,
+}
+
+impl From<ChangeSetPage> for DiffPage {
+    fn from(page: ChangeSetPage) -> Self {
+        Self {
+            additions: page.additions,
+            deletions: page.deletions,
+            total_files: page.total_files,
+            files: page.files,
+        }
+    }
 }
 
 /// Splits a change set into pages of [`FILES_PER_PAGE`] files; an empty change set yields one
@@ -68,6 +81,22 @@ pub fn send_pages<S: Sink<DiffPage>>(stream: &mut Stream<DiffPage, S>, change_se
     }
 }
 
+/// Streams the pages of `walk` as the engine reads them; an empty change set still sends one
+/// page so the receiver gets the totals.
+pub fn stream_pages<S: Sink<DiffPage>>(
+    stream: &mut Stream<DiffPage, S>,
+    walk: &mut dyn DiffWalk,
+    cancel: &Cancel,
+) -> Result<(), GitError> {
+    loop {
+        let page = walk.next_page(cancel)?;
+        let done = page.done;
+        if !stream.page(DiffPage::from(page)) || done {
+            return Ok(());
+        }
+    }
+}
+
 /// Computes the diff described by `target` and streams its files in pages.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state, on_page))]
@@ -87,9 +116,9 @@ pub async fn diff(
         DEFAULT_TIMEOUT,
         on_page,
         move |cancel, stream| {
-            let change_set = worker.open(&repo)?.diff(&target, &options, &cancel)?;
-            send_pages(stream, change_set);
-            Ok::<_, GitError>(())
+            let engine = worker.open(&repo)?;
+            let mut walk = engine.diff_pages(&target, &options, FILES_PER_PAGE, &cancel)?;
+            stream_pages(stream, walk.as_mut(), &cancel)
         },
     )
     .await

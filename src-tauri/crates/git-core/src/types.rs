@@ -211,6 +211,103 @@ pub struct CommitCount {
     pub capped: bool,
 }
 
+/// One page of a change set computed lazily: the files of the page, the running totals over
+/// the pages so far (the whole change set's once `done`), and the number of files the change
+/// set holds, known before the first page.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeSetPage {
+    /// Files of this page, in change set order.
+    pub files: Vec<FileChange>,
+    /// Added lines over the pages so far.
+    pub additions: u32,
+    /// Removed lines over the pages so far.
+    pub deletions: u32,
+    /// Files in the whole change set (an upper bound while a working tree or whitespace diff
+    /// may still drop unchanged files).
+    pub total_files: u32,
+    /// Whether the change set has no more files after this page.
+    pub done: bool,
+}
+
+/// One endpoint of a comparison: the revision as the caller named it and the commit it
+/// resolved to (tags peeled).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Endpoint {
+    /// The revision as given.
+    pub rev: String,
+    /// Full hash of the commit it names.
+    pub hash: String,
+}
+
+/// The merge base of a comparison.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BaseCommit {
+    /// Full hash of the base.
+    pub hash: String,
+    /// Committer time of the base, unix seconds.
+    pub time: i64,
+}
+
+/// How two endpoints relate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ComparisonRelation {
+    /// Both name the same commit.
+    Same,
+    /// `a` is an ancestor of `b`: merging `b` into `a` moves the pointer.
+    FastForward,
+    /// `b` is an ancestor of `a`: `a` already holds everything `b` has.
+    UpToDate,
+    /// Each side has commits of its own since the base.
+    Diverged,
+}
+
+/// Two revisions side by side: their base, what each has that the other lacks, and how they
+/// relate (`git merge-base` and `git rev-list --left-right --count a...b`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Comparison {
+    /// The first endpoint (the side a merge would land on).
+    pub a: Endpoint,
+    /// The second endpoint (the side a merge would bring in).
+    pub b: Endpoint,
+    /// The merge base.
+    pub base: BaseCommit,
+    /// Commits reachable from `a` and not from `b`.
+    pub only_in_a: u32,
+    /// Commits reachable from `b` and not from `a`.
+    pub only_in_b: u32,
+    /// How the endpoints relate.
+    pub relation: ComparisonRelation,
+}
+
+/// What merging `b` into `a` would do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MergePreviewKind {
+    /// `a` would move to `b` without a merge commit.
+    FastForward,
+    /// `b` is already part of `a`; nothing to merge.
+    UpToDate,
+    /// The merge would complete without conflicts.
+    Clean,
+    /// The merge would stop on the listed files.
+    Conflicts,
+}
+
+/// The verdict of a merge preview; nothing in the repository the user can see changes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergePreview {
+    /// The verdict.
+    pub kind: MergePreviewKind,
+    /// Repository-relative paths that would conflict, sorted and unique; empty otherwise.
+    pub conflicts: Vec<String>,
+}
+
 /// Which commits a walk keeps. Every field is optional and they compose with AND; a walk with
 /// any field set produces a flat layout (lane 0, no edges), since lines between non-adjacent
 /// commits would not be parent edges.

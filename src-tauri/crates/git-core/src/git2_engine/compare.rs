@@ -1,0 +1,170 @@
+//! Two revisions side by side: the merge base, the commits only on each side from
+//! libgit2's bounded `graph_ahead_behind` (what `git rev-list --left-right --count a...b`
+//! prints), the relation between the endpoints, and the merge preview. Fast-forward and
+//! up-to-date come from the counts; a diverged pair asks `git merge-tree --write-tree`, the
+//! algorithm `git merge` runs in the user's terminal, through argv and killed on cancel. The
+//! preview changes no ref, index or working tree; git stores the merged result as
+//! unreferenced objects that `git gc` prunes.
+
+use git2::{ErrorCode, Oid, Repository};
+
+use super::Git2Engine;
+use crate::cli::run_git_cancellable;
+use crate::engine::{Cancel, GitEngine};
+use crate::error::{GitError, GitResult};
+use crate::types::{
+    BaseCommit, Comparison, ComparisonRelation, Endpoint, MergePreview, MergePreviewKind,
+};
+
+/// Compares `a` with `b`; see [`crate::engine::GitEngine::compare`].
+#[tracing::instrument(level = "debug", skip_all, fields(a, b))]
+pub(super) fn compare(
+    engine: &Git2Engine,
+    a: &str,
+    b: &str,
+    cancel: &Cancel,
+) -> GitResult<Comparison> {
+    cancel.check()?;
+    engine.with_repo(|repo| compare_in(repo, a, b))
+}
+
+fn compare_in(repo: &Repository, a: &str, b: &str) -> GitResult<Comparison> {
+    let one = super::resolve_commit(repo, a)?;
+    let two = super::resolve_commit(repo, b)?;
+    let base_id = repo
+        .merge_base(one, two)
+        .map_err(|error| match error.code() {
+            ErrorCode::NotFound => GitError::UnrelatedHistories {
+                a: a.to_owned(),
+                b: b.to_owned(),
+            },
+            _ => GitError::from(error),
+        })?;
+    let base = repo
+        .find_commit(base_id)
+        .map_err(|error| GitError::object(&base_id.to_string(), error))?;
+    let (only_in_a, only_in_b) = repo.graph_ahead_behind(one, two)?;
+    let only_in_a = u32::try_from(only_in_a).unwrap_or(u32::MAX);
+    let only_in_b = u32::try_from(only_in_b).unwrap_or(u32::MAX);
+    Ok(Comparison {
+        a: Endpoint {
+            rev: a.to_owned(),
+            hash: one.to_string(),
+        },
+        b: Endpoint {
+            rev: b.to_owned(),
+            hash: two.to_string(),
+        },
+        base: BaseCommit {
+            hash: base_id.to_string(),
+            time: base.time().seconds(),
+        },
+        only_in_a,
+        only_in_b,
+        relation: relation(one, two, only_in_a, only_in_b),
+    })
+}
+
+/// The relation the hashes and the counts imply.
+fn relation(a: Oid, b: Oid, only_in_a: u32, only_in_b: u32) -> ComparisonRelation {
+    if a == b {
+        ComparisonRelation::Same
+    } else if only_in_a == 0 {
+        ComparisonRelation::FastForward
+    } else if only_in_b == 0 {
+        ComparisonRelation::UpToDate
+    } else {
+        ComparisonRelation::Diverged
+    }
+}
+
+/// Previews the merge of `b` into `a`; see [`crate::engine::GitEngine::merge_preview`].
+#[tracing::instrument(level = "debug", skip_all, fields(a, b))]
+pub(super) fn merge_preview(
+    engine: &Git2Engine,
+    a: &str,
+    b: &str,
+    cancel: &Cancel,
+) -> GitResult<MergePreview> {
+    cancel.check()?;
+    let comparison = engine.with_repo(|repo| compare_in(repo, a, b))?;
+    match comparison.relation {
+        ComparisonRelation::Same | ComparisonRelation::UpToDate => {
+            return Ok(MergePreview {
+                kind: MergePreviewKind::UpToDate,
+                conflicts: Vec::new(),
+            });
+        }
+        ComparisonRelation::FastForward => {
+            return Ok(MergePreview {
+                kind: MergePreviewKind::FastForward,
+                conflicts: Vec::new(),
+            });
+        }
+        ComparisonRelation::Diverged => {}
+    }
+    // The resolved hashes go to git, so a name that means something else to git (an
+    // ambiguous short name) cannot change the verdict.
+    let args = [
+        "merge-tree",
+        "--write-tree",
+        "--name-only",
+        "--no-messages",
+        "-z",
+        comparison.a.hash.as_str(),
+        comparison.b.hash.as_str(),
+    ];
+    let exit = run_git_cancellable(&GitEngine::repo(engine).root, &args, cancel)?;
+    match exit.status {
+        Some(0) => Ok(MergePreview {
+            kind: MergePreviewKind::Clean,
+            conflicts: Vec::new(),
+        }),
+        Some(1) => Ok(MergePreview {
+            kind: MergePreviewKind::Conflicts,
+            conflicts: conflicted_paths(&exit.stdout),
+        }),
+        status => Err(GitError::Cli {
+            command: args.join(" "),
+            status,
+            stderr: exit.stderr,
+        }),
+    }
+}
+
+/// The conflicted paths of `git merge-tree --write-tree --name-only -z`: after the tree id,
+/// one NUL-terminated path each, sorted and unique.
+fn conflicted_paths(stdout: &[u8]) -> Vec<String> {
+    let mut paths: Vec<String> = stdout
+        .split(|&byte| byte == 0)
+        .skip(1)
+        .filter(|part| !part.is_empty())
+        .map(|part| String::from_utf8_lossy(part).into_owned())
+        .collect();
+    paths.sort();
+    paths.dedup();
+    paths
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn conflicted_paths_are_parsed_sorted_and_unique() {
+        let output = b"0123abcd\0src/b.ts\0src/a.ts\0src/b.ts\0";
+        assert_eq!(conflicted_paths(output), vec!["src/a.ts", "src/b.ts"]);
+        assert!(conflicted_paths(b"0123abcd\0").is_empty());
+        assert!(conflicted_paths(b"").is_empty());
+    }
+
+    #[test]
+    fn relations_follow_the_counts() {
+        let a = Oid::from_str("a".repeat(40).as_str()).expect("oid");
+        let b = Oid::from_str("b".repeat(40).as_str()).expect("oid");
+        assert_eq!(relation(a, a, 0, 0), ComparisonRelation::Same);
+        assert_eq!(relation(a, b, 0, 3), ComparisonRelation::FastForward);
+        assert_eq!(relation(a, b, 2, 0), ComparisonRelation::UpToDate);
+        assert_eq!(relation(a, b, 2, 3), ComparisonRelation::Diverged);
+    }
+}
