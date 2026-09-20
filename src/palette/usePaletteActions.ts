@@ -32,12 +32,6 @@ export function usePaletteActions(): PaletteActions {
   const review = useReviewStore();
   const picker = usePickerStore();
 
-  /** Runs the review-scope handler of a symbol key, as the key itself would. */
-  function pressSymbolKey(step: 1 | -1): void {
-    const registry = shortcutRegistry();
-    registry.dispatch(new KeyboardEvent("keydown", { key: step > 0 ? "]" : "[" }));
-  }
-
   return {
     hasRepository: () => repo.state.kind === "ready",
     repositoryPinned: () => {
@@ -89,7 +83,12 @@ export function usePaletteActions(): PaletteActions {
     toggleLayout: () => review.setLayout(review.layout === "unified" ? "side-by-side" : "unified"),
     toggleWrap: () => review.setWrap(!review.wrap),
     toggleWhitespace: () => review.setIgnoreWhitespace(!review.ignoreWhitespace),
-    moveSymbol: pressSymbolKey,
+    runShortcut: (id) => void shortcutRegistry().run(id),
+    toggleOverview: () => {
+      if (shell.reviewRailCollapsed) shell.showReviewRail();
+      else shell.hideReviewRail();
+    },
+    toggleFilter: (key) => review.setFilter(key, !review.filters[key]),
   };
 }
 

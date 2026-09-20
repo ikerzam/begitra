@@ -122,6 +122,19 @@ describe("ShortcutRegistry", () => {
     expect(registry.dispatch(key("p", { ctrl: true }))).toBe(true);
   });
 
+  it("runs a handler by id for the palette, and reports when there is none", () => {
+    const registry = new ShortcutRegistry("linux");
+    const runs: string[] = [];
+    expect(registry.run("next-symbol")).toBe(false);
+    const detach = registry.register("next-symbol", () => runs.push("first"));
+    registry.register("next-symbol", () => runs.push("second"));
+    expect(registry.run("next-symbol")).toBe(true);
+    expect(runs).toEqual(["second"]);
+    detach();
+    expect(registry.run("next-symbol")).toBe(true);
+    expect(runs).toEqual(["second", "second"]);
+  });
+
   it("uses a shared instance that tests can replace", () => {
     const custom = new ShortcutRegistry("macos");
     setShortcutRegistry(custom);

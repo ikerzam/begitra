@@ -25,6 +25,15 @@ const labels: Record<string, string> = {
   "palette.commandsById.toggle-whitespace": "Ignore whitespace",
   "palette.commandsById.next-symbol": "Next changed symbol",
   "palette.commandsById.previous-symbol": "Previous changed symbol",
+  "palette.commandsById.next-hunk": "Next hunk",
+  "palette.commandsById.previous-hunk": "Previous hunk",
+  "palette.commandsById.next-file": "Next file",
+  "palette.commandsById.previous-file": "Previous file",
+  "palette.commandsById.mark-reviewed": "Mark file reviewed",
+  "palette.commandsById.toggle-overview": "Show or hide the change overview",
+  "palette.commandsById.toggle-hide-generated": "Show or hide generated files",
+  "palette.commandsById.toggle-hide-lockfiles": "Show or hide lockfiles",
+  "palette.commandsById.toggle-hide-tests": "Show or hide test files",
   "palette.commandsById.locale-en": "Language: English",
   "palette.commandsById.locale-es": "Language: Spanish",
 };
@@ -109,8 +118,14 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
       calls.push("toggleWhitespace");
       return Promise.resolve();
     },
-    moveSymbol: (step) => {
-      calls.push(`symbol:${step}`);
+    runShortcut: (id) => {
+      calls.push(`shortcut:${id}`);
+    },
+    toggleOverview: () => {
+      calls.push("toggleOverview");
+    },
+    toggleFilter: (key) => {
+      calls.push(`filter:${key}`);
     },
   };
 }
@@ -162,6 +177,9 @@ describe("usePalette", () => {
       "toggle-layout",
       "toggle-wrap",
       "toggle-whitespace",
+      "toggle-hide-generated",
+      "toggle-hide-lockfiles",
+      "toggle-hide-tests",
       "locale-en",
       "locale-es",
     ]);

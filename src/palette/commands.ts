@@ -42,7 +42,10 @@ export interface PaletteActions {
   toggleLayout: () => Promise<void>;
   toggleWrap: () => Promise<void>;
   toggleWhitespace: () => Promise<void>;
-  moveSymbol: (step: 1 | -1) => void;
+  /** Runs the handler a review-scope key would run (hunks, files, symbols, mark reviewed). */
+  runShortcut: (id: string) => void;
+  toggleOverview: () => void;
+  toggleFilter: (key: "hideGenerated" | "hideLockfiles" | "hideTests") => void;
 }
 
 export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
@@ -163,19 +166,44 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       enabled: withRepo,
       run: actions.toggleWhitespace,
     },
-    {
-      id: "next-symbol",
-      labelKey: "palette.commandsById.next-symbol",
-      shortcutId: "next-symbol",
+    ...[
+      "next-hunk",
+      "previous-hunk",
+      "next-symbol",
+      "previous-symbol",
+      "next-file",
+      "previous-file",
+      "mark-reviewed",
+    ].map((id) => ({
+      id,
+      labelKey: `palette.commandsById.${id}`,
+      shortcutId: id,
       enabled: () => withRepo() && actions.inReview(),
-      run: () => actions.moveSymbol(1),
+      run: () => actions.runShortcut(id),
+    })),
+    {
+      id: "toggle-overview",
+      labelKey: "palette.commandsById.toggle-overview",
+      enabled: () => withRepo() && actions.inReview(),
+      run: actions.toggleOverview,
     },
     {
-      id: "previous-symbol",
-      labelKey: "palette.commandsById.previous-symbol",
-      shortcutId: "previous-symbol",
-      enabled: () => withRepo() && actions.inReview(),
-      run: () => actions.moveSymbol(-1),
+      id: "toggle-hide-generated",
+      labelKey: "palette.commandsById.toggle-hide-generated",
+      enabled: withRepo,
+      run: () => actions.toggleFilter("hideGenerated"),
+    },
+    {
+      id: "toggle-hide-lockfiles",
+      labelKey: "palette.commandsById.toggle-hide-lockfiles",
+      enabled: withRepo,
+      run: () => actions.toggleFilter("hideLockfiles"),
+    },
+    {
+      id: "toggle-hide-tests",
+      labelKey: "palette.commandsById.toggle-hide-tests",
+      enabled: withRepo,
+      run: () => actions.toggleFilter("hideTests"),
     },
     {
       id: "locale-en",

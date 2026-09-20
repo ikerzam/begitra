@@ -111,6 +111,15 @@ export class ShortcutRegistry {
     return (this.handlers.get(id)?.length ?? 0) > 0;
   }
 
+  /** Runs the handler of `id` as its key would (the palette's way in); false without one. */
+  run(id: string): boolean {
+    const stack = this.handlers.get(id);
+    const handler = stack?.[stack.length - 1];
+    if (!handler) return false;
+    handler(new KeyboardEvent("keydown", { key: "" }));
+    return true;
+  }
+
   /**
    * Dispatches a keydown: the first binding whose keys match and that has a handler runs.
    * Plain-key bindings (no modifier) are skipped while a text field has focus. Returns whether
