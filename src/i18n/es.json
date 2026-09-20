@@ -84,7 +84,6 @@
   },
   "topBar": {
     "noRepository": "Ningún repositorio abierto",
-    "switchRepository": "Abrir otra carpeta",
     "search": "Buscar o ejecutar un comando…",
     "settings": "Ajustes",
     "graphFocus": "Vista de grafo",
@@ -105,7 +104,9 @@
     "noWorktrees": "No hay worktrees enlazados",
     "notFound": "no encontrado",
     "mainWorktree": "worktree principal",
-    "expand": "Expandir la barra lateral"
+    "expand": "Expandir la barra lateral",
+    "noRepositories": "Todavía no hay repositorios",
+    "noRepoMatches": "Ningún repositorio coincide con el filtro"
   },
   "statusBar": {
     "noRepositories": "Sin repositorios",
@@ -307,5 +308,11 @@
     "weeks": "hace {n} semana | hace {n} semanas",
     "months": "hace {n} mes | hace {n} meses",
     "years": "hace {n} año | hace {n} años"
+  },
+  "switcher": {
+    "label": "Cambiar de repositorio",
+    "pinned": "Fijados",
+    "recent": "Recientes",
+    "goToRepositories": "Ir a los repositorios"
   }
 }

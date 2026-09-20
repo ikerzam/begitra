@@ -84,7 +84,6 @@
   },
   "topBar": {
     "noRepository": "No repository open",
-    "switchRepository": "Open another folder",
     "search": "Search or run a command…",
     "settings": "Settings",
     "graphFocus": "Graph focus",
@@ -105,7 +104,9 @@
     "noWorktrees": "No linked worktrees",
     "notFound": "not found",
     "mainWorktree": "main worktree",
-    "expand": "Expand the sidebar"
+    "expand": "Expand the sidebar",
+    "noRepositories": "No repositories yet",
+    "noRepoMatches": "No repositories match the filter"
   },
   "statusBar": {
     "noRepositories": "No repositories",
@@ -307,5 +308,11 @@
     "weeks": "{n} week ago | {n} weeks ago",
     "months": "{n} month ago | {n} months ago",
     "years": "{n} year ago | {n} years ago"
+  },
+  "switcher": {
+    "label": "Switch repository",
+    "pinned": "Pinned",
+    "recent": "Recent",
+    "goToRepositories": "Go to repositories"
   }
 }

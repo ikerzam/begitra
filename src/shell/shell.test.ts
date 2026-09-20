@@ -4,8 +4,9 @@ import { flushPromises } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { CommitNode, Repo } from "@/ipc/schemas";
+import type { CommitNode, IndexEntry, Repo } from "@/ipc/schemas";
 import { ShortcutRegistry, setShortcutRegistry } from "@/shortcuts/registry";
+import { useIndexStore } from "@/stores/index";
 import { useOperationsStore } from "@/stores/operations";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
@@ -29,6 +30,42 @@ const repo: Repo = {
   detached: false,
   isLinkedWorktree: false,
 };
+
+function indexEntry(path: string, name: string, over: Partial<IndexEntry> = {}): IndexEntry {
+  return {
+    path,
+    name,
+    kind: "main",
+    parentPath: null,
+    scanRoot: "/",
+    summary: {
+      currentBranch: "main",
+      detached: false,
+      ahead: 2,
+      behind: 0,
+      lastCommitAt: 1_700_000_000,
+      dirty: false,
+    },
+    pinned: false,
+    lastOpenedAt: null,
+    refreshedAt: 1_700_000_000,
+    missing: false,
+    ...over,
+  };
+}
+
+/** The index the fake backend lists: the repository under test, another one and a worktree. */
+const indexEntries: IndexEntry[] = [
+  indexEntry("/r", "r", { pinned: true, lastOpenedAt: 1_700_000_500 }),
+  indexEntry("/other", "other", {
+    summary: { ...indexEntry("/o", "o").summary, currentBranch: "develop" },
+  }),
+  indexEntry("/wt/claude-auth", "claude-auth", {
+    kind: "worktree",
+    parentPath: "/r",
+    summary: { ...indexEntry("/o", "o").summary, currentBranch: "claude/fix-auth" },
+  }),
+];
 
 function commit(n: number): CommitNode {
   const who = { name: "iker", email: "i@x", time: 1_700_000_000 - n, offsetMinutes: 0 };
@@ -78,7 +115,9 @@ function backend(
             detail: "fatal: not a git repository",
           });
         }
-        return repo;
+        return { ...repo, root: args["path"], commonDir: `${args["path"] as string}/.git` };
+      case "close_repository":
+        return true;
       case "list_refs":
         return [
           {
@@ -204,6 +243,8 @@ function backend(
           { kind: "done" },
         ]);
         return null;
+      case "list_repositories":
+        return indexEntries;
       case "open_external":
         if (options.failExternal) {
           // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- Tauri rejects with the serialised AppError object
@@ -425,7 +466,9 @@ describe("AppShell", () => {
     expect(wrapper.get('[data-testid="graph-error"]').text()).toContain(
       "Couldn't open /r. The folder was removed or is no longer a Git repository.",
     );
-    expect(wrapper.get('[data-testid="repo-row-error"]').text()).toContain("not found");
+    const failedRow = wrapper.get('[data-testid="repo-list"] [data-testid="list-row"]');
+    expect(failedRow.text()).toContain("not found");
+    expect(failedRow.find('[data-testid="list-row-missing"]').exists()).toBe(true);
     expect(wrapper.get('[data-testid="detail-panel"]').text()).toContain(
       "Nothing to show until the repository opens",
     );
@@ -497,6 +540,39 @@ describe("Sidebar", () => {
     expect(document.activeElement).toBe(rows[1]?.element);
     await rows[1]!.trigger("keydown", { key: "k" });
     expect(rows[0]?.attributes("aria-selected")).toBe("true");
+    wrapper.unmount();
+  });
+
+  it("lists the index in the Repos tab, pinned first with worktrees under their repository, and opens with Enter", async () => {
+    const wrapper = await openShell();
+    await useIndexStore().load();
+    await wrapper.get('[data-testid="tab-repos"]').trigger("click");
+    const list = wrapper.get('[data-testid="repo-list"]');
+    const rows = list.findAll('[data-testid="list-row"]');
+    expect(rows.map((row) => row.text())).toEqual([
+      "rmain",
+      "claude-authclaude/fix-auth",
+      "otherdevelop",
+    ]);
+    expect(rows[1]?.classes()).toContain("repo-list-nested");
+    expect(rows.map((row) => row.attributes("aria-selected"))).toEqual(["true", "false", "false"]);
+    expect(rows.map((row) => row.attributes("tabindex"))).toEqual(["0", "-1", "-1"]);
+
+    await wrapper.get('[data-testid="sidebar"] input').setValue("oth");
+    const filtered = list.findAll('[data-testid="list-row"]');
+    expect(filtered.map((row) => row.text())).toEqual(["otherdevelop"]);
+    await wrapper.get('[data-testid="sidebar"] input').setValue("zzz");
+    expect(list.text()).toContain("No repositories match the filter");
+    await wrapper.get('[data-testid="sidebar"] input').setValue("");
+
+    const again = list.findAll('[data-testid="list-row"]');
+    (again[0]?.element as HTMLElement).focus();
+    await again[0]!.trigger("keydown", { key: "j" });
+    await again[1]!.trigger("keydown", { key: "j" });
+    expect(again[2]?.attributes("aria-selected")).toBe("true");
+    await again[2]!.trigger("keydown", { key: "Enter" });
+    await settle();
+    expect(useRepoStore().repo?.root).toBe("/other");
     wrapper.unmount();
   });
 

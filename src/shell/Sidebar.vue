@@ -37,7 +37,7 @@ const filterPlaceholder = computed(() => {
       <Input v-model="filter" :placeholder="filterPlaceholder" :icon="Search" />
     </div>
     <BranchList v-if="shell.sidebarTab === 'branches'" :filter="filter" />
-    <RepoList v-else-if="shell.sidebarTab === 'repos'" />
+    <RepoList v-else-if="shell.sidebarTab === 'repos'" :filter="filter" />
     <WorktreeList v-else :filter="filter" />
   </aside>
 </template>

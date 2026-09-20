@@ -97,6 +97,7 @@ async function removeFromList(): Promise<void> {
   <div class="relative flex h-full min-h-0 flex-col bg-app text-fg" data-testid="app-shell">
     <TopBar
       :repository-name="repositoryName"
+      :repository-root="repo.repo?.root ?? null"
       :layout-mode="shell.layoutMode"
       @open-folder="() => void openFolder()"
       @open-palette="shell.openPalette()"

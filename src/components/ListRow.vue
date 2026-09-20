@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { CircleAlert } from "@lucide/vue";
 import { computed } from "vue";
 import type { Component } from "vue";
 
@@ -17,6 +18,8 @@ const props = withDefaults(
     behind?: number;
     /** Trailing muted text, such as a count. */
     meta?: string;
+    /** The folder is gone: the alert icon and the meta in the danger colour. */
+    missing?: boolean;
     selected?: boolean;
     /** Roving tab stop; defaults to the selected row. Lists without a selection pass it to the first row. */
     tabStop?: boolean;
@@ -28,6 +31,7 @@ const props = withDefaults(
     ahead: undefined,
     behind: undefined,
     meta: "",
+    missing: false,
     selected: false,
     tabStop: undefined,
   },
@@ -57,7 +61,15 @@ function onKeydown(event: KeyboardEvent): void {
     @dblclick="emit('activate')"
     @keydown="onKeydown"
   >
-    <LaneDot v-if="props.lane > 0" :lane="props.lane" />
+    <CircleAlert
+      v-if="props.missing"
+      :size="16"
+      :stroke-width="1.5"
+      aria-hidden="true"
+      class="shrink-0 text-danger"
+      data-testid="list-row-missing"
+    />
+    <LaneDot v-else-if="props.lane > 0" :lane="props.lane" />
     <component
       :is="props.icon"
       v-else-if="props.icon"
@@ -76,7 +88,12 @@ function onKeydown(event: KeyboardEvent): void {
     </span>
     <DirtyDot v-if="props.dirty" />
     <AheadBehind v-if="hasCounts" :ahead="props.ahead ?? 0" :behind="props.behind ?? 0" />
-    <span v-if="props.meta" class="shrink-0 text-sm text-fg-muted" data-testid="list-row-meta">
+    <span
+      v-if="props.meta"
+      class="shrink-0 text-sm"
+      :class="props.missing ? 'text-danger' : 'text-fg-muted'"
+      data-testid="list-row-meta"
+    >
       {{ props.meta }}
     </span>
   </div>

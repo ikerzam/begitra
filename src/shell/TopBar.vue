@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, FileDiff, FolderGit2, GitGraph, Search, Settings } from "@lucide/vue";
-import { computed } from "vue";
+import { FileDiff, GitGraph, Search, Settings } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
 
 import IconButton from "@/components/IconButton.vue";
@@ -9,9 +8,13 @@ import Tooltip from "@/components/Tooltip.vue";
 import { useShortcutHint } from "@/shortcuts/useShortcut";
 import type { LayoutMode } from "@/stores/settings";
 
+import RepoSwitcher from "./RepoSwitcher.vue";
+
 const props = defineProps<{
   /** Name of the open repository, or null when none is open. */
   repositoryName: string | null;
+  /** Root of the open repository, marked in the switcher menu. */
+  repositoryRoot: string | null;
   layoutMode: LayoutMode;
 }>();
 const emit = defineEmits<{ openFolder: []; openPalette: []; setLayoutMode: [mode: LayoutMode] }>();
@@ -20,7 +23,6 @@ const { t } = useI18n();
 const paletteHint = useShortcutHint("palette");
 const graphHint = useShortcutHint("graph-focus");
 const reviewHint = useShortcutHint("review-focus");
-const name = computed(() => props.repositoryName ?? t("topBar.noRepository"));
 </script>
 
 <template>
@@ -28,18 +30,12 @@ const name = computed(() => props.repositoryName ?? t("topBar.noRepository"));
     class="flex h-bar-top shrink-0 items-center gap-4 border-b border-line px-3"
     data-testid="top-bar"
   >
-    <div class="flex flex-1 items-center">
-      <button
-        type="button"
-        class="flex h-control items-center gap-2 rounded-md px-2 text-md font-medium text-fg hover:bg-hover"
-        :title="t('topBar.switchRepository')"
-        data-testid="repo-switcher"
-        @click="emit('openFolder')"
-      >
-        <FolderGit2 :size="16" :stroke-width="1.5" aria-hidden="true" class="text-fg-secondary" />
-        <span class="truncate">{{ name }}</span>
-        <ChevronDown :size="16" :stroke-width="1.5" aria-hidden="true" class="text-fg-secondary" />
-      </button>
+    <div class="flex min-w-0 flex-1 items-center">
+      <RepoSwitcher
+        :repository-name="props.repositoryName"
+        :repository-root="props.repositoryRoot"
+        @open-folder="emit('openFolder')"
+      />
     </div>
     <button
       type="button"
