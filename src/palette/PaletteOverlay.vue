@@ -1,11 +1,17 @@
 <script setup lang="ts">
 import {
+  AlignLeft,
+  ArrowDownToLine,
+  ArrowUpToLine,
   Code,
+  Columns2,
   FileDiff,
   FolderGit2,
   FolderPlus,
   FolderSearch,
+  GitCommitHorizontal,
   GitGraph,
+  Inbox,
   Languages,
   LayoutGrid,
   PanelLeft,
@@ -13,6 +19,8 @@ import {
   PinOff,
   Search,
   Terminal,
+  TreePine,
+  WrapText,
 } from "@lucide/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from "vue";
 import { useI18n } from "vue-i18n";
@@ -61,6 +69,15 @@ const icons: Record<string, typeof Search> = {
   "add-scan-folder": FolderPlus,
   "locale-en": Languages,
   "locale-es": Languages,
+  "diff-from": FileDiff,
+  "review-worktree": TreePine,
+  "review-index": Inbox,
+  "review-selected-commit": GitCommitHorizontal,
+  "toggle-layout": Columns2,
+  "toggle-wrap": WrapText,
+  "toggle-whitespace": AlignLeft,
+  "next-symbol": ArrowDownToLine,
+  "previous-symbol": ArrowUpToLine,
 };
 
 function icon(row: PaletteRow): Component {

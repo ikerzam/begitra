@@ -10,6 +10,7 @@ import { shortcutRegistry } from "@/shortcuts/registry";
 import { useIndexStore } from "@/stores/index";
 import { useOperationsStore } from "@/stores/operations";
 import { useRepoStore } from "@/stores/repo";
+import { targetLabel, useReviewStore } from "@/stores/review";
 import { useShellStore } from "@/stores/shell";
 
 import { branchLanes } from "./branchLanes";
@@ -21,6 +22,7 @@ const repo = useRepoStore();
 const shell = useShellStore();
 const index = useIndexStore();
 const operations = useOperationsStore();
+const review = useReviewStore();
 const home = useHomeDir();
 
 /** The open repository, or the folder being opened or that failed to open. */
@@ -60,11 +62,22 @@ const historyStopped = computed(() => {
 const operationText = computed(() => {
   const current = operations.current;
   if (!current) return "";
+  const target = review.target;
   return t(current.label, {
     name: repoName.value,
     hash: repo.detail ? shortHash(repo.detail.hash) : "",
     folder: scanFolder.value,
+    target: target ? targetLabel(target) || t(`review.target.${target.kind}`) : "",
   }).trim();
+});
+
+/** Review focus's error state: the diff of the target failed, in `--danger`. */
+const diffFailed = computed(() => {
+  const error = review.changeSet?.error;
+  if (!error || shell.layoutMode !== "review") return "";
+  return error.code === "diff.blob_missing"
+    ? t("statusBar.diffFailed", { n: 1 }, 1)
+    : t("statusBar.diffFailedAll");
 });
 
 /** With no repository open: how many the index holds, or that there are none. */
@@ -126,6 +139,16 @@ const hints = computed(() => {
     </template>
     <span v-if="historyStopped" class="text-danger" data-testid="status-history-stopped">
       {{ historyStopped }}
+    </span>
+    <span v-else-if="diffFailed" class="text-danger" data-testid="status-diff-failed">
+      {{ diffFailed }}
+    </span>
+    <span
+      v-else-if="review.currentSymbol && shell.layoutMode === 'review'"
+      class="text-fg-secondary"
+      data-testid="status-symbol"
+    >
+      {{ t("statusBar.symbol", { name: review.currentSymbol }) }}
     </span>
     <span
       v-else-if="operations.current && repo.state.kind !== 'error'"

@@ -26,6 +26,10 @@ export const defaultBindings: readonly ShortcutBinding[] = [
   { id: "next-hunk", keys: "n", scope: "review" },
   { id: "previous-hunk", keys: "p", scope: "review" },
   { id: "mark-reviewed", keys: "r", scope: "review" },
+  { id: "next-file", keys: "j", scope: "review" },
+  { id: "previous-file", keys: "k", scope: "review" },
+  { id: "next-symbol", keys: "]", scope: "review" },
+  { id: "previous-symbol", keys: "[", scope: "review" },
   { id: "open-terminal", keys: "mod+t", scope: "global" },
   { id: "open-editor", keys: "mod+e", scope: "global" },
   { id: "add-worktree", keys: "shift+mod+w", scope: "global" },
@@ -113,6 +117,8 @@ export class ShortcutRegistry {
    * something handled the event (and called `preventDefault`).
    */
   dispatch(event: KeyboardEvent): boolean {
+    // A list that already moved on this key (j/k in a focused tree) keeps the event.
+    if (event.defaultPrevented) return false;
     const editable = isEditableTarget(event.target as TargetLike);
     for (const binding of this.bindings.values()) {
       const stack = this.handlers.get(binding.id);

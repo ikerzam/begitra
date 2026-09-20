@@ -11,9 +11,12 @@ import type { IndexEntry } from "@/ipc/schemas";
 import { useExternal } from "@/shell/useExternal";
 import { useOpenFolder } from "@/shell/useOpenFolder";
 import { useIndexStore } from "@/stores/index";
+import { usePickerStore } from "@/stores/picker";
 import { useRepoStore } from "@/stores/repo";
+import { useReviewStore } from "@/stores/review";
 import { useSettingsStore } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
+import { shortcutRegistry } from "@/shortcuts/registry";
 
 import type { PaletteActions } from "./commands";
 import type { PaletteRepo } from "./usePalette";
@@ -26,6 +29,14 @@ export function usePaletteActions(): PaletteActions {
   const { openFolder } = useOpenFolder();
   const { addScanFolder } = useAddScanFolder();
   const external = useExternal();
+  const review = useReviewStore();
+  const picker = usePickerStore();
+
+  /** Runs the review-scope handler of a symbol key, as the key itself would. */
+  function pressSymbolKey(step: 1 | -1): void {
+    const registry = shortcutRegistry();
+    registry.dispatch(new KeyboardEvent("keydown", { key: step > 0 ? "]" : "[" }));
+  }
 
   return {
     hasRepository: () => repo.state.kind === "ready",
@@ -60,6 +71,25 @@ export function usePaletteActions(): PaletteActions {
       await settings.update("locale", locale);
       setLocale(locale);
     },
+    diffFrom: () => picker.open({ kind: "diff-from" }),
+    reviewWorktree: async () => {
+      review.setTarget({ kind: "worktree" });
+      await shell.setLayoutMode("review");
+    },
+    reviewIndex: async () => {
+      review.setTarget({ kind: "index" });
+      await shell.setLayoutMode("review");
+    },
+    reviewSelectedCommit: async () => {
+      review.setTarget(null);
+      await shell.setLayoutMode("review");
+    },
+    hasSelectedCommit: () => repo.selectedCommit !== undefined,
+    inReview: () => shell.layoutMode === "review",
+    toggleLayout: () => review.setLayout(review.layout === "unified" ? "side-by-side" : "unified"),
+    toggleWrap: () => review.setWrap(!review.wrap),
+    toggleWhitespace: () => review.setIgnoreWhitespace(!review.ignoreWhitespace),
+    moveSymbol: pressSymbolKey,
   };
 }
 

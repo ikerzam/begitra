@@ -16,6 +16,15 @@ const labels: Record<string, string> = {
   "palette.commandsById.go-to-repositories": "Go to repositories",
   "palette.commandsById.scan-folders": "Scan folders",
   "palette.commandsById.add-scan-folder": "Add scan folder…",
+  "palette.commandsById.diff-from": "Diff from…",
+  "palette.commandsById.review-worktree": "Review working tree changes",
+  "palette.commandsById.review-index": "Review staged changes",
+  "palette.commandsById.review-selected-commit": "Review selected commit",
+  "palette.commandsById.toggle-layout": "Toggle side by side",
+  "palette.commandsById.toggle-wrap": "Toggle word wrap",
+  "palette.commandsById.toggle-whitespace": "Ignore whitespace",
+  "palette.commandsById.next-symbol": "Next changed symbol",
+  "palette.commandsById.previous-symbol": "Previous changed symbol",
   "palette.commandsById.locale-en": "Language: English",
   "palette.commandsById.locale-es": "Language: Spanish",
 };
@@ -73,6 +82,36 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
       calls.push(`locale:${locale}`);
       return Promise.resolve();
     },
+    diffFrom: record("diffFrom"),
+    reviewWorktree: () => {
+      calls.push("reviewWorktree");
+      return Promise.resolve();
+    },
+    reviewIndex: () => {
+      calls.push("reviewIndex");
+      return Promise.resolve();
+    },
+    reviewSelectedCommit: () => {
+      calls.push("reviewSelectedCommit");
+      return Promise.resolve();
+    },
+    hasSelectedCommit: () => hasRepository,
+    inReview: () => false,
+    toggleLayout: () => {
+      calls.push("toggleLayout");
+      return Promise.resolve();
+    },
+    toggleWrap: () => {
+      calls.push("toggleWrap");
+      return Promise.resolve();
+    },
+    toggleWhitespace: () => {
+      calls.push("toggleWhitespace");
+      return Promise.resolve();
+    },
+    moveSymbol: (step) => {
+      calls.push(`symbol:${step}`);
+    },
   };
 }
 
@@ -116,10 +155,17 @@ describe("usePalette", () => {
       "go-to-repositories",
       "scan-folders",
       "add-scan-folder",
+      "diff-from",
+      "review-worktree",
+      "review-index",
+      "review-selected-commit",
+      "toggle-layout",
+      "toggle-wrap",
+      "toggle-whitespace",
       "locale-en",
       "locale-es",
     ]);
-    palette.query.value = "rev";
+    palette.query.value = "rev focus";
     expect(palette.rows.value.map((r) => r.label)).toEqual(["Switch to review focus"]);
     expect(palette.isEmpty.value).toBe(false);
   });

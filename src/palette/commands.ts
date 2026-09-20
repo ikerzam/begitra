@@ -32,6 +32,17 @@ export interface PaletteActions {
   openTerminal: () => Promise<void>;
   openEditor: () => Promise<void>;
   setLocale: (locale: "en" | "es") => Promise<void>;
+  /** Opens the picker of "Diff from…". */
+  diffFrom: () => void;
+  reviewWorktree: () => Promise<void>;
+  reviewIndex: () => Promise<void>;
+  reviewSelectedCommit: () => Promise<void>;
+  hasSelectedCommit: () => boolean;
+  inReview: () => boolean;
+  toggleLayout: () => Promise<void>;
+  toggleWrap: () => Promise<void>;
+  toggleWhitespace: () => Promise<void>;
+  moveSymbol: (step: 1 | -1) => void;
 }
 
 export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
@@ -108,6 +119,63 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       labelKey: "palette.commandsById.add-scan-folder",
       enabled: always,
       run: actions.addScanFolder,
+    },
+    {
+      id: "diff-from",
+      labelKey: "palette.commandsById.diff-from",
+      shortcutId: "diff-from",
+      enabled: withRepo,
+      run: actions.diffFrom,
+    },
+    {
+      id: "review-worktree",
+      labelKey: "palette.commandsById.review-worktree",
+      enabled: withRepo,
+      run: actions.reviewWorktree,
+    },
+    {
+      id: "review-index",
+      labelKey: "palette.commandsById.review-index",
+      enabled: withRepo,
+      run: actions.reviewIndex,
+    },
+    {
+      id: "review-selected-commit",
+      labelKey: "palette.commandsById.review-selected-commit",
+      enabled: () => withRepo() && actions.hasSelectedCommit(),
+      run: actions.reviewSelectedCommit,
+    },
+    {
+      id: "toggle-layout",
+      labelKey: "palette.commandsById.toggle-layout",
+      enabled: withRepo,
+      run: actions.toggleLayout,
+    },
+    {
+      id: "toggle-wrap",
+      labelKey: "palette.commandsById.toggle-wrap",
+      enabled: withRepo,
+      run: actions.toggleWrap,
+    },
+    {
+      id: "toggle-whitespace",
+      labelKey: "palette.commandsById.toggle-whitespace",
+      enabled: withRepo,
+      run: actions.toggleWhitespace,
+    },
+    {
+      id: "next-symbol",
+      labelKey: "palette.commandsById.next-symbol",
+      shortcutId: "next-symbol",
+      enabled: () => withRepo() && actions.inReview(),
+      run: () => actions.moveSymbol(1),
+    },
+    {
+      id: "previous-symbol",
+      labelKey: "palette.commandsById.previous-symbol",
+      shortcutId: "previous-symbol",
+      enabled: () => withRepo() && actions.inReview(),
+      run: () => actions.moveSymbol(-1),
     },
     {
       id: "locale-en",
