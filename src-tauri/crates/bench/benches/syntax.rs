@@ -39,7 +39,7 @@ fn highlight_large_file(c: &mut Criterion) {
     group.sample_size(10);
     let source = rust_source(10_000);
     group.bench_with_input(
-        BenchmarkId::new("highlight_large_file", "rust-10k"),
+        BenchmarkId::from_parameter("highlight_large_file"),
         &source,
         |b, text| {
             b.iter(|| syntax::highlight("src/lib.rs", text, &never).expect("highlight"));
@@ -53,7 +53,7 @@ fn symbols_typical(c: &mut Criterion) {
     group.sample_size(20);
     let source = typescript_source(500);
     group.bench_with_input(
-        BenchmarkId::new("symbols_typical", "typescript-500"),
+        BenchmarkId::from_parameter("symbols_typical"),
         &source,
         |b, text| {
             b.iter(|| syntax::symbols("src/service.ts", text, &never).expect("symbols"));
