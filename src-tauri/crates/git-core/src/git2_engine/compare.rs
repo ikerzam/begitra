@@ -17,7 +17,15 @@ use crate::types::{
 };
 
 /// Compares `a` with `b`; see [`crate::engine::GitEngine::compare`].
-#[tracing::instrument(level = "debug", skip_all, fields(a, b))]
+///
+/// The revisions and the merge base resolve on the engine's main handle (the base is what
+/// a cold handle pays most for); the counts, which walk every commit on either side and take
+/// seconds for a pair diverged by hundreds of thousands of commits, run on the engine's
+/// comparison handle so the other operations are not held meanwhile. That handle is kept
+/// between comparisons: its object cache makes a repeated or nearby pair four times faster
+/// than a fresh handle (36 ms against 147 ms on the kernel pair of the benchmarks). libgit2
+/// offers no way to interrupt the walk: a cancelled comparison ends when the walk does.
+#[tracing::instrument(level = "debug", skip_all, fields(a = %a, b = %b))]
 pub(super) fn compare(
     engine: &Git2Engine,
     a: &str,
@@ -25,13 +33,45 @@ pub(super) fn compare(
     cancel: &Cancel,
 ) -> GitResult<Comparison> {
     cancel.check()?;
-    engine.with_repo(|repo| compare_in(repo, a, b))
+    let (pair, gitdir) =
+        engine.with_repo(|repo| Ok((resolve_pair(repo, a, b)?, repo.path().to_path_buf())))?;
+    cancel.check()?;
+    let (only_in_a, only_in_b) = engine.with_counts_repo(&gitdir, |repo| {
+        Ok(repo.graph_ahead_behind(pair.one, pair.two)?)
+    })?;
+    let only_in_a = u32::try_from(only_in_a).unwrap_or(u32::MAX);
+    let only_in_b = u32::try_from(only_in_b).unwrap_or(u32::MAX);
+    Ok(Comparison {
+        a: Endpoint {
+            rev: a.to_owned(),
+            hash: pair.one.to_string(),
+        },
+        b: Endpoint {
+            rev: b.to_owned(),
+            hash: pair.two.to_string(),
+        },
+        base: BaseCommit {
+            hash: pair.base.to_string(),
+            time: pair.base_time,
+        },
+        only_in_a,
+        only_in_b,
+        relation: relation(pair.one, pair.two, only_in_a, only_in_b),
+    })
 }
 
-fn compare_in(repo: &Repository, a: &str, b: &str) -> GitResult<Comparison> {
+/// The two endpoints resolved with their merge base.
+struct Pair {
+    one: Oid,
+    two: Oid,
+    base: Oid,
+    base_time: i64,
+}
+
+fn resolve_pair(repo: &Repository, a: &str, b: &str) -> GitResult<Pair> {
     let one = super::resolve_commit(repo, a)?;
     let two = super::resolve_commit(repo, b)?;
-    let base_id = repo
+    let base = repo
         .merge_base(one, two)
         .map_err(|error| match error.code() {
             ErrorCode::NotFound => GitError::UnrelatedHistories {
@@ -40,28 +80,16 @@ fn compare_in(repo: &Repository, a: &str, b: &str) -> GitResult<Comparison> {
             },
             _ => GitError::from(error),
         })?;
-    let base = repo
-        .find_commit(base_id)
-        .map_err(|error| GitError::object(&base_id.to_string(), error))?;
-    let (only_in_a, only_in_b) = repo.graph_ahead_behind(one, two)?;
-    let only_in_a = u32::try_from(only_in_a).unwrap_or(u32::MAX);
-    let only_in_b = u32::try_from(only_in_b).unwrap_or(u32::MAX);
-    Ok(Comparison {
-        a: Endpoint {
-            rev: a.to_owned(),
-            hash: one.to_string(),
-        },
-        b: Endpoint {
-            rev: b.to_owned(),
-            hash: two.to_string(),
-        },
-        base: BaseCommit {
-            hash: base_id.to_string(),
-            time: base.time().seconds(),
-        },
-        only_in_a,
-        only_in_b,
-        relation: relation(one, two, only_in_a, only_in_b),
+    let base_time = repo
+        .find_commit(base)
+        .map_err(|error| GitError::object(&base.to_string(), error))?
+        .time()
+        .seconds();
+    Ok(Pair {
+        one,
+        two,
+        base,
+        base_time,
     })
 }
 
@@ -79,15 +107,14 @@ fn relation(a: Oid, b: Oid, only_in_a: u32, only_in_b: u32) -> ComparisonRelatio
 }
 
 /// Previews the merge of `b` into `a`; see [`crate::engine::GitEngine::merge_preview`].
-#[tracing::instrument(level = "debug", skip_all, fields(a, b))]
+#[tracing::instrument(level = "debug", skip_all, fields(a = %a, b = %b))]
 pub(super) fn merge_preview(
     engine: &Git2Engine,
     a: &str,
     b: &str,
     cancel: &Cancel,
 ) -> GitResult<MergePreview> {
-    cancel.check()?;
-    let comparison = engine.with_repo(|repo| compare_in(repo, a, b))?;
+    let comparison = compare(engine, a, b, cancel)?;
     match comparison.relation {
         ComparisonRelation::Same | ComparisonRelation::UpToDate => {
             return Ok(MergePreview {
@@ -122,7 +149,7 @@ pub(super) fn merge_preview(
         }),
         Some(1) => Ok(MergePreview {
             kind: MergePreviewKind::Conflicts,
-            conflicts: conflicted_paths(&exit.stdout),
+            conflicts: conflicted_paths(&exit.stdout, &[&comparison.a.hash, &comparison.b.hash]),
         }),
         status => Err(GitError::Cli {
             command: args.join(" "),
@@ -134,12 +161,34 @@ pub(super) fn merge_preview(
 
 /// The conflicted paths of `git merge-tree --write-tree --name-only -z`: after the tree id,
 /// one NUL-terminated path each, sorted and unique.
-fn conflicted_paths(stdout: &[u8]) -> Vec<String> {
+///
+/// A directory/file conflict moves the file aside under `<path>~<label>` (and `_<n>` when
+/// that is taken), the label being the argument git was given for that side: here a hash,
+/// which `git merge` in a terminal would print as the branch name. The suffix is dropped so
+/// the list names the path the user can open.
+fn conflicted_paths(stdout: &[u8], labels: &[&str]) -> Vec<String> {
+    let unlabelled = |path: &str| -> String {
+        for label in labels {
+            let Some((head, tail)) = path.rsplit_once('~') else {
+                continue;
+            };
+            let numbered = tail
+                .strip_prefix(label)
+                .and_then(|rest| rest.strip_prefix('_'))
+                .is_some_and(|digits| {
+                    !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
+                });
+            if !head.is_empty() && (tail == *label || numbered) {
+                return head.to_owned();
+            }
+        }
+        path.to_owned()
+    };
     let mut paths: Vec<String> = stdout
         .split(|&byte| byte == 0)
         .skip(1)
         .filter(|part| !part.is_empty())
-        .map(|part| String::from_utf8_lossy(part).into_owned())
+        .map(|part| unlabelled(&String::from_utf8_lossy(part)))
         .collect();
     paths.sort();
     paths.dedup();
@@ -153,9 +202,25 @@ mod tests {
     #[test]
     fn conflicted_paths_are_parsed_sorted_and_unique() {
         let output = b"0123abcd\0src/b.ts\0src/a.ts\0src/b.ts\0";
-        assert_eq!(conflicted_paths(output), vec!["src/a.ts", "src/b.ts"]);
-        assert!(conflicted_paths(b"0123abcd\0").is_empty());
-        assert!(conflicted_paths(b"").is_empty());
+        assert_eq!(conflicted_paths(output, &[]), vec!["src/a.ts", "src/b.ts"]);
+        assert!(conflicted_paths(b"0123abcd\0", &[]).is_empty());
+        assert!(conflicted_paths(b"", &[]).is_empty());
+    }
+
+    #[test]
+    fn directory_file_conflicts_lose_the_side_label() {
+        let a = "a".repeat(40);
+        let b = "b".repeat(40);
+        let output = format!("0123abcd\0thing~{a}\0other~{b}_2\0kept~{a}x\0~{a}\0");
+        assert_eq!(
+            conflicted_paths(output.as_bytes(), &[&a, &b]),
+            vec![
+                format!("kept~{a}x"),
+                "other".to_owned(),
+                "thing".to_owned(),
+                format!("~{a}")
+            ]
+        );
     }
 
     #[test]

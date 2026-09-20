@@ -37,9 +37,12 @@ pub struct Git2Engine {
     /// Whether some attributes file names `linguist-generated`, keyed by the index file's
     /// modification time: reading the index of a large repository costs a hundred
     /// milliseconds, and the verdict rarely changes.
-    generated_attributes: Mutex<Option<(Option<std::time::SystemTime>, bool)>>,
+    generated_attributes: Mutex<Option<(Vec<Option<std::time::SystemTime>>, bool)>>,
     /// Idle diff workers, each with a repository handle of its own (see `diff_pages`).
     diff_workers: diff_pages::WorkerPool,
+    /// The handle the comparison counts walk on, opened on the first comparison and kept
+    /// so its object cache stays warm (see `compare`).
+    counts: Mutex<Option<Repository>>,
 }
 
 impl std::fmt::Debug for Git2Engine {
@@ -72,7 +75,27 @@ impl Git2Engine {
             repo: Mutex::new(repo),
             generated_attributes: Mutex::new(None),
             diff_workers: diff_pages::new_pool(),
+            counts: Mutex::new(None),
         })
+    }
+
+    /// Runs `f` on the comparison handle, opened from `gitdir` on first use.
+    pub(crate) fn with_counts_repo<T>(
+        &self,
+        gitdir: &Path,
+        f: impl FnOnce(&Repository) -> GitResult<T>,
+    ) -> GitResult<T> {
+        let mut slot = self
+            .counts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if slot.is_none() {
+            *slot = Some(reopen_gitdir(gitdir)?);
+        }
+        match slot.as_ref() {
+            Some(repo) => f(repo),
+            None => Err(GitError::Git("no comparison handle".to_owned())),
+        }
     }
 
     /// The pool of idle diff workers.
@@ -81,20 +104,29 @@ impl Git2Engine {
     }
 
     /// Whether any attributes file git would consult names `linguist-generated`, cached
-    /// until the index file changes.
+    /// until one of its sources changes: the index (the tracked `.gitattributes` files),
+    /// `$GIT_DIR/info/attributes` and the `core.attributesfile` of the configuration.
     pub(crate) fn generated_attributes_present(&self) -> bool {
         let stamp = self
-            .with_repo(|repo| Ok(repo.path().join("index")))
-            .ok()
-            .and_then(|index| std::fs::metadata(index).ok())
-            .and_then(|metadata| metadata.modified().ok());
+            .with_repo(|repo| Ok(diff::attribute_sources(repo)))
+            .map(|files| {
+                files
+                    .iter()
+                    .map(|file| {
+                        std::fs::metadata(file)
+                            .ok()
+                            .and_then(|metadata| metadata.modified().ok())
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         let mut cache = self
             .generated_attributes
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some((known, present)) = *cache {
-            if known == stamp && stamp.is_some() {
-                return present;
+        if let Some((known, present)) = cache.as_ref() {
+            if *known == stamp && stamp.iter().any(Option::is_some) {
+                return *present;
             }
         }
         let present = self

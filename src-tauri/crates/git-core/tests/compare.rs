@@ -171,6 +171,43 @@ fn merge_preview_agrees_with_git_merge_tree() {
     assert_eq!(same.kind, MergePreviewKind::UpToDate);
 }
 
+/// A file on one side and a directory of the same name on the other: git moves the file
+/// aside under `thing~<label>` (the label being the argument it was given: a hash here, the
+/// branch name in a terminal), and the preview lists `thing`, the path the user can open.
+#[test]
+fn merge_preview_names_a_directory_file_conflict_by_its_path() {
+    let f = Fixture::basic();
+    f.git(&["checkout", "-q", "-b", "dir-file-a", "main"]);
+    f.write("thing", "a file\n");
+    f.git(&["add", "thing"]);
+    f.git(&["commit", "-q", "-m", "file"]);
+    f.git(&["checkout", "-q", "-b", "dir-file-b", "main"]);
+    f.write("thing/inner.txt", "inside\n");
+    f.git(&["add", "thing/inner.txt"]);
+    f.git(&["commit", "-q", "-m", "directory"]);
+    f.git(&["checkout", "-q", "main"]);
+    let engine = engine(&f);
+    for (a, b) in [("dir-file-a", "dir-file-b"), ("dir-file-b", "dir-file-a")] {
+        let preview = engine
+            .merge_preview(a, b, &Cancel::never())
+            .expect("preview");
+        assert_eq!(preview.kind, MergePreviewKind::Conflicts, "{a} {b}");
+        assert_eq!(preview.conflicts, vec!["thing"], "{a} {b}");
+        // git, given the names, labels the moved file with the first name.
+        let (ok, stdout, _) = f.try_git(&[
+            "merge-tree",
+            "--write-tree",
+            "--name-only",
+            "--no-messages",
+            a,
+            b,
+        ]);
+        assert!(!ok);
+        let named: Vec<&str> = stdout.lines().skip(1).filter(|l| !l.is_empty()).collect();
+        assert_eq!(named, vec!["thing~dir-file-a"]);
+    }
+}
+
 #[test]
 fn merge_preview_reports_unrelated_histories_and_cancellation() {
     let f = diverged();

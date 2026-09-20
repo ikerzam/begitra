@@ -372,6 +372,88 @@ fn working_tree_and_index_diffs_match_git() {
     assert!(!paths(&against_tag).contains(&"docs/guide.md"));
 }
 
+/// A `.gitattributes` staged after the engine opened is honoured by the next diff, like
+/// `git check-attr`: the attributes are read from the index as it is on disk, not from the
+/// copy the handle loaded when it opened.
+#[test]
+fn a_gitattributes_staged_after_opening_marks_generated_files() {
+    let f = Fixture::basic();
+    f.write("openapi.ts", "export type Api = { ok: boolean };\n");
+    f.git(&["add", "openapi.ts"]);
+    f.git(&["commit", "-q", "-m", "add openapi"]);
+    let engine = Git2Engine::open(&f.root).expect("open");
+    let generated = |engine: &Git2Engine| {
+        let set = engine
+            .diff(&commit("HEAD"), &DiffOptions::default(), &Cancel::never())
+            .expect("diff");
+        file(&set, "openapi.ts").is_generated
+    };
+    assert!(!generated(&engine));
+    f.write(".gitattributes", "openapi.ts linguist-generated\n");
+    f.git(&["add", ".gitattributes"]);
+    assert_eq!(
+        f.git(&["check-attr", "linguist-generated", "--", "openapi.ts"]),
+        "openapi.ts: linguist-generated: set"
+    );
+    assert!(generated(&engine));
+    // And the other way: the rule unstaged again.
+    f.git(&["rm", "-q", "--cached", ".gitattributes"]);
+    fs::remove_file(f.root.join(".gitattributes")).expect("remove");
+    assert!(!generated(&engine));
+}
+
+/// A working-tree diff in a linked worktree reads that worktree's files and index: the
+/// pages run on a handle reopened from the worktree's gitdir (`.git/worktrees/<name>`),
+/// which libgit2 resolves to the linked working directory.
+#[test]
+fn working_tree_diff_in_a_linked_worktree_matches_git() {
+    let f = Fixture::basic().with_linked_worktree();
+    let path = f.worktree_path();
+    let mut readme = std::fs::read_to_string(path.join("README.md")).expect("read");
+    readme.push_str("from the linked worktree\n");
+    std::fs::write(path.join("README.md"), readme).expect("write");
+    std::fs::write(path.join("only-here.txt"), "wt\n").expect("write");
+    let engine = Git2Engine::open(&path).expect("open the worktree");
+    let against_head = engine
+        .diff(
+            &DiffTarget::WorkingTree {
+                base: WorkingTreeBase::Head,
+            },
+            &DiffOptions::default(),
+            &Cancel::never(),
+        )
+        .expect("diff");
+    assert_eq!(
+        engine_name_status(&against_head),
+        parse_name_status(&f.git_in(&path, &["diff", "HEAD", "--name-status"]))
+    );
+    assert_eq!(paths(&against_head), ["README.md"]);
+    let modified = file(&against_head, "README.md");
+    assert!(modified.hunks[0]
+        .lines
+        .iter()
+        .any(|line| line.kind == LineKind::Added && line.text == "from the linked worktree"));
+    // Against the index the untracked file of the worktree is listed too; the main
+    // worktree, untouched, shows nothing.
+    let against_index = engine
+        .diff(
+            &DiffTarget::WorkingTree {
+                base: WorkingTreeBase::Index,
+            },
+            &DiffOptions::default(),
+            &Cancel::never(),
+        )
+        .expect("diff");
+    assert_eq!(paths(&against_index), ["README.md", "only-here.txt"]);
+    let main = diff(
+        &f,
+        &DiffTarget::WorkingTree {
+            base: WorkingTreeBase::Head,
+        },
+    );
+    assert!(main.files.is_empty());
+}
+
 /// `ignoreWhitespace` drops the lines and files that only changed in whitespace, like
 /// `git diff -w`.
 #[test]

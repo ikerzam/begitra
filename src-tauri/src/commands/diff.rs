@@ -27,7 +27,9 @@ pub struct DiffPage {
     pub additions: u32,
     /// Removed lines over the pages so far.
     pub deletions: u32,
-    /// Number of files in the whole change set.
+    /// Upper bound on the files of the whole change set: what the listing counted before
+    /// the pages dropped the files git would not show (a sparse checkout's absent files, a
+    /// whitespace-only change under `-w`). The files of the last page are the true total.
     pub total_files: u32,
     /// Files of this page, in change set order.
     pub files: Vec<FileChange>,

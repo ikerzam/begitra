@@ -12,6 +12,12 @@
 //! back when dropped (up to [`IDLE_WORKERS`] kept). A fresh handle would load the index
 //! again on its first attribute lookup, forty milliseconds on a repository of fifty thousand
 //! files, which is more than a typical diff costs.
+//!
+//! Two waits cannot be interrupted, because libgit2 exposes no progress callback for them:
+//! the preparation (the delta list and the rename detection of the whole change set) and
+//! the patch of one file, which for a huge single file is the bulk of a page. A cancelled
+//! or timed-out operation returns when the current one of these ends; the worker is not in
+//! the pool meanwhile, so the next diff starts on a fresh one rather than queueing behind it.
 
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -100,9 +106,17 @@ pub(super) fn start(
         requests: worker_requests,
         replies: worker_replies,
     };
-    if worker.send(job).is_err() {
-        return Err(GitError::Git("the diff thread ended early".to_owned()));
-    }
+    // A pooled worker whose thread is gone (it panicked) costs one retry on a fresh one.
+    let worker = match worker.send(job) {
+        Ok(()) => worker,
+        Err(mpsc::SendError(job)) => {
+            let fresh = start_worker(&gitdir)?;
+            fresh
+                .send(job)
+                .map_err(|_| GitError::Git("the diff thread ended early".to_owned()))?;
+            fresh
+        }
+    };
     let total = match ready_rx.recv() {
         Ok(result) => result?,
         Err(_) => return Err(GitError::Git("the diff thread ended early".to_owned())),
@@ -127,9 +141,14 @@ fn take_worker(pool: &WorkerPool, gitdir: &std::path::Path) -> GitResult<Sender<
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .pop();
-    if let Some(worker) = idle {
-        return Ok(worker);
+    match idle {
+        Some(worker) => Ok(worker),
+        None => start_worker(gitdir),
     }
+}
+
+/// A new worker thread on its own repository handle.
+fn start_worker(gitdir: &std::path::Path) -> GitResult<Sender<Job>> {
     let (jobs, inbox) = mpsc::channel::<Job>();
     let gitdir = gitdir.to_path_buf();
     thread::Builder::new()
@@ -239,5 +258,101 @@ impl Drop for Pages {
                 idle.push(worker);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use git2::{Oid, Repository, Signature};
+
+    use super::*;
+
+    /// A repository whose second commit changes `a.txt` and adds `b.txt`, as (dir, from, to).
+    fn two_commits() -> (tempfile::TempDir, Oid, Oid) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let repo = Repository::init(dir.path()).expect("init");
+        let signature = Signature::now("t", "t@x").expect("signature");
+        let commit = |files: &[(&str, &str)], parent: Option<Oid>| -> Oid {
+            for (name, text) in files {
+                std::fs::write(dir.path().join(name), text).expect("write");
+            }
+            let mut index = repo.index().expect("index");
+            index
+                .add_all(["*"], git2::IndexAddOption::DEFAULT, None)
+                .expect("add");
+            index.write().expect("write index");
+            let tree_id = index.write_tree().expect("tree");
+            let tree = repo.find_tree(tree_id).expect("find tree");
+            let parents: Vec<git2::Commit<'_>> = parent
+                .into_iter()
+                .map(|oid| repo.find_commit(oid).expect("parent"))
+                .collect();
+            let refs: Vec<&git2::Commit<'_>> = parents.iter().collect();
+            repo.commit(Some("HEAD"), &signature, &signature, "c", &tree, &refs)
+                .expect("commit")
+        };
+        let from = commit(&[("a.txt", "one\n")], None);
+        let to = commit(&[("a.txt", "two\n"), ("b.txt", "new\n")], Some(from));
+        (dir, from, to)
+    }
+
+    #[test]
+    fn the_worker_polls_the_request_flag_between_files() {
+        // The handle checks the flag before asking; this sends a request whose flag is
+        // already raised straight to the worker, which is the poll the timeout relies on
+        // while a page is being read.
+        let (dir, from, to) = two_commits();
+        let engine = Git2Engine::open(dir.path()).expect("open");
+        let (gitdir, target) = engine
+            .with_repo(|repo| {
+                Ok((
+                    repo.path().to_path_buf(),
+                    diff::resolve_target(
+                        repo,
+                        &DiffTarget::Commits {
+                            from: from.to_string(),
+                            to: to.to_string(),
+                        },
+                    )?,
+                ))
+            })
+            .expect("resolve");
+        let worker = start_worker(&gitdir).expect("worker");
+        let (requests, worker_requests) = mpsc::channel::<Request>();
+        let (worker_replies, replies) = mpsc::channel::<Reply>();
+        let (ready_tx, ready_rx) = mpsc::channel::<GitResult<usize>>();
+        worker
+            .send(Job {
+                target,
+                options: DiffOptions::default(),
+                generated_attributes: false,
+                ready: ready_tx,
+                requests: worker_requests,
+                replies: worker_replies,
+            })
+            .expect("send job");
+        assert_eq!(ready_rx.recv().expect("ready").expect("prepared"), 2);
+        let cancelled = Cancel::new();
+        cancelled.cancel();
+        requests
+            .send(Request {
+                start: 0,
+                count: 2,
+                cancel: cancelled,
+            })
+            .expect("send request");
+        let reply = replies.recv().expect("reply");
+        assert!(matches!(reply, Err(GitError::Cancelled)), "{reply:?}");
+        // The worker is still serving the job: the same page reads fine afterwards.
+        requests
+            .send(Request {
+                start: 0,
+                count: 2,
+                cancel: Cancel::never(),
+            })
+            .expect("send request");
+        let (files, additions, deletions) = replies.recv().expect("reply").expect("page");
+        assert_eq!(files.len(), 2);
+        assert_eq!((additions, deletions), (2, 1));
     }
 }

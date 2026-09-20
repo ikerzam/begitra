@@ -82,19 +82,21 @@ pub(super) fn prepare<'r>(
     }
     // Files are listed by the path they are shown under, like `git diff --name-status`;
     // libgit2 sorts a renamed delta by its old path.
-    let mut order: Vec<usize> = (0..diff.deltas().len()).collect();
-    let listed_path = |index: usize| -> Vec<u8> {
-        diff.get_delta(index)
-            .and_then(|delta| {
-                delta
-                    .new_file()
-                    .path_bytes()
-                    .or_else(|| delta.old_file().path_bytes())
-                    .map(<[u8]>::to_vec)
-            })
-            .unwrap_or_default()
-    };
-    order.sort_by_cached_key(|&index| listed_path(index));
+    // The paths borrow from the diff, so the order costs one lookup per delta and no copy.
+    let listed_paths: Vec<&[u8]> = (0..diff.deltas().len())
+        .map(|index| {
+            diff.get_delta(index)
+                .and_then(|delta| {
+                    delta
+                        .new_file()
+                        .path_bytes()
+                        .or_else(|| delta.old_file().path_bytes())
+                })
+                .unwrap_or_default()
+        })
+        .collect();
+    let mut order: Vec<usize> = (0..listed_paths.len()).collect();
+    order.sort_by(|&left, &right| listed_paths.get(left).cmp(&listed_paths.get(right)));
     // The index flags git honours and libgit2 does not: a sparse checkout's absent files
     // (`skip-worktree`) are not deletions, and `git add -N` is an addition.
     let index_file = if working_tree {
@@ -119,7 +121,10 @@ pub(super) fn prepare<'r>(
 pub(super) fn generated_attributes_present(repo: &Repository) -> bool {
     const NAME: &[u8] = b"linguist-generated";
     let mentions = |bytes: &[u8]| bytes.windows(NAME.len()).any(|window| window == NAME);
-    if let Ok(index) = repo.index() {
+    // The handle's index is the copy loaded on first use; `read` reloads it when the file
+    // changed since (a `.gitattributes` staged after the repository was opened).
+    if let Ok(mut index) = repo.index() {
+        let _ = index.read(false);
         for entry in index.iter() {
             let is_attributes = entry.path.rsplit(|&b| b == b'/').next() == Some(b".gitattributes");
             if is_attributes
@@ -131,7 +136,20 @@ pub(super) fn generated_attributes_present(repo: &Repository) -> bool {
             }
         }
     }
-    let mut files = vec![repo.path().join("info").join("attributes")];
+    attribute_sources(repo)
+        .iter()
+        .skip(1)
+        .any(|file| std::fs::read(file).is_ok_and(|bytes| mentions(&bytes)))
+}
+
+/// The files whose change can alter the attributes verdict: the index (for the tracked
+/// `.gitattributes` files), `$GIT_DIR/info/attributes` and the configured
+/// `core.attributesfile`, in that order.
+pub(super) fn attribute_sources(repo: &Repository) -> Vec<std::path::PathBuf> {
+    let mut files = vec![
+        repo.path().join("index"),
+        repo.path().join("info").join("attributes"),
+    ];
     if let Some(configured) = repo
         .config()
         .ok()
@@ -140,8 +158,6 @@ pub(super) fn generated_attributes_present(repo: &Repository) -> bool {
         files.push(configured);
     }
     files
-        .iter()
-        .any(|file| std::fs::read(file).is_ok_and(|bytes| mentions(&bytes)))
 }
 
 /// The target with every revision resolved to a commit hash and a three-dot range turned
@@ -810,7 +826,7 @@ fn blob_error<'a>(
 }
 
 /// The object id libgit2 quotes in "object not found - no match for id (...)".
-fn hash_in_message(message: &str) -> Option<String> {
+pub(super) fn hash_in_message(message: &str) -> Option<String> {
     let start = message.find('(')? + 1;
     let rest = message.get(start..)?;
     let candidate = rest.get(..rest.find(')')?)?;

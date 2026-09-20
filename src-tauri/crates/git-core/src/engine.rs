@@ -127,10 +127,14 @@ pub trait GitEngine: Send + Sync {
         cancel: &Cancel,
     ) -> GitResult<ChangeSet> {
         let mut walk = self.diff_pages(target, options, usize::MAX, cancel)?;
-        let mut files = Vec::new();
+        let mut files: Vec<crate::types::FileChange> = Vec::new();
         loop {
             let page = walk.next_page(cancel)?;
-            files.extend(page.files);
+            if files.is_empty() {
+                files = page.files;
+            } else {
+                files.extend(page.files);
+            }
             if page.done {
                 return Ok(ChangeSet {
                     files,
@@ -151,7 +155,7 @@ pub trait GitEngine: Send + Sync {
 
     /// What merging `b` into `a` would do, through `git merge-tree` for the diverged case:
     /// nothing the user can see changes (git may store the merged result as unreferenced
-    /// objects). Cancellation kills the child process.
+    /// objects). Cancellation stops the child process and what it started.
     fn merge_preview(&self, a: &str, b: &str, cancel: &Cancel) -> GitResult<MergePreview>;
 
     /// Reads one file whole at a revision or in the working tree, at most 20 MB

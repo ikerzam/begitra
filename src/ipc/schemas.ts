@@ -270,6 +270,7 @@ export type ChangeSet = v.InferOutput<typeof ChangeSetSchema>;
 export const DiffPageSchema = v.object({
   additions: count,
   deletions: count,
+  /** An upper bound: the files of the last page (`done`) are the true total. */
   totalFiles: count,
   files: v.array(FileChangeSchema),
 });

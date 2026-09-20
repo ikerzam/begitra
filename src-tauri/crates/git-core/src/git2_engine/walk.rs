@@ -605,7 +605,11 @@ pub(super) fn range_members(
     walk.hide(exclude)?;
     let mut members = HashSet::new();
     for next in walk {
-        let oid = next.map_err(|error| GitError::object("range", error))?;
+        let oid = next.map_err(|error| {
+            let hash = super::diff::hash_in_message(error.message())
+                .unwrap_or_else(|| exclude.to_string());
+            GitError::object(&hash, error)
+        })?;
         if cap.is_some_and(|cap| members.len() >= cap) {
             return Ok((members, true));
         }

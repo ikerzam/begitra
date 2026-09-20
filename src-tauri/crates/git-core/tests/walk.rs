@@ -1355,9 +1355,7 @@ fn range_walks_and_counts_equal_git_rev_list_without_reading_the_excluded_histor
             .lines()
             .map(str::to_owned)
             .collect();
-        let started = Instant::now();
         let listed = walk_all(&engine, &scope, 500, WalkOrder::DateTopo);
-        let took = started.elapsed();
         let mut got = hashes(&listed);
         let mut want = expected.clone();
         got.sort();
@@ -1371,11 +1369,9 @@ fn range_walks_and_counts_equal_git_rev_list_without_reading_the_excluded_histor
             (expected.len(), false),
             "{exclude}..{include}"
         );
-        // Bounded by the range, not by the 3,000 commits behind it: generous for CI.
-        assert!(
-            took < Duration::from_secs(2),
-            "{exclude}..{include} took {took:?}"
-        );
+        // That the walk is bounded by the range rather than by the 3,000 commits behind it
+        // is the `walk_range_first_page` benchmark's to show (a wall-clock bound here would
+        // be flaky on a loaded CI machine) and `range_members`' unit tests' to pin.
     }
     // An edge into the excluded side is never drawn: feature's first commit has no parent
     // edge, since its parent is on main.
