@@ -11,7 +11,7 @@ pub enum MigrationError {
 }
 
 /// Schema version after applying every migration in [`MIGRATIONS`].
-pub const CURRENT_VERSION: u32 = 1;
+pub const CURRENT_VERSION: u32 = 2;
 
 /// SQL for each migration, indexed by version minus one.
 const MIGRATIONS: &[&str] = &[
@@ -47,6 +47,29 @@ const MIGRATIONS: &[&str] = &[
         created_at INTEGER NOT NULL
     );
     CREATE INDEX review_annotations_target ON review_annotations(repo_path, target);",
+    // Version 2: repositories and worktrees in one table keyed by path, with the
+    // summary the scanner refreshes; the empty tables of version 1 go.
+    "DROP TABLE worktrees;
+    DROP TABLE repos;
+    CREATE TABLE repos (
+        path TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        parent_path TEXT,
+        scan_root TEXT,
+        current_branch TEXT,
+        detached INTEGER NOT NULL DEFAULT 0,
+        dirty INTEGER,
+        ahead INTEGER,
+        behind INTEGER,
+        last_commit_at INTEGER,
+        pinned INTEGER NOT NULL DEFAULT 0,
+        last_opened_at INTEGER,
+        refreshed_at INTEGER,
+        missing INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX repos_parent ON repos(parent_path);
+    CREATE INDEX repos_root ON repos(scan_root);",
 ];
 
 /// Applies every pending migration and returns the resulting schema version.
@@ -79,7 +102,7 @@ mod tests {
             .expect("query runs")
             .collect::<Result<_, _>>()
             .expect("rows read");
-        assert_eq!(tables, vec!["repos", "review_annotations", "worktrees"]);
+        assert_eq!(tables, vec!["repos", "review_annotations"]);
     }
 
     #[test]
