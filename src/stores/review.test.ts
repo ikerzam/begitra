@@ -57,3 +57,19 @@ describe("review store", () => {
     expect(review.reviewedCount).toBe(0);
   });
 });
+
+describe("review store, pinned commits", () => {
+  it("keeps the diff base and the range end until cleared", () => {
+    const store = useReviewStore();
+    expect(store.diffBase).toBeNull();
+    store.setDiffBase("a1b2c3d4");
+    store.setRangeEnd("e5f6a7b8");
+    expect(store.diffBase).toBe("a1b2c3d4");
+    expect(store.rangeEnd).toBe("e5f6a7b8");
+    store.setDiffBase(null);
+    expect(store.diffBase).toBeNull();
+    expect(store.rangeEnd).toBe("e5f6a7b8");
+    store.clearPins();
+    expect(store.rangeEnd).toBeNull();
+  });
+});

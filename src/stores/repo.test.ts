@@ -49,6 +49,8 @@ interface BackendOptions {
   diffGate?: Promise<void>;
   /** `open_repository` resolves only after this promise resolves. */
   openGate?: Promise<void>;
+  /** Walk pages are delivered only after this promise resolves. */
+  walkGate?: Promise<void>;
 }
 
 function mockBackend(options: BackendOptions = {}): Call[] {
@@ -104,22 +106,41 @@ function mockBackend(options: BackendOptions = {}): Call[] {
         }
         const first = cmd === "walk_commits" ? 0 : (args["nextIndex"] as number);
         const maxPages = args["maxPages"] as number;
+        // A ref scope lists the first three commits; a text filter keeps the subjects holding it.
+        const scope = args["scope"] as { kind: string } | undefined;
+        const walkOptions = args["options"] as { filter?: { text?: string } } | undefined;
+        const text = walkOptions?.filter?.text;
+        const listed = Array.from({ length: scope?.kind === "ref" ? 3 : total }, (_, i) =>
+          commit(i),
+        ).filter((c) => text === undefined || c.subject.includes(text));
         const messages: unknown[] = [];
         let seq = 0;
+        if (listed.length === 0) {
+          // Nothing matches: the engine still answers one empty, done page.
+          messages.push({
+            kind: "page",
+            seq,
+            data: { walkId: `walk-${walks}`, index: 0, commits: [], done: true },
+          });
+          seq += 1;
+        }
         for (let index = first; index < first + maxPages; index += 1) {
           const start = index * 500;
-          if (start >= total) break;
-          const commits = Array.from({ length: Math.min(500, total - start) }, (_, i) =>
-            commit(start + i),
-          );
-          const done = start + commits.length >= total;
+          if (start >= listed.length) break;
+          const commits = listed.slice(start, start + 500);
+          const done = start + commits.length >= listed.length;
           const walkId = `walk-${walks}`;
           messages.push({ kind: "page", seq, data: { walkId, index, commits, done } });
           seq += 1;
           if (done) break;
         }
         messages.push({ kind: "done" });
-        send(args["onPage"] as Channel<unknown>, messages);
+        // Filtered walks wait on the gate; the plain walk of an open never does.
+        send(
+          args["onPage"] as Channel<unknown>,
+          messages,
+          walkOptions?.filter ? options.walkGate : undefined,
+        );
         return null;
       }
       case "diff": {
@@ -272,6 +293,93 @@ describe("repo store", () => {
     expect(store.commits).toHaveLength(0);
     expect(store.repo).toBeNull();
     expect(calls.some((c) => c.cmd === "close_repository" && c.args["root"] === "/r")).toBe(true);
+  });
+});
+
+describe("repo store, restarted walks", () => {
+  it("restarts with a scope and a filter, keeps the selected commit and its change set", async () => {
+    const calls = mockBackend();
+    const store = useRepoStore();
+    await store.open("/r");
+    await settled();
+    store.select(2);
+    await settled();
+    const diffsBefore = calls.filter((c) => c.cmd === "diff").length;
+    store.restartWalk({ kind: "ref", name: "main" }, { text: "commit" });
+    expect(store.commits).toHaveLength(0);
+    expect(store.selectedIndex).toBe(-1);
+    expect(store.walkScope).toEqual({ kind: "ref", name: "main" });
+    expect(store.walkFilter).toEqual({ text: "commit" });
+    await settled();
+    const walks = calls.filter((c) => c.cmd === "walk_commits");
+    expect(walks).toHaveLength(2);
+    expect(walks[1]?.args).toMatchObject({
+      scope: { kind: "ref", name: "main" },
+      options: { pageSize: 500, order: "lazy", filter: { text: "commit" } },
+    });
+    expect(store.commits).toHaveLength(3);
+    expect(store.selectedIndex).toBe(2);
+    expect(store.detail?.hash).toBe(commit(2).hash);
+    // The change set was kept: no diff ran for the same commit.
+    expect(calls.filter((c) => c.cmd === "diff")).toHaveLength(diffsBefore);
+  });
+
+  it("selects the first row when the selected commit is no longer listed", async () => {
+    mockBackend();
+    const store = useRepoStore();
+    await store.open("/r");
+    await settled();
+    store.select(7);
+    await settled();
+    store.restartWalk({ kind: "ref", name: "main" });
+    await settled();
+    expect(store.commits).toHaveLength(3);
+    expect(store.selectedIndex).toBe(0);
+    expect(store.detail?.hash).toBe(commit(0).hash);
+  });
+
+  it("clears the change set when nothing matches", async () => {
+    mockBackend();
+    const store = useRepoStore();
+    await store.open("/r");
+    await settled();
+    store.restartWalk({ kind: "all" }, { text: "nothing like this" });
+    await settled();
+    expect(store.commits).toHaveLength(0);
+    expect(store.selectedIndex).toBe(-1);
+    expect(store.detail).toBeNull();
+    expect(store.walk?.done).toBe(true);
+    expect(store.streaming).toBe(false);
+  });
+
+  it("ignores the pages of a walk restarted before they arrived", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    mockBackend({ walkGate: gate });
+    const store = useRepoStore();
+    await store.open("/r");
+    await settled();
+    // The first filtered walk waits on the gate; a second restart replaces it.
+    store.restartWalk({ kind: "all" }, { text: "commit 1" });
+    store.restartWalk({ kind: "ref", name: "main" }, { text: "commit" });
+    release();
+    await settled();
+    expect(store.commits).toHaveLength(3);
+    expect(store.commits.map((c) => c.subject)).toEqual(["commit 0", "commit 1", "commit 2"]);
+  });
+
+  it("a restart before the repository is ready only records the scope", async () => {
+    const calls = mockBackend();
+    const store = useRepoStore();
+    store.restartWalk({ kind: "ref", name: "main" });
+    expect(calls).toHaveLength(0);
+    await store.open("/r");
+    await settled();
+    // Opening resets the walk to the whole history.
+    expect(store.walkScope).toEqual({ kind: "all" });
+    expect(store.commits).toHaveLength(1_200);
   });
 });
 

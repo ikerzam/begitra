@@ -14,7 +14,9 @@ import type {
   FileChange,
   Ref as GitRef,
   Repo,
+  WalkFilter,
   WalkPage,
+  WalkScope,
   Worktree,
 } from "@/ipc/schemas";
 import type { StreamHandle } from "@/ipc/stream";
@@ -62,6 +64,9 @@ export const useRepoStore = defineStore("repo", () => {
   // reactive proxy per commit.
   const commits = shallowRef<CommitNode[]>([]);
   const walk = ref<WalkPosition | null>(null);
+  /** What the current walk lists; the graph store sets both through `restartWalk`. */
+  const walkScope = ref<WalkScope>({ kind: "all" });
+  const walkFilter = ref<WalkFilter | undefined>(undefined);
   const streaming = ref(false);
   const walkError = ref<AppError | null>(null);
   const selectedIndex = ref(-1);
@@ -76,6 +81,10 @@ export const useRepoStore = defineStore("repo", () => {
   let diffRequest = 0;
   /** Whether the current walk was already restarted once after the backend lost it. */
   let walkRecovered = false;
+  /** Number of the current walk; pages and endings of an earlier walk are ignored. */
+  let walkSerial = 0;
+  /** Hash to select again once a restarted walk lists it. */
+  let pendingSelection: string | null = null;
 
   const selectedCommit = computed<CommitNode | undefined>(() => commits.value[selectedIndex.value]);
   const canLoadMore = computed(
@@ -88,23 +97,32 @@ export const useRepoStore = defineStore("repo", () => {
 
   function reset(): void {
     generation += 1;
-    void walkHandle?.cancel();
+    stopWalk();
     void diffHandle?.cancel();
-    if (walk.value && !walk.value.done) void ipc.closeWalk(walk.value.walkId);
-    walkHandle = null;
     diffHandle = null;
-    walkRecovered = false;
+    pendingSelection = null;
     repo.value = null;
     refs.value = [];
     refsLoaded.value = false;
     commits.value = [];
     walk.value = null;
+    walkScope.value = { kind: "all" };
+    walkFilter.value = undefined;
     streaming.value = false;
     walkError.value = null;
     selectedIndex.value = -1;
     detail.value = null;
     worktrees.value = [];
     worktreesError.value = null;
+  }
+
+  /** Ends the current walk: the stream is cancelled and the backend handle closed. */
+  function stopWalk(): void {
+    walkSerial += 1;
+    void walkHandle?.cancel();
+    if (walk.value && !walk.value.done) void ipc.closeWalk(walk.value.walkId);
+    walkHandle = null;
+    walkRecovered = false;
   }
 
   /** Lists the worktrees of the open repository (the sidebar tab asks for it). */
@@ -178,40 +196,68 @@ export const useRepoStore = defineStore("repo", () => {
    */
   function startWalk(root: string, skipPages = 0): void {
     const myGeneration = generation;
+    const myWalk = walkSerial;
     const opId = newOpId("walk");
     streaming.value = true;
     walkError.value = null;
     operations.start(opId, "operations.loadingHistory");
+    const options = walkFilter.value
+      ? { ...ipc.defaultWalkOptions, filter: walkFilter.value }
+      : ipc.defaultWalkOptions;
     walkHandle = ipc.walkCommits(
       root,
-      { kind: "all" },
-      (page) => receivePage(page, myGeneration, skipPages),
-      ipc.defaultWalkOptions,
+      walkScope.value,
+      (page) => receivePage(page, myGeneration, myWalk, skipPages),
+      options,
       skipPages + PAGES_PER_REQUEST,
       opId,
     );
-    void settleWalk(walkHandle, myGeneration, opId);
+    void settleWalk(walkHandle, myGeneration, myWalk, opId);
+  }
+
+  /**
+   * Lists the history again for `scope` and `filter`. The rows are replaced as the new pages
+   * arrive; the selected commit is selected again when the first request lists it (its change
+   * set is kept), otherwise the first row is.
+   */
+  function restartWalk(scope: WalkScope, filter?: WalkFilter): void {
+    walkScope.value = scope;
+    walkFilter.value = filter;
+    const root = repo.value?.root;
+    if (!root || state.value.kind !== "ready") return;
+    stopWalk();
+    pendingSelection = selectedCommit.value?.hash ?? null;
+    commits.value = [];
+    walk.value = null;
+    selectedIndex.value = -1;
+    startWalk(root);
   }
 
   /** Asks for the next pages of the current walk. */
   function loadMore(): void {
     if (!canLoadMore.value || !walk.value) return;
     const myGeneration = generation;
+    const myWalk = walkSerial;
     const opId = newOpId("walk");
     streaming.value = true;
     operations.start(opId, "operations.loadingHistory");
     walkHandle = ipc.walkContinue(
       walk.value.walkId,
       walk.value.nextIndex,
-      (page) => receivePage(page, myGeneration),
+      (page) => receivePage(page, myGeneration, myWalk),
       PAGES_PER_REQUEST,
       opId,
     );
-    void settleWalk(walkHandle, myGeneration, opId);
+    void settleWalk(walkHandle, myGeneration, myWalk, opId);
   }
 
-  function receivePage(page: WalkPage, myGeneration: number, skipBefore?: number): void {
-    if (myGeneration !== generation) return;
+  function receivePage(
+    page: WalkPage,
+    myGeneration: number,
+    myWalk: number,
+    skipBefore?: number,
+  ): void {
+    if (myGeneration !== generation || myWalk !== walkSerial) return;
     const skip = skipBefore ?? walk.value?.skipBefore ?? 0;
     if (page.index === 0 && skip > 0 && page.commits[0]?.hash !== commits.value[0]?.hash) {
       // The history changed under the restarted walk: start the list over.
@@ -236,19 +282,40 @@ export const useRepoStore = defineStore("repo", () => {
         skipBefore: skip,
       };
     }
-    if (selectedIndex.value < 0 && commits.value.length > 0) select(0);
+    if (selectedIndex.value >= 0 || commits.value.length === 0) return;
+    if (pendingSelection === null) {
+      select(0);
+      return;
+    }
+    const wanted = pendingSelection;
+    const inPage = page.commits.findIndex((commit) => commit.hash === wanted);
+    if (inPage >= 0) {
+      pendingSelection = null;
+      selectKeepingDetail(commits.value.length - page.commits.length + inPage);
+    }
+  }
+
+  /** Ends the wait for a restarted walk's selection: the first row when it was not listed. */
+  function settlePendingSelection(): void {
+    if (pendingSelection === null) return;
+    pendingSelection = null;
+    if (selectedIndex.value >= 0) return;
+    if (commits.value.length > 0) select(0);
+    else detail.value = null;
   }
 
   async function settleWalk(
     handle: StreamHandle,
     myGeneration: number,
+    myWalk: number,
     opId: string,
   ): Promise<void> {
+    const current = () => myGeneration === generation && myWalk === walkSerial;
     try {
       await handle.done;
-      if (myGeneration === generation) walkRecovered = false;
+      if (current()) walkRecovered = false;
     } catch (error) {
-      if (myGeneration !== generation) return;
+      if (!current()) return;
       const failed = toAppError(error);
       const root = repo.value?.root;
       const position = walk.value;
@@ -267,8 +334,21 @@ export const useRepoStore = defineStore("repo", () => {
       }
     } finally {
       operations.finish(opId);
-      if (myGeneration === generation) streaming.value = false;
+      if (current()) {
+        streaming.value = false;
+        settlePendingSelection();
+      }
     }
+  }
+
+  /** Selects a row whose change set may already be loaded (after a restarted walk). */
+  function selectKeepingDetail(index: number): void {
+    const commit = commits.value[index];
+    if (commit && detail.value?.hash === commit.hash) {
+      selectedIndex.value = index;
+      return;
+    }
+    select(index);
   }
 
   /** Selects a row and loads its change set. */
@@ -347,6 +427,8 @@ export const useRepoStore = defineStore("repo", () => {
     refsLoaded,
     commits,
     walk,
+    walkScope,
+    walkFilter,
     streaming,
     walkError,
     selectedIndex,
@@ -358,6 +440,7 @@ export const useRepoStore = defineStore("repo", () => {
     currentBranch,
     open,
     loadMore,
+    restartWalk,
     loadWorktrees,
     refreshRefs,
     select,

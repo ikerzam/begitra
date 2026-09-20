@@ -1,6 +1,7 @@
-// Review focus state: the file filters, the open file, the files marked reviewed
-// (in memory only), and the files the user chose to
-// show despite being large, generated or binary.
+// Review focus state: the file filters, the open file, the files marked reviewed (in memory
+// only), the files the user chose to show despite being large,
+// generated or binary, and the two commits the graph pins: the diff base
+// ("Diff from here") and the range end ("Select as range end").
 
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
@@ -15,6 +16,10 @@ export const useReviewStore = defineStore("review", () => {
   const revealed = ref(new Set<string>());
   /** Hash of the commit the reviewed and revealed sets belong to. */
   const commitHash = ref<string | null>(null);
+  /** Commit chosen with "Diff from here", for the review's diff modes. */
+  const diffBase = ref<string | null>(null);
+  /** Commit chosen with "Select as range end", for the comparison. */
+  const rangeEnd = ref<string | null>(null);
 
   const reviewedCount = computed(() => reviewed.value.size);
 
@@ -59,6 +64,20 @@ export const useReviewStore = defineStore("review", () => {
     revealed.value = new Set(revealed.value).add(path);
   }
 
+  function setDiffBase(hash: string | null): void {
+    diffBase.value = hash;
+  }
+
+  function setRangeEnd(hash: string | null): void {
+    rangeEnd.value = hash;
+  }
+
+  /** Forgets both pinned commits (another repository opened). */
+  function clearPins(): void {
+    diffBase.value = null;
+    rangeEnd.value = null;
+  }
+
   return {
     filters,
     selectedPath,
@@ -72,5 +91,10 @@ export const useReviewStore = defineStore("review", () => {
     open,
     toggleReviewed,
     reveal,
+    diffBase,
+    rangeEnd,
+    setDiffBase,
+    setRangeEnd,
+    clearPins,
   };
 });
