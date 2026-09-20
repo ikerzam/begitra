@@ -12,6 +12,7 @@ mod diff_pages;
 mod filter;
 mod refs;
 mod status;
+mod status_porcelain;
 mod walk;
 mod worktree_ops;
 mod worktrees;
@@ -78,6 +79,16 @@ impl Git2Engine {
             diff_workers: diff_pages::new_pool(),
             counts: Mutex::new(None),
         })
+    }
+
+    /// The working tree status through libgit2, the fallback of [`GitEngine::status`] when git
+    /// cannot be started; public so the benchmarks and the tests can compare both paths.
+    pub fn status_through_libgit2(
+        &self,
+        options: &StatusOptions,
+        cancel: &Cancel,
+    ) -> GitResult<Vec<StatusEntry>> {
+        status::list_libgit2(self, options, cancel)
     }
 
     /// Runs `f` on the comparison handle, opened from `gitdir` on first use.

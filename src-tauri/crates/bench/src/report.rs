@@ -32,6 +32,8 @@ pub fn budget(id: &str) -> Option<Duration> {
         // The merge preview runs in the background under its own banner (delegated).
         ("merge_preview", _) => 2_000,
         ("status", _) => 2_000,
+        // The libgit2 fallback of the status, recorded without a budget.
+        ("status_libgit2", _) => return None,
         ("discovery", "scan_first_result") => 100,
         ("discovery", "scan_full") => 2_000,
         ("worktrees", "synthetic") => 50,

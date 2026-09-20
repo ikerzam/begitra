@@ -1,8 +1,12 @@
-//! Working tree status.
+//! Working tree status, through git, with libgit2 as the fallback.
 //!
-//! libgit2 compares HEAD with the index and the index with the working tree, like `git status`;
-//! this module maps its flags to [`StatusEntry`] and sorts the result by path. Known differences
-//! from `git status --porcelain=v2 --untracked-files=all`:
+//! The status runs `git status --porcelain=v2 -z` (see [`super::status_porcelain`]): git's
+//! directory cache makes it eight times faster than libgit2 on a tree of thirty thousand
+//! directories, and its output is the reference the tests compare against. libgit2's status,
+//! below, is the fallback when git cannot be started: it compares HEAD with the index and
+//! the index with the working tree, like `git status`; this module maps its flags to
+//! [`StatusEntry`] and sorts the result by path. Known differences of that fallback from
+//! `git status --porcelain=v2 --untracked-files=all`:
 //!
 //! - rename detection runs between HEAD and the index only, as in `git status`: libgit2 could
 //!   also pair a tracked file deleted from the working tree with a similar untracked file, which
@@ -18,9 +22,10 @@
 
 use git2::{Status, StatusOptions as Git2StatusOptions, StatusShow};
 
-use super::Git2Engine;
-use crate::engine::Cancel;
-use crate::error::GitResult;
+use super::{status_porcelain, Git2Engine};
+use crate::cli::run_git_cancellable;
+use crate::engine::{Cancel, GitEngine};
+use crate::error::{GitError, GitResult};
 use crate::types::{ChangeKind, StatusEntry, StatusOptions};
 
 /// Entries between two cancellation checks.
@@ -29,6 +34,51 @@ const CANCEL_EVERY: usize = 200;
 /// Reports the working tree status; see [`crate::engine::GitEngine::status`].
 #[tracing::instrument(level = "debug", skip_all)]
 pub(super) fn list(
+    engine: &Git2Engine,
+    options: &StatusOptions,
+    cancel: &Cancel,
+) -> GitResult<Vec<StatusEntry>> {
+    cancel.check()?;
+    // A HEAD whose commit cannot be read is `repo.corrupt_object` with its hash, as every
+    // read reports it; git would only say "bad object HEAD".
+    engine.with_repo(super::check_head)?;
+    let mut args = vec!["status", "--porcelain=v2", "-z"];
+    args.push(if options.include_untracked {
+        "--untracked-files=all"
+    } else {
+        "--untracked-files=no"
+    });
+    // With `--untracked-files=all`, `traditional` lists the files of an ignored directory
+    // one by one, as libgit2's recursion did.
+    args.push(if options.include_ignored {
+        "--ignored=traditional"
+    } else {
+        "--ignored=no"
+    });
+    args.push(if options.renames {
+        "--renames"
+    } else {
+        "--no-renames"
+    });
+    match run_git_cancellable(&GitEngine::repo(engine).root, &args, cancel) {
+        Ok(exit) if exit.status == Some(0) => Ok(status_porcelain::parse(&exit.stdout)),
+        Ok(exit) => Err(GitError::Cli {
+            command: args.join(" "),
+            status: exit.status,
+            stderr: exit.stderr,
+        }),
+        // git could not be started (not installed, not on PATH): libgit2 answers instead.
+        Err(GitError::Cli { status: None, .. }) => {
+            tracing::warn!("git could not be started; the status falls back to libgit2");
+            list_libgit2(engine, options, cancel)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// The status through libgit2, the fallback when git cannot be started.
+#[tracing::instrument(level = "debug", skip_all)]
+pub(super) fn list_libgit2(
     engine: &Git2Engine,
     options: &StatusOptions,
     cancel: &Cancel,

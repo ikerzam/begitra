@@ -390,6 +390,45 @@ fn intent_to_add_matches_porcelain_v2() {
     assert!(!entry.untracked);
 }
 
+/// The libgit2 path is the fallback when git cannot be started: it lists what git lists.
+#[test]
+fn the_libgit2_fallback_lists_the_same_entries_as_git() {
+    let f = Fixture::basic().with_mixed_status();
+    f.write(
+        "moved.txt",
+        "one
+two
+three
+",
+    );
+    f.git(&["add", "moved.txt"]);
+    f.git(&["commit", "-q", "-m", "moved"]);
+    f.git(&["mv", "moved.txt", "renamed.txt"]);
+    f.append(
+        "renamed.txt",
+        "four
+",
+    );
+    let engine = Git2Engine::open(&f.root).expect("open");
+    for options in [
+        StatusOptions::default(),
+        StatusOptions {
+            include_ignored: true,
+            ..StatusOptions::default()
+        },
+        StatusOptions {
+            include_untracked: false,
+            ..StatusOptions::default()
+        },
+    ] {
+        let through_git = engine.status(&options, &Cancel::never()).expect("status");
+        let through_libgit2 = engine
+            .status_through_libgit2(&options, &Cancel::never())
+            .expect("fallback");
+        assert_eq!(through_libgit2, through_git, "{options:?}");
+    }
+}
+
 #[test]
 fn a_truncated_head_is_reported_as_corrupt() {
     let f = Fixture::basic();

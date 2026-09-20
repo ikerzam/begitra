@@ -342,6 +342,23 @@ fn status(c: &mut Criterion) {
     group.finish();
 }
 
+/// The status through libgit2, the fallback when git cannot be started, for the record.
+fn status_libgit2(c: &mut Criterion) {
+    let mut group = c.benchmark_group("status_libgit2");
+    group.sample_size(10);
+    group.measurement_time(Duration::from_secs(20));
+    for target in present() {
+        let engine = engine(&target.path);
+        group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+            b.iter(|| {
+                e.status_through_libgit2(&StatusOptions::default(), &Cancel::never())
+                    .expect("status")
+            });
+        });
+    }
+    group.finish();
+}
+
 fn diff_large_file(c: &mut Criterion) {
     let mut group = c.benchmark_group("diff_large_file");
     group.sample_size(10);
@@ -672,6 +689,7 @@ criterion_group!(
     path_history,
     walk_ten_pages,
     status,
+    status_libgit2,
     diff_large_file,
     diff_typical,
     read_blob,
