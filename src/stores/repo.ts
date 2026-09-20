@@ -328,10 +328,8 @@ export const useRepoStore = defineStore("repo", () => {
         return;
       }
       walkError.value = failed;
-      if (lost) {
-        // A second loss in a row: stop asking, the banner says where history stops.
-        walk.value = { ...position, done: true };
-      }
+      // No more pages are asked for: the banner says where history stops.
+      if (position) walk.value = { ...position, done: true };
     } finally {
       operations.finish(opId);
       if (current()) {

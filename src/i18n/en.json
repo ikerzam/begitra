@@ -106,7 +106,8 @@
     "mainWorktree": "main worktree",
     "expand": "Expand the sidebar",
     "noRepositories": "No repositories yet",
-    "noRepoMatches": "No repositories match the filter"
+    "noRepoMatches": "No repositories match the filter",
+    "branchCount": "{n} of {m} branches"
   },
   "statusBar": {
     "noRepositories": "No repositories",
@@ -118,7 +119,9 @@
     "markReviewed": "mark reviewed",
     "open": "open",
     "detached": "detached HEAD",
-    "repositories": "{n} repository | {n} repositories"
+    "repositories": "{n} repository | {n} repositories",
+    "historyStopped": "History stopped at {hash}",
+    "historyStoppedEarly": "History stopped"
   },
   "operations": {
     "opening": "Opening {name}",
@@ -184,15 +187,48 @@
   },
   "graph": {
     "searchCommits": "Search commits",
+    "commits": "Commits",
     "allBranches": "All branches",
+    "currentBranch": "Current branch",
+    "scope": "Scope",
     "anyone": "Anyone",
-    "anyDate": "Any date",
+    "author": "Author",
+    "date": "Date",
+    "dateRange": {
+      "any": "Any date",
+      "7d": "Last 7 days",
+      "30d": "Last 30 days",
+      "3m": "Last 3 months",
+      "1y": "Last year"
+    },
     "path": "Path",
+    "pathFilter": "Path filter",
+    "pathPlaceholder": "apps/api or README.md",
+    "apply": "Apply",
+    "countMatches": "{n} commit | {n} commits",
+    "countOf": "{n} of {m} commits",
+    "clear": "Clear",
+    "clearFilters": "Clear filters",
     "noCommits": "No commits yet",
-    "noMatches": "No commits match the filter",
-    "clearFilter": "Clear filter",
+    "noMatches": "No commits match these filters.",
     "removeFromList": "Remove from list",
-    "historyStopped": "History stops here: {message}"
+    "diffFromChip": "Diff from {hash}",
+    "rangeEndChip": "Range end {hash}",
+    "clearDiffBase": "Clear the diff base",
+    "clearRangeEnd": "Clear the range end",
+    "diffFromHere": "Diff from here",
+    "compareWith": "Compare with…",
+    "compareLater": "Comparison is not available yet",
+    "commitMenu": "Commit actions",
+    "copyHash": "Copy hash",
+    "copyMessage": "Copy message",
+    "selectRangeEnd": "Select as range end",
+    "hashCopied": "Hash {hash} copied",
+    "messageCopied": "Message copied",
+    "clipboardUnavailable": "The clipboard is not available.",
+    "corruptPast": "Couldn't read history past {hash}. An object is missing or corrupt, so older commits are not shown. Run git fsck in a terminal to check the repository.",
+    "corruptStart": "Couldn't read the history. An object is missing or corrupt. Run git fsck in a terminal to check the repository.",
+    "historyFailed": "Couldn't read the rest of the history. {message}"
   },
   "detail": {
     "commit": "Commit",

@@ -54,6 +54,7 @@ defineExpose({ focusFiles: () => filesPanel.value?.focus() });
     <GraphRail
       :commits="repo.commits"
       :selected-index="repo.selectedIndex"
+      :flat="repo.walkFilter !== undefined"
       @select="(index) => repo.select(index)"
       @back="() => void shell.setLayoutMode('graph')"
     />

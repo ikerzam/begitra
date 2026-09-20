@@ -1,7 +1,9 @@
 <script setup lang="ts">
 // The Branches tab: local branches, remote branches and tags, filtered, with roving focus and
-// j/k navigation. Nothing is selected until the user picks a row; the first row is the tab stop
-// until then. Lane colours come from the shared map, so they survive filtering.
+// j/k navigation. Selecting a branch scopes the graph to it (the selection lives in the graph
+// store, so the scope control and the list agree); nothing is selected until the user picks a
+// row, and the first row is the tab stop until then. Lane colours come from the shared map, so
+// they survive filtering. While a filter is typed, the count line reads "N of M branches".
 
 import { Tag } from "@lucide/vue";
 import { computed, ref } from "vue";
@@ -12,6 +14,7 @@ import SkeletonRow from "@/components/SkeletonRow.vue";
 import type { Ref as GitRef } from "@/ipc/schemas";
 import { matchesQuery } from "@/palette/usePalette";
 import { useListNavigation } from "@/shortcuts/useListNavigation";
+import { useGraphStore } from "@/stores/graph";
 import { useRepoStore } from "@/stores/repo";
 
 import { branchLanes } from "./branchLanes";
@@ -20,6 +23,7 @@ const props = defineProps<{ filter: string }>();
 
 const { t } = useI18n();
 const repo = useRepoStore();
+const graph = useGraphStore();
 const listbox = ref<HTMLElement | null>(null);
 
 interface BranchRow {
@@ -51,13 +55,24 @@ const groups = computed<BranchGroup[]>(() => {
 const flatRows = computed(() => groups.value.flatMap((group) => group.rows));
 const rowCount = computed(() => flatRows.value.length);
 
-/* The selection follows the ref, so filtering keeps it; none until the user picks a row. */
-const selectedName = ref<string | null>(null);
+/* The selection is the graph's scope ref, so filtering keeps it; none until the user picks a row. */
+const selectedName = computed(() => {
+  const scope = graph.filters.scope;
+  return scope.kind === "ref" ? scope.fullName : null;
+});
 const selectedRow = computed({
   get: () => flatRows.value.findIndex((row) => row.ref.fullName === selectedName.value),
   set: (index: number) => {
-    selectedName.value = flatRows.value[index]?.ref.fullName ?? null;
+    const ref = flatRows.value[index]?.ref;
+    if (ref) graph.setScope({ kind: "ref", name: ref.name, fullName: ref.fullName });
   },
+});
+
+/** "N of M branches" while a filter narrows the list. */
+const countLine = computed(() => {
+  if (props.filter.trim() === "") return "";
+  const total = repo.refs.filter((r) => r.kind !== "stash").length;
+  return t("sidebar.branchCount", { n: rowCount.value, m: total });
 });
 const tabStopRow = computed(() => Math.max(0, selectedRow.value));
 
@@ -102,6 +117,9 @@ defineExpose({ focus: navigation.focus });
         @select="navigation.select(rowIndex(groupIndex, index))"
       />
     </template>
+    <p v-if="countLine" class="px-3 pt-3 text-sm text-fg-muted" data-testid="branch-count">
+      {{ countLine }}
+    </p>
     <template v-if="groups.length === 0 && repo.state.kind === 'ready' && !repo.refsLoaded">
       <SkeletonRow v-for="n in 6" :key="n" :index="n" height="list" />
     </template>

@@ -12,7 +12,6 @@ import { useDragDrop } from "@/discovery/useDragDrop";
 import type { FileChange } from "@/ipc/schemas";
 import PaletteOverlay from "@/palette/PaletteOverlay.vue";
 import { baseName } from "@/shell/format";
-import { isEditableTarget } from "@/shortcuts/registry";
 import { installShortcuts, useShortcut } from "@/shortcuts/useShortcut";
 import { useIndexStore } from "@/stores/index";
 import { useRepoStore } from "@/stores/repo";
@@ -93,13 +92,16 @@ watch(
 );
 
 // Keyboard focus lands on the commit rows as soon as the first page selects a commit, unless
-// the user is already typing somewhere (the search or a filter while the repository opens).
+// something else holds the focus: the search or a filter the user is typing in, or the branch
+// list whose selection restarted the walk. The home screen's controls are gone by then, so an
+// open from there leaves the focus on the body.
 watch(
   () => repo.selectedIndex,
   (index, previous) => {
     if (index >= 0 && previous < 0 && shell.layoutMode === "graph") {
       void nextTick(() => {
-        if (isEditableTarget(document.activeElement)) return;
+        const active = document.activeElement;
+        if (active && active !== document.body) return;
         graphLayout.value?.focusRows();
       });
     }

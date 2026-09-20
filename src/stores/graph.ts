@@ -170,6 +170,7 @@ export const useGraphStore = defineStore("graph", () => {
     authors.value = next;
   }
 
+  // Immediate, like the count below: the store may be created after the repository opened.
   watch(
     () => repo.commits,
     (commits) => {
@@ -177,6 +178,7 @@ export const useGraphStore = defineStore("graph", () => {
       if (commits.length > authorsSeenUpTo) noteAuthors(commits, authorsSeenUpTo);
       authorsSeenUpTo = commits.length;
     },
+    { immediate: true },
   );
 
   // The scope is counted once its walk has answered a first page, off the first-paint path.
@@ -198,6 +200,7 @@ export const useGraphStore = defineStore("graph", () => {
           if (request === countRequest) countedScope = "";
         });
     },
+    { immediate: true },
   );
 
   // Another repository: every filter, the authors, the count and the pins start over.

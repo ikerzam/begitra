@@ -10,8 +10,10 @@ const props = withDefaults(
     label?: string;
     disabled?: boolean;
     size?: ControlSize;
+    /** A control whose value narrows something is filled with `--bg-selected`. */
+    active?: boolean;
   }>(),
-  { label: undefined, disabled: false, size: "md" },
+  { label: undefined, disabled: false, size: "md", active: false },
 );
 
 const model = defineModel<string>({ default: "" });
@@ -23,8 +25,9 @@ const model = defineModel<string>({ default: "" });
       v-model="model"
       :disabled="props.disabled"
       :aria-label="props.label"
-      class="w-full appearance-none rounded-sm border border-line-strong bg-app pr-6 pl-3 text-md text-fg enabled:hover:bg-hover disabled:border-line disabled:text-fg-disabled"
-      :class="props.size === 'lg' ? 'h-6' : 'h-control'"
+      class="w-full appearance-none rounded-sm border border-line-strong pr-6 pl-3 text-md text-fg enabled:hover:bg-hover disabled:border-line disabled:text-fg-disabled"
+      :class="[props.size === 'lg' ? 'h-6' : 'h-control', props.active ? 'bg-selected' : 'bg-app']"
+      :data-active="props.active ? 'true' : undefined"
     >
       <option
         v-for="option in props.options"

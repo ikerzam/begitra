@@ -1,72 +1,83 @@
 <script setup lang="ts">
-// The 48px graph strip of review focus: one dot per commit around the selected one, which is
-// pinned with the accent ring. Clicking a dot selects that commit; clicking the strip's
+// The 48px graph strip of review focus: the lanes of the commits around the selected one,
+// drawn with the same geometry as the graph panel on a narrower layout, the selected commit
+// pinned with the 14px accent ring. Clicking a row selects that commit; clicking the strip's
 // background returns to graph focus.
 
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
+import GraphCanvas from "@/graph/GraphCanvas.vue";
+import { laneX, ROW_HEIGHT, type LaneLayout } from "@/graph/useGraphGeometry";
 import type { CommitNode } from "@/ipc/schemas";
 
-const props = defineProps<{ commits: CommitNode[]; selectedIndex: number }>();
+const props = defineProps<{ commits: CommitNode[]; selectedIndex: number; flat?: boolean }>();
 const emit = defineEmits<{ select: [index: number]; back: [] }>();
 
 const { t } = useI18n();
 const WINDOW = 14;
+/** Five 8px lanes inside the 48px rail (`--rail-w`). */
+const RAIL_LAYOUT: LaneLayout = { laneWidth: 8, offset: 8, drawn: 5 };
+const RAIL_WIDTH = 48;
 
 const window = computed(() => {
   const start = Math.max(0, props.selectedIndex - WINDOW);
   const end = Math.min(props.commits.length, props.selectedIndex + WINDOW + 1);
-  return props.commits.slice(start, end).map((commit, i) => ({ commit, index: start + i }));
+  return { start, commits: props.commits.slice(start, end) };
 });
 
-function laneClass(commit: CommitNode): string {
-  const lanes = [
-    "bg-lane-1",
-    "bg-lane-2",
-    "bg-lane-3",
-    "bg-lane-4",
-    "bg-lane-5",
-    "bg-lane-6",
-    "bg-lane-7",
-    "bg-lane-8",
-  ];
-  return lanes[commit.lane % lanes.length] ?? "bg-lane-1";
-}
+const height = computed(() => window.value.commits.length * ROW_HEIGHT);
+
+/** Where the ring sits: over the selected commit's dot. */
+const ring = computed(() => {
+  const commit = props.commits[props.selectedIndex];
+  if (!commit || commit.lane >= RAIL_LAYOUT.drawn) return null;
+  const row = props.selectedIndex - window.value.start;
+  return { left: laneX(commit.lane, RAIL_LAYOUT), top: row * ROW_HEIGHT + ROW_HEIGHT / 2 };
+});
 </script>
 
 <template>
   <div
-    class="flex w-rail shrink-0 flex-col items-center overflow-hidden border-r border-line"
+    class="relative flex w-rail shrink-0 flex-col overflow-hidden border-r border-line"
     data-testid="graph-rail"
     :title="t('topBar.graphFocus')"
     @click.self="emit('back')"
   >
+    <GraphCanvas
+      class="absolute top-0 left-0"
+      :commits="window.commits"
+      :start="0"
+      :end="window.commits.length"
+      :scroll-top="0"
+      :height="height"
+      :width="RAIL_WIDTH"
+      :layout="RAIL_LAYOUT"
+      :flat="props.flat"
+    />
     <button
-      v-for="entry in window"
-      :key="entry.commit.hash"
+      v-for="(commit, offset) in window.commits"
+      :key="commit.hash"
       type="button"
-      class="flex h-row-graph shrink-0 items-center justify-center"
-      :aria-label="entry.commit.subject"
-      :aria-current="entry.index === props.selectedIndex ? 'true' : undefined"
-      @click="emit('select', entry.index)"
-    >
-      <span
-        class="graph-rail-dot block rounded-full"
-        :class="[
-          laneClass(entry.commit),
-          entry.index === props.selectedIndex
-            ? 'ring-2 ring-accent ring-offset-1 ring-offset-app'
-            : '',
-        ]"
-      ></span>
-    </button>
+      class="h-row-graph w-full shrink-0"
+      :aria-label="commit.subject"
+      :aria-current="window.start + offset === props.selectedIndex ? 'true' : undefined"
+      @click="emit('select', window.start + offset)"
+    />
+    <span
+      v-if="ring"
+      aria-hidden="true"
+      class="graph-rail-ring pointer-events-none absolute z-10 rounded-full border-2 border-accent"
+      :style="{ left: `${ring.left}px`, top: `${ring.top}px` }"
+    />
   </div>
 </template>
 
 <style scoped>
-.graph-rail-dot {
-  width: 8px;
-  height: 8px;
+/* The 14px accent ring of the rail, centred on the 8px dot. */
+.graph-rail-ring {
+  width: 14px;
+  height: 14px;
+  transform: translate(-50%, -50%);
 }
 </style>

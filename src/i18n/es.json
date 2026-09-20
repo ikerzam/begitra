@@ -106,7 +106,8 @@
     "mainWorktree": "worktree principal",
     "expand": "Expandir la barra lateral",
     "noRepositories": "Todavía no hay repositorios",
-    "noRepoMatches": "Ningún repositorio coincide con el filtro"
+    "noRepoMatches": "Ningún repositorio coincide con el filtro",
+    "branchCount": "{n} de {m} ramas"
   },
   "statusBar": {
     "noRepositories": "Sin repositorios",
@@ -118,7 +119,9 @@
     "markReviewed": "marcar revisado",
     "open": "abrir",
     "detached": "HEAD separado",
-    "repositories": "{n} repositorio | {n} repositorios"
+    "repositories": "{n} repositorio | {n} repositorios",
+    "historyStopped": "El historial se detuvo en {hash}",
+    "historyStoppedEarly": "El historial se detuvo"
   },
   "operations": {
     "opening": "Abriendo {name}",
@@ -184,15 +187,48 @@
   },
   "graph": {
     "searchCommits": "Buscar commits",
+    "commits": "Commits",
     "allBranches": "Todas las ramas",
+    "currentBranch": "Rama actual",
+    "scope": "Ámbito",
     "anyone": "Cualquiera",
-    "anyDate": "Cualquier fecha",
+    "author": "Autor",
+    "date": "Fecha",
+    "dateRange": {
+      "any": "Cualquier fecha",
+      "7d": "Últimos 7 días",
+      "30d": "Últimos 30 días",
+      "3m": "Últimos 3 meses",
+      "1y": "Último año"
+    },
     "path": "Ruta",
+    "pathFilter": "Filtro de ruta",
+    "pathPlaceholder": "apps/api o README.md",
+    "apply": "Aplicar",
+    "countMatches": "{n} commit | {n} commits",
+    "countOf": "{n} de {m} commits",
+    "clear": "Limpiar",
+    "clearFilters": "Limpiar filtros",
     "noCommits": "Todavía no hay commits",
-    "noMatches": "Ningún commit coincide con el filtro",
-    "clearFilter": "Quitar el filtro",
+    "noMatches": "Ningún commit coincide con estos filtros.",
     "removeFromList": "Quitar de la lista",
-    "historyStopped": "El historial se detiene aquí: {message}"
+    "diffFromChip": "Diff desde {hash}",
+    "rangeEndChip": "Fin del rango {hash}",
+    "clearDiffBase": "Quitar la base del diff",
+    "clearRangeEnd": "Quitar el fin del rango",
+    "diffFromHere": "Diff desde aquí",
+    "compareWith": "Comparar con…",
+    "compareLater": "La comparación aún no está disponible",
+    "commitMenu": "Acciones del commit",
+    "copyHash": "Copiar hash",
+    "copyMessage": "Copiar mensaje",
+    "selectRangeEnd": "Elegir como fin del rango",
+    "hashCopied": "Hash {hash} copiado",
+    "messageCopied": "Mensaje copiado",
+    "clipboardUnavailable": "El portapapeles no está disponible.",
+    "corruptPast": "No se pudo leer el historial más allá de {hash}. Falta un objeto o está corrupto, así que los commits anteriores no se muestran. Ejecuta git fsck en un terminal para revisar el repositorio.",
+    "corruptStart": "No se pudo leer el historial. Falta un objeto o está corrupto. Ejecuta git fsck en un terminal para revisar el repositorio.",
+    "historyFailed": "No se pudo leer el resto del historial. {message}"
   },
   "detail": {
     "commit": "Commit",

@@ -48,6 +48,15 @@ const scanFolder = computed(() => {
   return scan.kind === "scanning" && scan.current ? abbreviateHome(scan.current, home.value) : "";
 });
 
+/** The graph's error state: where the history stopped, in `--danger`, with no progress bar. */
+const historyStopped = computed(() => {
+  if (!repo.walkError) return "";
+  const last = repo.commits.at(-1);
+  return last
+    ? t("statusBar.historyStopped", { hash: shortHash(last.hash) })
+    : t("statusBar.historyStoppedEarly");
+});
+
 const operationText = computed(() => {
   const current = operations.current;
   if (!current) return "";
@@ -115,8 +124,11 @@ const hints = computed(() => {
         {{ path }}
       </span>
     </template>
+    <span v-if="historyStopped" class="text-danger" data-testid="status-history-stopped">
+      {{ historyStopped }}
+    </span>
     <span
-      v-if="operations.current && repo.state.kind !== 'error'"
+      v-else-if="operations.current && repo.state.kind !== 'error'"
       class="flex items-center gap-2 text-fg-secondary"
       data-testid="status-operation"
     >

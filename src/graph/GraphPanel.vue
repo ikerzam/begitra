@@ -1,52 +1,80 @@
 <script setup lang="ts">
-// The graph area of graph focus: the filter bar and the commit rows, with the loading and
-// error states of the shell.
+// The graph area of graph focus: the filter bar, the commit rows with their lanes, the hover
+// card and the context menu, and its empty and error states (no commit to show, a history that
+// stopped at an error, a repository that could not be opened).
 
-import { Folder, Search } from "@lucide/vue";
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Button from "@/components/Button.vue";
 import EmptyState from "@/components/EmptyState.vue";
 import ErrorBanner from "@/components/ErrorBanner.vue";
-import Input from "@/components/Input.vue";
-import Select from "@/components/Select.vue";
-import { matchesQuery } from "@/palette/usePalette";
+import type { CommitNode } from "@/ipc/schemas";
 import { errorText } from "@/shell/errorMessage";
+import { shortHash } from "@/shell/format";
+import { useShortcut } from "@/shortcuts/useShortcut";
+import { useGraphStore } from "@/stores/graph";
 import { useRepoStore } from "@/stores/repo";
+import { useToastsStore } from "@/stores/toasts";
 
+import CommitContextMenu from "./CommitContextMenu.vue";
 import CommitRows from "./CommitRows.vue";
+import FilterBar from "./FilterBar.vue";
+import HoverCard from "./HoverCard.vue";
+import { useCommitActions } from "./useCommitActions";
+import { useHoverCard } from "./useHoverCard";
 
 const emit = defineEmits<{ activate: [index: number]; removeFromList: [] }>();
 
 const { t } = useI18n();
 const repo = useRepoStore();
-const search = ref("");
+const graph = useGraphStore();
+const toasts = useToastsStore();
+const actions = useCommitActions();
+const hover = useHoverCard();
 const rows = ref<{ focus(): void } | null>(null);
 
-/** Rows matching the search; indexes map back to the store's commit list. */
-const visible = computed(() => {
-  const query = search.value.trim();
-  const entries = repo.commits.map((commit, index) => ({ commit, index }));
-  if (query === "") return entries;
-  return entries.filter(({ commit }) =>
-    matchesQuery(`${commit.subject} ${commit.author.name}`, query),
-  );
-});
-const visibleCommits = computed(() => visible.value.map((entry) => entry.commit));
-const visibleSelected = computed(() =>
-  visible.value.findIndex((entry) => entry.index === repo.selectedIndex),
+const menu = ref<{ index: number; x: number; y: number } | null>(null);
+const menuCommit = computed(() => (menu.value ? repo.commits[menu.value.index] : undefined));
+const hoverCommit = computed(() =>
+  hover.target.value ? repo.commits[hover.target.value.index] : undefined,
 );
 
-function select(position: number): void {
-  const entry = visible.value[position];
-  if (entry) repo.select(entry.index);
+function commitAt(index: number): CommitNode | undefined {
+  return repo.commits[index];
 }
 
-function activate(position: number): void {
-  const entry = visible.value[position];
-  if (entry) emit("activate", entry.index);
+function openMenu(index: number, x: number, y: number): void {
+  hover.hide();
+  menu.value = { index, x, y };
 }
+
+function closeMenu(): void {
+  menu.value = null;
+  rows.value?.focus();
+}
+
+function withMenuCommit(action: (commit: CommitNode) => unknown): void {
+  const commit = menuCommit.value;
+  if (commit) void action(commit);
+}
+
+function selectParent(hash: string): void {
+  const index = repo.commits.findIndex((c) => c.hash === hash);
+  if (index >= 0) repo.select(index);
+  else toasts.push({ kind: "info", message: t("detail.parentNotLoaded") });
+  hover.hide();
+}
+
+useShortcut("diff-from", () => {
+  const commit = repo.selectedCommit;
+  if (commit) actions.diffFrom(commit);
+});
+
+watch(
+  () => repo.selectedIndex,
+  () => hover.hide(),
+);
 
 const errorMessage = computed(() => {
   const state = repo.state;
@@ -55,39 +83,54 @@ const errorMessage = computed(() => {
   return t(text.key, text.params);
 });
 
-const walkErrorMessage = computed(() => {
-  if (!repo.walkError) return "";
-  const text = errorText(repo.walkError);
-  return t("graph.historyStopped", { message: t(text.key, text.params) });
+/** The banner of a history that stopped at an error: where it stopped and what to do. */
+const walkError = computed(() => {
+  const error = repo.walkError;
+  if (!error) return null;
+  const last = repo.commits.at(-1);
+  if (error.code === "repo.corrupt_object") {
+    return {
+      message: last
+        ? t("graph.corruptPast", { hash: shortHash(last.hash) })
+        : t("graph.corruptStart"),
+      action: t("palette.commandsById.open-terminal"),
+      corrupt: true,
+      output: error.detail ?? error.message,
+    };
+  }
+  const text = errorText(error);
+  return {
+    message: t("graph.historyFailed", { message: t(text.key, text.params) }),
+    action: t("home.retry"),
+    corrupt: false,
+    output: error.detail ?? "",
+  };
 });
 
-const disabledOptions = (label: string) => [{ value: "", label }];
+function onWalkErrorAction(): void {
+  if (walkError.value?.corrupt) void actions.openTerminal();
+  else repo.restartWalk(repo.walkScope, repo.walkFilter);
+}
+
+const showEmpty = computed(
+  () =>
+    repo.state.kind === "ready" &&
+    !repo.streaming &&
+    repo.commits.length === 0 &&
+    repo.walkError === null,
+);
 
 defineExpose({ focus: () => rows.value?.focus() });
 </script>
 
 <template>
-  <section class="flex min-w-0 flex-1 flex-col" data-testid="graph-panel">
+  <section
+    class="flex min-w-0 flex-1 flex-col"
+    data-testid="graph-panel"
+    @keydown.escape="hover.hide()"
+  >
     <!-- A failed open has no filter bar: the banner takes the whole area. -->
-    <div
-      v-if="repo.state.kind !== 'error'"
-      class="flex h-bar-top shrink-0 items-center gap-2 border-b border-line px-3"
-      data-testid="graph-filters"
-    >
-      <div class="graph-search shrink-0">
-        <Input v-model="search" :placeholder="t('graph.searchCommits')" :icon="Search" />
-      </div>
-      <div class="graph-scope shrink-0">
-        <Select :options="disabledOptions(t('graph.allBranches'))" disabled />
-      </div>
-      <div class="graph-author shrink-0">
-        <Select :options="disabledOptions(t('graph.anyone'))" disabled />
-      </div>
-      <div class="graph-date shrink-0">
-        <Select :options="disabledOptions(t('graph.anyDate'))" disabled />
-      </div>
-      <Button variant="ghost" :icon="Folder" disabled>{{ t("graph.path") }}</Button>
-    </div>
+    <FilterBar v-if="repo.state.kind !== 'error'" />
 
     <div v-if="repo.state.kind === 'error'" class="p-5" data-testid="graph-error">
       <ErrorBanner
@@ -101,45 +144,69 @@ defineExpose({ focus: () => rows.value?.focus() });
     <template v-else>
       <CommitRows
         ref="rows"
-        :commits="visibleCommits"
+        :commits="repo.commits"
         :refs="repo.refs"
-        :selected-index="visibleSelected"
+        :selected-index="repo.selectedIndex"
         :loading="repo.streaming"
         :can-load-more="repo.canLoadMore"
-        @select="select"
-        @activate="activate"
+        :flat="repo.walkFilter !== undefined"
+        @select="repo.select"
+        @activate="(index) => emit('activate', index)"
         @load-more="repo.loadMore()"
-      />
-      <div v-if="walkErrorMessage" class="p-3" data-testid="graph-walk-error">
-        <ErrorBanner :message="walkErrorMessage" :output="repo.walkError?.detail" open />
-      </div>
-      <EmptyState
-        v-if="!repo.streaming && repo.commits.length === 0 && repo.state.kind === 'ready'"
-        :message="t('graph.noCommits')"
-      />
-      <EmptyState
-        v-else-if="!repo.streaming && repo.commits.length > 0 && visible.length === 0"
-        :message="t('graph.noMatches')"
+        @row-enter="hover.onRowEnter"
+        @row-leave="hover.onRowLeave"
+        @menu="openMenu"
+        @copy-hash="(index) => void actions.copyHash(commitAt(index)!)"
       >
-        <Button variant="secondary" @click="search = ''">{{ t("graph.clearFilter") }}</Button>
+        <template #after>
+          <div v-if="walkError" class="p-3" data-testid="graph-walk-error">
+            <ErrorBanner
+              :message="walkError.message"
+              :output="walkError.output"
+              :action="walkError.action"
+              open
+              @action="onWalkErrorAction"
+            />
+          </div>
+        </template>
+      </CommitRows>
+      <EmptyState
+        v-if="showEmpty && graph.isActive"
+        :message="t('graph.noMatches')"
+        data-testid="graph-empty"
+      >
+        <Button variant="secondary" @click="graph.clear()">{{ t("graph.clearFilters") }}</Button>
       </EmptyState>
+      <EmptyState v-else-if="showEmpty" :message="t('graph.noCommits')" data-testid="graph-empty" />
     </template>
+
+    <HoverCard
+      v-if="hoverCommit && hover.target.value"
+      :commit="hoverCommit"
+      :refs="repo.refs"
+      :anchor="hover.target.value.rect"
+      @enter="hover.onCardEnter"
+      @leave="hover.onCardLeave"
+      @copy-hash="() => void actions.copyHash(hoverCommit!)"
+      @select-parent="selectParent"
+      @diff-from="
+        () => {
+          actions.diffFrom(hoverCommit!);
+          hover.hide();
+        }
+      "
+    />
+    <CommitContextMenu
+      v-if="menu"
+      :x="menu.x"
+      :y="menu.y"
+      @close="closeMenu"
+      @copy-hash="withMenuCommit(actions.copyHash)"
+      @copy-message="withMenuCommit(actions.copyMessage)"
+      @diff-from="withMenuCommit(actions.diffFrom)"
+      @range-end="withMenuCommit(actions.rangeEnd)"
+      @open-terminal="() => void actions.openTerminal()"
+      @open-editor="() => void actions.openEditor()"
+    />
   </section>
 </template>
-
-<style scoped>
-/* Control widths of the filter bar: search 200, then the three selects
-   sized to their content (124, 104, 104). None is on the spacing scale. */
-.graph-search {
-  width: 200px;
-}
-
-.graph-scope {
-  width: 124px;
-}
-
-.graph-author,
-.graph-date {
-  width: 104px;
-}
-</style>
