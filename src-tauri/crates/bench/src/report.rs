@@ -24,6 +24,13 @@ pub fn budget(id: &str) -> Option<Duration> {
         ("syntax", "highlight_large_typescript") => 1_600,
         ("syntax", "symbols_typical") => 50,
         ("diff_large_file", _) | ("merge_base", _) => 500,
+        // The comparison of two branches diverged by 2,000 commits, within 500 ms each: the
+        // base with the counts, the first page of a side, the count of a short range and the
+        // whole three-dot diff (the app pages it).
+        ("compare", _) | ("walk_range_first_page", _) | ("count_range", _) => 500,
+        ("diff_three_dot_first_page", _) => 500,
+        // The merge preview runs in the background under its own banner (delegated).
+        ("merge_preview", _) => 2_000,
         ("status", _) => 2_000,
         ("discovery", "scan_first_result") => 100,
         ("discovery", "scan_full") => 2_000,

@@ -428,6 +428,144 @@ fn merge_base(c: &mut Criterion) {
     group.finish();
 }
 
+/// The merge base with the counts of both sides on the pair diverged by about 2,000 commits.
+fn compare(c: &mut Criterion) {
+    let mut group = c.benchmark_group("compare");
+    for target in present() {
+        let Some((a, b_rev)) = target.merge_base_pair.clone() else {
+            eprintln!("skipping compare/{}: no pair", target.name);
+            continue;
+        };
+        let engine = engine(&target.path);
+        group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+            b.iter(|| e.compare(&a, &b_rev, &Cancel::never()).expect("compare"));
+        });
+    }
+    group.finish();
+}
+
+/// The first page of `b..a` on the pair: the "Only in a" list, bounded by the divergence.
+fn walk_range_first_page(c: &mut Criterion) {
+    let mut group = c.benchmark_group("walk_range_first_page");
+    group.sample_size(10);
+    for target in present() {
+        let Some((a, b_rev)) = target.merge_base_pair.clone() else {
+            eprintln!("skipping walk_range_first_page/{}: no pair", target.name);
+            continue;
+        };
+        let engine = engine(&target.path);
+        let scope = WalkScope::Range {
+            exclude: b_rev,
+            include: a,
+        };
+        let options = WalkOptions {
+            page_size: 500,
+            order: WalkOrder::Lazy,
+            filter: None,
+        };
+        group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+            b.iter(|| {
+                let mut walk = e.walk(&scope, &options, &Cancel::never()).expect("walk");
+                walk.next_page(&Cancel::never()).expect("page")
+            });
+        });
+    }
+    group.finish();
+}
+
+/// A range count on a long history: `HEAD~50..HEAD` must cost 50 commits, not the history.
+fn count_range(c: &mut Criterion) {
+    let mut group = c.benchmark_group("count_range");
+    group.sample_size(10);
+    for target in present() {
+        let engine = engine(&target.path);
+        let scope = WalkScope::Range {
+            exclude: "HEAD~50".to_owned(),
+            include: "HEAD".to_owned(),
+        };
+        group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+            b.iter(|| e.count_commits(&scope, &Cancel::never()).expect("count"));
+        });
+    }
+    group.finish();
+}
+
+/// The file summary of the comparison: the first page of 200 files of `git diff a...b` on the
+/// pair, the way the app streams it.
+fn diff_three_dot_first_page(c: &mut Criterion) {
+    let mut group = c.benchmark_group("diff_three_dot_first_page");
+    group.sample_size(10);
+    for target in present() {
+        let Some((a, b_rev)) = target.merge_base_pair.clone() else {
+            eprintln!(
+                "skipping diff_three_dot_first_page/{}: no pair",
+                target.name
+            );
+            continue;
+        };
+        let engine = engine(&target.path);
+        let diff_target = DiffTarget::Range {
+            from: a,
+            to: b_rev,
+            three_dot: true,
+        };
+        group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+            b.iter(|| {
+                let mut walk = e
+                    .diff_pages(&diff_target, &DiffOptions::default(), 200, &Cancel::never())
+                    .expect("diff");
+                walk.next_page(&Cancel::never()).expect("page")
+            });
+        });
+    }
+    group.finish();
+}
+
+/// The same diff whole, for the record: no budget, since the app never waits for it.
+fn diff_three_dot(c: &mut Criterion) {
+    let mut group = c.benchmark_group("diff_three_dot");
+    group.sample_size(10);
+    for target in present() {
+        let Some((a, b_rev)) = target.merge_base_pair.clone() else {
+            eprintln!("skipping diff_three_dot/{}: no pair", target.name);
+            continue;
+        };
+        let engine = engine(&target.path);
+        let diff_target = DiffTarget::Range {
+            from: a,
+            to: b_rev,
+            three_dot: true,
+        };
+        group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+            b.iter(|| {
+                e.diff(&diff_target, &DiffOptions::default(), &Cancel::never())
+                    .expect("diff")
+            });
+        });
+    }
+    group.finish();
+}
+
+/// The merge preview of the pair through `git merge-tree`.
+fn merge_preview(c: &mut Criterion) {
+    let mut group = c.benchmark_group("merge_preview");
+    group.sample_size(10);
+    for target in present() {
+        let Some((a, b_rev)) = target.merge_base_pair.clone() else {
+            eprintln!("skipping merge_preview/{}: no pair", target.name);
+            continue;
+        };
+        let engine = engine(&target.path);
+        group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+            b.iter(|| {
+                e.merge_preview(&a, &b_rev, &Cancel::never())
+                    .expect("preview")
+            });
+        });
+    }
+    group.finish();
+}
+
 fn worktrees(c: &mut Criterion) {
     let mut group = c.benchmark_group("worktrees");
     for target in present() {
@@ -453,6 +591,12 @@ criterion_group!(
     diff_typical,
     read_blob,
     merge_base,
+    compare,
+    walk_range_first_page,
+    count_range,
+    diff_three_dot_first_page,
+    diff_three_dot,
+    merge_preview,
     worktrees
 );
 criterion_main!(benches);
