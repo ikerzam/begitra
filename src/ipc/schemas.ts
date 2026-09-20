@@ -413,6 +413,54 @@ export type Worktree = v.InferOutput<typeof WorktreeSchema>;
 export const GitDetectionSchema = v.object({ path: v.string(), version: v.string() });
 export type GitDetection = v.InferOutput<typeof GitDetectionSchema>;
 
+/** What a selection of changed lines is applied to. */
+export const SelectionTargetSchema = v.picklist(["stage", "unstage", "discard"]);
+export type SelectionTarget = v.InferOutput<typeof SelectionTargetSchema>;
+
+export const SelectedLineSchema = v.object({
+  kind: LineKindSchema,
+  text: v.string(),
+  noNewline: v.boolean(),
+  selected: v.boolean(),
+});
+export type SelectedLine = v.InferOutput<typeof SelectedLineSchema>;
+
+export const SelectedHunkSchema = v.object({
+  oldStart: count,
+  oldLines: count,
+  newStart: count,
+  newLines: count,
+  lines: v.array(SelectedLineSchema),
+});
+export type SelectedHunk = v.InferOutput<typeof SelectedHunkSchema>;
+
+/** A selection of hunks and lines of one file with what it is applied to. */
+export const SelectionRequestSchema = v.object({
+  target: SelectionTargetSchema,
+  path: v.string(),
+  status: ChangeKindSchema,
+  hunks: v.array(SelectedHunkSchema),
+});
+export type SelectionRequest = v.InferOutput<typeof SelectionRequestSchema>;
+
+export const CommitRequestSchema = v.object({
+  message: v.string(),
+  amend: v.boolean(),
+  signoff: v.boolean(),
+});
+export type CommitRequest = v.InferOutput<typeof CommitRequestSchema>;
+
+export const CommitResultSchema = v.object({ hash: v.string() });
+export type CommitResult = v.InferOutput<typeof CommitResultSchema>;
+
+export const CommitContextSchema = v.object({
+  author: v.string(),
+  template: v.nullable(v.string()),
+  headMessage: v.nullable(v.string()),
+  unborn: v.boolean(),
+});
+export type CommitContext = v.InferOutput<typeof CommitContextSchema>;
+
 /** What a new worktree checks out. */
 export const WorktreeBranchSchema = v.variant("kind", [
   v.object({ kind: v.literal("new"), name: v.string(), start: v.string() }),
@@ -510,6 +558,26 @@ const worktreePath = v.pipe(
   v.maxLength(4096),
   v.check((p) => !p.startsWith("-"), "starts with a dash"),
 );
+/** A path as the status reports it: relative, inside the repository, never option-shaped. */
+const repoPath = v.pipe(
+  v.string(),
+  v.minLength(1),
+  v.maxLength(4096),
+  v.check((p) => !p.startsWith("-"), "starts with a dash"),
+  v.check((p) => !p.startsWith("/") && !p.startsWith("\\") && !/^[A-Za-z]:/.test(p), "absolute"),
+  v.check((p) => !p.split(/[/\\]/).includes(".."), "has `..`"),
+);
+/** One to 10,000 repository paths. */
+const repoPaths = v.pipe(v.array(repoPath), v.minLength(1), v.maxLength(10_000));
+/** A commit message with a subject, at most 100,000 characters. */
+const commitMessage = v.pipe(
+  v.string(),
+  v.maxLength(100_000),
+  v.check(
+    (m) => m.split("\n").some((line) => line.trim() !== "" && !line.trim().startsWith("#")),
+    "no subject",
+  ),
+);
 /** A lock reason: at most 200 characters, never shaped like an option. */
 const lockReason = v.pipe(
   v.string(),
@@ -550,6 +618,31 @@ export const commandArgs = {
   }),
   worktree_unlock: v.object({ repo: path, path: worktreePath, opId }),
   path_exists: v.object({ path: worktreePath }),
+  stage_paths: v.object({ repo: path, paths: repoPaths, opId }),
+  unstage_paths: v.object({ repo: path, paths: repoPaths, opId }),
+  discard_paths: v.object({
+    repo: path,
+    tracked: v.array(repoPath),
+    untracked: v.array(repoPath),
+    opId,
+  }),
+  apply_selection: v.object({
+    repo: path,
+    request: v.pipe(
+      SelectionRequestSchema,
+      v.check(
+        (r) => r.hunks.some((h) => h.lines.some((l) => l.selected && l.kind !== "context")),
+        "no selected line",
+      ),
+    ),
+    opId,
+  }),
+  commit: v.object({
+    repo: path,
+    request: v.object({ message: commitMessage, amend: v.boolean(), signoff: v.boolean() }),
+    opId,
+  }),
+  commit_context: v.object({ repo: path, opId }),
   detect_git: v.object({ opId }),
   set_git_executable: v.object({
     path: v.pipe(

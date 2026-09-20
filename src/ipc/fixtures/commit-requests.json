@@ -1,0 +1,12 @@
+[
+  {
+    "message": "feat(auth): refresh tokens\n\nThe body.\n",
+    "amend": false,
+    "signoff": false
+  },
+  {
+    "message": "fix: typo",
+    "amend": true,
+    "signoff": true
+  }
+]

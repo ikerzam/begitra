@@ -46,6 +46,60 @@ describe("checkArgs", () => {
   it("accepts a valid payload", () => {
     expect(checkArgs("ping", { message: "hi" })).toEqual({ message: "hi" });
   });
+
+  it("refuses staging paths outside the repository and a commit without a subject", () => {
+    const refused = (run: () => unknown): string | undefined => {
+      try {
+        run();
+      } catch (error) {
+        return (error as AppError).detail;
+      }
+      return undefined;
+    };
+    expect(refused(() => checkArgs("stage_paths", { repo: "/r", paths: [], opId: "op" }))).toMatch(
+      /^paths: /,
+    );
+    for (const bad of ["../outside.txt", "/etc/passwd", "C:/x", "-flag", "a/../../b"]) {
+      expect(
+        refused(() => checkArgs("stage_paths", { repo: "/r", paths: [bad], opId: "op" })),
+        bad,
+      ).toMatch(/^paths\.0: /);
+    }
+    expect(
+      checkArgs("stage_paths", { repo: "/r", paths: ["dir with space/ünïcödé.txt"], opId: "op" }),
+    ).toBeTruthy();
+    expect(
+      refused(() =>
+        checkArgs("commit", {
+          repo: "/r",
+          request: { message: "  \n# comment\n", amend: false, signoff: false },
+          opId: "op",
+        }),
+      ),
+    ).toMatch(/^request\.message: /);
+    expect(
+      refused(() =>
+        checkArgs("apply_selection", {
+          repo: "/r",
+          request: {
+            target: "stage",
+            path: "a.txt",
+            status: "modified",
+            hunks: [
+              {
+                oldStart: 1,
+                oldLines: 1,
+                newStart: 1,
+                newLines: 1,
+                lines: [{ kind: "added", text: "x", noNewline: false, selected: false }],
+              },
+            ],
+          },
+          opId: "op",
+        }),
+      ),
+    ).toMatch(/^request: /);
+  });
 });
 
 describe("call", () => {

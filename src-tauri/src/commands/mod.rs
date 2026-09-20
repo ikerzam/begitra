@@ -9,6 +9,7 @@ pub mod index;
 pub mod repo;
 pub mod review;
 pub mod scan;
+pub mod staging;
 pub mod system;
 pub mod walk;
 pub mod worktrees;

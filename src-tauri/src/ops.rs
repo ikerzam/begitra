@@ -91,6 +91,32 @@ where
     result
 }
 
+/// Like [`run_blocking`] but the operation is not registered, so `cancel_operation` cannot
+/// reach it: for a write that must not be interrupted half way (a commit with its hooks).
+/// The timeout still cancels the handle and returns `op.timeout`.
+pub async fn run_unregistered<T, E, F>(
+    op_id: &str,
+    timeout: Duration,
+    work: F,
+) -> Result<T, AppError>
+where
+    T: Send + 'static,
+    E: Into<AppError> + Send + 'static,
+    F: FnOnce(Cancel) -> Result<T, E> + Send + 'static,
+{
+    let cancel = Cancel::new();
+    let worker = cancel.clone();
+    let task = tokio::task::spawn_blocking(move || work(worker));
+    match tokio::time::timeout(timeout, task).await {
+        Ok(Ok(result)) => result.map_err(Into::into),
+        Ok(Err(join)) => Err(AppError::internal(format!("engine task failed: {join}"))),
+        Err(_elapsed) => {
+            cancel.cancel();
+            Err(AppError::timeout(op_id, timeout))
+        }
+    }
+}
+
 /// Runs blocking work that streams pages into `sink`, under `timeout`.
 ///
 /// Only the blocking thread sends messages, so pages and the terminal message stay ordered:

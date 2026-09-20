@@ -1,0 +1,92 @@
+[
+  {
+    "target": "stage",
+    "path": "src/main.rs",
+    "status": "modified",
+    "hunks": [
+      {
+        "oldStart": 10,
+        "oldLines": 3,
+        "newStart": 10,
+        "newLines": 4,
+        "lines": [
+          {
+            "kind": "context",
+            "text": "fn main() {",
+            "noNewline": false,
+            "selected": false
+          },
+          {
+            "kind": "removed",
+            "text": "    let x = 1;",
+            "noNewline": false,
+            "selected": true
+          },
+          {
+            "kind": "added",
+            "text": "    let x = 2;",
+            "noNewline": false,
+            "selected": true
+          },
+          {
+            "kind": "added",
+            "text": "    let y = 3;",
+            "noNewline": false,
+            "selected": false
+          },
+          {
+            "kind": "context",
+            "text": "}",
+            "noNewline": false,
+            "selected": false
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "target": "discard",
+    "path": "dir with space/ünïcödé.txt",
+    "status": "added",
+    "hunks": [
+      {
+        "oldStart": 10,
+        "oldLines": 3,
+        "newStart": 10,
+        "newLines": 4,
+        "lines": [
+          {
+            "kind": "context",
+            "text": "fn main() {",
+            "noNewline": false,
+            "selected": false
+          },
+          {
+            "kind": "removed",
+            "text": "    let x = 1;",
+            "noNewline": false,
+            "selected": true
+          },
+          {
+            "kind": "added",
+            "text": "    let x = 2;",
+            "noNewline": false,
+            "selected": true
+          },
+          {
+            "kind": "added",
+            "text": "    let y = 3;",
+            "noNewline": false,
+            "selected": false
+          },
+          {
+            "kind": "context",
+            "text": "}",
+            "noNewline": false,
+            "selected": false
+          }
+        ]
+      }
+    ]
+  }
+]

@@ -8,9 +8,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use git_core::types::{
-    BaseCommit, BlobAt, BlobContent, ChangeKind, ChangeSet, CommitCount, CommitNode, Comparison,
-    ComparisonRelation, DiffLine, DiffOptions, DiffTarget, Edge, Endpoint, FileChange,
-    GitDetection, Hunk, LineKind, MergePreview, MergePreviewKind, Ref, RefKind, Repo, Signature,
+    BaseCommit, BlobAt, BlobContent, ChangeKind, ChangeSet, CommitContext, CommitCount, CommitNode,
+    CommitRequest, Comparison, ComparisonRelation, DiffLine, DiffOptions, DiffTarget, Edge,
+    Endpoint, FileChange, GitDetection, Hunk, LineKind, MergePreview, MergePreviewKind,
+    PatchSelection, Ref, RefKind, Repo, SelectedHunk, SelectedLine, SelectionTarget, Signature,
     Span, StatusEntry, StatusOptions, WalkFilter, WalkOptions, WalkOrder, WalkScope,
     WorkingTreeBase, Worktree, WorktreeAdd, WorktreeBranch,
 };
@@ -25,6 +26,7 @@ use crate::channels::StreamMessage;
 use crate::commands::diff::DiffPage;
 use crate::commands::review::AnnotationWrite;
 use crate::commands::scan::ScanMessage;
+use crate::commands::staging::{CommitResult, SelectionRequest};
 use crate::commands::system::pong;
 use crate::commands::walk::WalkPage;
 use crate::error::{codes, AppError};
@@ -370,6 +372,46 @@ fn walk_page() -> WalkPage {
     }
 }
 
+fn selection_requests() -> Vec<SelectionRequest> {
+    let line = |kind: LineKind, text: &str, selected: bool| SelectedLine {
+        kind,
+        text: text.to_owned(),
+        no_newline: false,
+        selected,
+    };
+    let hunk = SelectedHunk {
+        old_start: 10,
+        old_lines: 3,
+        new_start: 10,
+        new_lines: 4,
+        lines: vec![
+            line(LineKind::Context, "fn main() {", false),
+            line(LineKind::Removed, "    let x = 1;", true),
+            line(LineKind::Added, "    let x = 2;", true),
+            line(LineKind::Added, "    let y = 3;", false),
+            line(LineKind::Context, "}", false),
+        ],
+    };
+    vec![
+        SelectionRequest {
+            target: SelectionTarget::Stage,
+            selection: PatchSelection {
+                path: "src/main.rs".to_owned(),
+                status: ChangeKind::Modified,
+                hunks: vec![hunk.clone()],
+            },
+        },
+        SelectionRequest {
+            target: SelectionTarget::Discard,
+            selection: PatchSelection {
+                path: "dir with space/ünïcödé.txt".to_owned(),
+                status: ChangeKind::Added,
+                hunks: vec![hunk],
+            },
+        },
+    ]
+}
+
 fn app_errors() -> Vec<AppError> {
     codes::ALL
         .iter()
@@ -532,6 +574,45 @@ fn write_fixtures() {
                 branch: WorktreeBranch::Detached {
                     rev: "v1".to_owned(),
                 },
+            },
+        ],
+    );
+    write("selection-requests", &selection_requests());
+    write(
+        "commit-requests",
+        &[
+            CommitRequest {
+                message: "feat(auth): refresh tokens\n\nThe body.\n".to_owned(),
+                amend: false,
+                signoff: false,
+            },
+            CommitRequest {
+                message: "fix: typo".to_owned(),
+                amend: true,
+                signoff: true,
+            },
+        ],
+    );
+    write(
+        "commit-result",
+        &CommitResult {
+            hash: "9f3e2c1a7b5d4e6f8a0b1c2d3e4f5a6b7c8d9e0f".to_owned(),
+        },
+    );
+    write(
+        "commit-contexts",
+        &[
+            CommitContext {
+                author: "Iker Z. <iker@example.com>".to_owned(),
+                template: Some("# subject\n\n# body\n".to_owned()),
+                head_message: Some("feat(auth): refresh tokens\n\nThe body.".to_owned()),
+                unborn: false,
+            },
+            CommitContext {
+                author: "Iker Z. <iker@example.com>".to_owned(),
+                template: None,
+                head_message: None,
+                unborn: true,
             },
         ],
     );

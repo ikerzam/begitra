@@ -128,6 +128,12 @@ pub fn run() {
             commands::worktrees::path_exists,
             commands::git::detect_git,
             commands::git::set_git_executable,
+            commands::staging::stage_paths,
+            commands::staging::unstage_paths,
+            commands::staging::discard_paths,
+            commands::staging::apply_selection,
+            commands::staging::commit,
+            commands::staging::commit_context,
         ])
         .run(tauri::generate_context!());
 

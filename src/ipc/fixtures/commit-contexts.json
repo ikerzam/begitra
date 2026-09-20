@@ -1,0 +1,14 @@
+[
+  {
+    "author": "Iker Z. <iker@example.com>",
+    "template": "# subject\n\n# body\n",
+    "headMessage": "feat(auth): refresh tokens\n\nThe body.",
+    "unborn": false
+  },
+  {
+    "author": "Iker Z. <iker@example.com>",
+    "template": null,
+    "headMessage": null,
+    "unborn": true
+  }
+]

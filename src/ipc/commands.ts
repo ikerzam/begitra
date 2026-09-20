@@ -11,7 +11,9 @@ import {
   ComparisonSchema,
   GitDetectionSchema,
   MergePreviewSchema,
+  CommitContextSchema,
   CommitCountSchema,
+  CommitResultSchema,
   DiffPageSchema,
   HighlightSchema,
   IndexEntrySchema,
@@ -25,6 +27,8 @@ import {
   WorktreeSchema,
   type AnnotationWrite,
   type BlobAt,
+  type CommitRequest,
+  type SelectionRequest,
   type DiffOptions,
   type DiffPage,
   type DiffTarget,
@@ -103,6 +107,45 @@ export function mergePreview(repo: string, a: string, b: string, opId = newOpId(
 /** How many commits a scope holds (capped at 100,000 with `capped` set). */
 export function countCommits(repo: string, scope: WalkScope, opId = newOpId("count")) {
   return call("count_commits", { repo, scope, opId }, CommitCountSchema);
+}
+
+/** Stages paths (`git add -A` on literal pathspecs). */
+export function stagePaths(repo: string, paths: string[], opId = newOpId("stage")) {
+  return call("stage_paths", { repo, paths, opId }, v.null());
+}
+
+/** Unstages paths (`git reset -q` on literal pathspecs); the working tree stays. */
+export function unstagePaths(repo: string, paths: string[], opId = newOpId("unstage")) {
+  return call("unstage_paths", { repo, paths, opId }, v.null());
+}
+
+/** Discards the unstaged changes of tracked paths and removes untracked ones. */
+export function discardPaths(
+  repo: string,
+  tracked: string[],
+  untracked: string[],
+  opId = newOpId("discard"),
+) {
+  return call("discard_paths", { repo, tracked, untracked, opId }, v.null());
+}
+
+/** Applies a selection of hunks and lines to the index or the working tree. */
+export function applySelection(
+  repo: string,
+  request: SelectionRequest,
+  opId = newOpId("apply-selection"),
+) {
+  return call("apply_selection", { repo, request, opId }, v.null());
+}
+
+/** Commits the index; hooks run; the call cannot be cancelled. */
+export function commit(repo: string, request: CommitRequest, opId = newOpId("commit")) {
+  return call("commit", { repo, request, opId }, CommitResultSchema);
+}
+
+/** The author, the template, HEAD's message and whether HEAD is unborn. */
+export function commitContext(repo: string, opId = newOpId("commit-context")) {
+  return call("commit_context", { repo, opId }, CommitContextSchema);
 }
 
 export function listWorktrees(repo: string, opId = newOpId("worktrees")) {
