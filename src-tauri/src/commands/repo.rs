@@ -20,13 +20,68 @@ pub async fn open_repository(
 ) -> Result<Repo, AppError> {
     let app = state.inner().clone();
     let worker = app.clone();
-    run_blocking(app.ops(), &op_id, DEFAULT_TIMEOUT, move |_cancel| {
+    run_blocking(app.ops(), &op_id, DEFAULT_TIMEOUT, move |cancel| {
         // The engine may have been opened earlier; HEAD is read now so a branch switched
         // outside the app is reported on this open.
         let engine = worker.open(&path)?;
-        engine.describe_now()
+        let repo = engine.describe_now()?;
+        // The index learns about every opened repository and its recents order; a failure
+        // there is logged, never a reason to refuse the open.
+        if let Err(error) = crate::commands::index::refresh_entry(&worker, &repo.root, &cancel)
+            .and_then(|_| {
+                worker.with_index(|index| {
+                    Ok(index.record_open(
+                        &crate::commands::index::normalise(&repo.root),
+                        crate::commands::index::now(),
+                    )?)
+                })
+            })
+        {
+            tracing::warn!(error = %error, "the index could not record the open");
+        }
+        Ok::<_, AppError>(repo)
     })
     .await
+}
+
+/// Starts the filesystem watcher of the open repository at `root` (replacing the watcher of
+/// any other repository); `watcher.unavailable` when the platform refuses, in which case the
+/// repository stays open without change detection.
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip(state, app))]
+pub async fn watch_repository(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    root: PathBuf,
+) -> Result<(), AppError> {
+    let shared = state.inner().clone();
+    if shared.is_watching(&root) {
+        return Ok(());
+    }
+    let previous = tokio::task::spawn_blocking(move || {
+        let handle = app.clone();
+        let watcher = crate::watcher::RepoWatcher::start(&root, move |payload| {
+            if let Err(error) = crate::events::emit_repo_changed(&handle, &payload) {
+                tracing::warn!(error = %error, "repo:changed could not be emitted");
+            }
+        })
+        .map_err(|error| {
+            AppError::new(
+                crate::error::codes::WATCHER_UNAVAILABLE,
+                "Changes in this repository will not be detected automatically",
+            )
+            .with_detail(error.to_string())
+        })?;
+        Ok::<_, AppError>(shared.set_watcher(root, watcher))
+    })
+    .await
+    .map_err(|join| AppError::internal(format!("watcher task failed: {join}")))??;
+    if let Some(previous) = previous {
+        tokio::task::spawn_blocking(move || drop(previous))
+            .await
+            .map_err(|join| AppError::internal(format!("watcher task failed: {join}")))?;
+    }
+    Ok(())
 }
 
 /// Closes the engine rooted at `root` and drops its walks off the async runtime; returns

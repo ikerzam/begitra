@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use git_core::engine::{Cancel, CommitWalk, GitEngine};
-use git_core::error::GitResult;
+use git_core::error::{GitError, GitResult};
 use git_core::types::{CommitNode, WalkOptions, WalkScope};
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
@@ -121,7 +121,7 @@ pub async fn walk_commits(
             if !outcome.finished {
                 worker.store_walk(&walk_id, root, walk);
             }
-            Ok(())
+            Ok::<_, GitError>(())
         },
     )
     .await
@@ -276,7 +276,7 @@ mod tests {
                 let outcome = pump(stream, &mut walk, "walk-1", 0, 10, &cancel)?;
                 assert!(outcome.finished);
                 assert_eq!(outcome.next_index, 3);
-                Ok(())
+                Ok::<_, GitError>(())
             },
         )
         .await;
@@ -360,7 +360,7 @@ mod tests {
                         finished: true
                     }
                 );
-                Ok(())
+                Ok::<_, GitError>(())
             },
         )
         .await;

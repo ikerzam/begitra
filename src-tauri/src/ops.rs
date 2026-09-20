@@ -10,10 +10,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use git_core::engine::Cancel;
-use git_core::error::GitError;
 
 use crate::channels::{Sink, Stream};
-use crate::error::AppError;
+use crate::error::{codes, AppError};
 
 /// Timeout applied to every operation unless the command chooses another.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -66,7 +65,7 @@ impl Operations {
 ///
 /// The closure receives the operation's [`Cancel`] handle. A timeout cancels the handle and
 /// returns `op.timeout`; a cancellation observed by the engine returns `op.cancelled`.
-pub async fn run_blocking<T, F>(
+pub async fn run_blocking<T, E, F>(
     ops: &Operations,
     op_id: &str,
     timeout: Duration,
@@ -74,13 +73,14 @@ pub async fn run_blocking<T, F>(
 ) -> Result<T, AppError>
 where
     T: Send + 'static,
-    F: FnOnce(Cancel) -> Result<T, GitError> + Send + 'static,
+    E: Into<AppError> + Send + 'static,
+    F: FnOnce(Cancel) -> Result<T, E> + Send + 'static,
 {
     let cancel = ops.start(op_id);
     let worker = cancel.clone();
     let task = tokio::task::spawn_blocking(move || work(worker));
     let result = match tokio::time::timeout(timeout, task).await {
-        Ok(Ok(result)) => result.map_err(AppError::from),
+        Ok(Ok(result)) => result.map_err(Into::into),
         Ok(Err(join)) => Err(AppError::internal(format!("engine task failed: {join}"))),
         Err(_elapsed) => {
             cancel.cancel();
@@ -98,7 +98,7 @@ where
 /// the terminal error is `op.timeout` if the timeout caused it and `op.cancelled` otherwise;
 /// any other engine error becomes the terminal error. The returned result mirrors the terminal
 /// message except on timeout, where it is `op.timeout` while the thread is still winding down.
-pub async fn run_stream<T, S, F>(
+pub async fn run_stream<T, S, E, F>(
     ops: &Operations,
     op_id: &str,
     timeout: Duration,
@@ -108,7 +108,8 @@ pub async fn run_stream<T, S, F>(
 where
     T: Send + 'static,
     S: Sink<T> + 'static,
-    F: FnOnce(Cancel, &mut Stream<T, S>) -> Result<(), GitError> + Send + 'static,
+    E: Into<AppError> + Send + 'static,
+    F: FnOnce(Cancel, &mut Stream<T, S>) -> Result<(), E> + Send + 'static,
 {
     let cancel = ops.start(op_id);
     let reason: Arc<Mutex<Option<AppError>>> = Arc::default();
@@ -116,12 +117,14 @@ where
     let worker_reason = Arc::clone(&reason);
     let task = tokio::task::spawn_blocking(move || {
         let mut stream = Stream::new(sink);
-        match work(worker_cancel, &mut stream) {
+        match work(worker_cancel, &mut stream).map_err(Into::into) {
             Ok(()) => {
                 stream.done();
                 Ok(())
             }
-            Err(GitError::Cancelled) => {
+            Err(error) if error.code == codes::OP_CANCELLED => {
+                // A timeout cancelled the work: the terminal error names the timeout;
+                // otherwise the one cancellation message, whatever the source said.
                 let error = worker_reason
                     .lock()
                     .ok()
@@ -131,7 +134,6 @@ where
                 Err(error)
             }
             Err(error) => {
-                let error = AppError::from(error);
                 stream.error(error.clone());
                 Err(error)
             }
@@ -157,6 +159,8 @@ where
 mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Instant;
+
+    use git_core::error::GitError;
 
     use super::*;
     use crate::channels::testing::Collector;
@@ -244,9 +248,11 @@ mod tests {
     #[tokio::test]
     async fn returns_the_result_and_forgets_the_operation() {
         let ops = Operations::default();
-        let value = run_blocking(&ops, "op-3", DEFAULT_TIMEOUT, |_cancel| Ok(41 + 1))
-            .await
-            .expect("succeeds");
+        let value = run_blocking(&ops, "op-3", DEFAULT_TIMEOUT, |_cancel| {
+            Ok::<_, GitError>(41 + 1)
+        })
+        .await
+        .expect("succeeds");
         assert_eq!(value, 42);
         assert!(!ops.cancel("op-3"));
         assert_eq!(ops.active_count(), 0);
@@ -276,7 +282,7 @@ mod tests {
                 for page in 1..=3 {
                     stream.page(page);
                 }
-                Ok(())
+                Ok::<_, GitError>(())
             },
         )
         .await;
@@ -337,7 +343,7 @@ mod tests {
             "op-7",
             DEFAULT_TIMEOUT,
             collector.clone(),
-            |cancel, stream| {
+            |cancel, stream| -> Result<(), GitError> {
                 stream.page(1);
                 loop {
                     cancel.check()?;
@@ -366,7 +372,7 @@ mod tests {
             "op-8",
             Duration::from_millis(30),
             collector.clone(),
-            |cancel, stream| {
+            |cancel, stream| -> Result<(), GitError> {
                 stream.page(1);
                 loop {
                     cancel.check()?;

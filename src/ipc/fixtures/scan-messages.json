@@ -1,0 +1,69 @@
+[
+  {
+    "kind": "folder-started",
+    "folder": "/home/iker/code"
+  },
+  {
+    "kind": "progress",
+    "folder": "/home/iker/code",
+    "scanned": 312,
+    "found": 14
+  },
+  {
+    "kind": "found",
+    "entry": {
+      "path": "/home/iker/code/geoportal",
+      "name": "geoportal",
+      "kind": "main",
+      "parentPath": null,
+      "scanRoot": "/home/iker/code",
+      "summary": {
+        "currentBranch": null,
+        "detached": false,
+        "ahead": null,
+        "behind": null,
+        "lastCommitAt": null,
+        "dirty": null
+      },
+      "pinned": false,
+      "lastOpenedAt": null,
+      "refreshedAt": null,
+      "missing": false
+    }
+  },
+  {
+    "kind": "updated",
+    "entry": {
+      "path": "/home/iker/code/geoportal",
+      "name": "geoportal",
+      "kind": "main",
+      "parentPath": null,
+      "scanRoot": "/home/iker/code",
+      "summary": {
+        "currentBranch": "main",
+        "detached": false,
+        "ahead": 2,
+        "behind": 0,
+        "lastCommitAt": 1704067200,
+        "dirty": true
+      },
+      "pinned": true,
+      "lastOpenedAt": 1704070000,
+      "refreshedAt": 1704070100,
+      "missing": false
+    }
+  },
+  {
+    "kind": "folder-done",
+    "folder": "/home/iker/code",
+    "found": 14,
+    "missing": [
+      "/home/iker/code/gone"
+    ]
+  },
+  {
+    "kind": "folder-error",
+    "folder": "/home/iker/wt",
+    "reason": "The system cannot find the path specified. (os error 3)"
+  }
+]

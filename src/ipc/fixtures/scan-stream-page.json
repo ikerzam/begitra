@@ -1,0 +1,10 @@
+{
+  "kind": "page",
+  "seq": 3,
+  "data": {
+    "kind": "progress",
+    "folder": "/home/iker/code",
+    "scanned": 5000,
+    "found": 50
+  }
+}

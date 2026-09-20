@@ -10,6 +10,7 @@ pub mod external;
 mod fixtures;
 pub mod ops;
 pub mod state;
+pub mod watcher;
 
 use tauri::Manager;
 
@@ -47,6 +48,27 @@ fn spawn_walk_eviction(state: AppState) {
     });
 }
 
+/// Opens the index database under the app data folder; when that fails the in-memory index
+/// serves the session and the failure is logged (the app stays usable).
+fn open_index(app: &tauri::App, state: &AppState) {
+    let path = match app.path().app_data_dir() {
+        Ok(dir) => dir.join("index.sqlite"),
+        Err(error) => {
+            tracing::warn!(error = %error, "no app data folder: the index lives in memory");
+            return;
+        }
+    };
+    if let Some(parent) = path.parent() {
+        if let Err(error) = std::fs::create_dir_all(parent) {
+            tracing::warn!(error = %error, "the app data folder could not be created");
+            return;
+        }
+    }
+    if let Err(error) = state.open_index(&path) {
+        tracing::warn!(error = %error, path = %path.display(), "the index could not be opened");
+    }
+}
+
 /// Builds and runs the Tauri application.
 ///
 /// Exits the process with status 1 if the runtime fails to start; there is no UI to report to
@@ -59,7 +81,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
         .setup(|app| {
-            spawn_walk_eviction(app.state::<AppState>().inner().clone());
+            let state = app.state::<AppState>().inner().clone();
+            open_index(app, &state);
+            spawn_walk_eviction(state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -69,6 +93,14 @@ pub fn run() {
             commands::external::open_external,
             commands::repo::open_repository,
             commands::repo::close_repository,
+            commands::repo::watch_repository,
+            commands::index::list_repositories,
+            commands::index::pin_repository,
+            commands::index::forget_repository,
+            commands::index::record_repository_open,
+            commands::index::refresh_repository,
+            commands::index::remove_scan_root,
+            commands::scan::scan_folders,
             commands::repo::list_refs,
             commands::repo::status,
             commands::repo::merge_base,

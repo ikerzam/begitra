@@ -58,6 +58,18 @@
     "message": "Sample message for settings.io"
   },
   {
+    "code": "index.database",
+    "message": "Sample message for index.database"
+  },
+  {
+    "code": "index.folder",
+    "message": "Sample message for index.folder"
+  },
+  {
+    "code": "watcher.unavailable",
+    "message": "Sample message for watcher.unavailable"
+  },
+  {
     "code": "internal",
     "message": "Sample message for internal"
   }

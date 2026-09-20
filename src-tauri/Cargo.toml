@@ -25,6 +25,7 @@ similar = "3"
 shell-words = "1"
 criterion = "0.8"
 tempfile = "3"
+notify = "8"
 
 [package]
 name = "begira"
@@ -55,6 +56,11 @@ tracing-subscriber.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 shell-words.workspace = true
+repo-index.workspace = true
+notify.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

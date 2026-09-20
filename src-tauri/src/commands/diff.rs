@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 
 use git_core::engine::GitEngine;
+use git_core::error::GitError;
 use git_core::types::{ChangeSet, DiffOptions, DiffTarget, FileChange};
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
@@ -88,7 +89,7 @@ pub async fn diff(
         move |cancel, stream| {
             let change_set = worker.open(&repo)?.diff(&target, &options, &cancel)?;
             send_pages(stream, change_set);
-            Ok(())
+            Ok::<_, GitError>(())
         },
     )
     .await

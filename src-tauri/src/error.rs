@@ -41,11 +41,17 @@ pub mod codes {
     pub const EXTERNAL_SPAWN_FAILED: &str = "external.spawn_failed";
     /// The settings file could not be read or written.
     pub const SETTINGS_IO: &str = "settings.io";
+    /// The repository index database failed.
+    pub const INDEX_DATABASE: &str = "index.database";
+    /// A scan folder could not be read.
+    pub const INDEX_FOLDER: &str = "index.folder";
+    /// The filesystem watcher could not be started; the repository is open without it.
+    pub const WATCHER_UNAVAILABLE: &str = "watcher.unavailable";
     /// Anything else.
     pub const INTERNAL: &str = "internal";
 
     /// Every code, in the order of the declarations above.
-    pub const ALL: [&str; 15] = [
+    pub const ALL: [&str; 18] = [
         REPO_NOT_FOUND,
         REPO_INVALID,
         REPO_CORRUPT_OBJECT,
@@ -60,6 +66,9 @@ pub mod codes {
         OP_UNKNOWN_WALK,
         EXTERNAL_SPAWN_FAILED,
         SETTINGS_IO,
+        INDEX_DATABASE,
+        INDEX_FOLDER,
+        WATCHER_UNAVAILABLE,
         INTERNAL,
     ];
 }
@@ -153,6 +162,16 @@ impl From<GitError> for AppError {
             code: error.code().to_owned(),
             message: error.to_string(),
             detail,
+        }
+    }
+}
+
+impl From<repo_index::IndexError> for AppError {
+    fn from(error: repo_index::IndexError) -> Self {
+        Self {
+            code: error.code().to_owned(),
+            message: error.to_string(),
+            detail: None,
         }
     }
 }

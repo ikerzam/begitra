@@ -14,8 +14,11 @@ use git_core::types::{
 };
 use serde::Serialize;
 
+use repo_index::{IndexEntry, RepoKind, RepoSummary as IndexSummary, ScanOptions};
+
 use crate::channels::StreamMessage;
 use crate::commands::diff::DiffPage;
+use crate::commands::scan::ScanMessage;
 use crate::commands::system::pong;
 use crate::commands::walk::WalkPage;
 use crate::error::{codes, AppError};
@@ -375,10 +378,96 @@ fn app_errors() -> Vec<AppError> {
         .collect()
 }
 
+fn index_entry(name: &str, kind: RepoKind, parent: Option<&str>) -> IndexEntry {
+    IndexEntry {
+        path: PathBuf::from(format!("/home/iker/code/{name}")),
+        name: name.to_owned(),
+        kind,
+        parent_path: parent.map(|p| PathBuf::from(format!("/home/iker/code/{p}"))),
+        scan_root: Some(PathBuf::from("/home/iker/code")),
+        summary: IndexSummary {
+            current_branch: Some("main".to_owned()),
+            detached: false,
+            ahead: Some(2),
+            behind: Some(0),
+            last_commit_at: Some(1_704_067_200),
+            dirty: Some(true),
+        },
+        pinned: kind == RepoKind::Main,
+        last_opened_at: Some(1_704_070_000),
+        refreshed_at: Some(1_704_070_100),
+        missing: false,
+    }
+}
+
+fn scan_messages() -> Vec<ScanMessage> {
+    let folder = PathBuf::from("/home/iker/code");
+    vec![
+        ScanMessage::FolderStarted {
+            folder: folder.clone(),
+        },
+        ScanMessage::Progress {
+            folder: folder.clone(),
+            scanned: 312,
+            found: 14,
+        },
+        ScanMessage::Found {
+            entry: IndexEntry {
+                summary: IndexSummary::default(),
+                pinned: false,
+                last_opened_at: None,
+                refreshed_at: None,
+                ..index_entry("geoportal", RepoKind::Main, None)
+            },
+        },
+        ScanMessage::Updated {
+            entry: index_entry("geoportal", RepoKind::Main, None),
+        },
+        ScanMessage::FolderDone {
+            folder: folder.clone(),
+            found: 14,
+            missing: vec![PathBuf::from("/home/iker/code/gone")],
+        },
+        ScanMessage::FolderError {
+            folder: PathBuf::from("/home/iker/wt"),
+            reason: "The system cannot find the path specified. (os error 3)".to_owned(),
+        },
+    ]
+}
+
 /// Regenerates every fixture. Deterministic, so a clean checkout produces no diff.
 #[test]
 fn write_fixtures() {
     write("repo", &repo());
+    write(
+        "index-entries",
+        &[
+            index_entry("geoportal", RepoKind::Main, None),
+            index_entry("claude-auth", RepoKind::Worktree, Some("geoportal")),
+        ],
+    );
+    write("scan-messages", &scan_messages());
+    write(
+        "scan-stream-page",
+        &StreamMessage::Page {
+            seq: 3,
+            data: ScanMessage::Progress {
+                folder: PathBuf::from("/home/iker/code"),
+                scanned: 5_000,
+                found: 50,
+            },
+        },
+    );
+    write(
+        "scan-options",
+        &[
+            ScanOptions::default(),
+            ScanOptions {
+                skip: vec!["node_modules".to_owned()],
+                max_depth: 3,
+            },
+        ],
+    );
     write("refs", &refs());
     write("commit-node", &commit(1, &[2, 3], 0));
     write("walk-page", &walk_page());

@@ -1,0 +1,40 @@
+[
+  {
+    "path": "/home/iker/code/geoportal",
+    "name": "geoportal",
+    "kind": "main",
+    "parentPath": null,
+    "scanRoot": "/home/iker/code",
+    "summary": {
+      "currentBranch": "main",
+      "detached": false,
+      "ahead": 2,
+      "behind": 0,
+      "lastCommitAt": 1704067200,
+      "dirty": true
+    },
+    "pinned": true,
+    "lastOpenedAt": 1704070000,
+    "refreshedAt": 1704070100,
+    "missing": false
+  },
+  {
+    "path": "/home/iker/code/claude-auth",
+    "name": "claude-auth",
+    "kind": "worktree",
+    "parentPath": "/home/iker/code/geoportal",
+    "scanRoot": "/home/iker/code",
+    "summary": {
+      "currentBranch": "main",
+      "detached": false,
+      "ahead": 2,
+      "behind": 0,
+      "lastCommitAt": 1704067200,
+      "dirty": true
+    },
+    "pinned": false,
+    "lastOpenedAt": 1704070000,
+    "refreshedAt": 1704070100,
+    "missing": false
+  }
+]

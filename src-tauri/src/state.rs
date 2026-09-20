@@ -11,9 +11,11 @@ use std::time::{Duration, Instant};
 use git_core::engine::{CommitWalk, GitEngine};
 use git_core::error::GitResult;
 use git_core::git2_engine::Git2Engine;
+use repo_index::Index;
 
 use crate::error::AppError;
 use crate::ops::Operations;
+use crate::watcher::RepoWatcher;
 
 /// Walk handles idle for longer than this are dropped.
 pub const WALK_IDLE_LIMIT: Duration = Duration::from_secs(5 * 60);
@@ -24,6 +26,8 @@ pub struct Closed {
     pub engine: Option<Arc<Git2Engine>>,
     /// Its walk handles that were not in use.
     pub walks: Vec<Box<dyn CommitWalk>>,
+    /// Its filesystem watcher, when it was the watched repository.
+    pub watcher: Option<RepoWatcher>,
 }
 
 /// A stored walk: the handle, its repository, and when it was last used.
@@ -39,6 +43,10 @@ struct Inner {
     engines: Mutex<HashMap<PathBuf, Arc<Git2Engine>>>,
     walks: Mutex<HashMap<String, WalkEntry>>,
     next_walk: AtomicU64,
+    /// The repository index; in memory until [`AppState::open_index`] points it at a file.
+    index: Mutex<Option<Index>>,
+    /// The watcher of the open repository, with its root.
+    watcher: Mutex<Option<(PathBuf, RepoWatcher)>>,
 }
 
 /// Shared application state managed by Tauri.
@@ -51,6 +59,78 @@ impl AppState {
     /// The operation registry.
     pub fn ops(&self) -> &Operations {
         &self.inner.ops
+    }
+
+    /// Opens the index database at `path` (created and migrated when missing), replacing the
+    /// in-memory one. Blocking: call from `spawn_blocking` or setup.
+    pub fn open_index(&self, path: &Path) -> Result<(), AppError> {
+        let index = Index::open(path)?;
+        let mut slot = self
+            .inner
+            .index
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *slot = Some(index);
+        Ok(())
+    }
+
+    /// Runs `f` with the index, opening an in-memory one on first use when no file was set.
+    /// Blocking: SQLite calls run inline.
+    pub fn with_index<T>(
+        &self,
+        f: impl FnOnce(&Index) -> Result<T, AppError>,
+    ) -> Result<T, AppError> {
+        let mut slot = self
+            .inner
+            .index
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if slot.is_none() {
+            *slot = Some(Index::in_memory()?);
+        }
+        match slot.as_ref() {
+            Some(index) => f(index),
+            None => Err(AppError::internal("the index could not be opened")),
+        }
+    }
+
+    /// Replaces the repository watcher with `watcher` for `root`; the previous one is
+    /// returned so the caller drops it off the async runtime.
+    pub fn set_watcher(
+        &self,
+        root: PathBuf,
+        watcher: RepoWatcher,
+    ) -> Option<(PathBuf, RepoWatcher)> {
+        let mut slot = self
+            .inner
+            .watcher
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        slot.replace((root, watcher))
+    }
+
+    /// Whether `root` is the repository being watched.
+    pub fn is_watching(&self, root: &Path) -> bool {
+        self.inner
+            .watcher
+            .lock()
+            .map(|slot| slot.as_ref().is_some_and(|(watched, _)| watched == root))
+            .unwrap_or(false)
+    }
+
+    /// Removes the watcher of `root`, if that is the one running; returned to be dropped off
+    /// the async runtime.
+    pub fn take_watcher(&self, root: &Path) -> Option<(PathBuf, RepoWatcher)> {
+        let mut slot = self
+            .inner
+            .watcher
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if slot.as_ref().is_some_and(|(watched, _)| watched == root) {
+            slot.take()
+        } else {
+            None
+        }
     }
 
     /// Opens the repository containing `path`, or returns the engine already open for its
@@ -105,12 +185,15 @@ impl AppState {
                 true
             }
         });
-        if engine.is_none() && dropped.is_empty() {
+        drop(walks);
+        let watcher = self.take_watcher(root).map(|(_, watcher)| watcher);
+        if engine.is_none() && dropped.is_empty() && watcher.is_none() {
             return None;
         }
         Some(Closed {
             engine,
             walks: dropped,
+            watcher,
         })
     }
 

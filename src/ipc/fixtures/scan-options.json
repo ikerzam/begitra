@@ -1,0 +1,30 @@
+[
+  {
+    "skip": [
+      "node_modules",
+      ".cache",
+      "target",
+      "dist",
+      "build",
+      "out",
+      ".venv",
+      "venv",
+      "__pycache__",
+      ".next",
+      ".nuxt",
+      ".turbo",
+      ".yarn",
+      ".pnpm-store",
+      ".gradle",
+      ".idea",
+      ".vscode"
+    ],
+    "maxDepth": 6
+  },
+  {
+    "skip": [
+      "node_modules"
+    ],
+    "maxDepth": 3
+  }
+]
