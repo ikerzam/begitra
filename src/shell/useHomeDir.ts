@@ -20,9 +20,3 @@ export function useHomeDir(): Ref<string | null> {
   }
   return home;
 }
-
-/** For tests: forgets the answer so the next call asks again. */
-export function resetHomeDir(): void {
-  requested = false;
-  home.value = null;
-}
