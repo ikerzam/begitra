@@ -7,9 +7,9 @@ use std::sync::Arc;
 
 use crate::error::{GitError, GitResult};
 use crate::types::{
-    BlobAt, BlobContent, ChangeSet, ChangeSetPage, CommitCount, Comparison, DiffOptions,
-    DiffTarget, MergePreview, Page, Ref, Repo, StatusEntry, StatusOptions, WalkOptions, WalkScope,
-    Worktree, WorktreeAdd,
+    BlobAt, BlobContent, ChangeSet, ChangeSetPage, CommitContext, CommitCount, CommitRequest,
+    Comparison, DiffOptions, DiffTarget, MergePreview, Page, PatchSelection, Ref, Repo,
+    SelectionTarget, StatusEntry, StatusOptions, WalkOptions, WalkScope, Worktree, WorktreeAdd,
 };
 
 /// Cooperative cancellation flag checked by long operations between units of work.
@@ -184,4 +184,40 @@ pub trait GitEngine: Send + Sync {
 
     /// Unlocks a worktree (`git worktree unlock`).
     fn worktree_unlock(&self, path: &Path, cancel: &Cancel) -> GitResult<()>;
+
+    /// Stages paths (`git add -A` on literal pathspecs): a modification, a deletion or an
+    /// untracked file alike. Paths are relative to the root, as the status reports them.
+    fn stage_paths(&self, paths: &[String], cancel: &Cancel) -> GitResult<()>;
+
+    /// Unstages paths (`git reset -q` on literal pathspecs; the empty tree on an unborn
+    /// branch), leaving the working tree as it is.
+    fn unstage_paths(&self, paths: &[String], cancel: &Cancel) -> GitResult<()>;
+
+    /// Discards the unstaged changes of tracked paths (`git restore --worktree`: the index's
+    /// content returns) and removes untracked ones (`git clean -f`, never an ignored file);
+    /// nothing runs for an empty list.
+    fn discard_paths(
+        &self,
+        tracked: &[String],
+        untracked: &[String],
+        cancel: &Cancel,
+    ) -> GitResult<()>;
+
+    /// Applies a selection of hunks and lines with `git apply`: to the index, reversed to
+    /// the index, or reversed to the working tree. git checks the context, so a file that
+    /// changed since the diff was taken is refused as [`GitError::Cli`] with nothing applied.
+    fn apply_selection(
+        &self,
+        selection: &PatchSelection,
+        target: SelectionTarget,
+        cancel: &Cancel,
+    ) -> GitResult<()>;
+
+    /// Commits the index (`git commit -F -`, the message on stdin, `--amend` and `--signoff`
+    /// as asked) and returns the new HEAD's hash; hooks run and their failure is
+    /// [`GitError::Cli`] with their output.
+    fn commit(&self, request: &CommitRequest, cancel: &Cancel) -> GitResult<String>;
+
+    /// The author ident, the commit template, HEAD's message and whether HEAD is unborn.
+    fn commit_context(&self, cancel: &Cancel) -> GitResult<CommitContext>;
 }

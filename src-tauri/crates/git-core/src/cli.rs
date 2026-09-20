@@ -89,7 +89,7 @@ fn probe_git_within(candidate: &Path, cancel: &Cancel, deadline: Duration) -> Gi
     let joined = format!("{text} --version");
     let mut command = Command::new(candidate);
     command.arg("--version");
-    let exit = run_polled(command, joined.clone(), cancel, Some(deadline))?;
+    let exit = run_polled(command, joined.clone(), cancel, Some(deadline), None)?;
     if exit.status != Some(0) {
         return Err(GitError::Cli {
             command: joined,
@@ -356,7 +356,25 @@ pub struct CliExit {
 /// failure of the run is [`GitError::Cli`] with `status: None`.
 #[tracing::instrument(level = "debug", skip_all, fields(cwd = %cwd.display(), args = ?args))]
 pub fn run_git_cancellable(cwd: &Path, args: &[&str], cancel: &Cancel) -> GitResult<CliExit> {
-    run_polled(command(cwd, args), args.join(" "), cancel, None)
+    run_polled(command(cwd, args), args.join(" "), cancel, None, None)
+}
+
+/// [`run_git_cancellable`] with `input` on git's stdin (a pathspec list, a commit message,
+/// a patch), written from its own thread so that neither side blocks on a full pipe.
+#[tracing::instrument(level = "debug", skip_all, fields(cwd = %cwd.display(), args = ?args, input_bytes = input.len()))]
+pub fn run_git_with_input(
+    cwd: &Path,
+    args: &[&str],
+    input: &[u8],
+    cancel: &Cancel,
+) -> GitResult<CliExit> {
+    run_polled(
+        command(cwd, args),
+        args.join(" "),
+        cancel,
+        None,
+        Some(input.to_vec()),
+    )
 }
 
 /// A pipe reader's result: the bytes, or the read error.
@@ -384,6 +402,7 @@ fn run_polled(
     joined: String,
     cancel: &Cancel,
     deadline: Option<Duration>,
+    input: Option<Vec<u8>>,
 ) -> GitResult<CliExit> {
     let run_failed = |what: String| GitError::Cli {
         command: joined.clone(),
@@ -392,6 +411,9 @@ fn run_polled(
     };
     cancel.check()?;
     isolate(&mut command);
+    if input.is_some() {
+        command.stdin(Stdio::piped());
+    }
     let started = Instant::now();
     let mut child = command
         .stdout(Stdio::piped())
@@ -401,6 +423,22 @@ fn run_polled(
             command: joined.clone(),
             reason: error.to_string(),
         })?;
+    if let (Some(bytes), Some(mut stdin)) = (input, child.stdin.take()) {
+        // The writer ends when the bytes are written or the child stops reading (a broken
+        // pipe is not an error of the run: git's status and stderr say what happened).
+        let writer = thread::Builder::new()
+            .name("begira-git-in".to_owned())
+            .spawn(move || {
+                use std::io::Write;
+                let _ = stdin.write_all(&bytes);
+            });
+        if let Err(error) = writer {
+            abort(child);
+            return Err(run_failed(format!(
+                "could not start the input thread: {error}"
+            )));
+        }
+    }
     let out_reader = match read_pipe("out", child.stdout.take()) {
         Ok(reader) => reader,
         Err(error) => {
@@ -571,6 +609,35 @@ mod tests {
         assert_eq!(result.expect_err("cancelled").code(), "op.cancelled");
         let took = started.elapsed();
         assert!(took < Duration::from_secs(4), "returned after {took:?}");
+    }
+
+    #[test]
+    fn input_is_written_whole_and_a_cancel_stops_a_run_with_input() {
+        // 8 MB through stdin while stdout is read: neither pipe may stall the other.
+        let big = vec![b'x'; 8 * 1024 * 1024];
+        let hashed = run_git_with_input(
+            Path::new("."),
+            &["hash-object", "--stdin"],
+            &big,
+            &Cancel::never(),
+        )
+        .expect("git is installed");
+        assert_eq!(hashed.status, Some(0), "{}", hashed.stderr);
+        let expected = run_git_with_input(
+            Path::new("."),
+            &["hash-object", "--stdin"],
+            &big,
+            &Cancel::never(),
+        )
+        .expect("again");
+        assert_eq!(hashed.stdout, expected.stdout);
+        assert_eq!(hashed.stdout.len(), 41, "one hash and a newline");
+        let cancel = Cancel::new();
+        cancel.cancel();
+        let cancelled =
+            run_git_with_input(Path::new("."), &["hash-object", "--stdin"], b"x", &cancel)
+                .expect_err("cancelled before starting");
+        assert_eq!(cancelled.code(), "op.cancelled");
     }
 
     #[test]

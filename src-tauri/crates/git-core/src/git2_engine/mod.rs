@@ -10,7 +10,9 @@ mod count;
 mod diff;
 mod diff_pages;
 mod filter;
+mod patch;
 mod refs;
+mod staging;
 mod status;
 mod status_porcelain;
 mod walk;
@@ -25,8 +27,9 @@ use git2::{ErrorClass, ErrorCode, Oid, Repository};
 use crate::engine::{Cancel, CommitWalk, DiffWalk, GitEngine};
 use crate::error::{GitError, GitResult};
 use crate::types::{
-    BlobAt, BlobContent, CommitCount, Comparison, DiffOptions, DiffTarget, MergePreview, Ref, Repo,
-    StatusEntry, StatusOptions, WalkOptions, WalkScope, Worktree, WorktreeAdd,
+    BlobAt, BlobContent, CommitContext, CommitCount, CommitRequest, Comparison, DiffOptions,
+    DiffTarget, MergePreview, PatchSelection, Ref, Repo, SelectionTarget, StatusEntry,
+    StatusOptions, WalkOptions, WalkScope, Worktree, WorktreeAdd,
 };
 
 /// A repository opened with libgit2.
@@ -292,6 +295,40 @@ impl GitEngine for Git2Engine {
 
     fn worktree_unlock(&self, path: &Path, cancel: &Cancel) -> GitResult<()> {
         worktree_ops::unlock(self, path, cancel)
+    }
+
+    fn stage_paths(&self, paths: &[String], cancel: &Cancel) -> GitResult<()> {
+        staging::stage_paths(self, paths, cancel)
+    }
+
+    fn unstage_paths(&self, paths: &[String], cancel: &Cancel) -> GitResult<()> {
+        staging::unstage_paths(self, paths, cancel)
+    }
+
+    fn discard_paths(
+        &self,
+        tracked: &[String],
+        untracked: &[String],
+        cancel: &Cancel,
+    ) -> GitResult<()> {
+        staging::discard_paths(self, tracked, untracked, cancel)
+    }
+
+    fn apply_selection(
+        &self,
+        selection: &PatchSelection,
+        target: SelectionTarget,
+        cancel: &Cancel,
+    ) -> GitResult<()> {
+        staging::apply_selection(self, selection, target, cancel)
+    }
+
+    fn commit(&self, request: &CommitRequest, cancel: &Cancel) -> GitResult<String> {
+        staging::commit(self, request, cancel)
+    }
+
+    fn commit_context(&self, cancel: &Cancel) -> GitResult<CommitContext> {
+        staging::commit_context(self, cancel)
     }
 }
 

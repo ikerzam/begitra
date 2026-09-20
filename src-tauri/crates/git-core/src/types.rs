@@ -686,3 +686,84 @@ pub struct Worktree {
     /// Whether `git worktree prune` would remove it (its folder is missing).
     pub prunable: bool,
 }
+
+/// What a selection of changed lines is applied to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SelectionTarget {
+    /// Apply the selected lines of an unstaged diff to the index (`git apply --cached`).
+    Stage,
+    /// Take the selected lines of a staged diff out of the index (`git apply --cached -R`).
+    Unstage,
+    /// Undo the selected lines of an unstaged diff in the working tree (`git apply -R`).
+    Discard,
+}
+
+/// One line of a hunk as the viewer holds it, with the selection flag on changed lines.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelectedLine {
+    /// Context, added or removed.
+    pub kind: LineKind,
+    /// Line content without the trailing newline.
+    pub text: String,
+    /// The line has no newline at end of file.
+    pub no_newline: bool,
+    /// Whether an added or removed line is part of the selection; ignored on context lines.
+    pub selected: bool,
+}
+
+/// One hunk of a selection: the ranges the diff reported and every line of the hunk.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelectedHunk {
+    /// First line of the hunk on the old side, 1-based (0 for an added file).
+    pub old_start: u32,
+    /// Number of old-side lines in the hunk as diffed.
+    pub old_lines: u32,
+    /// First line of the hunk on the new side, 1-based (0 for a deleted file).
+    pub new_start: u32,
+    /// Number of new-side lines in the hunk as diffed.
+    pub new_lines: u32,
+    /// Lines of the hunk, in order.
+    pub lines: Vec<SelectedLine>,
+}
+
+/// A selection of hunks and lines of one file, to stage, unstage or discard.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PatchSelection {
+    /// Path on the new side of the diff the selection was taken from.
+    pub path: String,
+    /// How the file changed in that diff; an added or deleted file selected whole is
+    /// created or deleted, a partial selection edits the file in place.
+    pub status: ChangeKind,
+    /// The hunks, in the diff's order; a hunk without a selected line is left out.
+    pub hunks: Vec<SelectedHunk>,
+}
+
+/// A commit request.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitRequest {
+    /// The whole message: the subject, a blank line, the body.
+    pub message: String,
+    /// Replace the last commit (`--amend`).
+    pub amend: bool,
+    /// Add a `Signed-off-by` trailer (`--signoff`).
+    pub signoff: bool,
+}
+
+/// What the commit box needs before a commit.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitContext {
+    /// `Name <email>` git will record as the author.
+    pub author: String,
+    /// The text of the `commit.template` file, when one is configured and readable.
+    pub template: Option<String>,
+    /// The full message of HEAD, for an amend; `None` on an unborn branch.
+    pub head_message: Option<String>,
+    /// HEAD names no commit yet.
+    pub unborn: bool,
+}
