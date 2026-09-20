@@ -408,6 +408,20 @@ export const WorktreeSchema = v.object({
 });
 export type Worktree = v.InferOutput<typeof WorktreeSchema>;
 
+/** What a new worktree checks out. */
+export const WorktreeBranchSchema = v.variant("kind", [
+  v.object({ kind: v.literal("new"), name: v.string(), start: v.string() }),
+  v.object({ kind: v.literal("existing"), name: v.string() }),
+  v.object({ kind: v.literal("detached"), rev: v.string() }),
+]);
+export type WorktreeBranch = v.InferOutput<typeof WorktreeBranchSchema>;
+
+export const WorktreeAddSchema = v.object({
+  path: v.string(),
+  branch: WorktreeBranchSchema,
+});
+export type WorktreeAdd = v.InferOutput<typeof WorktreeAddSchema>;
+
 export const RepoChangeKindSchema = v.picklist(["refs", "status", "worktrees", "index"]);
 export type RepoChangeKind = v.InferOutput<typeof RepoChangeKindSchema>;
 
@@ -497,6 +511,27 @@ export const commandArgs = {
   merge_base: v.object({ repo: path, a: v.string(), b: v.string(), opId }),
   compare: v.object({ repo: path, a: revision, b: revision, opId }),
   merge_preview: v.object({ repo: path, a: revision, b: revision, opId }),
+  worktree_add: v.object({
+    repo: path,
+    request: v.object({
+      path,
+      branch: v.variant("kind", [
+        v.object({ kind: v.literal("new"), name: revision, start: revision }),
+        v.object({ kind: v.literal("existing"), name: revision }),
+        v.object({ kind: v.literal("detached"), rev: revision }),
+      ]),
+    }),
+    opId,
+  }),
+  worktree_remove: v.object({ repo: path, path, force: v.boolean(), opId }),
+  worktree_prune: v.object({ repo: path, opId }),
+  worktree_lock: v.object({
+    repo: path,
+    path,
+    reason: v.nullable(v.pipe(v.string(), v.maxLength(200))),
+    opId,
+  }),
+  worktree_unlock: v.object({ repo: path, path, opId }),
   count_commits: v.object({ repo: path, scope: WalkScopeSchema, opId }),
   list_worktrees: v.object({ repo: path, opId }),
   walk_commits: v.object({

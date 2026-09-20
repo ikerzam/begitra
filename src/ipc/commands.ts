@@ -35,6 +35,7 @@ import {
   type WalkOptions,
   type WalkPage,
   type WalkScope,
+  type WorktreeAdd,
 } from "./schemas";
 import { stream, type StreamHandle } from "./stream";
 
@@ -105,6 +106,39 @@ export function countCommits(repo: string, scope: WalkScope, opId = newOpId("cou
 
 export function listWorktrees(repo: string, opId = newOpId("worktrees")) {
   return call("list_worktrees", { repo, opId }, v.array(WorktreeSchema));
+}
+
+/** Adds a worktree through `git worktree add`; resolves with its entry. */
+export function worktreeAdd(repo: string, request: WorktreeAdd, opId = newOpId("worktree-add")) {
+  return call("worktree_add", { repo, request, opId }, WorktreeSchema);
+}
+
+/** Removes a linked worktree; without `force` a dirty one fails with `worktree.dirty`. */
+export function worktreeRemove(
+  repo: string,
+  path: string,
+  force: boolean,
+  opId = newOpId("worktree-remove"),
+) {
+  return call("worktree_remove", { repo, path, force, opId }, v.null());
+}
+
+/** Unregisters the worktrees whose folders are gone; resolves with the paths that went. */
+export function worktreePrune(repo: string, opId = newOpId("worktree-prune")) {
+  return call("worktree_prune", { repo, opId }, v.array(v.string()));
+}
+
+export function worktreeLock(
+  repo: string,
+  path: string,
+  reason: string | null,
+  opId = newOpId("worktree-lock"),
+) {
+  return call("worktree_lock", { repo, path, reason, opId }, v.null());
+}
+
+export function worktreeUnlock(repo: string, path: string, opId = newOpId("worktree-unlock")) {
+  return call("worktree_unlock", { repo, path, opId }, v.null());
 }
 
 export function closeWalk(walkId: string) {

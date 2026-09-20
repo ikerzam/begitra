@@ -12,6 +12,7 @@ use git_core::types::{
     ComparisonRelation, DiffLine, DiffOptions, DiffTarget, Edge, Endpoint, FileChange, Hunk,
     LineKind, MergePreview, MergePreviewKind, Ref, RefKind, Repo, Signature, Span, StatusEntry,
     StatusOptions, WalkFilter, WalkOptions, WalkOrder, WalkScope, WorkingTreeBase, Worktree,
+    WorktreeAdd, WorktreeBranch,
 };
 use serde::Serialize;
 use syntax::{Highlight, Symbol, SymbolKind, Token, TokenClass};
@@ -503,6 +504,30 @@ fn write_fixtures() {
         },
     );
     write("worktrees", &worktrees());
+    write(
+        "worktree-adds",
+        &[
+            WorktreeAdd {
+                path: PathBuf::from("/wt/claude-auth"),
+                branch: WorktreeBranch::New {
+                    name: "claude/fix-auth".to_owned(),
+                    start: "main".to_owned(),
+                },
+            },
+            WorktreeAdd {
+                path: PathBuf::from("/wt/develop"),
+                branch: WorktreeBranch::Existing {
+                    name: "develop".to_owned(),
+                },
+            },
+            WorktreeAdd {
+                path: PathBuf::from("/wt/v1"),
+                branch: WorktreeBranch::Detached {
+                    rev: "v1".to_owned(),
+                },
+            },
+        ],
+    );
     write("app-errors", &app_errors());
     write(
         "repo-changed",

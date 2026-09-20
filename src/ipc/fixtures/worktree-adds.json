@@ -1,0 +1,24 @@
+[
+  {
+    "path": "/wt/claude-auth",
+    "branch": {
+      "kind": "new",
+      "name": "claude/fix-auth",
+      "start": "main"
+    }
+  },
+  {
+    "path": "/wt/develop",
+    "branch": {
+      "kind": "existing",
+      "name": "develop"
+    }
+  },
+  {
+    "path": "/wt/v1",
+    "branch": {
+      "kind": "detached",
+      "rev": "v1"
+    }
+  }
+]

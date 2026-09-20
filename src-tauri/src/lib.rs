@@ -120,6 +120,11 @@ pub fn run() {
             commands::review::delete_annotation,
             commands::compare::compare,
             commands::compare::merge_preview,
+            commands::worktrees::worktree_add,
+            commands::worktrees::worktree_remove,
+            commands::worktrees::worktree_prune,
+            commands::worktrees::worktree_lock,
+            commands::worktrees::worktree_unlock,
         ])
         .run(tauri::generate_context!());
 
