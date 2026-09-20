@@ -26,4 +26,5 @@ pub mod flags;
 pub mod git2_engine;
 pub mod graph;
 pub mod providers;
+pub mod summary;
 pub mod types;
