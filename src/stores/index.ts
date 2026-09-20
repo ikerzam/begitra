@@ -5,7 +5,7 @@
 // on pin, forget and open.
 
 import { defineStore } from "pinia";
-import { computed, ref, shallowRef } from "vue";
+import { computed, ref, shallowRef, watch } from "vue";
 
 import { i18n } from "@/i18n";
 import * as ipc from "@/ipc/commands";
@@ -414,16 +414,33 @@ export const useIndexStore = defineStore("index", () => {
     return failed;
   }
 
+  /**
+   * Syncs the listing after an open. The backend records the open and refreshes the entry
+   * off the open's critical path, so a repository opened from outside the index may not be
+   * listed yet: it is asked for on its own, and its recents position is set here and now.
+   */
   async function afterOpen(path: string): Promise<void> {
     const repo = useRepoStore();
     if (repo.state.kind === "ready") {
+      const root = repo.repo?.root ?? path;
       await load();
+      if (!find(root)) await refresh(root);
+      patch(root, { lastOpenedAt: nowSeconds() });
     } else if (repo.state.kind === "error" && repo.state.error.code === "repo.not_found") {
       markMissing([path]);
       // The backend flags the entry too, so the mark survives the next listing.
       void ipc.refreshRepository(path).catch(() => undefined);
     }
   }
+
+  // Back on the home screen, the listing is read again: the summary the backend refreshed
+  // while the repository was open lands without a scan.
+  watch(
+    () => useRepoStore().state.kind,
+    (kind, previous) => {
+      if (kind === "empty" && previous !== undefined && previous !== "empty") void load();
+    },
+  );
 
   /** Sorts the table by `column`; the same column again flips the direction. */
   function setSort(column: SortColumn): void {

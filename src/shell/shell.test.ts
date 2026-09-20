@@ -97,6 +97,8 @@ function backend(
   } = {},
 ) {
   const calls: string[] = [];
+  /** The fake index: forgets drop entries and a gone folder is flagged on refresh. */
+  let listed = indexEntries.map((entry) => ({ ...entry }));
   const handler = (cmd: string, rawArgs?: unknown) => {
     const args = (rawArgs ?? {}) as Record<string, unknown>;
     calls.push(cmd);
@@ -247,8 +249,21 @@ function backend(
         ]);
         return null;
       case "list_repositories":
-        return indexEntries;
+        return listed;
+      case "forget_repository":
+        listed = listed.filter((entry) => entry.path !== args["path"]);
+        return null;
       case "refresh_repository":
+        if (options.failOpen) {
+          listed = listed.map((entry) =>
+            entry.path === args["path"] ? { ...entry, missing: true } : entry,
+          );
+          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+          return Promise.reject({
+            code: "repo.not_found",
+            message: "No Git repository found at or above /r",
+          });
+        }
         return {
           ...indexEntry(args["path"] as string, "r"),
           summary: { ...indexEntry("/r", "r").summary, ahead: 7 },

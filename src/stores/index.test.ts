@@ -122,7 +122,7 @@ function mockBackend(options: BackendOptions = {}) {
         return null;
       case "refresh_repository": {
         const found = entries.find((e) => e.path === path);
-        if (!found || found.missing) {
+        if (!found || found.missing || options.openFails) {
           entries = entries.map((e) => (e.path === path ? { ...e, missing: true } : e));
           return reject("repo.not_found", `No Git repository found at or above ${path}`);
         }
@@ -467,8 +467,27 @@ describe("index store", () => {
     const order = calls.map((c) => c.cmd);
     expect(order.indexOf("record_repository_open")).toBeLessThan(order.indexOf("open_repository"));
     expect(order.filter((c) => c === "list_repositories")).toHaveLength(2);
-    expect(store.entries.find((e) => e.name === "tiles-spike")?.lastOpenedAt).toBe(1_704_100_000);
+    expect(store.entries.find((e) => e.name === "tiles-spike")?.lastOpenedAt).toBeGreaterThan(
+      1_704_100_000,
+    );
     expect(names(store.recent)).toEqual(["tiles-spike", "begira"]);
+  });
+
+  it("open asks for the entry of a folder outside the index and reloads the listing back home", async () => {
+    const { calls } = mockBackend();
+    const store = useIndexStore();
+    const repo = useRepoStore();
+    await store.load();
+    await store.open("/home/iker/oss/newcomer");
+    await settled();
+    expect(repo.state.kind).toBe("ready");
+    expect(calls.filter((c) => c.cmd === "refresh_repository").map((c) => c.args["path"])).toEqual([
+      "/home/iker/oss/newcomer",
+    ]);
+    const listings = calls.filter((c) => c.cmd === "list_repositories").length;
+    await repo.close();
+    await settled();
+    expect(calls.filter((c) => c.cmd === "list_repositories")).toHaveLength(listings + 1);
   });
 
   it("open flags the entry missing when the folder is gone and leaves the error state to the shell", async () => {
