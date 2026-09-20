@@ -10,7 +10,15 @@ import { computed, ref } from "vue";
 import { defaultSkipFolders } from "@/ipc/commands";
 import { detectPlatform, type Platform } from "@/shortcuts/platform";
 
-export type LayoutMode = "graph" | "review" | "compare" | "worktrees";
+export type LayoutMode = "graph" | "review" | "compare" | "worktrees" | "settings";
+export type TabWidth = 2 | 4 | 8;
+
+/** The filters a new review starts with (the settings' Diff section, "Hide by default"). */
+export interface HideByDefault {
+  generated: boolean;
+  lockfiles: boolean;
+  tests: boolean;
+}
 export type Locale = "en" | "es";
 
 /** One side of a comparison: a revision, or a worktree meaning its checked-out commit. */
@@ -65,6 +73,14 @@ export interface Settings {
   compare: CompareEndpoints | null;
   /** Where new worktrees go; null means a sibling folder of the repository. */
   worktreeFolder: string | null;
+  /** The git executable the CLI runs; null means `git` on PATH. */
+  gitExecutable: string | null;
+  /** Tab stops of the diff viewer. */
+  tabWidth: TabWidth;
+  /** The file filters a new review starts with. */
+  hideByDefault: HideByDefault;
+  /** Shortcut overrides by binding id, in the registry's notation (`shift+mod+t`). */
+  shortcuts: Record<string, string>;
 }
 
 export type DiffLayout = "unified" | "side-by-side";
@@ -82,7 +98,7 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   editorCommand: v.pipe(v.string(), v.minLength(1)),
   paneSizes: v.object({ sidebar: px, detail: v.nullable(px), files: px, reviewRail: px }),
   sidebarCollapsed: v.boolean(),
-  layoutMode: v.picklist(["graph", "review", "compare", "worktrees"]),
+  layoutMode: v.picklist(["graph", "review", "compare", "worktrees", "settings"]),
   locale: v.picklist(["en", "es"]),
   paletteRecents: v.array(v.string()),
   scanRoots: v.array(path),
@@ -95,6 +111,10 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   diffIgnoreWhitespace: v.boolean(),
   compare: v.nullable(v.object({ a: endpoint, b: endpoint })),
   worktreeFolder: v.nullable(path),
+  gitExecutable: v.nullable(path),
+  tabWidth: v.picklist([2, 4, 8]),
+  hideByDefault: v.object({ generated: v.boolean(), lockfiles: v.boolean(), tests: v.boolean() }),
+  shortcuts: v.record(v.string(), v.pipe(v.string(), v.minLength(1), v.maxLength(40))),
 };
 
 export const settingsKeys = Object.keys(schemas) as (keyof Settings)[];
@@ -137,6 +157,10 @@ export function defaultSettings(platform: Platform): Settings {
     diffIgnoreWhitespace: false,
     compare: null,
     worktreeFolder: null,
+    gitExecutable: null,
+    tabWidth: 4,
+    hideByDefault: { generated: true, lockfiles: true, tests: false },
+    shortcuts: {},
   };
 }
 

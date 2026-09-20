@@ -94,12 +94,21 @@ export function hunkKey(hunk: Hunk): string {
   return `${hunk.oldStart},${hunk.newStart}:${hunk.header}`;
 }
 
+/** The filters a review starts with, from the settings' "Hide by default". */
+function filtersFrom(hide: {
+  generated: boolean;
+  lockfiles: boolean;
+  tests: boolean;
+}): FileFilters {
+  return { hideGenerated: hide.generated, hideLockfiles: hide.lockfiles, hideTests: hide.tests };
+}
+
 export const useReviewStore = defineStore("review", () => {
   const repo = useRepoStore();
   const settings = useSettingsStore();
   const operations = useOperationsStore();
 
-  const filters = ref<FileFilters>({ hideGenerated: true, hideLockfiles: true, hideTests: false });
+  const filters = ref<FileFilters>(filtersFrom(settings.values.hideByDefault));
   const selectedPath = ref<string | null>(null);
   const revealed = ref(new Set<string>());
   /** Files read whole after a failed diff ("Show new file"), as one hunk of added lines. */
@@ -124,6 +133,20 @@ export const useReviewStore = defineStore("review", () => {
   let localWrites = 0;
 
   const layout = computed<DiffLayout>(() => settings.values.diffLayout);
+  /** The viewer's tab stops (the settings' Diff section, "Tab width"). */
+  const tabWidth = computed(() => settings.values.tabWidth);
+
+  // "Hide by default" changed in the settings: the filters follow at once (the three flags
+  // compared by value, so an unrelated settings write leaves the review's own toggles alone).
+  watch(
+    () => {
+      const hide = settings.values.hideByDefault;
+      return `${hide.generated}/${hide.lockfiles}/${hide.tests}`;
+    },
+    () => {
+      filters.value = filtersFrom(settings.values.hideByDefault);
+    },
+  );
   const wrap = computed(() => settings.values.diffWrap);
   const ignoreWhitespace = computed(() => settings.values.diffIgnoreWhitespace);
 
@@ -548,6 +571,7 @@ export const useReviewStore = defineStore("review", () => {
     reviewedFiles,
     reviewedCount,
     layout,
+    tabWidth,
     wrap,
     ignoreWhitespace,
     diffBase,

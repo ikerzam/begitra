@@ -127,7 +127,9 @@
     "diffFailed": "El diff falló en {n} fichero | El diff falló en {n} ficheros",
     "diffFailedAll": "El diff falló",
     "symbol": "En {name}",
-    "worktrees": "worktrees"
+    "worktrees": "worktrees",
+    "fields": "campos",
+    "edit": "editar"
   },
   "operations": {
     "opening": "Abriendo {name}",
@@ -361,7 +363,7 @@
       "graph-focus": "Cambiar a la vista de grafo",
       "review-focus": "Cambiar a la vista de revisión",
       "toggle-sidebar": "Mostrar u ocultar la barra lateral",
-      "open-terminal": "Abrir en el terminal",
+      "open-terminal": "Abrir en la terminal",
       "open-editor": "Abrir en el editor",
       "pin-repository": "Fijar el repositorio",
       "unpin-repository": "Desfijar el repositorio",
@@ -393,7 +395,8 @@
       "compare-open-review": "Abrir la comparación en revisión",
       "show-worktrees": "Mostrar los worktrees",
       "add-worktree": "Añadir worktree…",
-      "prune-worktrees": "Limpiar los worktrees"
+      "prune-worktrees": "Limpiar los worktrees",
+      "settings": "Ajustes…"
     },
     "repos": "Repos"
   },
@@ -536,5 +539,76 @@
     },
     "removeMenu": "Eliminar worktree…",
     "count": "{n} worktree enlazado | {n} worktrees enlazados"
+  },
+  "settings": {
+    "title": "Ajustes",
+    "subtitle": "Los cambios se aplican al momento y se guardan en este equipo.",
+    "discovery": {
+      "title": "Descubrimiento",
+      "scanFolders": "Carpetas a escanear",
+      "noFolders": "Aún no hay carpetas. Begira busca en ellas repositorios y worktrees.",
+      "addFolder": "Añadir carpeta",
+      "skipFolders": "Carpetas omitidas",
+      "skipFoldersHint": "Separadas por comas. Se omiten a cualquier profundidad.",
+      "maxDepth": "Profundidad máxima",
+      "maxDepthHint": "Las carpetas más profundas no se escanean."
+    },
+    "git": {
+      "title": "Git",
+      "executable": "Ejecutable de git",
+      "placeholder": "git",
+      "detect": "Detectar",
+      "detecting": "Detectando…",
+      "looking": "Buscando git en el PATH y en las ubicaciones habituales",
+      "hint": "Vacío significa el git del PATH.",
+      "notGit": "No es un ejecutable de git. Begira necesita git 2.30 o más nuevo; la ruta de arriba no se ejecuta."
+    },
+    "commands": {
+      "title": "Terminal y editor",
+      "terminal": "Terminal",
+      "editor": "Editor",
+      "hint": "{path} se sustituye por la carpeta que se abre. Lo usan todas las acciones \"Abrir en la terminal\" y \"Abrir en el editor\"."
+    },
+    "diff": {
+      "title": "Diff",
+      "ignoreWhitespace": "Ignorar espacios",
+      "ignoreWhitespaceHint": "Oculta los cambios que solo tocan espacios e indentación.",
+      "wordWrap": "Ajuste de línea",
+      "sideBySide": "Lado a lado por defecto",
+      "tabWidth": "Ancho del tabulador",
+      "hideByDefault": "Ocultar por defecto",
+      "hideHint": "Los ficheros plegados siempre se pueden ver con \"Mostrar igualmente\".",
+      "generated": "Ficheros generados",
+      "lockfiles": "Lockfiles",
+      "tests": "Tests"
+    },
+    "shortcuts": {
+      "title": "Atajos",
+      "change": "Cambiar",
+      "reset": "Restablecer",
+      "pressKeys": "Pulsa las teclas…",
+      "pressKeysFor": "Pulsa las teclas de {which}…",
+      "next": "siguiente",
+      "previous": "anterior",
+      "refusedPlain": "Un atajo global necesita un modificador.",
+      "refusedModifier": "Añade una tecla al modificador.",
+      "refusedTaken": "Ya lo usa \"{name}\".",
+      "note": "Los atajos siguen la plataforma: ⌘ es Ctrl en Windows y Linux.",
+      "rows": {
+        "palette": "Paleta de comandos",
+        "graphFocus": "Vista de grafo",
+        "reviewFocus": "Vista de revisión",
+        "toggleSidebar": "Mostrar u ocultar la barra lateral",
+        "diffFrom": "Diff desde…",
+        "compareWith": "Comparar con…",
+        "nextPreviousCommitOrFile": "Commit o fichero siguiente / anterior",
+        "nextPreviousHunk": "Hunk siguiente / anterior",
+        "markReviewed": "Marcar como revisado",
+        "openTerminal": "Abrir en la terminal",
+        "openEditor": "Abrir en el editor",
+        "addWorktree": "Añadir worktree",
+        "settings": "Ajustes"
+      }
+    }
   }
 }

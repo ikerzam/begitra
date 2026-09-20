@@ -101,6 +101,7 @@ defineExpose({ moveSymbol, changedSymbols: symbols.changed });
   <div
     ref="body"
     class="diff-body relative min-h-0 flex-1 overflow-auto font-mono text-code"
+    :style="{ '--diff-tab-width': review.tabWidth }"
     data-testid="diff-body"
     tabindex="0"
     @scroll.passive="onScroll"
@@ -155,8 +156,9 @@ defineExpose({ moveSymbol, changedSymbols: symbols.changed });
 </template>
 
 <style scoped>
-/* Tabs take four columns, the width the wrap heights count them with (diffRows.ts). */
+/* Tabs take the settings' width (four columns by default), which the wrap heights count
+   them with (diffRows.ts). */
 .diff-body {
-  tab-size: 4;
+  tab-size: var(--diff-tab-width, 4);
 }
 </style>

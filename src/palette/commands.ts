@@ -52,6 +52,7 @@ export interface PaletteActions {
   swapComparison: () => Promise<void>;
   openComparisonInReview: () => Promise<void>;
   showWorktrees: () => Promise<void>;
+  openSettings: () => Promise<void>;
   addWorktree: () => void;
   /** Whether some worktree entry can be pruned (its folder is gone). */
   hasPrunableWorktrees: () => boolean;
@@ -209,6 +210,13 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       labelKey: "palette.commandsById.compare-open-review",
       enabled: () => withRepo() && actions.inComparison(),
       run: actions.openComparisonInReview,
+    },
+    {
+      id: "settings",
+      labelKey: "palette.commandsById.settings",
+      shortcutId: "settings",
+      enabled: always,
+      run: actions.openSettings,
     },
     {
       id: "show-worktrees",

@@ -5,7 +5,8 @@ import { useI18n } from "vue-i18n";
 import IconButton from "@/components/IconButton.vue";
 import type { SidebarTab } from "@/stores/shell";
 
-const props = defineProps<{ active: SidebarTab }>();
+/** `null` presses no tab (the settings). */
+const props = defineProps<{ active: SidebarTab | null }>();
 const emit = defineEmits<{ select: [tab: SidebarTab] }>();
 
 const { t } = useI18n();

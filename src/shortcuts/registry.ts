@@ -33,6 +33,7 @@ export const defaultBindings: readonly ShortcutBinding[] = [
   { id: "open-terminal", keys: "mod+t", scope: "global" },
   { id: "open-editor", keys: "mod+e", scope: "global" },
   { id: "add-worktree", keys: "shift+mod+w", scope: "global" },
+  { id: "settings", keys: "mod+,", scope: "global" },
 ];
 
 export type ShortcutHandler = (event: KeyboardEvent) => void;
@@ -87,10 +88,15 @@ export class ShortcutRegistry {
     return binding ? formatShortcut(binding.keys, this.platform) : "";
   }
 
-  /** Rebinds a command. */
+  /** Rebinds a command (the settings' overrides). */
   rebind(id: string, keys: string): void {
     const binding = this.bindings.get(id);
     if (binding) this.bindings.set(id, { ...binding, keys });
+  }
+
+  /** The default keys of a binding, whatever it is bound to now. */
+  defaultKeys(id: string): string | undefined {
+    return defaultBindings.find((binding) => binding.id === id)?.keys;
   }
 
   /** Attaches a handler; the last one attached wins. Returns the detach function. */

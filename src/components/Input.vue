@@ -13,8 +13,18 @@ const props = withDefaults(
     disabled?: boolean;
     size?: ControlSize;
     type?: string;
+    /** The error treatment (red border, `aria-invalid`) with the sentence shown elsewhere. */
+    invalid?: boolean;
   }>(),
-  { placeholder: "", icon: undefined, error: "", disabled: false, size: "md", type: "text" },
+  {
+    placeholder: "",
+    icon: undefined,
+    error: "",
+    disabled: false,
+    size: "md",
+    type: "text",
+    invalid: false,
+  },
 );
 
 const model = defineModel<string>({ default: "" });
@@ -25,6 +35,7 @@ defineOptions({ inheritAttrs: false });
 const id = useId();
 const errorId = `${id}-error`;
 const hasError = computed(() => props.error !== "");
+const invalid = computed(() => hasError.value || props.invalid);
 </script>
 
 <template>
@@ -45,11 +56,11 @@ const hasError = computed(() => props.error !== "");
         :type="props.type"
         :placeholder="props.placeholder"
         :disabled="props.disabled"
-        :aria-invalid="hasError ? 'true' : undefined"
+        :aria-invalid="invalid ? 'true' : undefined"
         :aria-describedby="hasError ? errorId : undefined"
         class="w-full rounded-sm border bg-app pr-3 text-md text-fg placeholder:text-fg-muted disabled:border-line disabled:text-fg-disabled disabled:placeholder:text-fg-disabled"
         :class="[
-          hasError ? 'border-danger' : 'border-line-strong',
+          invalid ? 'border-danger' : 'border-line-strong',
           props.icon ? 'pl-6' : 'pl-3',
           props.size === 'lg' ? 'h-6' : 'h-control',
         ]"

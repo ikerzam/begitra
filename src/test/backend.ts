@@ -59,6 +59,10 @@ export interface FakeBackendOptions {
   failWorktreeAdd?: boolean;
   /** The paths `path_exists` answers true for. */
   existingPaths?: string[];
+  /** What `detect_git` answers; default `/usr/bin/git` 2.46.0. When false, it fails. */
+  gitDetection?: { path: string; version: string } | false;
+  /** The executables `set_git_executable` accepts besides "" and "git"; others fail. */
+  gitExecutables?: string[];
 }
 
 /** The main worktree at `/r` and two linked ones, one of them prunable. */
@@ -497,6 +501,29 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
           worktree.path === path ? { ...worktree, locked: false, lockReason: null } : worktree,
         );
         return null;
+      }
+      case "detect_git":
+        if (options.gitDetection === false) {
+          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+          return Promise.reject({
+            code: "git.cli_failed",
+            message: "no git found",
+            detail: "could not start git: program not found",
+          });
+        }
+        return options.gitDetection ?? { path: "/usr/bin/git", version: "git version 2.46.0" };
+      case "set_git_executable": {
+        const path = args["path"] as string;
+        const known = ["", "git", ...(options.gitExecutables ?? ["/usr/bin/git"])];
+        if (!known.includes(path)) {
+          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+          return Promise.reject({
+            code: "git.cli_failed",
+            message: `${path} is not git`,
+            detail: `could not start ${path}: program not found`,
+          });
+        }
+        return { path: path === "" ? "git" : path, version: "git version 2.46.0" };
       }
       case "path_exists":
         return options.existingPaths?.includes(args["path"] as string) ?? false;

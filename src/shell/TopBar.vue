@@ -21,6 +21,7 @@ const emit = defineEmits<{ openFolder: []; openPalette: []; setLayoutMode: [mode
 
 const { t } = useI18n();
 const paletteHint = useShortcutHint("palette");
+const settingsHint = useShortcutHint("settings");
 const graphHint = useShortcutHint("graph-focus");
 const reviewHint = useShortcutHint("review-focus");
 </script>
@@ -49,13 +50,20 @@ const reviewHint = useShortcutHint("review-focus");
     </button>
     <!-- Tooltips carry the shortcut hint; the buttons drop their native title to avoid two. -->
     <div class="flex flex-1 items-center justify-end gap-2">
-      <Tooltip v-slot="{ id }" :label="t('topBar.settings')" data-testid="tooltip-settings">
+      <Tooltip
+        v-slot="{ id }"
+        :label="t('topBar.settings')"
+        :keys="settingsHint"
+        data-testid="tooltip-settings"
+      >
         <IconButton
           :label="t('topBar.settings')"
           :icon="Settings"
+          :pressed="props.layoutMode === 'settings'"
           :native-title="false"
           :aria-describedby="id"
-          disabled
+          data-testid="mode-settings"
+          @click="emit('setLayoutMode', 'settings')"
         />
       </Tooltip>
       <Tooltip

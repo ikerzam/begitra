@@ -37,6 +37,7 @@ const labels: Record<string, string> = {
   "palette.commandsById.compare-with": "Compare with…",
   "palette.commandsById.swap-comparison": "Swap comparison sides",
   "palette.commandsById.compare-open-review": "Open comparison in review",
+  "palette.commandsById.settings": "Settings…",
   "palette.commandsById.show-worktrees": "Show worktrees",
   "palette.commandsById.add-worktree": "Add worktree…",
   "palette.commandsById.prune-worktrees": "Prune worktrees",
@@ -149,6 +150,10 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
       calls.push("showWorktrees");
       return Promise.resolve();
     },
+    openSettings: () => {
+      calls.push("openSettings");
+      return Promise.resolve();
+    },
     addWorktree: record("addWorktree"),
     hasPrunableWorktrees: () => false,
     pruneWorktrees: record("pruneWorktrees"),
@@ -203,6 +208,7 @@ describe("usePalette", () => {
       "toggle-wrap",
       "toggle-whitespace",
       "compare-with",
+      "settings",
       "show-worktrees",
       "add-worktree",
       "toggle-hide-generated",

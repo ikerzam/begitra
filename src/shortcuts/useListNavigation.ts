@@ -5,6 +5,9 @@
 
 import { type Ref } from "vue";
 
+import { matchesKeys } from "./platform";
+import { shortcutRegistry } from "./registry";
+
 export interface ListNavigationOptions {
   /** Number of rows. */
   count: Ref<number>;
@@ -28,8 +31,17 @@ export interface ListNavigation {
   focus: () => void;
 }
 
-const nextKeys = new Set(["ArrowDown", "j"]);
-const previousKeys = new Set(["ArrowUp", "k"]);
+function hasModifier(event: KeyboardEvent): boolean {
+  return event.ctrlKey || event.metaKey || event.altKey;
+}
+
+/** Whether the event is the bare arrow, or the registry's keys of `id` (`j`/`k` unless rebound). */
+function isBound(event: KeyboardEvent, arrow: string, id: string): boolean {
+  if (event.key === arrow && !hasModifier(event)) return true;
+  const registry = shortcutRegistry();
+  const keys = registry.binding(id)?.keys;
+  return keys !== undefined && matchesKeys(keys, event, registry.platform);
+}
 
 export function useListNavigation(options: ListNavigationOptions): ListNavigation {
   const clamp = (index: number): number => {
@@ -63,11 +75,13 @@ export function useListNavigation(options: ListNavigationOptions): ListNavigatio
 
   const onKeydown = (event: KeyboardEvent): boolean => {
     // A focused row that handled the key itself (Enter, folder arrows) has prevented it.
-    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return false;
-    if (nextKeys.has(event.key)) {
+    if (event.defaultPrevented) return false;
+    if (isBound(event, "ArrowDown", "next-row")) {
       moveBy(1);
-    } else if (previousKeys.has(event.key)) {
+    } else if (isBound(event, "ArrowUp", "previous-row")) {
       moveBy(-1);
+    } else if (hasModifier(event)) {
+      return false;
     } else if (event.key === "Home") {
       select(0);
     } else if (event.key === "End") {

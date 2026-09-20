@@ -127,7 +127,9 @@
     "diffFailed": "Diff failed for {n} file | Diff failed for {n} files",
     "diffFailedAll": "Diff failed",
     "symbol": "At {name}",
-    "worktrees": "worktrees"
+    "worktrees": "worktrees",
+    "fields": "fields",
+    "edit": "edit"
   },
   "operations": {
     "opening": "Opening {name}",
@@ -393,7 +395,8 @@
       "compare-open-review": "Open comparison in review",
       "show-worktrees": "Show worktrees",
       "add-worktree": "Add worktree…",
-      "prune-worktrees": "Prune worktrees"
+      "prune-worktrees": "Prune worktrees",
+      "settings": "Settings…"
     },
     "repos": "Repos"
   },
@@ -536,5 +539,76 @@
     },
     "removeMenu": "Remove worktree…",
     "count": "{n} linked worktree | {n} linked worktrees"
+  },
+  "settings": {
+    "title": "Settings",
+    "subtitle": "Changes apply immediately and are stored on this machine.",
+    "discovery": {
+      "title": "Discovery",
+      "scanFolders": "Scan folders",
+      "noFolders": "No folders yet. Begira scans these for repositories and worktrees.",
+      "addFolder": "Add folder",
+      "skipFolders": "Skip folders",
+      "skipFoldersHint": "Comma separated. Matched at any depth.",
+      "maxDepth": "Max depth",
+      "maxDepthHint": "Folders deeper than this are not scanned."
+    },
+    "git": {
+      "title": "Git",
+      "executable": "Git executable",
+      "placeholder": "git",
+      "detect": "Detect",
+      "detecting": "Detecting…",
+      "looking": "Looking for git on PATH and in common locations",
+      "hint": "Empty means the git on PATH.",
+      "notGit": "Not a git executable. Begira needs git 2.30 or newer; the path above does not run."
+    },
+    "commands": {
+      "title": "Terminal and editor",
+      "terminal": "Terminal",
+      "editor": "Editor",
+      "hint": "{path} is replaced with the folder to open. Used by every \"Open in terminal\" and \"Open in editor\" action."
+    },
+    "diff": {
+      "title": "Diff",
+      "ignoreWhitespace": "Ignore whitespace",
+      "ignoreWhitespaceHint": "Hides changes that only touch spaces and indentation.",
+      "wordWrap": "Word wrap",
+      "sideBySide": "Side by side by default",
+      "tabWidth": "Tab width",
+      "hideByDefault": "Hide by default",
+      "hideHint": "Collapsed files can always be shown with \"Show anyway\".",
+      "generated": "Generated files",
+      "lockfiles": "Lockfiles",
+      "tests": "Tests"
+    },
+    "shortcuts": {
+      "title": "Shortcuts",
+      "change": "Change",
+      "reset": "Reset",
+      "pressKeys": "Press the keys…",
+      "pressKeysFor": "Press the keys for {which}…",
+      "next": "next",
+      "previous": "previous",
+      "refusedPlain": "A global shortcut needs a modifier.",
+      "refusedModifier": "Add a key to the modifier.",
+      "refusedTaken": "Already used by \"{name}\".",
+      "note": "Shortcuts follow the platform: ⌘ is Ctrl on Windows and Linux.",
+      "rows": {
+        "palette": "Command palette",
+        "graphFocus": "Graph focus",
+        "reviewFocus": "Review focus",
+        "toggleSidebar": "Toggle sidebar",
+        "diffFrom": "Diff from…",
+        "compareWith": "Compare with…",
+        "nextPreviousCommitOrFile": "Next / previous commit or file",
+        "nextPreviousHunk": "Next / previous hunk",
+        "markReviewed": "Mark reviewed",
+        "openTerminal": "Open in terminal",
+        "openEditor": "Open in editor",
+        "addWorktree": "Add worktree",
+        "settings": "Settings"
+      }
+    }
   }
 }

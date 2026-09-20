@@ -23,6 +23,8 @@ import { useSettingsStore } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
 import { useToastsStore } from "@/stores/toasts";
 import { useWorktreesStore } from "@/stores/worktrees";
+import { useSettingsScreenStore } from "@/stores/settingsScreen";
+import SettingsLayout from "@/settings/SettingsLayout.vue";
 import type { SidebarTab } from "@/stores/shell";
 import AddWorktreeDialog from "@/worktrees/AddWorktreeDialog.vue";
 import WorktreesLayout from "@/worktrees/WorktreesLayout.vue";
@@ -46,6 +48,7 @@ const index = useIndexStore();
 const settings = useSettingsStore();
 const toasts = useToastsStore();
 const worktrees = useWorktreesStore();
+const settingsScreen = useSettingsScreenStore();
 const reviewStore = useReviewStore();
 const picker = usePickerStore();
 const { openFolder } = useOpenFolder();
@@ -56,6 +59,7 @@ const graphLayout = ref<{ focusRows(): void } | null>(null);
 const reviewLayout = ref<{ focusFiles(): void } | null>(null);
 const compareLayout = ref<{ focusSides(): void } | null>(null);
 const worktreesLayout = ref<{ focusRows(): void } | null>(null);
+const settingsLayout = ref<{ focus(): void } | null>(null);
 
 const repositoryName = computed(() => (repo.repo ? baseName(repo.repo.root) : null));
 const reviewMode = computed(() => shell.layoutMode === "review" && repo.state.kind === "ready");
@@ -68,17 +72,23 @@ const compareMode = computed(
 const worktreesMode = computed(
   () => shell.layoutMode === "worktrees" && repo.state.kind === "ready",
 );
+const settingsMode = computed(() => shell.layoutMode === "settings");
 /**
- * One sidebar for every layout but review focus (which shows the rail), so switching layouts
- * keeps its filter, its lists and the focus of a tab that switched to the dashboard.
+ * One sidebar for every layout but review focus and the settings (which show the rail), so
+ * switching layouts keeps its filter, its lists and the focus of a tab that switched to the
+ * dashboard.
  */
 const showSidebar = computed(
-  () => repo.state.kind !== "empty" && !shell.sidebarCollapsed && !reviewMode.value,
+  () =>
+    repo.state.kind !== "empty" &&
+    !shell.sidebarCollapsed &&
+    !reviewMode.value &&
+    !settingsMode.value,
 );
 
-/** A rail icon expands the sidebar on its tab; from review focus that means leaving it. */
+/** A rail icon expands the sidebar on its tab; from review focus or the settings that means leaving them. */
 async function selectRailTab(tab: SidebarTab): Promise<void> {
-  if (reviewMode.value) await shell.setLayoutMode("graph");
+  if (reviewMode.value || settingsMode.value) await shell.setLayoutMode("graph");
   await shell.expandSidebar(tab);
 }
 
@@ -105,6 +115,7 @@ useShortcut("compare-with", compareWith);
 useShortcut("add-worktree", () => {
   if (repo.state.kind === "ready") worktrees.openAdd();
 });
+useShortcut("settings", () => void shell.setLayoutMode("settings"));
 useShortcut("diff-from", () => {
   if (repo.state.kind === "ready") picker.open({ kind: "diff-from" });
 });
@@ -126,6 +137,9 @@ onBeforeUnmount(() => {
 
 /** The index loads while the last repository reopens; a gone one leaves home flagged. */
 async function launch(): Promise<void> {
+  // The stored shortcut overrides and git executable apply before anything runs git.
+  settingsScreen.applyOverrides();
+  await settingsScreen.applyAtLaunch();
   void index.load();
   const last = settings.values.lastRepository;
   if (!last) return;
@@ -175,9 +189,12 @@ watch(compareMode, (on) => {
   if (on) void nextTick(() => compareLayout.value?.focusSides());
 });
 
-// The dashboard starts on its rows ("j/k worktrees").
+// The dashboard starts on its rows ("j/k worktrees"); the settings on their first field.
 watch(worktreesMode, (on) => {
   if (on) void nextTick(() => worktreesLayout.value?.focusRows());
+});
+watch(settingsMode, (on) => {
+  if (on) void nextTick(() => settingsLayout.value?.focus());
 });
 
 /** Switches to review focus, on `file` when the detail tree chose one. */
@@ -207,10 +224,15 @@ async function removeFromList(): Promise<void> {
     />
     <div class="relative flex min-h-0 flex-1">
       <Sidebar v-if="showSidebar" />
-      <SidebarRail v-else :active="shell.sidebarTab" @select="(tab) => void selectRailTab(tab)" />
+      <SidebarRail
+        v-else
+        :active="settingsMode ? null : shell.sidebarTab"
+        @select="(tab) => void selectRailTab(tab)"
+      />
       <ReviewFocusLayout v-if="reviewMode" ref="reviewLayout" />
       <CompareLayout v-else-if="compareMode" ref="compareLayout" />
       <WorktreesLayout v-else-if="worktreesMode" ref="worktreesLayout" />
+      <SettingsLayout v-else-if="settingsMode" ref="settingsLayout" />
       <GraphFocusLayout
         v-else
         ref="graphLayout"

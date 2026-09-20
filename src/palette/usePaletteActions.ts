@@ -98,6 +98,7 @@ export function usePaletteActions(): PaletteActions {
     swapComparison: () => compare.swap(),
     openComparisonInReview: () => compare.openInReview(),
     showWorktrees: () => worktrees.show(),
+    openSettings: () => shell.setLayoutMode("settings"),
     addWorktree: () => worktrees.openAdd(),
     hasPrunableWorktrees: () => worktrees.prunable.length > 0,
     pruneWorktrees: () => worktrees.askPrune(),
