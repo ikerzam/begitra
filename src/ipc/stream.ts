@@ -21,7 +21,10 @@ export interface StreamHandle {
   cancel(): Promise<void>;
 }
 
-type StreamCommand = Extract<CommandName, "walk_commits" | "walk_continue" | "diff">;
+type StreamCommand = Extract<
+  CommandName,
+  "walk_commits" | "walk_continue" | "diff" | "scan_folders"
+>;
 
 const envelope = streamMessageSchema(v.unknown());
 

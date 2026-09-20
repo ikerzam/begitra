@@ -12,10 +12,13 @@ import {
   DiffOptionsSchema,
   DiffPageSchema,
   DiffTargetSchema,
+  IndexEntrySchema,
   PongSchema,
   RefSchema,
   RepoChangedSchema,
   RepoSchema,
+  ScanMessageSchema,
+  ScanOptionsSchema,
   StatusEntrySchema,
   StatusOptionsSchema,
   WalkOptionsSchema,
@@ -51,6 +54,10 @@ const schemas: Record<string, v.GenericSchema> = {
   "status-options.json": v.array(StatusOptionsSchema),
   "diff-targets.json": v.array(DiffTargetSchema),
   "diff-options.json": v.array(DiffOptionsSchema),
+  "index-entries.json": v.array(IndexEntrySchema),
+  "scan-messages.json": v.array(ScanMessageSchema),
+  "scan-stream-page.json": streamMessageSchema(ScanMessageSchema),
+  "scan-options.json": v.array(ScanOptionsSchema),
 };
 
 function name(path: string): string {

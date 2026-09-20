@@ -7,9 +7,11 @@ import * as v from "valibot";
 import { call, newOpId } from "./invoke";
 import {
   DiffPageSchema,
+  IndexEntrySchema,
   PongSchema,
   RefSchema,
   RepoSchema,
+  ScanMessageSchema,
   StatusEntrySchema,
   WalkPageSchema,
   WorktreeSchema,
@@ -17,6 +19,8 @@ import {
   type DiffPage,
   type DiffTarget,
   type RepoChanged,
+  type ScanMessage,
+  type ScanOptions,
   type StatusOptions,
   type WalkOptions,
   type WalkPage,
@@ -118,4 +122,67 @@ export function diff(
 /** Opens `path` with the first template that spawns; resolves with the argv that ran. */
 export function openExternal(templates: string[], path: string) {
   return call("open_external", { templates, path }, v.array(v.string()));
+}
+
+// --- Discovery ------------------------------------------------------------------------------
+
+/** Folder names the scanner never enters unless the settings say otherwise. */
+export const defaultSkipFolders = [
+  "node_modules",
+  ".cache",
+  "target",
+  "dist",
+  "build",
+  "out",
+  ".venv",
+  "venv",
+  "__pycache__",
+  ".next",
+  ".nuxt",
+  ".turbo",
+  ".yarn",
+  ".pnpm-store",
+  ".gradle",
+  ".idea",
+  ".vscode",
+];
+export const defaultScanOptions: ScanOptions = { skip: defaultSkipFolders, maxDepth: 6 };
+
+/** Starts the filesystem watcher of the open repository; rejects with `watcher.unavailable`. */
+export function watchRepository(root: string) {
+  return call("watch_repository", { root }, v.null());
+}
+
+export function listRepositories() {
+  return call("list_repositories", {}, v.array(IndexEntrySchema));
+}
+
+export function pinRepository(path: string, pinned: boolean) {
+  return call("pin_repository", { path, pinned }, v.null());
+}
+
+export function forgetRepository(path: string) {
+  return call("forget_repository", { path }, v.null());
+}
+
+export function recordRepositoryOpen(path: string) {
+  return call("record_repository_open", { path }, v.null());
+}
+
+export function refreshRepository(path: string, opId = newOpId("refresh")) {
+  return call("refresh_repository", { path, opId }, IndexEntrySchema);
+}
+
+export function removeScanRoot(root: string) {
+  return call("remove_scan_root", { root }, v.null());
+}
+
+/** Scans `folders` and streams found entries, their summaries, counts and folder states. */
+export function scanFolders(
+  folders: string[],
+  onMessage: (message: ScanMessage, seq: number) => void,
+  options: ScanOptions = defaultScanOptions,
+  opId?: string,
+): StreamHandle {
+  return stream("scan_folders", { folders, options }, ScanMessageSchema, onMessage, opId);
 }

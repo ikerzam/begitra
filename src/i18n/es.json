@@ -242,6 +242,9 @@
     "timeout": "La operación tardó demasiado y se detuvo.",
     "gitFailed": "git devolvió un error. {message}",
     "spawnFailed": "No se pudo iniciar el comando. {message}",
+    "indexDatabase": "No se ha podido guardar la lista de repositorios. {message}",
+    "indexFolder": "No se ha podido escanear {path}. {message}",
+    "watcherUnavailable": "Los cambios en este repositorio no se detectarán automáticamente. {message}",
     "generic": "{message}"
   }
 }

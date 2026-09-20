@@ -242,6 +242,9 @@
     "timeout": "The operation took too long and was stopped.",
     "gitFailed": "git reported an error. {message}",
     "spawnFailed": "The command could not be started. {message}",
+    "indexDatabase": "The repository list could not be saved. {message}",
+    "indexFolder": "Couldn't scan {path}. {message}",
+    "watcherUnavailable": "Changes in this repository will not be detected automatically. {message}",
     "generic": "{message}"
   }
 }

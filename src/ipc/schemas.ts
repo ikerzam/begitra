@@ -35,6 +35,9 @@ export const errorCodes = [
   "op.unknown_walk",
   "external.spawn_failed",
   "settings.io",
+  "index.database",
+  "index.folder",
+  "watcher.unavailable",
   "internal",
 ] as const;
 export type ErrorCode = (typeof errorCodes)[number];
@@ -264,6 +267,54 @@ export const RepoChangedSchema = v.object({
 });
 export type RepoChanged = v.InferOutput<typeof RepoChangedSchema>;
 
+export const RepoKindSchema = v.picklist(["main", "worktree"]);
+export type RepoKind = v.InferOutput<typeof RepoKindSchema>;
+
+export const RepoSummarySchema = v.object({
+  currentBranch: v.nullable(v.string()),
+  detached: v.boolean(),
+  ahead: v.nullable(count),
+  behind: v.nullable(count),
+  lastCommitAt: v.nullable(v.number()),
+  dirty: v.nullable(v.boolean()),
+});
+export type RepoSummary = v.InferOutput<typeof RepoSummarySchema>;
+
+export const IndexEntrySchema = v.object({
+  path: v.string(),
+  name: v.string(),
+  kind: RepoKindSchema,
+  parentPath: v.nullable(v.string()),
+  scanRoot: v.nullable(v.string()),
+  summary: RepoSummarySchema,
+  pinned: v.boolean(),
+  lastOpenedAt: v.nullable(v.number()),
+  refreshedAt: v.nullable(v.number()),
+  missing: v.boolean(),
+});
+export type IndexEntry = v.InferOutput<typeof IndexEntrySchema>;
+
+export const ScanOptionsSchema = v.object({
+  skip: v.array(v.string()),
+  maxDepth: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(32)),
+});
+export type ScanOptions = v.InferOutput<typeof ScanOptionsSchema>;
+
+export const ScanMessageSchema = v.variant("kind", [
+  v.object({ kind: v.literal("folder-started"), folder: v.string() }),
+  v.object({ kind: v.literal("progress"), folder: v.string(), scanned: count, found: count }),
+  v.object({ kind: v.literal("found"), entry: IndexEntrySchema }),
+  v.object({ kind: v.literal("updated"), entry: IndexEntrySchema }),
+  v.object({
+    kind: v.literal("folder-done"),
+    folder: v.string(),
+    found: count,
+    missing: v.array(v.string()),
+  }),
+  v.object({ kind: v.literal("folder-error"), folder: v.string(), reason: v.string() }),
+]);
+export type ScanMessage = v.InferOutput<typeof ScanMessageSchema>;
+
 export const PongSchema = v.object({
   message: v.string(),
   backend: v.string(),
@@ -302,5 +353,17 @@ export const commandArgs = {
   close_walk: v.object({ walkId: v.string() }),
   diff: v.object({ repo: path, target: DiffTargetSchema, options: DiffOptionsSchema, opId }),
   open_external: v.object({ templates: v.pipe(v.array(v.string()), v.minLength(1)), path }),
+  watch_repository: v.object({ root: path }),
+  list_repositories: v.object({}),
+  pin_repository: v.object({ path, pinned: v.boolean() }),
+  forget_repository: v.object({ path }),
+  record_repository_open: v.object({ path }),
+  refresh_repository: v.object({ path, opId }),
+  remove_scan_root: v.object({ root: path }),
+  scan_folders: v.object({
+    folders: v.array(path),
+    options: ScanOptionsSchema,
+    opId,
+  }),
 } as const;
 export type CommandName = keyof typeof commandArgs;

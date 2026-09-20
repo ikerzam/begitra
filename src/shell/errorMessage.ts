@@ -26,6 +26,12 @@ export function errorText(error: Pick<AppError, "code" | "message">, path = ""):
       return { key: "errors.gitFailed", params };
     case "external.spawn_failed":
       return { key: "errors.spawnFailed", params };
+    case "index.database":
+      return { key: "errors.indexDatabase", params };
+    case "index.folder":
+      return { key: "errors.indexFolder", params };
+    case "watcher.unavailable":
+      return { key: "errors.watcherUnavailable", params };
     default:
       return { key: "errors.generic", params };
   }
