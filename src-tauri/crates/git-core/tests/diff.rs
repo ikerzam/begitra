@@ -967,3 +967,89 @@ fn large_files_skip_the_intra_line_spans() {
         .flat_map(|h| h.lines.iter())
         .all(|l| l.spans.is_empty()));
 }
+
+#[test]
+fn sparse_checkout_files_off_the_disk_are_not_deletions() {
+    let f = Fixture::basic();
+    // A sparse checkout keeps only `src`; the docs stay in the index with `skip-worktree`
+    // and off the disk, and git lists nothing.
+    f.git(&["sparse-checkout", "set", "--no-cone", "src"]);
+    assert!(f
+        .git(&["ls-files", "-t"])
+        .lines()
+        .any(|line| line.starts_with("S ")));
+    for base in [WorkingTreeBase::Index, WorkingTreeBase::Head] {
+        let set = diff(&f, &DiffTarget::WorkingTree { base: base.clone() });
+        assert_eq!(
+            engine_name_status(&set),
+            Vec::<NameStatus>::new(),
+            "{base:?}"
+        );
+    }
+    // An edit inside the checkout is still the only change.
+    f.append("src/lib.rs", "// edited\n");
+    let index = diff(
+        &f,
+        &DiffTarget::WorkingTree {
+            base: WorkingTreeBase::Index,
+        },
+    );
+    assert_eq!(
+        engine_name_status(&index),
+        git_name_status(&f, &["diff", "--name-status"])
+    );
+    assert_eq!(paths(&index), ["src/lib.rs"]);
+}
+
+#[test]
+fn intent_to_add_is_an_addition_against_the_index() {
+    let f = Fixture::basic();
+    f.write("ita.txt", "new\n");
+    f.git(&["add", "-N", "ita.txt"]);
+    let index = diff(
+        &f,
+        &DiffTarget::WorkingTree {
+            base: WorkingTreeBase::Index,
+        },
+    );
+    assert_eq!(
+        engine_name_status(&index),
+        git_name_status(&f, &["diff", "--name-status"])
+    );
+    let added = file(&index, "ita.txt");
+    assert_eq!(added.status, ChangeKind::Added);
+    assert_eq!((added.additions, added.deletions), (1, 0));
+}
+
+#[test]
+fn rename_similarity_counts_whitespace_like_git() {
+    let mut f = Fixture::basic();
+    let lines: Vec<String> = (1..=20)
+        .map(|i| format!("pub fn f{i}() -> u32 {{ {i} }}"))
+        .collect();
+    f.write("src/lib.rs", &(lines.join("\n") + "\n"));
+    f.write("src/util.rs", &(lines.join("\n") + "\n"));
+    f.commit("grow");
+    // A whole-file reindent under a new name: git sees an add and a delete, since its
+    // similarity counts every byte.
+    let reindented: Vec<String> = lines.iter().map(|line| format!("    {line}")).collect();
+    f.remove("src/lib.rs");
+    f.write("src/core.rs", &(reindented.join("\n") + "\n"));
+    // Four lines reindented and one changed keeps enough in common for a rename.
+    let mut partial = lines.clone();
+    for line in partial.iter_mut().take(4) {
+        *line = format!("    {line}");
+    }
+    partial[10] = "pub fn f11() -> u32 { 1100 }".to_owned();
+    f.remove("src/util.rs");
+    f.write("src/tools.rs", &(partial.join("\n") + "\n"));
+    f.commit("move");
+    let set = diff(&f, &commit("HEAD"));
+    let mut listed = engine_name_status(&set);
+    listed.sort();
+    let mut expected = git_name_status(&f, &["diff", "-M", "--name-status", "HEAD~1", "HEAD"]);
+    expected.sort();
+    assert_eq!(listed, expected);
+    assert_eq!(file(&set, "src/core.rs").status, ChangeKind::Added);
+    assert_eq!(file(&set, "src/tools.rs").status, ChangeKind::Renamed);
+}

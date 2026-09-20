@@ -58,10 +58,28 @@ pub(super) fn list(
                 // `git add -N` records an intent to add: git shows the path as an unstaged
                 // addition (`.A`), while libgit2 reports INDEX_NEW plus WT_MODIFIED.
                 if mapped.staged == Some(ChangeKind::Added)
-                    && intent_to_add(&index_file, &mapped.path)
+                    && super::index_flag(
+                        &index_file,
+                        &mapped.path,
+                        git2::IndexEntryExtendedFlag::INTENT_TO_ADD,
+                    )
                 {
                     mapped.staged = None;
                     mapped.unstaged = Some(ChangeKind::Added);
+                }
+                // A sparse checkout leaves `skip-worktree` files off the disk on purpose:
+                // git lists nothing, libgit2 an unstaged deletion.
+                if mapped.unstaged == Some(ChangeKind::Deleted)
+                    && super::index_flag(
+                        &index_file,
+                        &mapped.path,
+                        git2::IndexEntryExtendedFlag::SKIP_WORKTREE,
+                    )
+                {
+                    if mapped.staged.is_none() {
+                        continue;
+                    }
+                    mapped.unstaged = None;
                 }
                 entries.push(mapped);
             }
@@ -69,16 +87,6 @@ pub(super) fn list(
         entries.sort_unstable_by(|a, b| a.path.as_bytes().cmp(b.path.as_bytes()));
         Ok(entries)
     })
-}
-
-/// Whether the index entry of `path` carries the intent-to-add flag (`git add -N`).
-fn intent_to_add(index: &git2::Index, path: &str) -> bool {
-    index
-        .get_path(std::path::Path::new(path), 0)
-        .is_some_and(|entry| {
-            git2::IndexEntryExtendedFlag::from_bits_truncate(entry.flags_extended)
-                .contains(git2::IndexEntryExtendedFlag::INTENT_TO_ADD)
-        })
 }
 
 /// Which side of a delta a path is read from.

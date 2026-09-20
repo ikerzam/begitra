@@ -403,3 +403,15 @@ fn a_truncated_head_is_reported_as_corrupt() {
         other => panic!("unexpected error {other:?}"),
     }
 }
+
+#[test]
+fn sparse_checkout_files_off_the_disk_are_not_listed() {
+    let f = Fixture::basic();
+    f.git(&["sparse-checkout", "set", "--no-cone", "src"]);
+    let engine = Git2Engine::open(&f.root).expect("open");
+    let entries = engine
+        .status(&StatusOptions::default(), &Cancel::never())
+        .expect("status");
+    assert!(entries.is_empty(), "{entries:?}");
+    assert_eq!(f.git(&["status", "--porcelain"]), "");
+}

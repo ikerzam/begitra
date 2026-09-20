@@ -218,6 +218,21 @@ fn normalize(path: &Path) -> PathBuf {
     path.components().collect()
 }
 
+/// Whether the stage-0 index entry of `path` carries `flag` (`skip-worktree` of a sparse
+/// checkout, `intent-to-add` of `git add -N`): the flags git honours and libgit2's diff and
+/// status do not.
+pub(super) fn index_flag(
+    index: &git2::Index,
+    path: &str,
+    flag: git2::IndexEntryExtendedFlag,
+) -> bool {
+    index
+        .get_path(std::path::Path::new(path), 0)
+        .is_some_and(|entry| {
+            git2::IndexEntryExtendedFlag::from_bits_truncate(entry.flags_extended).contains(flag)
+        })
+}
+
 /// Resolves `revision` as `git rev-parse` would and peels it to a commit id.
 ///
 /// Unknown revisions and revisions that name a tree or a blob fail with

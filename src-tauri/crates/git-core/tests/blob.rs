@@ -73,7 +73,15 @@ fn working_tree_reads_stay_inside_the_repository() {
         .read_blob(&BlobAt::WorkingTree, "notes.txt")
         .expect("read");
     assert_eq!(file.text.as_deref(), Some("unstaged\n"));
-    for path in ["../outside.txt", "/etc/hosts", "src", "missing.txt"] {
+    for path in [
+        "../outside.txt",
+        "/etc/hosts",
+        "src",
+        "missing.txt",
+        ".git/config",
+        ".git/HEAD",
+        "",
+    ] {
         let error = engine
             .read_blob(&BlobAt::WorkingTree, path)
             .expect_err(path);
@@ -107,4 +115,49 @@ fn files_over_the_limit_are_refused_with_the_size() {
         }
         other => panic!("expected blob.too_large, got {other:?}"),
     }
+}
+
+#[test]
+fn files_over_the_limit_at_a_revision_are_refused_without_being_read() {
+    let mut f = Fixture::basic();
+    let big = vec![b'x'; 21 * 1024 * 1024];
+    fs::write(f.root.join("big.bin"), &big).expect("write big file");
+    f.commit("add a big file");
+    let engine = engine(&f);
+    match engine.read_blob(&at("HEAD"), "big.bin") {
+        Err(GitError::BlobTooLarge { size, limit }) => {
+            assert_eq!(size, big.len() as u64);
+            assert_eq!(limit, 20 * 1024 * 1024);
+        }
+        other => panic!("expected blob.too_large, got {other:?}"),
+    }
+}
+
+#[test]
+fn binary_detection_agrees_on_both_sides_and_text_decodes_lossily() {
+    let mut f = Fixture::basic();
+    // Control characters without a NUL are text for git; a NUL makes a file binary.
+    fs::write(f.root.join("ctrl.txt"), vec![1u8; 40]).expect("ctrl");
+    fs::write(f.root.join("zero.bin"), b"ab\0cd").expect("nul");
+    // Latin-1 bytes are not UTF-8: the text keeps a replacement character.
+    fs::write(f.root.join("latin1.txt"), b"caf\xe9\n").expect("latin1");
+    f.commit("odd files");
+    let engine = engine(&f);
+    for (path, binary) in [
+        ("ctrl.txt", false),
+        ("zero.bin", true),
+        ("latin1.txt", false),
+    ] {
+        let committed = engine.read_blob(&at("HEAD"), path).expect(path);
+        let on_disk = engine.read_blob(&BlobAt::WorkingTree, path).expect(path);
+        assert_eq!(committed.is_binary, binary, "{path} at HEAD");
+        assert_eq!(on_disk.is_binary, binary, "{path} on disk");
+        assert_eq!(committed.text, on_disk.text, "{path}");
+        assert_eq!(committed.bytes, on_disk.bytes, "{path}");
+    }
+    let latin = engine
+        .read_blob(&BlobAt::WorkingTree, "latin1.txt")
+        .expect("latin1");
+    assert_eq!(latin.text.as_deref(), Some("caf\u{FFFD}\n"));
+    assert_eq!(latin.size, 5);
 }

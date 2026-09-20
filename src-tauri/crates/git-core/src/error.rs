@@ -47,6 +47,14 @@ pub enum GitError {
         /// The limit in bytes.
         limit: u64,
     },
+    /// A working tree file exists but could not be read (a lock, permissions).
+    #[error("could not read {path}: {reason}")]
+    BlobUnreadable {
+        /// Repository-relative path of the file.
+        path: String,
+        /// The operating system's reason.
+        reason: String,
+    },
     /// A linked worktree's folder is missing from disk.
     #[error("the worktree folder {0} is missing")]
     WorktreeMissingFolder(PathBuf),
@@ -79,6 +87,7 @@ impl GitError {
             GitError::UnrelatedHistories { .. } => "refs.unrelated_histories",
             GitError::BlobMissing(_) => "diff.blob_missing",
             GitError::BlobTooLarge { .. } => "blob.too_large",
+            GitError::BlobUnreadable { .. } => "blob.unreadable",
             GitError::WorktreeMissingFolder(_) => "worktree.missing_folder",
             GitError::Cli { .. } => "git.cli_failed",
             GitError::Cancelled => "op.cancelled",
@@ -87,7 +96,7 @@ impl GitError {
     }
 
     /// Every code an engine error can carry, for the tests that keep the IPC list in sync.
-    pub const CODES: [&'static str; 11] = [
+    pub const CODES: [&'static str; 12] = [
         "repo.not_found",
         "repo.invalid",
         "repo.corrupt_object",
@@ -95,6 +104,7 @@ impl GitError {
         "refs.unrelated_histories",
         "diff.blob_missing",
         "blob.too_large",
+        "blob.unreadable",
         "worktree.missing_folder",
         "git.cli_failed",
         "op.cancelled",
@@ -173,6 +183,10 @@ mod tests {
             },
             GitError::BlobMissing(String::new()),
             GitError::BlobTooLarge { size: 0, limit: 0 },
+            GitError::BlobUnreadable {
+                path: String::new(),
+                reason: String::new(),
+            },
             GitError::WorktreeMissingFolder(PathBuf::from("x")),
             GitError::Cli {
                 command: String::new(),

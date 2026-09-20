@@ -22,7 +22,7 @@ use std::path::Path;
 use git2::{
     AttrCheckFlags, AttrValue, Commit, Delta, Diff, DiffDelta, DiffFindOptions, DiffHunk,
     DiffLine as Git2DiffLine, DiffLineType, DiffOptions as Git2DiffOptions, ErrorCode, FileMode,
-    ObjectType, Oid, Patch, Repository, Tree,
+    IndexEntryExtendedFlag, ObjectType, Oid, Patch, Repository, Tree,
 };
 
 use super::Git2Engine;
@@ -51,10 +51,13 @@ pub(super) fn compute(
         if options.renames {
             let threshold = u16::from(options.similarity.min(100));
             let mut find = DiffFindOptions::new();
+            // libgit2 would ignore whitespace in the similarity score; git does not, so a
+            // reindented file is an add and a delete for both.
             find.renames(true)
                 .copies(true)
                 .rename_threshold(threshold)
-                .copy_threshold(threshold);
+                .copy_threshold(threshold)
+                .dont_ignore_whitespace(true);
             let found = diff.find_similar(Some(&mut find));
             found.map_err(|error| blob_error(repo, diff.deltas(), probe_new_side, error))?;
         }
@@ -391,14 +394,38 @@ fn collect(
     let mut files = Vec::with_capacity(count);
     let mut additions: u32 = 0;
     let mut deletions: u32 = 0;
+    // The index flags git honours and libgit2 does not: a sparse checkout's absent files
+    // (`skip-worktree`) are not deletions, and `git add -N` is an addition.
+    let index_file = if working_tree {
+        Some(repo.index()?)
+    } else {
+        None
+    };
     for index in 0..count {
         cancel.check()?;
         let Some(delta) = diff.get_delta(index) else {
             continue;
         };
-        let Some(status) = change_kind(delta.status()) else {
+        let Some(mut status) = change_kind(delta.status()) else {
             continue;
         };
+        if let Some(index_file) = &index_file {
+            let path = delta
+                .old_file()
+                .path()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if status == ChangeKind::Deleted
+                && super::index_flag(index_file, &path, IndexEntryExtendedFlag::SKIP_WORKTREE)
+            {
+                continue;
+            }
+            if status == ChangeKind::Modified
+                && super::index_flag(index_file, &path, IndexEntryExtendedFlag::INTENT_TO_ADD)
+            {
+                status = ChangeKind::Added;
+            }
+        }
         let patch = Patch::from_diff(diff, index).map_err(|error| {
             blob_error(
                 repo,

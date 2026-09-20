@@ -1,7 +1,9 @@
 //! Reading one file whole, at a revision or in the working tree, for the image diff and
-//! "Show new file": bounded by [`BLOB_LIMIT`], text or bytes by libgit2's binary heuristic.
+//! "Show new file": bounded by [`BLOB_LIMIT`], text or bytes by git's binary heuristic (a
+//! NUL in the first 8,000 bytes), the same on both sides.
 
 use std::fs;
+use std::io;
 use std::path::{Component, Path, PathBuf};
 
 use git2::{ObjectType, Repository};
@@ -14,19 +16,29 @@ use crate::types::{BlobAt, BlobContent};
 /// Largest file read whole, in bytes.
 pub const BLOB_LIMIT: u64 = 20 * 1024 * 1024;
 
-/// Bytes libgit2 inspects for a NUL to call a blob binary.
+/// Bytes git inspects for a NUL to call a blob binary.
 const BINARY_PROBE: usize = 8_000;
+
+/// Git's heuristic: a NUL in the first 8,000 bytes makes a file binary.
+fn looks_binary(bytes: &[u8]) -> bool {
+    bytes.iter().take(BINARY_PROBE).any(|&b| b == 0)
+}
 
 /// Reads `path` at `at`; see [`crate::engine::GitEngine::read_blob`].
 #[tracing::instrument(level = "debug", skip_all, fields(path))]
 pub(super) fn read(engine: &Git2Engine, at: &BlobAt, path: &str) -> GitResult<BlobContent> {
     match at {
         BlobAt::WorkingTree => read_working_tree(&engine.repo().root, path),
-        BlobAt::Revision { rev } => engine.with_repo(|repo| read_at(repo, rev, path)),
+        // The bytes come out from under the repository lock; decoding and encoding (a 20 MB
+        // image is 27 MB of base64) happen outside it.
+        BlobAt::Revision { rev } => engine
+            .with_repo(|repo| bytes_at(repo, rev, path))
+            .map(content),
     }
 }
 
-fn read_at(repo: &Repository, rev: &str, path: &str) -> GitResult<BlobContent> {
+/// The raw bytes of `path` at `rev`, bounded by [`BLOB_LIMIT`].
+fn bytes_at(repo: &Repository, rev: &str, path: &str) -> GitResult<Vec<u8>> {
     let spec = format!("{rev}:{path}");
     let oid = super::resolve_commit(repo, rev)?;
     let commit = repo
@@ -41,28 +53,41 @@ fn read_at(repo: &Repository, rev: &str, path: &str) -> GitResult<BlobContent> {
     if entry.kind() != Some(ObjectType::Blob) {
         return Err(GitError::RefNotFound(spec));
     }
-    let blob = repo
-        .find_blob(entry.id())
+    // The header tells the size without inflating the object, so a huge blob is refused
+    // before it is read.
+    let (size, _) = repo
+        .odb()
+        .and_then(|odb| odb.read_header(entry.id()))
         .map_err(|error| GitError::object(&entry.id().to_string(), error))?;
-    let size = blob.size() as u64;
+    let size = size as u64;
     if size > BLOB_LIMIT {
         return Err(GitError::BlobTooLarge {
             size,
             limit: BLOB_LIMIT,
         });
     }
-    Ok(content(blob.content(), blob.is_binary()))
+    let blob = repo
+        .find_blob(entry.id())
+        .map_err(|error| GitError::object(&entry.id().to_string(), error))?;
+    Ok(blob.content().to_vec())
 }
 
 /// Reads the file from disk; the path must stay inside the working tree once resolved, so a
-/// symlink that leaves it is refused like an unknown path.
+/// symlink that leaves it is refused like an unknown path, and nothing under `.git` is read.
 fn read_working_tree(root: &Path, path: &str) -> GitResult<BlobContent> {
     let spec = format!("working tree:{path}");
     let relative = Path::new(path);
+    let mut components = relative.components();
+    let first = components.next();
     if relative.is_absolute()
-        || relative
-            .components()
-            .any(|c| matches!(c, Component::ParentDir | Component::Prefix(_)))
+        || first.is_none()
+        || matches!(first, Some(Component::Normal(name)) if name.eq_ignore_ascii_case(".git"))
+        || relative.components().any(|c| {
+            matches!(
+                c,
+                Component::ParentDir | Component::Prefix(_) | Component::RootDir
+            )
+        })
     {
         return Err(GitError::RefNotFound(spec));
     }
@@ -83,25 +108,35 @@ fn read_working_tree(root: &Path, path: &str) -> GitResult<BlobContent> {
             limit: BLOB_LIMIT,
         });
     }
-    let bytes = fs::read(&resolved).map_err(|error| GitError::Git(error.to_string()))?;
-    let binary = bytes.iter().take(BINARY_PROBE).any(|&b| b == 0);
-    Ok(content(&bytes, binary))
+    let bytes = fs::read(&resolved).map_err(|error| match error.kind() {
+        io::ErrorKind::NotFound => GitError::RefNotFound(spec.clone()),
+        _ => GitError::BlobUnreadable {
+            path: path.to_owned(),
+            reason: error.to_string(),
+        },
+    })?;
+    Ok(content(bytes))
 }
 
-fn content(bytes: &[u8], binary: bool) -> BlobContent {
+/// The content as text (decoded lossily, moved when already valid UTF-8) or as base64 bytes.
+fn content(bytes: Vec<u8>) -> BlobContent {
     let size = bytes.len() as u64;
-    if binary {
+    if looks_binary(&bytes) {
         BlobContent {
             size,
             is_binary: true,
             text: None,
-            bytes: Some(base64(bytes)),
+            bytes: Some(base64(&bytes)),
         }
     } else {
+        let text = match String::from_utf8(bytes) {
+            Ok(text) => text,
+            Err(error) => String::from_utf8_lossy(error.as_bytes()).into_owned(),
+        };
         BlobContent {
             size,
             is_binary: false,
-            text: Some(String::from_utf8_lossy(bytes).into_owned()),
+            text: Some(text),
             bytes: None,
         }
     }
@@ -148,11 +183,13 @@ mod tests {
 
     #[test]
     fn binary_content_carries_bytes_and_text_content_a_string() {
-        let text = content(b"hello\n", false);
+        let text = content(b"hello\n".to_vec());
         assert_eq!(text.text.as_deref(), Some("hello\n"));
         assert!(text.bytes.is_none() && !text.is_binary && text.size == 6);
-        let binary = content(&[0x89, b'P', b'N', b'G', 0], true);
+        let binary = content(vec![0x89, b'P', b'N', b'G', 0]);
         assert!(binary.is_binary && binary.text.is_none());
         assert_eq!(binary.bytes.as_deref(), Some("iVBORwA="));
+        // Control characters without a NUL stay text, as for git.
+        assert!(!content(vec![1u8; 40]).is_binary);
     }
 }
