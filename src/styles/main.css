@@ -1,4 +1,8 @@
 @import "tailwindcss";
+/* The class scanner must never enter the benchmark repositories or the Rust build folder
+   (millions of files): scanning them froze the dev server for a minute per start. */
+@source not "../../bench";
+@source not "../../src-tauri";
 @import "./tokens.css";
 @import "./tailwind-theme.css";
 

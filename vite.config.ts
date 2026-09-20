@@ -15,6 +15,14 @@ export default defineConfig(() => ({
     },
   },
 
+  // The dependency scanner otherwise globs the whole project for `*.html` entries, which
+  // walks the Rust `target` folder and the benchmark repositories under `bench/repos`
+  // (millions of files): the dev server took minutes to answer its first request and the
+  // window stayed blank. The one entry is the app's HTML.
+  optimizeDeps: {
+    entries: ["index.html"],
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors
@@ -32,8 +40,8 @@ export default defineConfig(() => ({
         }
       : undefined,
     watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      // 3. tell Vite to ignore watching `src-tauri` and the benchmark repositories
+      ignored: ["**/src-tauri/**", "**/bench/repos/**", "**/dist/**"],
     },
   },
 

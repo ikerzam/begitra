@@ -8,13 +8,16 @@ use crate::Error;
 pub const REAL_URL: &str = "https://github.com/torvalds/linux.git";
 
 /// The folder holding every benchmark repository: `BEGIRA_BENCH_REPOS` when set, otherwise
-/// `bench/repos` at the repository root.
+/// `begira-bench-repos` beside the repository root. Outside the project on purpose: inside
+/// it, the dev server's dependency scanner and Tailwind's class scanner walked the kernel
+/// clone and the synthetic tree (millions of files) at every start and the window stayed
+/// blank for a minute.
 pub fn repos_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("BEGIRA_BENCH_REPOS") {
         return PathBuf::from(dir);
     }
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../bench/repos")
+        .join("../../../../begira-bench-repos")
         .components()
         .collect()
 }
@@ -49,7 +52,7 @@ pub fn is_repository(path: &Path) -> bool {
 
 /// Branch with one commit on top of HEAD that rewrites a large text file, created on demand
 /// by [`ensure_large_file_branch`] for the large-file diff benchmark. The benchmark
-/// repositories are the project's own fixtures (`bench/repos` or `BEGIRA_BENCH_REPOS`), so
+/// repositories are the project's own fixtures (`begira-bench-repos` beside the repository, or `BEGIRA_BENCH_REPOS`), so
 /// the bench may add a ref to them; nothing points it at a user repository.
 pub const LARGE_FILE_BRANCH: &str = "bench/large-file";
 
