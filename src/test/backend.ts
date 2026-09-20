@@ -5,7 +5,17 @@
 import type { Channel } from "@tauri-apps/api/core";
 import { mockIPC } from "@tauri-apps/api/mocks";
 
-import type { CommitNode, WalkFilter, WalkScope } from "@/ipc/schemas";
+import type {
+  Annotation,
+  AnnotationWrite,
+  CommitNode,
+  DiffLine,
+  DiffTarget,
+  FileChange,
+  Hunk,
+  WalkFilter,
+  WalkScope,
+} from "@/ipc/schemas";
 
 export interface Call {
   cmd: string;
@@ -20,6 +30,82 @@ export interface FakeBackendOptions {
   failAfterPages?: number;
   /** Commits a ref scope lists (the first N). Default 10. */
   refScopeCommits?: number;
+  /** Every diff fails with `diff.blob_missing`. */
+  failDiff?: boolean;
+  /** Annotation writes reject. */
+  failAnnotations?: boolean;
+  /** The annotations the index holds at start, per target key. */
+  annotations?: Record<string, Annotation[]>;
+}
+
+/** The files a diff of `target` lists: two text files, an image and a generated one. */
+export function fakeFiles(target: DiffTarget): FileChange[] {
+  const tag = target.kind === "commit" ? target.hash.slice(-2) : target.kind;
+  const line = (kind: "context" | "added" | "removed", n: number, text: string): DiffLine => ({
+    kind,
+    oldNumber: kind === "added" ? null : n,
+    newNumber: kind === "removed" ? null : n,
+    text,
+    spans: [],
+    noNewline: false,
+  });
+  const hunk: Hunk = {
+    oldStart: 1,
+    oldLines: 2,
+    newStart: 1,
+    newLines: 3,
+    header: "@@ -1,2 +1,3 @@ fn main",
+    lines: [
+      line("context", 1, "fn main() {"),
+      line("removed", 2, "    old();"),
+      line("added", 2, "    new();"),
+      line("added", 3, "    more();"),
+    ],
+  };
+  const base = {
+    oldPath: null,
+    similarity: null,
+    isBinary: false,
+    isLarge: false,
+    isGenerated: false,
+    isTest: false,
+  };
+  return [
+    {
+      ...base,
+      status: "modified",
+      path: `src/${tag}.rs`,
+      additions: 2,
+      deletions: 1,
+      hunks: [hunk],
+    },
+    {
+      ...base,
+      status: "added",
+      path: "src/lib.ts",
+      additions: 5,
+      deletions: 0,
+      hunks: [{ ...hunk, header: "@@ -0,0 +1,3 @@" }],
+    },
+    {
+      ...base,
+      status: "added",
+      path: "docs/tiles-worker.png",
+      additions: 0,
+      deletions: 0,
+      hunks: [],
+      isBinary: true,
+    },
+    {
+      ...base,
+      status: "modified",
+      path: "pnpm-lock.yaml",
+      additions: 212,
+      deletions: 190,
+      hunks: [hunk],
+      isGenerated: true,
+    },
+  ];
 }
 
 const AUTHORS = ["iker", "claude", "ane"] as const;
@@ -47,6 +133,7 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
   const total = options.commits ?? 30;
   const pageSize = options.pageSize ?? 500;
   const all = Array.from({ length: total }, (_, i) => fakeCommit(i));
+  const annotations: Record<string, Annotation[]> = options.annotations ?? {};
   const send = (channel: Channel<unknown>, messages: unknown[]) => {
     queueMicrotask(() => {
       for (const message of messages) channel.onmessage(message);
@@ -150,12 +237,89 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
         const scope = args["scope"] as WalkScope;
         return { count: listFor(scope, {}).length, capped: false };
       }
-      case "diff":
+      case "diff": {
+        if (options.failDiff) {
+          send(args["onPage"] as Channel<unknown>, [
+            {
+              kind: "error",
+              error: {
+                code: "diff.blob_missing",
+                message: "blob 4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e is missing",
+                detail: "fatal: unable to read 4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e",
+              },
+            },
+          ]);
+          return null;
+        }
+        const files = fakeFiles(args["target"] as DiffTarget);
+        const additions = files.reduce((n, f) => n + f.additions, 0);
+        const deletions = files.reduce((n, f) => n + f.deletions, 0);
         send(args["onPage"] as Channel<unknown>, [
-          { kind: "page", seq: 0, data: { additions: 0, deletions: 0, totalFiles: 0, files: [] } },
+          {
+            kind: "page",
+            seq: 0,
+            data: { additions, deletions, totalFiles: files.length, files },
+          },
           { kind: "done" },
         ]);
         return null;
+      }
+      case "read_blob": {
+        const path = args["path"] as string;
+        if (path.endsWith(".png")) {
+          return { size: 5, isBinary: true, bytes: "iVBORwA=" };
+        }
+        return { size: 12, isBinary: false, text: "fn main() {\n    new();\n    more();\n}\n" };
+      }
+      case "highlight_file":
+        return {
+          syntax: "Rust",
+          lines: [
+            [{ start: 0, end: 2, class: "keyword" }],
+            [],
+            [{ start: 4, end: 8, class: "function" }],
+            [],
+          ],
+        };
+      case "file_symbols":
+        return [{ kind: "function", name: "main", startLine: 1, endLine: 4 }];
+      case "list_annotations":
+        return annotations[args["target"] as string] ?? [];
+      case "set_annotation": {
+        if (options.failAnnotations) {
+          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+          return Promise.reject({ code: "index.database", message: "database locked" });
+        }
+        const target = args["target"] as string;
+        const write = args["annotation"] as AnnotationWrite;
+        const list = (annotations[target] ??= []);
+        const index = list.findIndex(
+          (a) => a.path === write.path && a.hunk === write.hunk && a.kind === write.kind,
+        );
+        const stored: Annotation = {
+          ...write,
+          hunk: write.hunk ?? "",
+          value: write.value ?? "",
+          updatedAt: 1,
+        };
+        if (index >= 0) list[index] = stored;
+        else list.push(stored);
+        return null;
+      }
+      case "delete_annotation": {
+        if (options.failAnnotations) {
+          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+          return Promise.reject({ code: "index.database", message: "database locked" });
+        }
+        const target = args["target"] as string;
+        const write = args["annotation"] as AnnotationWrite;
+        const list = annotations[target] ?? [];
+        const index = list.findIndex(
+          (a) => a.path === write.path && a.hunk === write.hunk && a.kind === write.kind,
+        );
+        if (index >= 0) list.splice(index, 1);
+        return index >= 0;
+      }
       case "list_worktrees":
         return [];
       case "watch_repository":

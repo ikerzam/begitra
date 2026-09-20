@@ -18,6 +18,7 @@ export function fakeContext(): Record<string, unknown> {
     arc: noop,
     fill: noop,
     fillText: noop,
+    measureText: () => ({ width: 7.2 }),
     lineWidth: 0,
     lineCap: "butt",
     strokeStyle: "",

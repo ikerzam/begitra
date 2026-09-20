@@ -121,13 +121,17 @@
     "detached": "detached HEAD",
     "repositories": "{n} repository | {n} repositories",
     "historyStopped": "History stopped at {hash}",
-    "historyStoppedEarly": "History stopped"
+    "historyStoppedEarly": "History stopped",
+    "diffFailed": "Diff failed for {n} file | Diff failed for {n} files",
+    "diffFailedAll": "Diff failed",
+    "symbol": "At {name}"
   },
   "operations": {
     "opening": "Opening {name}",
     "loadingHistory": "Loading history",
     "loadingDiff": "Computing diff for {hash}",
-    "scanning": "Scanning {folder}"
+    "scanning": "Scanning {folder}",
+    "computingDiff": "Computing diff for {target}"
   },
   "home": {
     "title": "Repositories",
@@ -268,11 +272,10 @@
     "deleted": "{n} deleted",
     "progress": "Review progress",
     "reviewed": "{done} of {total} files reviewed",
-    "largeFile": "This file changes {n} lines. Showing it all can be slow.",
+    "largeFile": "Over 5,000 lines or 1 MB changed, so it is collapsed and the review stays on the rest. Generated files and binaries collapse the same way.",
     "binaryFile": "Binary file, {status}.",
-    "generatedFile": "Generated file.",
+    "generatedFile": "Marked linguist-generated in .gitattributes, so it is collapsed and the review stays on hand-written code. Large files over 5,000 lines and binaries collapse the same way.",
     "showAnyway": "Show anyway",
-    "truncated": "Showing the first {n} lines of this diff.",
     "nextFile": "next or previous file",
     "nextHunk": "next or previous hunk",
     "markReviewed": "mark reviewed",
@@ -295,6 +298,45 @@
       "images": "Images",
       "lockfile": "Lockfile",
       "other": "Other"
+    },
+    "wrap": "Wrap lines",
+    "ignoreWhitespace": "Ignore whitespace",
+    "binaryStatus": "binary, {status}",
+    "largeTitle": "Large file, {n} lines changed",
+    "generatedTitle": "Generated file, {n} lines added",
+    "diffFailed": "Couldn't compute the diff for {name}. {message}",
+    "theChangeSet": "this change set",
+    "showNewFile": "Show new file",
+    "filterPaths": "Filter files",
+    "filterPlaceholder": "Path or glob, like *.test.ts",
+    "sortBySize": "Sort by change size",
+    "collapseAll": "Collapse all",
+    "noMatches": "No files match the filter.",
+    "noChanges": "Nothing changed.",
+    "byDirectory": "By directory",
+    "notes": "Notes",
+    "addNote": "Add note",
+    "noNotes": "No notes on this change set yet.",
+    "notePlaceholder": "What to check, ask or remember about this file",
+    "saveNote": "Save",
+    "editNote": "Edit note",
+    "deleteNote": "Delete note",
+    "target": {
+      "worktree": "Working tree",
+      "index": "Staged changes",
+      "commit": "commit",
+      "range": "range",
+      "revisionToWorktree": "working tree"
+    },
+    "image": {
+      "before": "Before",
+      "after": "After",
+      "notInParent": "Not in the parent commit",
+      "deleted": "Deleted",
+      "missing": "Not available",
+      "loading": "Loading…",
+      "unreadable": "The image could not be read",
+      "size": "{n} KB"
     }
   },
   "palette": {
@@ -317,7 +359,16 @@
       "scan-folders": "Scan folders",
       "add-scan-folder": "Add scan folder…",
       "locale-en": "Language: English",
-      "locale-es": "Language: Spanish"
+      "locale-es": "Language: Spanish",
+      "diff-from": "Diff from…",
+      "review-worktree": "Review working tree changes",
+      "review-index": "Review staged changes",
+      "review-selected-commit": "Review selected commit",
+      "toggle-layout": "Toggle side by side",
+      "toggle-wrap": "Toggle word wrap",
+      "toggle-whitespace": "Ignore whitespace",
+      "next-symbol": "Next changed symbol",
+      "previous-symbol": "Previous changed symbol"
     },
     "repos": "Repos"
   },
@@ -357,5 +408,25 @@
     "pinned": "Pinned",
     "recent": "Recent",
     "goToRepositories": "Go to repositories"
+  },
+  "picker": {
+    "diffFrom": "Diff from…",
+    "compareWith": "Compare {subject} with…",
+    "placeholder": "Branch, tag, commit, worktree or a range like v2.3.1..main",
+    "close": "Close",
+    "range": "Range",
+    "endpoints": "Endpoints",
+    "branches": "Branches",
+    "tags": "Tags",
+    "worktrees": "Worktrees",
+    "recentCommits": "Recent commits",
+    "current": "current",
+    "worktreeAt": "worktree",
+    "rangeHelp": "A..B lists what B has that A lacks. A...B compares both sides with their merge base.",
+    "empty": "Nothing matches \"{query}\". Type a branch, a tag, a commit hash or a range.",
+    "refsFailed": "Couldn't list refs. {message} Type a commit hash to continue, or open a terminal to check the repository.",
+    "choose": "choose",
+    "switchDots": "switch A..B / A...B",
+    "closeHint": "close"
   }
 }

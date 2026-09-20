@@ -1,27 +1,180 @@
-// Review focus state: the file filters, the open file, the files marked reviewed (in memory
-// only), the files the user chose to show despite being large,
-// generated or binary, and the two commits the graph pins: the diff base
-// ("Diff from here") and the range end ("Select as range end").
+// Review focus state: the target under review (the selected commit by default, or what the
+// picker, the palette and the graph's pins chose), its change set, the file filters and the
+// open file, the viewer options, and the review state (files and hunks marked reviewed, one
+// note per file) persisted per repository and target through the annotations commands.
 
 import { defineStore } from "pinia";
-import { computed, ref } from "vue";
+import { computed, ref, shallowRef, watch } from "vue";
 
 import { isLockfile, type FileFilters } from "@/detail/groupFiles";
-import type { FileChange } from "@/ipc/schemas";
+import * as ipc from "@/ipc/commands";
+import { toAppError, type AppError } from "@/ipc/errors";
+import { newOpId } from "@/ipc/invoke";
+import type { DiffPage, DiffTarget, FileChange, Hunk } from "@/ipc/schemas";
+import type { StreamHandle } from "@/ipc/stream";
+import { shortHash } from "@/shell/format";
+
+import { useOperationsStore } from "./operations";
+import { useRepoStore } from "./repo";
+import { useSettingsStore, type DiffLayout } from "./settings";
+
+export type ReviewTarget =
+  | { kind: "commit"; hash: string }
+  | { kind: "range"; from: string; to: string; threeDot: boolean }
+  /** The working tree against the index, untracked files included. */
+  | { kind: "worktree" }
+  /** The index against HEAD. */
+  | { kind: "index" }
+  | { kind: "revisionToWorktree"; revision: string };
+
+export interface ReviewChangeSet {
+  files: FileChange[];
+  additions: number;
+  deletions: number;
+  totalFiles: number;
+  loading: boolean;
+  error?: AppError;
+}
+
+/** The stable key a target's marks and notes are stored under. */
+export function targetKey(target: ReviewTarget): string {
+  switch (target.kind) {
+    case "commit":
+      return target.hash;
+    case "range":
+      return `${target.from}${target.threeDot ? "..." : ".."}${target.to}`;
+    case "worktree":
+      return "worktree";
+    case "index":
+      return "index";
+    case "revisionToWorktree":
+      return `${target.revision}..worktree`;
+  }
+}
+
+/** The engine's diff target of a review target. */
+export function diffTargetOf(target: ReviewTarget): DiffTarget {
+  switch (target.kind) {
+    case "commit":
+      return { kind: "commit", hash: target.hash };
+    case "range":
+      return { kind: "range", from: target.from, to: target.to, threeDot: target.threeDot };
+    case "worktree":
+      return { kind: "working-tree", base: "index" };
+    case "index":
+      return { kind: "index" };
+    case "revisionToWorktree":
+      return { kind: "working-tree", base: { revision: { rev: target.revision } } };
+  }
+}
+
+/** What the files panel shows under its title. */
+export function targetLabel(target: ReviewTarget): string {
+  switch (target.kind) {
+    case "commit":
+      return shortHash(target.hash);
+    case "range":
+      return `${shortRev(target.from)}${target.threeDot ? "..." : ".."}${shortRev(target.to)}`;
+    case "worktree":
+    case "index":
+      return "";
+    case "revisionToWorktree":
+      return `${shortRev(target.revision)}..`;
+  }
+}
+
+/** A full hash is shown short; a ref name as typed. */
+export function shortRev(rev: string): string {
+  return /^[0-9a-f]{40}$/i.test(rev) ? shortHash(rev) : rev;
+}
+
+/** The key a hunk's mark is stored under. */
+export function hunkKey(hunk: Hunk): string {
+  return `${hunk.oldStart},${hunk.newStart}:${hunk.header}`;
+}
 
 export const useReviewStore = defineStore("review", () => {
+  const repo = useRepoStore();
+  const settings = useSettingsStore();
+  const operations = useOperationsStore();
+
   const filters = ref<FileFilters>({ hideGenerated: true, hideLockfiles: true, hideTests: false });
   const selectedPath = ref<string | null>(null);
-  const reviewed = ref(new Set<string>());
   const revealed = ref(new Set<string>());
-  /** Hash of the commit the reviewed and revealed sets belong to. */
-  const commitHash = ref<string | null>(null);
-  /** Commit chosen with "Diff from here", for the review's diff modes. */
+  /** The target chosen explicitly; null follows the graph selection. */
+  const chosenTarget = ref<ReviewTarget | null>(null);
+  /** The change set streamed for the chosen target (or for the commit with other options). */
+  const ownChangeSet = shallowRef<ReviewChangeSet | null>(null);
+  /** Hunk keys marked reviewed per path; the empty key is the whole file. */
+  const marks = ref(new Map<string, Set<string>>());
+  const notes = ref(new Map<string, string>());
+  /** Two pinned commits of the graph (its chips). */
   const diffBase = ref<string | null>(null);
-  /** Commit chosen with "Select as range end", for the comparison. */
   const rangeEnd = ref<string | null>(null);
+  /** The changed symbol the keyboard landed on, for the status bar. */
+  const currentSymbol = ref<string | null>(null);
 
-  const reviewedCount = computed(() => reviewed.value.size);
+  let streamHandle: StreamHandle | null = null;
+  let streamSerial = 0;
+  let annotationsSerial = 0;
+  /** Local writes since the marks were last loaded; a load that raced one runs again. */
+  let localWrites = 0;
+
+  const layout = computed<DiffLayout>(() => settings.values.diffLayout);
+  const wrap = computed(() => settings.values.diffWrap);
+  const ignoreWhitespace = computed(() => settings.values.diffIgnoreWhitespace);
+
+  const target = computed<ReviewTarget | null>(() => {
+    if (chosenTarget.value) return chosenTarget.value;
+    const hash = repo.selectedCommit?.hash;
+    return hash ? { kind: "commit", hash } : null;
+  });
+  const key = computed(() => (target.value ? targetKey(target.value) : null));
+
+  /** Whether the store streams its own change set rather than reading the graph's detail. */
+  const ownStream = computed(() => chosenTarget.value !== null || ignoreWhitespace.value);
+
+  const changeSet = computed<ReviewChangeSet | null>(() => {
+    if (ownStream.value) return ownChangeSet.value;
+    const detail = repo.detail;
+    if (!detail) return null;
+    return {
+      files: detail.files,
+      additions: detail.additions,
+      deletions: detail.deletions,
+      totalFiles: detail.totalFiles,
+      loading: detail.loading,
+      ...(detail.error ? { error: detail.error } : {}),
+    };
+  });
+  const files = computed(() => changeSet.value?.files ?? []);
+
+  /** Files marked as a whole, or with every hunk marked. */
+  const reviewedFiles = computed(() => {
+    const done = new Set<string>();
+    for (const file of files.value) {
+      const set = marks.value.get(file.path);
+      if (!set) continue;
+      if (set.has("")) {
+        done.add(file.path);
+        continue;
+      }
+      if (file.hunks.length > 0 && file.hunks.every((hunk) => set.has(hunkKey(hunk)))) {
+        done.add(file.path);
+      }
+    }
+    return done;
+  });
+  const reviewedCount = computed(() => reviewedFiles.value.size);
+
+  function isReviewed(path: string): boolean {
+    return reviewedFiles.value.has(path);
+  }
+
+  function isHunkReviewed(path: string, hunk: Hunk): boolean {
+    const set = marks.value.get(path);
+    return set !== undefined && (set.has("") || set.has(hunkKey(hunk)));
+  }
 
   function setFilter<K extends keyof FileFilters>(key: K, value: boolean): void {
     filters.value = { ...filters.value, [key]: value };
@@ -29,20 +182,21 @@ export const useReviewStore = defineStore("review", () => {
 
   function select(path: string | null): void {
     selectedPath.value = path;
+    currentSymbol.value = null;
   }
 
-  /** Forgets per-commit state when another commit is reviewed. */
-  function forCommit(hash: string | null): void {
-    if (commitHash.value === hash) return;
-    commitHash.value = hash;
-    selectedPath.value = null;
-    reviewed.value = new Set();
-    revealed.value = new Set();
+  function reveal(path: string): void {
+    revealed.value = new Set(revealed.value).add(path);
   }
 
-  /** Opens `hash` for review, on `file` when given, lifting the filter that would hide it. */
-  function open(hash: string, file: FileChange | null): void {
-    forCommit(hash);
+  /**
+   * Opens the review on `file` of the current target, lifting the filter that would hide it.
+   * With a hash, the selected commit becomes the target when another was chosen.
+   */
+  function open(hash: string | null, file: FileChange | null): void {
+    if (hash && chosenTarget.value && targetKey(chosenTarget.value) !== hash) {
+      setTarget(null);
+    }
     if (!file) return;
     if (isLockfile(file.path)) {
       if (filters.value.hideLockfiles) setFilter("hideLockfiles", false);
@@ -53,15 +207,243 @@ export const useReviewStore = defineStore("review", () => {
     selectedPath.value = file.path;
   }
 
-  function toggleReviewed(path: string): void {
-    const next = new Set(reviewed.value);
-    if (next.has(path)) next.delete(path);
-    else next.add(path);
-    reviewed.value = next;
+  function stopStream(): void {
+    streamSerial += 1;
+    void streamHandle?.cancel();
+    streamHandle = null;
   }
 
-  function reveal(path: string): void {
-    revealed.value = new Set(revealed.value).add(path);
+  /** Streams the change set of the current target with the current options. */
+  function loadOwn(): void {
+    stopStream();
+    const current = target.value;
+    const root = repo.repo?.root;
+    if (!current || !root) {
+      ownChangeSet.value = null;
+      return;
+    }
+    const serial = streamSerial;
+    const opId = newOpId("review");
+    ownChangeSet.value = {
+      files: [],
+      additions: 0,
+      deletions: 0,
+      totalFiles: 0,
+      loading: true,
+    };
+    operations.start(opId, "operations.computingDiff");
+    const handle = ipc.diff(
+      root,
+      diffTargetOf(current),
+      (page: DiffPage) => {
+        if (serial !== streamSerial || !ownChangeSet.value) return;
+        ownChangeSet.value = {
+          ...ownChangeSet.value,
+          files: ownChangeSet.value.files.concat(page.files),
+          additions: page.additions,
+          deletions: page.deletions,
+          totalFiles: page.totalFiles,
+        };
+      },
+      { ...ipc.defaultDiffOptions, ignoreWhitespace: ignoreWhitespace.value },
+      opId,
+    );
+    streamHandle = handle;
+    void handle.done
+      .then(() => {
+        if (serial === streamSerial && ownChangeSet.value) {
+          ownChangeSet.value = { ...ownChangeSet.value, loading: false };
+        }
+      })
+      .catch((error: unknown) => {
+        if (serial === streamSerial && ownChangeSet.value) {
+          ownChangeSet.value = {
+            ...ownChangeSet.value,
+            loading: false,
+            error: toAppError(error),
+          };
+        }
+      })
+      .finally(() => operations.finish(opId));
+  }
+
+  /** Chooses what review focus shows; null returns to the graph's selection. */
+  function setTarget(next: ReviewTarget | null): void {
+    const before = key.value;
+    chosenTarget.value = next;
+    if (key.value !== before) {
+      selectedPath.value = null;
+      revealed.value = new Set();
+      currentSymbol.value = null;
+    }
+    if (ownStream.value) loadOwn();
+    else {
+      stopStream();
+      ownChangeSet.value = null;
+    }
+  }
+
+  /** Computes the change set again (the watcher reported a change, or an option moved). */
+  function reload(): void {
+    if (ownStream.value) loadOwn();
+    else if (repo.selectedIndex >= 0) repo.select(repo.selectedIndex);
+  }
+
+  /** The working tree or index targets follow the watcher; a commit does not change. */
+  function onRepoChanged(kinds: string[]): void {
+    const current = target.value;
+    if (!current) return;
+    const worktree = current.kind === "worktree" || current.kind === "revisionToWorktree";
+    const index = current.kind === "index" || current.kind === "worktree";
+    if ((worktree && kinds.includes("status")) || (index && kinds.includes("index"))) reload();
+  }
+
+  async function setLayout(next: DiffLayout): Promise<void> {
+    await settings.update("diffLayout", next);
+  }
+
+  async function setWrap(next: boolean): Promise<void> {
+    await settings.update("diffWrap", next);
+  }
+
+  async function setIgnoreWhitespace(next: boolean): Promise<void> {
+    if (next === ignoreWhitespace.value) return;
+    await settings.update("diffIgnoreWhitespace", next);
+    // With a chosen target the stream restarts here; a followed commit restarts through the
+    // watcher below when the own stream switches on.
+    if (chosenTarget.value) loadOwn();
+    else if (!ownStream.value) {
+      stopStream();
+      ownChangeSet.value = null;
+    }
+  }
+
+  // --- Marks and notes -----------------------------------------------------------------
+
+  function marksOf(path: string): Set<string> {
+    return new Set(marks.value.get(path) ?? []);
+  }
+
+  function replaceMarks(path: string, set: Set<string>): void {
+    const next = new Map(marks.value);
+    if (set.size === 0) next.delete(path);
+    else next.set(path, set);
+    marks.value = next;
+    localWrites += 1;
+  }
+
+  /** Writes a mark through the IPC; a failure reverts the optimistic change. */
+  function persistMark(path: string, hunk: string, on: boolean, revert: () => void): void {
+    const root = repo.repo?.root;
+    const current = key.value;
+    if (!root || !current) return;
+    const write = { path, hunk, kind: "reviewed" as const, value: "1" };
+    const call = on
+      ? ipc.setAnnotation(root, current, write)
+      : ipc.deleteAnnotation(root, current, write);
+    void call.catch(() => revert());
+  }
+
+  function toggleReviewed(path: string): void {
+    const before = marksOf(path);
+    const set = marksOf(path);
+    const on = !set.has("");
+    if (on) set.add("");
+    else set.clear();
+    replaceMarks(path, set);
+    persistMark(path, "", on, () => replaceMarks(path, before));
+    if (!on) {
+      // Unmarking a file marked hunk by hunk clears its hunks too.
+      for (const hunk of before) if (hunk !== "") persistMark(path, hunk, false, () => {});
+    }
+  }
+
+  function toggleHunkReviewed(path: string, hunk: Hunk): void {
+    const before = marksOf(path);
+    const set = marksOf(path);
+    const hunkId = hunkKey(hunk);
+    const on = !(set.has(hunkId) || set.has(""));
+    if (on) set.add(hunkId);
+    else {
+      set.delete(hunkId);
+      if (set.has("")) {
+        // Unmarking one hunk of a file marked whole leaves the other hunks marked.
+        set.delete("");
+        const file = files.value.find((f) => f.path === path);
+        for (const other of file?.hunks ?? []) {
+          const otherKey = hunkKey(other);
+          if (otherKey !== hunkId) {
+            set.add(otherKey);
+            persistMark(path, otherKey, true, () => {});
+          }
+        }
+        persistMark(path, "", false, () => {});
+      }
+    }
+    replaceMarks(path, set);
+    persistMark(path, hunkId, on, () => replaceMarks(path, before));
+  }
+
+  function setNote(path: string, text: string | null): void {
+    const root = repo.repo?.root;
+    const current = key.value;
+    const before = notes.value.get(path);
+    const next = new Map(notes.value);
+    const trimmed = text?.trim() ?? "";
+    if (trimmed === "") next.delete(path);
+    else next.set(path, trimmed);
+    notes.value = next;
+    localWrites += 1;
+    if (!root || !current) return;
+    const revert = () => {
+      const restored = new Map(notes.value);
+      if (before === undefined) restored.delete(path);
+      else restored.set(path, before);
+      notes.value = restored;
+    };
+    const write = { path, hunk: "", kind: "note" as const, value: trimmed };
+    const call =
+      trimmed === ""
+        ? ipc.deleteAnnotation(root, current, write)
+        : ipc.setAnnotation(root, current, write);
+    void call.catch(revert);
+  }
+
+  /** Loads the marks and notes of the current target. */
+  async function loadAnnotations(retry = true): Promise<void> {
+    annotationsSerial += 1;
+    const serial = annotationsSerial;
+    const writesBefore = localWrites;
+    marks.value = new Map();
+    notes.value = new Map();
+    const root = repo.repo?.root;
+    const current = key.value;
+    if (!root || !current) return;
+    try {
+      const listed = await ipc.listAnnotations(root, current);
+      if (serial !== annotationsSerial) return;
+      if (localWrites !== writesBefore) {
+        // A mark or note was written while the list was in flight: read once more so the
+        // list holds it, rather than overwriting the local state with a stale one.
+        if (retry) await loadAnnotations(false);
+        return;
+      }
+      const nextMarks = new Map<string, Set<string>>();
+      const nextNotes = new Map<string, string>();
+      for (const annotation of listed) {
+        if (annotation.kind === "reviewed") {
+          const set = nextMarks.get(annotation.path) ?? new Set<string>();
+          set.add(annotation.hunk);
+          nextMarks.set(annotation.path, set);
+        } else if (annotation.hunk === "") {
+          nextNotes.set(annotation.path, annotation.value);
+        }
+      }
+      marks.value = nextMarks;
+      notes.value = nextNotes;
+    } catch {
+      // The marks stay empty for this target; writes still go through.
+    }
   }
 
   function setDiffBase(hash: string | null): void {
@@ -78,21 +460,69 @@ export const useReviewStore = defineStore("review", () => {
     rangeEnd.value = null;
   }
 
+  // The marks and notes follow the target; the selection is reset per target above.
+  watch(
+    () => [repo.repo?.root, key.value] as const,
+    () => void loadAnnotations(),
+    { immediate: true },
+  );
+
+  // Another repository: the chosen target and the own stream go.
+  watch(
+    () => repo.repo?.root,
+    () => {
+      stopStream();
+      chosenTarget.value = null;
+      ownChangeSet.value = null;
+      selectedPath.value = null;
+      revealed.value = new Set();
+      currentSymbol.value = null;
+    },
+  );
+
+  // A commit chosen through the graph while whitespace is ignored streams its own diff.
+  watch(
+    () => [repo.selectedCommit?.hash, ownStream.value] as const,
+    ([, own]) => {
+      if (own && chosenTarget.value === null) loadOwn();
+    },
+  );
+
   return {
     filters,
     selectedPath,
-    reviewed,
     revealed,
-    commitHash,
+    target,
+    chosenTarget,
+    key,
+    changeSet,
+    files,
+    marks,
+    notes,
+    reviewedFiles,
     reviewedCount,
-    setFilter,
-    select,
-    forCommit,
-    open,
-    toggleReviewed,
-    reveal,
+    layout,
+    wrap,
+    ignoreWhitespace,
     diffBase,
     rangeEnd,
+    currentSymbol,
+    isReviewed,
+    isHunkReviewed,
+    setFilter,
+    select,
+    reveal,
+    open,
+    setTarget,
+    reload,
+    onRepoChanged,
+    setLayout,
+    setWrap,
+    setIgnoreWhitespace,
+    toggleReviewed,
+    toggleHunkReviewed,
+    setNote,
+    loadAnnotations,
     setDiffBase,
     setRangeEnd,
     clearPins,

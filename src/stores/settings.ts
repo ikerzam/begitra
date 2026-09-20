@@ -40,7 +40,15 @@ export interface Settings {
   lastRepository: string | null;
   /** Unix seconds of the last finished or stopped scan; null when none ran. */
   lastScanAt: number | null;
+  /** The diff viewer's layout. */
+  diffLayout: DiffLayout;
+  /** Wrap long lines in the diff viewer. */
+  diffWrap: boolean;
+  /** Compute diffs ignoring whitespace changes. */
+  diffIgnoreWhitespace: boolean;
 }
+
+export type DiffLayout = "unified" | "side-by-side";
 
 const px = v.pipe(v.number(), v.minValue(0), v.maxValue(10_000));
 const path = v.pipe(v.string(), v.minLength(1));
@@ -58,6 +66,9 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   maxDepth: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(32)),
   lastRepository: v.nullable(path),
   lastScanAt: v.nullable(v.pipe(v.number(), v.minValue(0))),
+  diffLayout: v.picklist(["unified", "side-by-side"]),
+  diffWrap: v.boolean(),
+  diffIgnoreWhitespace: v.boolean(),
 };
 
 export const settingsKeys = Object.keys(schemas) as (keyof Settings)[];
@@ -95,6 +106,9 @@ export function defaultSettings(platform: Platform): Settings {
     maxDepth: 6,
     lastRepository: null,
     lastScanAt: null,
+    diffLayout: "unified",
+    diffWrap: false,
+    diffIgnoreWhitespace: false,
   };
 }
 
