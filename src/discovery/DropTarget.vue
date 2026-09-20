@@ -16,7 +16,7 @@ const { t } = useI18n();
     data-testid="drop-target"
   >
     <div
-      class="flex flex-1 items-center justify-center rounded-lg border-2 border-dashed border-line-strong bg-app/90 text-md text-fg"
+      class="flex flex-1 items-center justify-center rounded-lg border-2 border-dashed border-line-strong bg-app text-md text-fg"
     >
       {{ t("home.dropHere") }}
     </div>

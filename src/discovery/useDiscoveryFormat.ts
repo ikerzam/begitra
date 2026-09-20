@@ -35,6 +35,7 @@ export function useDiscoveryFormat(): DiscoveryFormat {
     if (scan.kind === "scanning") {
       return t("home.scanningFolders", Object.keys(scan.folders).length);
     }
+    if (!index.loaded) return t("home.loading");
     const { repositories, worktrees, folders } = index.counts;
     const parts = {
       repositories: t("home.repositories", repositories),

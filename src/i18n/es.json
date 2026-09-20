@@ -141,6 +141,7 @@
     "lastScan": "Último escaneo {ago}.",
     "scanningFolders": "Escaneando {n} carpeta… | Escaneando {n} carpetas…",
     "foldersFailed": "Una carpeta no se ha podido escanear. | {n} carpetas no se han podido escanear.",
+    "loading": "Cargando repositorios…",
     "scanFolders": "Carpetas a escanear",
     "addFolder": "Añadir carpeta",
     "scan": "Escanear",

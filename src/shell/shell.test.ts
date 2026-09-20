@@ -94,11 +94,13 @@ function backend(
     failDiff?: boolean;
     /** `watch_repository` rejects with `watcher.unavailable`. */
     failWatch?: boolean;
+    /** The index lists nothing. */
+    emptyIndex?: boolean;
   } = {},
 ) {
   const calls: string[] = [];
   /** The fake index: forgets drop entries and a gone folder is flagged on refresh. */
-  let listed = indexEntries.map((entry) => ({ ...entry }));
+  let listed = options.emptyIndex ? [] : indexEntries.map((entry) => ({ ...entry }));
   const handler = (cmd: string, rawArgs?: unknown) => {
     const args = (rawArgs ?? {}) as Record<string, unknown>;
     calls.push(cmd);
@@ -341,13 +343,13 @@ afterEach(() => {
 });
 
 describe("HomeEmpty", () => {
-  it("offers Open folder… twice, Add a folder to scan once, and emits", async () => {
+  it("offers Open folder… in the header, Add a folder to scan in the centre, and emits", async () => {
     const wrapper = mountWithI18n(HomeEmpty);
     await wrapper.get('[data-testid="home-open-folder"]').trigger("click");
-    await wrapper.get('[data-testid="home-empty-open"]').trigger("click");
     await wrapper.get('[data-testid="home-empty-add"]').trigger("click");
-    expect(wrapper.emitted("openFolder")).toHaveLength(2);
+    expect(wrapper.emitted("openFolder")).toHaveLength(1);
     expect(wrapper.emitted("addFolder")).toHaveLength(1);
+    expect(wrapper.findAll("button")).toHaveLength(2);
     expect(wrapper.text()).toContain(
       "No repositories yet. Add a folder to scan, or open one directly.",
     );
@@ -491,8 +493,12 @@ describe("AppShell", () => {
   it("opens a folder from the picker, lists branches, streams commits and shows the detail", async () => {
     const calls = backend();
     const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
-    expect(wrapper.find('[data-testid="home-empty"]').exists()).toBe(true);
-    await wrapper.get('[data-testid="home-empty-open"]').trigger("click");
+    // The home screen shows its loading rows until the index answers, never the empty Home.
+    expect(wrapper.find('[data-testid="home-empty"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="home-screen"]').exists()).toBe(true);
+    await settle();
+    expect(wrapper.find('[data-testid="home-screen"]').exists()).toBe(true);
+    await wrapper.get('[data-testid="home-open-folder"]').trigger("click");
     await settle();
     expect(calls).toContain("open_repository");
     expect(wrapper.get('[data-testid="top-bar"]').text()).toContain("r");
@@ -512,7 +518,8 @@ describe("AppShell", () => {
     });
     backend({ walkGate: gate });
     const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
-    await wrapper.get('[data-testid="home-empty-open"]').trigger("click");
+    await settle();
+    await wrapper.get('[data-testid="home-open-folder"]').trigger("click");
     await settle();
     // The repository is open, the rows have not arrived: the user starts a search.
     const search = wrapper.get('[data-testid="graph-filters"] input').element as HTMLInputElement;
@@ -619,6 +626,20 @@ describe("AppShell", () => {
     expect(shell.sidebarCollapsed).toBe(true);
     expect(wrapper.find('[data-testid="sidebar"]').exists()).toBe(false);
     expect(wrapper.find('[data-testid="sidebar-rail"]').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("shows the loading rows until the index answers, then the empty Home", async () => {
+    backend({ emptyIndex: true });
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    expect(wrapper.find('[data-testid="home-empty"]').exists()).toBe(false);
+    expect(wrapper.findAll('[data-testid="skeleton-row"]').length).toBeGreaterThan(0);
+    expect(wrapper.get('[data-testid="home-summary"]').text()).toBe("Loading repositories…");
+    await settle();
+    expect(wrapper.find('[data-testid="home-empty"]').exists()).toBe(true);
+    expect(wrapper.findAll("button").map((b) => b.text())).toEqual(
+      expect.arrayContaining(["Open folder…", "Add a folder to scan"]),
+    );
     wrapper.unmount();
   });
 
@@ -795,7 +816,8 @@ describe("useExternal", () => {
     backend();
     dialogOpen.mockImplementationOnce(() => Promise.reject(new Error("no portal")));
     const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
-    await wrapper.get('[data-testid="home-empty-open"]').trigger("click");
+    await settle();
+    await wrapper.get('[data-testid="home-open-folder"]').trigger("click");
     await settle();
     const toasts = useToastsStore();
     expect(toasts.toasts[0]?.message).toBe("The folder picker could not be opened.");

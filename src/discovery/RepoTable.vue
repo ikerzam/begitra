@@ -130,7 +130,7 @@ defineExpose({ focus: navigation.focus });
       </template>
     </div>
 
-    <div v-if="index.loadError" class="px-3 pt-3" data-testid="index-error">
+    <div v-if="index.loadError" class="px-5 pt-3" data-testid="index-error">
       <ErrorBanner
         :message="loadErrorMessage"
         :output="index.loadError.detail"

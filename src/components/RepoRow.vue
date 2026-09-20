@@ -71,7 +71,9 @@ function onKeydown(event: KeyboardEvent): void {
         data-testid="repo-row-connector"
         class="mr-2 ml-1 inline-block size-3 shrink-0 border-b border-l border-line-strong"
       />
-      <span class="truncate text-fg">{{ props.name }}</span>
+      <span class="truncate" :class="props.nested ? 'text-fg-secondary' : 'text-fg'">
+        {{ props.name }}
+      </span>
     </span>
     <span
       v-if="props.missing"
@@ -83,7 +85,7 @@ function onKeydown(event: KeyboardEvent): void {
     </span>
     <span v-else class="flex items-center gap-2 overflow-hidden" data-testid="repo-row-branch">
       <LaneDot v-if="props.lane > 0" :lane="props.lane" />
-      <span class="truncate text-fg">{{ props.branch }}</span>
+      <span class="truncate text-fg-secondary">{{ props.branch }}</span>
       <DirtyDot v-if="props.dirty" />
     </span>
     <AheadBehind v-if="!props.missing" :ahead="props.ahead" :behind="props.behind" />

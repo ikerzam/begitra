@@ -141,6 +141,7 @@
     "lastScan": "Last scan {ago}.",
     "scanningFolders": "Scanning {n} folder… | Scanning {n} folders…",
     "foldersFailed": "One folder could not be scanned. | {n} folders could not be scanned.",
+    "loading": "Loading repositories…",
     "scanFolders": "Scan folders",
     "addFolder": "Add folder",
     "scan": "Scan",

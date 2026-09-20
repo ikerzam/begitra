@@ -17,7 +17,7 @@ const format = useDiscoveryFormat();
 <template>
   <header class="flex items-start justify-between gap-4 px-5 pt-5" data-testid="home-header">
     <div class="min-w-0">
-      <h1 class="text-lg font-medium text-fg">{{ t("home.title") }}</h1>
+      <h1 class="text-lg font-semibold text-fg">{{ t("home.title") }}</h1>
       <p class="text-md text-fg-muted" data-testid="home-summary">{{ format.summary.value }}</p>
     </div>
     <Button variant="secondary" data-testid="home-open-folder" @click="emit('openFolder')">

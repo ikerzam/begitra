@@ -107,7 +107,7 @@ const scanErrorMessage = computed(() => {
     <div
       v-for="folder in index.failedFolders"
       :key="folder"
-      class="mt-3"
+      class="mt-2 pb-1"
       data-testid="scan-folder-error"
     >
       <ErrorBanner
@@ -117,7 +117,7 @@ const scanErrorMessage = computed(() => {
         @action="() => void index.removeRoot(folder)"
       />
     </div>
-    <div v-if="index.scanError" class="mt-3" data-testid="scan-error">
+    <div v-if="index.scanError" class="mt-2 pb-1" data-testid="scan-error">
       <ErrorBanner
         :message="scanErrorMessage"
         :output="index.scanError.detail"

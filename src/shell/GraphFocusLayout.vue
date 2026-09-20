@@ -30,9 +30,13 @@ const graph = ref<{ focus(): void } | null>(null);
 
 const showSidebar = computed(() => repo.state.kind !== "empty" && !shell.sidebarCollapsed);
 const detailWidth = computed(() => `${shell.detailWidth}px`);
-/** The empty Home until there is a scan folder or an indexed repository to show. */
+/**
+ * The empty Home once the index has loaded with no scan folder and no repository; until then
+ * the home screen shows its loading rows rather than a false empty state.
+ */
 const homeIsEmpty = computed(
-  () => index.scanRoots.length === 0 && index.entries.length === 0 && !index.loadError,
+  () =>
+    index.loaded && index.scanRoots.length === 0 && index.entries.length === 0 && !index.loadError,
 );
 
 defineExpose({ focusRows: () => graph.value?.focus() });
