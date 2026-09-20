@@ -266,12 +266,17 @@ afterEach(() => {
 });
 
 describe("HomeEmpty", () => {
-  it("offers Open folder… twice and emits", async () => {
+  it("offers Open folder… twice, Add a folder to scan once, and emits", async () => {
     const wrapper = mountWithI18n(HomeEmpty);
     await wrapper.get('[data-testid="home-open-folder"]').trigger("click");
     await wrapper.get('[data-testid="home-empty-open"]').trigger("click");
+    await wrapper.get('[data-testid="home-empty-add"]').trigger("click");
     expect(wrapper.emitted("openFolder")).toHaveLength(2);
-    expect(wrapper.text()).toContain("No repositories yet. Open a folder to start.");
+    expect(wrapper.emitted("addFolder")).toHaveLength(1);
+    expect(wrapper.text()).toContain(
+      "No repositories yet. Add a folder to scan, or open one directly.",
+    );
+    expect(wrapper.text()).toContain("Scan a folder to find every repository and worktree");
   });
 });
 

@@ -1,5 +1,6 @@
-// "Open in terminal" and "Open in editor" for the current repository: the configured template
-// first, then the platform fallbacks; a failure becomes a toast with the command in its detail.
+// "Open in terminal" and "Open in editor" for the current repository, or for any indexed path:
+// the configured template first, then the platform fallbacks; a failure becomes a toast with
+// the command in its detail.
 
 import { useI18n } from "vue-i18n";
 
@@ -15,8 +16,7 @@ export function useExternal() {
   const settings = useSettingsStore();
   const toasts = useToastsStore();
 
-  async function open(kind: "terminal" | "editor"): Promise<boolean> {
-    const path = repo.repo?.root;
+  async function open(kind: "terminal" | "editor", path = repo.repo?.root): Promise<boolean> {
     if (!path) return false;
     const templates = kind === "terminal" ? settings.terminalTemplates : settings.editorTemplates;
     try {
@@ -35,7 +35,9 @@ export function useExternal() {
   }
 
   return {
-    openTerminal: () => open("terminal"),
-    openEditor: () => open("editor"),
+    /** Opens the terminal at `path`, or at the open repository. */
+    openTerminal: (path?: string) => open("terminal", path),
+    /** Opens the editor at `path`, or at the open repository. */
+    openEditor: (path?: string) => open("editor", path),
   };
 }

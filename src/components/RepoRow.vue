@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { CircleAlert } from "@lucide/vue";
+import { useI18n } from "vue-i18n";
+
 import AheadBehind from "./AheadBehind.vue";
 import DirtyDot from "./DirtyDot.vue";
 import LaneDot from "./LaneDot.vue";
@@ -16,7 +19,11 @@ const props = withDefaults(
     path?: string;
     /** A worktree listed under its repository: draws the connector before the name. */
     nested?: boolean;
+    /** The folder is gone: the branch cell reads "not found" in the danger colour. */
+    missing?: boolean;
     selected?: boolean;
+    /** Roving tab stop; defaults to the selected row. Lists without a selection pass it to the first row. */
+    tabStop?: boolean;
   }>(),
   {
     branch: "",
@@ -27,11 +34,15 @@ const props = withDefaults(
     lastCommit: "",
     path: "",
     nested: false,
+    missing: false,
     selected: false,
+    tabStop: undefined,
   },
 );
 
 const emit = defineEmits<{ select: []; activate: [] }>();
+
+const { t } = useI18n();
 
 function onKeydown(event: KeyboardEvent): void {
   if (event.key === "Enter") {
@@ -45,9 +56,9 @@ function onKeydown(event: KeyboardEvent): void {
   <div
     role="option"
     :aria-selected="props.selected"
-    :tabindex="props.selected ? 0 : -1"
+    :tabindex="(props.tabStop ?? props.selected) ? 0 : -1"
     data-testid="repo-row"
-    class="repo-row grid h-row-list items-center gap-4 border-l-2 px-3 text-md whitespace-nowrap"
+    class="repo-row group relative grid h-row-list items-center gap-4 border-l-2 px-3 text-md whitespace-nowrap"
     :class="props.selected ? 'border-accent bg-selected' : 'border-transparent hover:bg-hover'"
     @click="emit('select')"
     @dblclick="emit('activate')"
@@ -62,17 +73,34 @@ function onKeydown(event: KeyboardEvent): void {
       />
       <span class="truncate text-fg">{{ props.name }}</span>
     </span>
-    <span class="flex items-center gap-2 overflow-hidden" data-testid="repo-row-branch">
+    <span
+      v-if="props.missing"
+      class="flex items-center gap-2 overflow-hidden text-sm text-danger"
+      data-testid="repo-row-missing"
+    >
+      <CircleAlert :size="16" :stroke-width="1.5" aria-hidden="true" class="shrink-0" />
+      <span class="truncate">{{ t("repoRow.notFound") }}</span>
+    </span>
+    <span v-else class="flex items-center gap-2 overflow-hidden" data-testid="repo-row-branch">
       <LaneDot v-if="props.lane > 0" :lane="props.lane" />
       <span class="truncate text-fg">{{ props.branch }}</span>
       <DirtyDot v-if="props.dirty" />
     </span>
-    <AheadBehind :ahead="props.ahead" :behind="props.behind" />
+    <AheadBehind v-if="!props.missing" :ahead="props.ahead" :behind="props.behind" />
+    <span v-else aria-hidden="true" />
     <span class="truncate text-sm text-fg-muted" data-testid="repo-row-last-commit">
       {{ props.lastCommit }}
     </span>
     <span class="truncate font-mono text-mono-sm text-fg-muted" data-testid="repo-row-path">
       {{ props.path }}
+    </span>
+    <!-- Row actions (the "…" of the home table) sit over the right edge, shown on hover. -->
+    <span
+      v-if="$slots.actions"
+      class="absolute right-3 flex items-center opacity-0 group-hover:opacity-100 focus-within:opacity-100"
+      data-testid="repo-row-actions"
+    >
+      <slot name="actions" />
     </span>
   </div>
 </template>

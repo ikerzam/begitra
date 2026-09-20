@@ -126,10 +126,58 @@
   },
   "home": {
     "title": "Repositories",
-    "subtitle": "Open a folder to read its history.",
+    "subtitle": "Scan a folder to find every repository and worktree inside it.",
     "openFolder": "Open folder…",
-    "empty": "No repositories yet. Open a folder to start.",
-    "pickerFailed": "The folder picker could not be opened."
+    "empty": "No repositories yet. Add a folder to scan, or open one directly.",
+    "addFolderToScan": "Add a folder to scan",
+    "pickerFailed": "The folder picker could not be opened.",
+    "repositories": "{n} repository | {n} repositories",
+    "worktrees": "{n} worktree | {n} worktrees",
+    "folders": "{n} folder | {n} folders",
+    "summary": "{repositories} in {folders}.",
+    "summaryWithWorktrees": "{repositories} and {worktrees} in {folders}.",
+    "lastScan": "Last scan {ago}.",
+    "scanningFolders": "Scanning {n} folder… | Scanning {n} folders…",
+    "foldersFailed": "One folder could not be scanned. | {n} folders could not be scanned.",
+    "scanFolders": "Scan folders",
+    "addFolder": "Add folder",
+    "scan": "Scan",
+    "stop": "Stop",
+    "removeFolder": "Remove folder",
+    "removeFolderNamed": "Remove {path} from the scan folders",
+    "folderState": {
+      "queued": "queued",
+      "scanning": "scanning",
+      "notFound": "not found",
+      "empty": "no repositories"
+    },
+    "foldersScanned": "{n} folder scanned | {n} folders scanned",
+    "repositoriesFound": "{n} repository found | {n} repositories found",
+    "folderMissing": "Couldn't scan {path}. The folder was removed. Remove it from the scan folders, or add it again if it moved.",
+    "scanFailed": "The scan stopped with an error. {message}",
+    "loadFailed": "The repository list could not be read. {message}",
+    "retry": "Try again",
+    "columns": {
+      "name": "Name",
+      "branch": "Branch",
+      "aheadBehind": "Ahead/behind",
+      "lastCommit": "Last commit",
+      "path": "Path"
+    },
+    "sortBy": "Sort by {column}",
+    "sections": {
+      "pinned": "Pinned",
+      "recent": "Recent",
+      "all": "All repositories"
+    },
+    "soFar": "{n} so far",
+    "noneFound": "No repositories found under the scan folders. Scan again, or add another folder.",
+    "listLabel": "Repositories",
+    "rowActions": "Actions for {name}",
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "removeFromList": "Remove from list",
+    "dropHere": "Drop a folder to open it"
   },
   "graph": {
     "searchCommits": "Search commits",
@@ -247,5 +295,17 @@
     "indexFolder": "Couldn't scan {path}. {message}",
     "watcherUnavailable": "Changes in this repository will not be detected automatically. {message}",
     "generic": "{message}"
+  },
+  "repoRow": {
+    "notFound": "not found"
+  },
+  "dateLong": {
+    "now": "just now",
+    "minutes": "{n} minute ago | {n} minutes ago",
+    "hours": "{n} hour ago | {n} hours ago",
+    "days": "{n} day ago | {n} days ago",
+    "weeks": "{n} week ago | {n} weeks ago",
+    "months": "{n} month ago | {n} months ago",
+    "years": "{n} year ago | {n} years ago"
   }
 }

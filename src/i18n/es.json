@@ -126,10 +126,58 @@
   },
   "home": {
     "title": "Repositorios",
-    "subtitle": "Abre una carpeta para leer su historial.",
+    "subtitle": "Escanea una carpeta para encontrar todos los repositorios y worktrees que contiene.",
     "openFolder": "Abrir carpeta…",
-    "empty": "Todavía no hay repositorios. Abre una carpeta para empezar.",
-    "pickerFailed": "No se ha podido abrir el selector de carpetas."
+    "empty": "Todavía no hay repositorios. Añade una carpeta para escanear o abre uno directamente.",
+    "addFolderToScan": "Añadir una carpeta para escanear",
+    "pickerFailed": "No se ha podido abrir el selector de carpetas.",
+    "repositories": "{n} repositorio | {n} repositorios",
+    "worktrees": "{n} worktree | {n} worktrees",
+    "folders": "{n} carpeta | {n} carpetas",
+    "summary": "{repositories} en {folders}.",
+    "summaryWithWorktrees": "{repositories} y {worktrees} en {folders}.",
+    "lastScan": "Último escaneo {ago}.",
+    "scanningFolders": "Escaneando {n} carpeta… | Escaneando {n} carpetas…",
+    "foldersFailed": "Una carpeta no se ha podido escanear. | {n} carpetas no se han podido escanear.",
+    "scanFolders": "Carpetas a escanear",
+    "addFolder": "Añadir carpeta",
+    "scan": "Escanear",
+    "stop": "Detener",
+    "removeFolder": "Quitar carpeta",
+    "removeFolderNamed": "Quitar {path} de las carpetas a escanear",
+    "folderState": {
+      "queued": "en cola",
+      "scanning": "escaneando",
+      "notFound": "no encontrada",
+      "empty": "sin repositorios"
+    },
+    "foldersScanned": "{n} carpeta escaneada | {n} carpetas escaneadas",
+    "repositoriesFound": "{n} repositorio encontrado | {n} repositorios encontrados",
+    "folderMissing": "No se ha podido escanear {path}. La carpeta se ha eliminado. Quítala de las carpetas a escanear o añádela de nuevo si se ha movido.",
+    "scanFailed": "El escaneo se detuvo con un error. {message}",
+    "loadFailed": "No se ha podido leer la lista de repositorios. {message}",
+    "retry": "Reintentar",
+    "columns": {
+      "name": "Nombre",
+      "branch": "Rama",
+      "aheadBehind": "Delante/detrás",
+      "lastCommit": "Último commit",
+      "path": "Ruta"
+    },
+    "sortBy": "Ordenar por {column}",
+    "sections": {
+      "pinned": "Fijados",
+      "recent": "Recientes",
+      "all": "Todos los repositorios"
+    },
+    "soFar": "{n} por ahora",
+    "noneFound": "No se han encontrado repositorios en las carpetas a escanear. Escanea de nuevo o añade otra carpeta.",
+    "listLabel": "Repositorios",
+    "rowActions": "Acciones de {name}",
+    "pin": "Fijar",
+    "unpin": "Desfijar",
+    "removeFromList": "Quitar de la lista",
+    "dropHere": "Suelta una carpeta para abrirla"
   },
   "graph": {
     "searchCommits": "Buscar commits",
@@ -247,5 +295,17 @@
     "indexFolder": "No se ha podido escanear {path}. {message}",
     "watcherUnavailable": "Los cambios en este repositorio no se detectarán automáticamente. {message}",
     "generic": "{message}"
+  },
+  "repoRow": {
+    "notFound": "no encontrado"
+  },
+  "dateLong": {
+    "now": "ahora mismo",
+    "minutes": "hace {n} minuto | hace {n} minutos",
+    "hours": "hace {n} hora | hace {n} horas",
+    "days": "hace {n} día | hace {n} días",
+    "weeks": "hace {n} semana | hace {n} semanas",
+    "months": "hace {n} mes | hace {n} meses",
+    "years": "hace {n} año | hace {n} años"
   }
 }

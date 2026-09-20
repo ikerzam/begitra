@@ -1,13 +1,16 @@
 <script setup lang="ts">
-// Graph focus: sidebar (or rail), the graph panel and the detail panel; the empty shell when
-// no repository is open.
+// Graph focus: sidebar (or rail), the graph panel and the detail panel; with no repository
+// open, the home screen (the empty one until a scan folder or an entry exists).
 
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import DetailPanel from "@/detail/DetailPanel.vue";
+import HomeScreen from "@/discovery/HomeScreen.vue";
+import { useAddScanFolder } from "@/discovery/useAddScanFolder";
 import GraphPanel from "@/graph/GraphPanel.vue";
 import type { FileChange } from "@/ipc/schemas";
+import { useIndexStore } from "@/stores/index";
 import { useRepoStore } from "@/stores/repo";
 import { paneLimits, useShellStore } from "@/stores/shell";
 
@@ -21,10 +24,16 @@ const emit = defineEmits<{ openFolder: []; review: [file?: FileChange]; removeFr
 const { t } = useI18n();
 const shell = useShellStore();
 const repo = useRepoStore();
+const index = useIndexStore();
+const { addScanFolder } = useAddScanFolder();
 const graph = ref<{ focus(): void } | null>(null);
 
 const showSidebar = computed(() => repo.state.kind !== "empty" && !shell.sidebarCollapsed);
 const detailWidth = computed(() => `${shell.detailWidth}px`);
+/** The empty Home until there is a scan folder or an indexed repository to show. */
+const homeIsEmpty = computed(
+  () => index.scanRoots.length === 0 && index.entries.length === 0 && !index.loadError,
+);
 
 defineExpose({ focusRows: () => graph.value?.focus() });
 </script>
@@ -37,7 +46,14 @@ defineExpose({ focusRows: () => graph.value?.focus() });
       :active="shell.sidebarTab"
       @select="(tab) => void shell.expandSidebar(tab)"
     />
-    <HomeEmpty v-if="repo.state.kind === 'empty'" @open-folder="emit('openFolder')" />
+    <template v-if="repo.state.kind === 'empty'">
+      <HomeEmpty
+        v-if="homeIsEmpty"
+        @open-folder="emit('openFolder')"
+        @add-folder="() => void addScanFolder()"
+      />
+      <HomeScreen v-else @open-folder="emit('openFolder')" />
+    </template>
     <template v-else>
       <GraphPanel
         ref="graph"
