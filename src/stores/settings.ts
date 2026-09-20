@@ -10,8 +10,23 @@ import { computed, ref } from "vue";
 import { defaultSkipFolders } from "@/ipc/commands";
 import { detectPlatform, type Platform } from "@/shortcuts/platform";
 
-export type LayoutMode = "graph" | "review";
+export type LayoutMode = "graph" | "review" | "compare";
 export type Locale = "en" | "es";
+
+/** One side of a comparison: a revision, or a worktree meaning its checked-out commit. */
+export interface CompareEndpoint {
+  kind: "revision" | "worktree";
+  /** What the engine is asked for: a ref name, a hash, or a worktree's branch or HEAD. */
+  rev: string;
+  /** What the screen shows: the branch, tag, short hash or worktree folder name. */
+  label: string;
+}
+
+/** The two endpoints of the comparison the app was closed on. */
+export interface CompareEndpoints {
+  a: CompareEndpoint;
+  b: CompareEndpoint;
+}
 
 export interface PaneSizes {
   sidebar: number;
@@ -46,19 +61,26 @@ export interface Settings {
   diffWrap: boolean;
   /** Compute diffs ignoring whitespace changes. */
   diffIgnoreWhitespace: boolean;
+  /** The comparison to restore with the compare layout; null when none was open. */
+  compare: CompareEndpoints | null;
 }
 
 export type DiffLayout = "unified" | "side-by-side";
 
 const px = v.pipe(v.number(), v.minValue(0), v.maxValue(10_000));
 const path = v.pipe(v.string(), v.minLength(1));
+const endpoint = v.object({
+  kind: v.picklist(["revision", "worktree"]),
+  rev: v.pipe(v.string(), v.minLength(1), v.maxLength(200)),
+  label: v.pipe(v.string(), v.minLength(1)),
+});
 
 const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } = {
   terminalCommand: v.pipe(v.string(), v.minLength(1)),
   editorCommand: v.pipe(v.string(), v.minLength(1)),
   paneSizes: v.object({ sidebar: px, detail: v.nullable(px), files: px, reviewRail: px }),
   sidebarCollapsed: v.boolean(),
-  layoutMode: v.picklist(["graph", "review"]),
+  layoutMode: v.picklist(["graph", "review", "compare"]),
   locale: v.picklist(["en", "es"]),
   paletteRecents: v.array(v.string()),
   scanRoots: v.array(path),
@@ -69,6 +91,7 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   diffLayout: v.picklist(["unified", "side-by-side"]),
   diffWrap: v.boolean(),
   diffIgnoreWhitespace: v.boolean(),
+  compare: v.nullable(v.object({ a: endpoint, b: endpoint })),
 };
 
 export const settingsKeys = Object.keys(schemas) as (keyof Settings)[];
@@ -109,6 +132,7 @@ export function defaultSettings(platform: Platform): Settings {
     diffLayout: "unified",
     diffWrap: false,
     diffIgnoreWhitespace: false,
+    compare: null,
   };
 }
 

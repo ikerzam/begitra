@@ -18,6 +18,18 @@ import { applyFilters, pathMatcher, sortBySize } from "@/detail/groupFiles";
 import type { FileChange } from "@/ipc/schemas";
 import { targetLabel, useReviewStore } from "@/stores/review";
 
+const props = withDefaults(
+  defineProps<{
+    /** The panel's title; "Files" by default, "Files changed" in the comparison. */
+    title?: string;
+    /** Whether the target line shows under the title (not in the comparison, whose header names it). */
+    showTarget?: boolean;
+    /** Paths the comparison's preview says would conflict. */
+    conflicts?: Set<string>;
+  }>(),
+  { title: "", showTarget: true, conflicts: () => new Set<string>() },
+);
+
 const { t } = useI18n();
 const review = useReviewStore();
 const list = ref<{ focus(): void; collapseAll(): void }>();
@@ -86,9 +98,9 @@ defineExpose({ focus: () => list.value?.focus(), moveFile });
 
 <template>
   <section class="flex min-w-0 flex-col border-r border-line" data-testid="review-files">
-    <PanelHeader :title="t('review.files')" :count="changeSet ? count : undefined">
+    <PanelHeader :title="props.title || t('review.files')" :count="changeSet ? count : undefined">
       <span
-        v-if="targetLine"
+        v-if="targetLine && props.showTarget"
         class="truncate font-mono text-mono-sm text-fg-secondary"
         data-testid="review-target"
       >
@@ -154,6 +166,7 @@ defineExpose({ focus: () => list.value?.focus(), moveFile });
         :files="files"
         :selected-path="review.selectedPath"
         :reviewed="review.reviewedFiles"
+        :conflicts="props.conflicts"
         @select="(file) => review.select(file.path)"
       />
       <EmptyState

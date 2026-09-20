@@ -3,7 +3,7 @@
 // and binary flags, the stats, the layout, wrap and whitespace toggles, "Mark reviewed" and,
 // with the review rail collapsed, the control that brings it back.
 
-import { AlignLeft, Check, Columns2, PanelRightOpen, Rows3, WrapText } from "@lucide/vue";
+import { AlignLeft, Check, Columns2, FileDiff, PanelRightOpen, Rows3, WrapText } from "@lucide/vue";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -19,11 +19,13 @@ const props = withDefaults(
     file: FileChange | null;
     /** The file would conflict in the comparison being shown. */
     conflict?: boolean;
+    /** Inside the comparison: offer "Open in review" instead of the rail control. */
+    inComparison?: boolean;
     railCollapsed?: boolean;
   }>(),
-  { conflict: false, railCollapsed: false },
+  { conflict: false, inComparison: false, railCollapsed: false },
 );
-const emit = defineEmits<{ showOverview: [] }>();
+const emit = defineEmits<{ showOverview: []; openInReview: [] }>();
 
 const { t, locale } = useI18n();
 const review = useReviewStore();
@@ -91,6 +93,15 @@ const binaryStatus = computed(() =>
         data-testid="toggle-whitespace"
         @click="() => void review.setIgnoreWhitespace(!review.ignoreWhitespace)"
       />
+      <Button
+        v-if="props.inComparison"
+        variant="ghost"
+        :icon="FileDiff"
+        data-testid="open-in-review"
+        @click="emit('openInReview')"
+      >
+        {{ t("compare.openInReview") }}
+      </Button>
       <Button
         variant="ghost"
         :icon="Check"

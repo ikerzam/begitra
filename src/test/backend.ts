@@ -13,6 +13,7 @@ import type {
   DiffTarget,
   FileChange,
   Hunk,
+  MergePreview,
   WalkFilter,
   WalkScope,
 } from "@/ipc/schemas";
@@ -36,6 +37,14 @@ export interface FakeBackendOptions {
   failAnnotations?: boolean;
   /** The annotations the index holds at start, per target key. */
   annotations?: Record<string, Annotation[]>;
+  /** Commits a range scope lists. Default 3. */
+  rangeCommits?: number;
+  /** `compare` rejects with `refs.unrelated_histories`. */
+  failCompare?: boolean;
+  /** `merge_preview` rejects with `git.cli_failed`. */
+  failPreview?: boolean;
+  /** What `merge_preview` answers. Default: three conflicts. */
+  preview?: MergePreview;
 }
 
 /** The files a diff of `target` lists: two text files, an image and a generated one. */
@@ -140,7 +149,12 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
     });
   };
   const listFor = (scope: WalkScope, filter: WalkFilter): CommitNode[] => {
-    let listed = scope.kind === "ref" ? all.slice(0, options.refScopeCommits ?? 10) : all;
+    let listed =
+      scope.kind === "ref"
+        ? all.slice(0, options.refScopeCommits ?? 10)
+        : scope.kind === "range"
+          ? all.slice(0, options.rangeCommits ?? 3)
+          : all;
     if (filter.text) {
       const text = filter.text.toLowerCase();
       listed = listed.filter((c) => c.subject.toLowerCase().includes(text));
@@ -321,6 +335,43 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
         if (index >= 0) list.splice(index, 1);
         return index >= 0;
       }
+      case "compare": {
+        if (options.failCompare) {
+          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+          return Promise.reject({
+            code: "refs.unrelated_histories",
+            message: "main and orphan have unrelated histories",
+          });
+        }
+        const a = args["a"] as string;
+        const b = args["b"] as string;
+        const hashOf = (rev: string) =>
+          /^[0-9a-f]{40}$/.test(rev) ? rev : fakeCommit(rev.length % 7).hash;
+        const same = hashOf(a) === hashOf(b);
+        return {
+          a: { rev: a, hash: hashOf(a) },
+          b: { rev: b, hash: hashOf(b) },
+          base: { hash: fakeCommit(9).hash, time: fakeCommit(9).author.time },
+          onlyInA: same ? 0 : 4,
+          onlyInB: same ? 0 : 3,
+          relation: same ? "same" : "diverged",
+        };
+      }
+      case "merge_preview":
+        if (options.failPreview) {
+          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+          return Promise.reject({
+            code: "git.cli_failed",
+            message: "git merge-tree failed",
+            detail: "fatal: not a tree object: 7f8e9d0",
+          });
+        }
+        return (
+          options.preview ?? {
+            kind: "conflicts",
+            conflicts: ["src/lib.ts", "src/other.ts"],
+          }
+        );
       case "list_worktrees":
         return [];
       case "watch_repository":

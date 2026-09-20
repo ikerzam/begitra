@@ -26,12 +26,14 @@ const props = withDefaults(
     file: FileChange | null;
     /** The file would conflict in the comparison being shown. */
     conflict?: boolean;
+    /** Inside the comparison: the header offers "Open in review". */
+    inComparison?: boolean;
     /** The review rail is collapsed; offer the control that brings it back. */
     railCollapsed?: boolean;
   }>(),
-  { conflict: false, railCollapsed: false },
+  { conflict: false, inComparison: false, railCollapsed: false },
 );
-const emit = defineEmits<{ showOverview: [] }>();
+const emit = defineEmits<{ showOverview: []; openInReview: [] }>();
 
 const { t } = useI18n();
 const repo = useRepoStore();
@@ -78,8 +80,10 @@ useShortcut("mark-reviewed", () => {
     <DiffHeader
       :file="props.file"
       :conflict="props.conflict"
+      :in-comparison="props.inComparison"
       :rail-collapsed="props.railCollapsed"
       @show-overview="emit('showOverview')"
+      @open-in-review="emit('openInReview')"
     />
 
     <!-- The banner sits 24px from the header and the panel edges. -->

@@ -67,7 +67,8 @@
     "reviewed": "Revisado",
     "expand": "Expandir",
     "collapse": "Contraer",
-    "binary": "binario"
+    "binary": "binario",
+    "conflict": "conflicto"
   },
   "hunkRow": {
     "markReviewed": "Marcar como revisado",
@@ -131,7 +132,8 @@
     "loadingHistory": "Cargando el historial",
     "loadingDiff": "Calculando el diff de {hash}",
     "scanning": "Escaneando {folder}",
-    "computingDiff": "Calculando el diff de {target}"
+    "computingDiff": "Calculando el diff de {target}",
+    "comparing": "Comparando {a} y {b}"
   },
   "home": {
     "title": "Repositorios",
@@ -381,7 +383,10 @@
       "toggle-overview": "Mostrar u ocultar el resumen del cambio",
       "toggle-hide-generated": "Mostrar u ocultar ficheros generados",
       "toggle-hide-lockfiles": "Mostrar u ocultar lockfiles",
-      "toggle-hide-tests": "Mostrar u ocultar ficheros de test"
+      "toggle-hide-tests": "Mostrar u ocultar ficheros de test",
+      "compare-with": "Comparar con…",
+      "swap-comparison": "Intercambiar los lados de la comparación",
+      "compare-open-review": "Abrir la comparación en revisión"
     },
     "repos": "Repos"
   },
@@ -441,5 +446,31 @@
     "choose": "elegir",
     "switchDots": "cambiar A..B / A...B",
     "closeHint": "cerrar"
+  },
+  "compare": {
+    "title": "Comparar",
+    "pickEndpoint": "Elegir el lado {side}",
+    "swap": "Intercambiar lados",
+    "mergeBase": "Merge base",
+    "counting": "Contando commits…",
+    "counts": "{a} va {n} por delante, {b} va {m} por delante",
+    "sameCounts": "0 por delante, 0 por detrás",
+    "same": "{a} y {b} apuntan al mismo commit, {hash}. No hay nada que comparar.",
+    "pickAnother": "Elegir otra ref",
+    "onlyIn": "Solo en {name}",
+    "nothingOnlyIn": "Nada solo en {name}",
+    "filesChanged": "Ficheros cambiados",
+    "openInReview": "Abrir en revisión",
+    "failed": "No se pudo comparar {a} con {b}. {message}",
+    "preview": {
+      "computing": "Calculando la vista previa del merge",
+      "fastForward": "{a} avanzaría hasta {b} (fast-forward)",
+      "fastForwardBody": "{a} no tiene commits propios desde el merge base, así que el merge mueve el puntero sin commit de merge.",
+      "upToDate": "{b} ya forma parte de {a}",
+      "clean": "{b} se fusiona limpiamente en {a}",
+      "conflicts": "{n} ficheros entrarían en conflicto si {b} se fusionara en {a}",
+      "previewOnly": "Solo es una vista previa. No se escribe nada hasta que fusiones en un terminal.",
+      "failed": "No se pudo calcular la vista previa del merge. {message} Las listas de commits y el resumen de ficheros siguen siendo correctos."
+    }
   }
 }

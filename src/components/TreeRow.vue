@@ -22,6 +22,8 @@ const props = withDefaults(
     generated?: boolean;
     /** A binary file: "binary" replaces the line stats. */
     binary?: boolean;
+    /** The comparison's preview says this file would conflict: "conflict" before the stats. */
+    conflict?: boolean;
     reviewed?: boolean;
     selected?: boolean;
     /** Roving tab stop; defaults to the selected row. Lists without a selection pass it to the first row. */
@@ -37,6 +39,7 @@ const props = withDefaults(
     count: undefined,
     generated: false,
     binary: false,
+    conflict: false,
     reviewed: false,
     selected: false,
     tabStop: undefined,
@@ -140,6 +143,13 @@ function onKeydown(event: KeyboardEvent): void {
       data-testid="tree-row-binary"
     >
       {{ t("treeRow.binary") }}
+    </span>
+    <span
+      v-if="props.conflict && !isFolder"
+      class="shrink-0 text-sm text-danger"
+      data-testid="tree-row-conflict"
+    >
+      {{ t("treeRow.conflict") }}
     </span>
     <DiffStat v-if="hasStats" :added="props.added ?? 0" :removed="props.removed ?? 0" />
     <Check
