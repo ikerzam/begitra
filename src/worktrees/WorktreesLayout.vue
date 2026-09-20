@@ -6,7 +6,7 @@
 // since ⇧⌘W opens it over any layout. The store holds every decision; this file only routes
 // the rows' actions to it.
 
-import { Eraser, Plus } from "@lucide/vue";
+import { Eraser } from "@lucide/vue";
 import { computed, nextTick, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -27,7 +27,7 @@ const { t, n } = useI18n();
 const repo = useRepoStore();
 const worktrees = useWorktreesStore();
 const external = useExternal();
-const table = ref<{ focus(): Promise<void> } | null>(null);
+const table = ref<{ focus(): Promise<void>; keyboardOnTabs(): boolean } | null>(null);
 const menu = ref<{ path: string; x: number; y: number } | null>(null);
 
 const lanes = computed<Record<string, number>>(() => {
@@ -42,18 +42,17 @@ const empty = computed(
   () => !worktrees.loading && worktrees.rows.length > 0 && worktrees.linked.length === 0,
 );
 const menuRow = computed(() => worktrees.rows.find((row) => row.path === menu.value?.path) ?? null);
-/** The banner: the missing-folder sentence with "Prune worktrees", or git's message. */
+/**
+ * The banner: the missing-folder sentence with "Prune worktrees", or git's message. An add
+ * that failed shows in the dialog while it is open, not here too.
+ */
 const banner = computed(() => {
   const error = worktrees.error;
-  if (!error) return null;
-  const path = worktrees.errorPath;
-  const missing =
-    error.code === "worktree.missing_folder" ||
-    (path !== null && worktrees.rows.some((row) => row.path === path && row.prunable));
-  if (missing) {
+  if (!error || worktrees.addOpen) return null;
+  if (worktrees.errorIsMissingFolder) {
     return {
-      message: t("worktrees.missingFolder", { path: path ?? "" }),
-      output: error.detail ?? error.message,
+      message: t("worktrees.missingFolder", { path: worktrees.errorPath ?? "" }),
+      output: error.detail ?? "",
       action: t("worktrees.pruneAction"),
       prune: true,
     };
@@ -82,9 +81,12 @@ function openMenu(path: string, x: number, y: number): void {
   menu.value = { path, x, y };
 }
 
+/** The menu closed: the focus returns to the row, unless a dialog took it. */
 function closeMenu(): void {
   menu.value = null;
-  void nextTick(() => table.value?.focus());
+  void nextTick(() => {
+    if (!worktrees.prompt && !worktrees.addOpen) void table.value?.focus();
+  });
 }
 
 function withMenuRow(action: (path: string) => void): void {
@@ -93,20 +95,28 @@ function withMenuRow(action: (path: string) => void): void {
   if (path) action(path);
 }
 
-defineExpose({ focusRows: () => void table.value?.focus() });
+defineExpose({
+  /** Focuses the rows, unless a sidebar tab reached by keyboard holds the focus. */
+  focusRows: () => {
+    if (!table.value?.keyboardOnTabs()) void table.value?.focus();
+  },
+});
 </script>
 
 <template>
   <div class="flex min-h-0 min-w-0 flex-1" data-testid="worktrees-layout">
     <div class="flex min-h-0 min-w-0 flex-1 flex-col">
       <header
-        class="worktrees-header flex shrink-0 items-center gap-3 border-b border-line px-3"
+        class="worktrees-header flex shrink-0 items-center gap-2 border-b border-line px-3"
         data-testid="worktrees-header"
       >
         <h2 class="text-md font-medium text-fg">{{ t("worktrees.title") }}</h2>
         <span
           v-if="!worktrees.loading || worktrees.rows.length > 0"
           class="text-sm text-fg-muted"
+          :aria-label="
+            t('worktrees.count', { n: n(worktrees.linked.length) }, worktrees.linked.length)
+          "
           data-testid="worktrees-count"
         >
           {{ n(worktrees.linked.length) }}
@@ -121,16 +131,11 @@ defineExpose({ focusRows: () => void table.value?.focus() });
         >
           {{ t("worktrees.prune.action") }}
         </Button>
-        <Button
-          variant="primary"
-          :icon="Plus"
-          data-testid="worktrees-add"
-          @click="worktrees.openAdd()"
-        >
+        <Button variant="primary" data-testid="worktrees-add" @click="worktrees.openAdd()">
           {{ t("worktrees.add.action") }}
         </Button>
       </header>
-      <div v-if="banner" class="px-3 pt-3" data-testid="worktrees-error">
+      <div v-if="banner" class="px-3 py-3" data-testid="worktrees-error">
         <ErrorBanner
           :message="banner.message"
           :output="banner.output"
@@ -183,9 +188,9 @@ defineExpose({ focusRows: () => void table.value?.focus() });
 </template>
 
 <style scoped>
-/* 48px tall, like the compare header: the 28px controls and their
-   focus ring need the room. Off the spacing scale. */
+/* 40px tall (the 28px controls sit 6px from each hairline); off the
+   spacing scale. */
 .worktrees-header {
-  height: 48px;
+  height: 40px;
 }
 </style>

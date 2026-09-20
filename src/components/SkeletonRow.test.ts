@@ -26,8 +26,8 @@ describe("SkeletonRow", () => {
     const fifth = mountWithI18n(SkeletonRow, { props: { index: 4 } });
     const width = (w: ReturnType<typeof mountWithI18n>) =>
       w.findAll("span")[1]?.attributes("style");
-    expect(width(first)).toContain("44%");
-    expect(width(second)).toContain("32%");
+    expect(width(first)).toContain("220px");
+    expect(width(second)).toContain("180px");
     expect(width(fifth)).toBe(width(first));
   });
 

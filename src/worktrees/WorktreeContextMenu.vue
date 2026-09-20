@@ -50,13 +50,13 @@ const { t } = useI18n();
       />
       <ContextMenuItem
         v-else
-        :label="t('worktrees.lock')"
+        :label="t('worktreeRow.lock')"
         :icon="Lock"
         data-testid="menu-lock"
         @select="emit('lock')"
       />
       <ContextMenuItem
-        :label="t('worktreeRow.remove')"
+        :label="t('worktrees.removeMenu')"
         :icon="Trash2"
         destructive
         data-testid="menu-remove"

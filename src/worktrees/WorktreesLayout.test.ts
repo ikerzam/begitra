@@ -117,13 +117,15 @@ describe("WorktreesLayout", () => {
       "Compare with main",
       "Open in terminal",
       "Open in editor",
-      "Lock",
-      "Remove worktree",
+      "Lock worktree",
+      "Remove worktree…",
     ]);
     await menu.get('[data-testid="menu-lock"]').trigger("click");
     await nextTick();
     expect(useWorktreesStore().prompt).toEqual({ kind: "lock", path: "/wt/claude-auth" });
     expect(wrapper.find('[data-testid="worktree-prompt-lock"]').exists()).toBe(true);
+    await settled();
+    expect(document.activeElement?.closest('[role="dialog"]')).not.toBeNull();
     await wrapper
       .get('[data-testid="lock-reason"] input, input[data-testid="lock-reason"]')
       .setValue("review");
@@ -204,7 +206,7 @@ describe("WorktreesLayout", () => {
     expect(banner.text()).toContain(
       "Couldn't read /wt/gone. The folder was removed. Prune worktrees to clean this up, or restore the folder if it moved.",
     );
-    expect(banner.text()).toContain("is not a working tree");
+    expect(banner.find("pre").exists()).toBe(false);
     expect(calls.some((call) => call.cmd === "open_external")).toBe(false);
     expect(rows(wrapper)).toHaveLength(3);
     await banner.get("button:last-of-type").trigger("click");

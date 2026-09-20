@@ -107,6 +107,14 @@ export const useWorktreesStore = defineStore("worktrees", () => {
   const selected = computed(
     () => rows.value.find((row) => row.path === selectedPath.value) ?? null,
   );
+  /** The failure concerns a worktree whose folder is gone. */
+  const errorIsMissingFolder = computed(() => {
+    const failed = error.value;
+    const path = errorPath.value;
+    if (!failed) return false;
+    if (failed.code === "worktree.missing_folder") return true;
+    return path !== null && rows.value.some((row) => row.path === path && row.prunable);
+  });
 
   /** The folder new worktrees go under: the setting, or a sibling of the repository. */
   const worktreeFolder = computed(() => {
@@ -198,11 +206,7 @@ export const useWorktreesStore = defineStore("worktrees", () => {
 
   /** An action needed the worktree's folder, which is gone: the banner says so. */
   function reportMissing(path: string): void {
-    error.value = new AppError(
-      "worktree.missing_folder",
-      `the worktree folder ${path} is missing`,
-      `fatal: '${path}' is not a working tree\nhint: run 'git worktree prune' to remove stale entries`,
-    );
+    error.value = new AppError("worktree.missing_folder", `the worktree folder ${path} is missing`);
     errorPath.value = path;
   }
 
@@ -320,6 +324,7 @@ export const useWorktreesStore = defineStore("worktrees", () => {
 
   function closeAdd(): void {
     addOpen.value = false;
+    clearError();
   }
 
   /** The watcher saw the worktrees change (a terminal added or removed one). */
@@ -357,6 +362,7 @@ export const useWorktreesStore = defineStore("worktrees", () => {
     loading,
     error,
     errorPath,
+    errorIsMissingFolder,
     addOpen,
     prompt,
     mainBranch,

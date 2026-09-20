@@ -30,6 +30,7 @@ const rows = computed(() => {
       key: worktree.path,
       name: baseName(worktree.path),
       branch: worktree.branch ?? "",
+      missing: worktree.prunable,
       lane: worktree.branch
         ? (lanes.get(worktree.branch) ?? lanes.get(`refs/heads/${worktree.branch}`) ?? 0)
         : 0,
@@ -87,6 +88,8 @@ defineExpose({ focus: navigation.focus });
       :lane="row.lane"
       :icon="ListTree"
       icon-beside
+      :missing="row.missing"
+      :meta="row.missing ? t('sidebar.notFound') : ''"
       :selected="index === selectedRow"
       :tab-stop="index === tabStopRow"
       @select="navigation.select(index)"

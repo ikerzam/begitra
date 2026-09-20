@@ -495,7 +495,6 @@
     "empty": "No worktrees yet. Add one to work on a branch in its own folder while main stays clean.",
     "missingFolder": "Couldn't read {path}. The folder was removed. Prune worktrees to clean this up, or restore the folder if it moved.",
     "pruneAction": "Prune worktrees",
-    "lock": "Lock",
     "unlock": "Unlock",
     "add": {
       "action": "Add worktree",
@@ -533,6 +532,8 @@
       "reason": "Reason",
       "reasonPlaceholder": "Reason (optional)",
       "confirm": "Lock"
-    }
+    },
+    "removeMenu": "Remove worktree…",
+    "count": "{n} linked worktree | {n} linked worktrees"
   }
 }

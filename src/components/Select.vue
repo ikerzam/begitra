@@ -6,6 +6,8 @@ import type { ControlSize, SelectOption } from "./types";
 const props = withDefaults(
   defineProps<{
     options: SelectOption[];
+    /** The `id` of the `<select>` itself, for a `<label for>`. */
+    id?: string;
     /** Accessible name when no visible label element points at the control. */
     label?: string;
     disabled?: boolean;
@@ -13,7 +15,7 @@ const props = withDefaults(
     /** A control whose value narrows something is filled with `--bg-selected`. */
     active?: boolean;
   }>(),
-  { label: undefined, disabled: false, size: "md", active: false },
+  { id: undefined, label: undefined, disabled: false, size: "md", active: false },
 );
 
 const model = defineModel<string>({ default: "" });
@@ -22,6 +24,7 @@ const model = defineModel<string>({ default: "" });
 <template>
   <div class="relative inline-flex w-full items-center">
     <select
+      :id="props.id"
       v-model="model"
       :disabled="props.disabled"
       :aria-label="props.label"

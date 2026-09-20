@@ -67,6 +67,8 @@ const emit = defineEmits<{
 const { t } = useI18n();
 
 function onKeydown(event: KeyboardEvent): void {
+  // A key pressed on one of the row's buttons is the button's (Enter clicks it).
+  if (event.target !== event.currentTarget) return;
   if (event.key === "Enter") {
     event.preventDefault();
     emit("activate");
@@ -111,7 +113,9 @@ function onContextMenu(event: MouseEvent): void {
       data-testid="worktree-row-branch"
     >
       <LaneDot v-if="props.lane > 0" :lane="props.lane" />
-      <span class="truncate text-fg">{{ props.branch }}</span>
+      <span class="truncate" :class="props.missing ? 'text-fg-secondary' : 'text-fg'">
+        {{ props.branch }}
+      </span>
       <DirtyDot v-if="props.dirty" />
     </span>
     <span
@@ -154,18 +158,26 @@ function onContextMenu(event: MouseEvent): void {
         v-if="!props.main && !props.missing"
         :label="t('worktreeRow.compare')"
         :icon="FileDiff"
+        tabindex="-1"
         @click.stop="emit('compare')"
       />
       <IconButton
         :label="t('worktreeRow.terminal')"
         :icon="Terminal"
+        tabindex="-1"
         @click.stop="emit('terminal')"
       />
-      <IconButton :label="t('worktreeRow.editor')" :icon="Code" @click.stop="emit('editor')" />
+      <IconButton
+        :label="t('worktreeRow.editor')"
+        :icon="Code"
+        tabindex="-1"
+        @click.stop="emit('editor')"
+      />
       <IconButton
         v-if="!props.main"
         :label="t('worktreeRow.remove')"
         :icon="Trash2"
+        tabindex="-1"
         @click.stop="emit('remove')"
       />
     </span>

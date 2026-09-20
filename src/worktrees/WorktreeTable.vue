@@ -9,6 +9,7 @@ import { useI18n } from "vue-i18n";
 
 import SkeletonRow from "@/components/SkeletonRow.vue";
 import WorktreeRow from "@/components/WorktreeRow.vue";
+import { useDiscoveryFormat } from "@/discovery/useDiscoveryFormat";
 import { relativeDate } from "@/shell/format";
 import { useNow } from "@/shell/useNow";
 import { useListNavigation } from "@/shortcuts/useListNavigation";
@@ -37,6 +38,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const now = useNow();
+const format = useDiscoveryFormat();
 const grid = ref<HTMLElement | null>(null);
 
 const rowCount = computed(() => props.rows.length);
@@ -72,16 +74,29 @@ async function focus(): Promise<void> {
   navigation.focus();
 }
 
+/**
+ * Whether the focus is on a sidebar tab reached by keyboard (the arrows move on from it):
+ * such a tab keeps its focus. A tab that was clicked hands it to the rows.
+ */
+function keyboardOnTabs(): boolean {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement) || !active.closest('[role="tablist"]')) return false;
+  try {
+    return active.matches(":focus-visible");
+  } catch {
+    return true;
+  }
+}
+
 // A row that disappeared (removed, pruned) leaves the focus on its neighbour; the first rows
-// take the focus when nothing else has it (the dashboard opened before its list arrived),
-// never from a sidebar tab the user is still moving through.
+// take the focus when nothing else holds it (the dashboard opened before its list arrived,
+// or a tab was clicked), never from a sidebar tab the user is moving through by keyboard.
 watch(rowCount, (count, previous) => {
   if (count < previous && selectedIndex.value < 0 && count > 0) void focus();
-  const idle = document.activeElement === null || document.activeElement === document.body;
-  if (previous === 0 && count > 0 && idle) void focus();
+  if (previous === 0 && count > 0 && !keyboardOnTabs()) void focus();
 });
 
-defineExpose({ focus });
+defineExpose({ focus, keyboardOnTabs });
 </script>
 
 <template>
@@ -95,7 +110,7 @@ defineExpose({ focus });
     >
       <div
         role="row"
-        class="worktree-table-header grid h-panel-header shrink-0 items-center gap-4 border-b border-line px-3 text-md text-fg-muted whitespace-nowrap"
+        class="worktree-table-header grid h-control shrink-0 items-center gap-4 border-b border-l-2 border-line border-l-transparent px-3 text-sm text-fg-muted whitespace-nowrap"
       >
         <span role="columnheader">{{ t("worktrees.columns.path") }}</span>
         <span role="columnheader">{{ t("worktrees.columns.branch") }}</span>
@@ -112,7 +127,7 @@ defineExpose({ focus });
           v-for="(row, index) in props.rows"
           :key="row.path"
           :data-index="index"
-          :path="row.path"
+          :path="format.displayPath(row.path)"
           :branch="row.branch ?? (row.head ? row.head.slice(0, 7) : '')"
           :lane="props.lanes[row.path] ?? 0"
           :dirty="row.dirty === true"
@@ -136,7 +151,7 @@ defineExpose({ focus });
         />
       </div>
     </div>
-    <p class="shrink-0 px-3 py-3 text-md text-fg-muted" data-testid="worktree-footer">
+    <p class="shrink-0 px-3 py-3 text-sm text-fg-muted" data-testid="worktree-footer">
       {{ t("worktrees.footer") }}
     </p>
   </div>

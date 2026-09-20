@@ -495,7 +495,6 @@
     "empty": "Aún no hay worktrees. Añade uno para trabajar en una rama en su propia carpeta mientras main sigue limpia.",
     "missingFolder": "No se pudo leer {path}. La carpeta fue eliminada. Limpia los worktrees para quitar la entrada, o restaura la carpeta si se movió.",
     "pruneAction": "Limpiar los worktrees",
-    "lock": "Bloquear",
     "unlock": "Desbloquear",
     "add": {
       "action": "Añadir worktree",
@@ -533,6 +532,8 @@
       "reason": "Motivo",
       "reasonPlaceholder": "Motivo (opcional)",
       "confirm": "Bloquear"
-    }
+    },
+    "removeMenu": "Eliminar worktree…",
+    "count": "{n} worktree enlazado | {n} worktrees enlazados"
   }
 }

@@ -19,12 +19,13 @@ const heightClasses: Record<SkeletonHeight, string> = {
   diff: "h-row-diff",
 };
 
-/* Proportions: one long line, then two short ones. */
+/* Line widths: one long line (220, 180,
+   240 or 200px), then 56 and 44px, capped by the row. */
 const patterns = [
-  ["44%", "11%", "9%"],
-  ["32%", "11%", "9%"],
-  ["52%", "11%", "9%"],
-  ["38%", "11%", "9%"],
+  ["220px", "56px", "44px"],
+  ["180px", "56px", "44px"],
+  ["240px", "56px", "44px"],
+  ["200px", "56px", "44px"],
 ] as const;
 
 const widths = computed(() => patterns[Math.abs(props.index) % patterns.length] ?? patterns[0]);
@@ -41,7 +42,7 @@ const widths = computed(() => patterns[Math.abs(props.index) % patterns.length] 
     <span
       v-for="(width, i) in widths"
       :key="i"
-      class="skeleton-line rounded-full bg-hover"
+      class="skeleton-line max-w-full rounded-full bg-hover"
       :style="{ width }"
     />
   </div>

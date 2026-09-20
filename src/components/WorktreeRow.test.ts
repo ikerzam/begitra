@@ -67,6 +67,11 @@ describe("WorktreeRow", () => {
     expect(wrapper.emitted("menu")).toHaveLength(2);
     await wrapper.trigger("keydown", { key: "Enter" });
     expect(wrapper.emitted("activate")).toHaveLength(1);
+    // Enter on one of the row's buttons is the button's, not the row's.
+    const button = wrapper.get("[data-testid='worktree-row-actions'] button");
+    await button.trigger("keydown", { key: "Enter" });
+    expect(wrapper.emitted("activate")).toHaveLength(1);
+    expect(button.attributes("tabindex")).toBe("-1");
   });
 
   it("emits one event per action without selecting the row", async () => {
