@@ -63,7 +63,7 @@ function onKeydown(event: KeyboardEvent): void {
 </script>
 
 <template>
-  <div class="flex flex-col gap-2 border-t border-line pt-3" data-testid="notes-block">
+  <div class="flex flex-col gap-2 border-t border-line px-3 pt-3" data-testid="notes-block">
     <div class="flex items-center justify-between">
       <h3 class="text-lg font-semibold text-fg">{{ t("review.notes") }}</h3>
       <Button

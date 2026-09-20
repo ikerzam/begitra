@@ -16,6 +16,7 @@ const heightClasses: Record<SkeletonHeight, string> = {
   graph: "h-row-graph",
   list: "h-row-list",
   tree: "h-row-tree",
+  diff: "h-row-diff",
 };
 
 /* Proportions: one long line, then two short ones. */

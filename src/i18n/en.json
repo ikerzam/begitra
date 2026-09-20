@@ -256,7 +256,7 @@
     "hideGenerated": "Hide generated",
     "hideLockfiles": "Hide lockfiles",
     "hideTests": "Hide tests",
-    "noFile": "Select a file to see its diff",
+    "noFile": "Select a file to see its diff. Use j and k to move through the list.",
     "noCommit": "Select a commit in graph focus to review it",
     "overview": "Change overview",
     "showOverview": "Show overview",
@@ -273,7 +273,7 @@
     "progress": "Review progress",
     "reviewed": "{done} of {total} files reviewed",
     "largeFile": "Over 5,000 lines or 1 MB changed, so it is collapsed and the review stays on the rest. Generated files and binaries collapse the same way.",
-    "binaryFile": "Binary file, {status}.",
+    "binaryFile": "Binary file, {status}",
     "generatedFile": "Marked linguist-generated in .gitattributes, so it is collapsed and the review stays on hand-written code. Large files over 5,000 lines and binaries collapse the same way.",
     "showAnyway": "Show anyway",
     "nextFile": "next or previous file",
@@ -337,7 +337,11 @@
       "loading": "Loading…",
       "unreadable": "The image could not be read",
       "size": "{n} KB"
-    }
+    },
+    "binaryFileBody": "Binary files have no lines to read; the viewer shows images only.",
+    "unmergedTitle": "Unmerged file",
+    "unmergedFile": "This file carries conflict markers. Resolve the conflict in a terminal, then review the result.",
+    "wouldConflict": "would conflict"
   },
   "palette": {
     "placeholder": "Search or run a command…",
@@ -368,7 +372,16 @@
       "toggle-wrap": "Toggle word wrap",
       "toggle-whitespace": "Ignore whitespace",
       "next-symbol": "Next changed symbol",
-      "previous-symbol": "Previous changed symbol"
+      "previous-symbol": "Previous changed symbol",
+      "next-hunk": "Next hunk",
+      "previous-hunk": "Previous hunk",
+      "next-file": "Next file",
+      "previous-file": "Previous file",
+      "mark-reviewed": "Mark file reviewed",
+      "toggle-overview": "Show or hide the change overview",
+      "toggle-hide-generated": "Show or hide generated files",
+      "toggle-hide-lockfiles": "Show or hide lockfiles",
+      "toggle-hide-tests": "Show or hide test files"
     },
     "repos": "Repos"
   },
@@ -423,7 +436,7 @@
     "current": "current",
     "worktreeAt": "worktree",
     "rangeHelp": "A..B lists what B has that A lacks. A...B compares both sides with their merge base.",
-    "empty": "Nothing matches \"{query}\". Type a branch, a tag, a commit hash or a range.",
+    "empty": "No refs match \"{query}\". Try a branch, tag, hash or worktree path.",
     "refsFailed": "Couldn't list refs. {message} Type a commit hash to continue, or open a terminal to check the repository.",
     "choose": "choose",
     "switchDots": "switch A..B / A...B",

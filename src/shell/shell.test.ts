@@ -768,8 +768,10 @@ describe("useExternal", () => {
     await settle();
     await shell.setLayoutMode("review");
     await settle();
-    const banner = wrapper.get('[data-testid="review-error"]');
-    expect(banner.text()).toContain("took too long");
+    // One banner, in the diff panel; the file list stays.
+    expect(wrapper.findAll('[data-testid="diff-failed"]')).toHaveLength(1);
+    expect(wrapper.get('[data-testid="diff-failed"]').text()).toContain("took too long");
+    expect(wrapper.find('[data-testid="review-error"]').exists()).toBe(false);
     wrapper.unmount();
   });
 

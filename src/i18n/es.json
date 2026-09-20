@@ -256,7 +256,7 @@
     "hideGenerated": "Ocultar generados",
     "hideLockfiles": "Ocultar lockfiles",
     "hideTests": "Ocultar tests",
-    "noFile": "Selecciona un fichero para ver su diff",
+    "noFile": "Elige un fichero para ver su diff. Usa j y k para moverte por la lista.",
     "noCommit": "Selecciona un commit en la vista de grafo para revisarlo",
     "overview": "Resumen del cambio",
     "showOverview": "Mostrar el resumen",
@@ -273,7 +273,7 @@
     "progress": "Progreso de la revisión",
     "reviewed": "{done} de {total} ficheros revisados",
     "largeFile": "Cambia más de 5.000 líneas o 1 MB, así que se pliega y la revisión sigue con el resto. Los ficheros generados y los binarios se pliegan igual.",
-    "binaryFile": "Fichero binario, {status}.",
+    "binaryFile": "Fichero binario, {status}",
     "generatedFile": "Marcado linguist-generated en .gitattributes, así que se pliega y la revisión sigue con el código escrito a mano. Los ficheros de más de 5.000 líneas y los binarios se pliegan igual.",
     "showAnyway": "Mostrar de todos modos",
     "nextFile": "fichero siguiente o anterior",
@@ -337,7 +337,11 @@
       "loading": "Cargando…",
       "unreadable": "La imagen no se pudo leer",
       "size": "{n} KB"
-    }
+    },
+    "binaryFileBody": "Los ficheros binarios no tienen líneas que leer; el visor solo muestra imágenes.",
+    "unmergedTitle": "Fichero sin fusionar",
+    "unmergedFile": "Este fichero lleva marcas de conflicto. Resuelve el conflicto en un terminal y revisa el resultado.",
+    "wouldConflict": "entraría en conflicto"
   },
   "palette": {
     "placeholder": "Buscar o ejecutar un comando…",
@@ -368,7 +372,16 @@
       "toggle-wrap": "Alternar ajuste de líneas",
       "toggle-whitespace": "Ignorar espacios",
       "next-symbol": "Siguiente símbolo cambiado",
-      "previous-symbol": "Símbolo cambiado anterior"
+      "previous-symbol": "Símbolo cambiado anterior",
+      "next-hunk": "Siguiente hunk",
+      "previous-hunk": "Hunk anterior",
+      "next-file": "Siguiente fichero",
+      "previous-file": "Fichero anterior",
+      "mark-reviewed": "Marcar fichero como revisado",
+      "toggle-overview": "Mostrar u ocultar el resumen del cambio",
+      "toggle-hide-generated": "Mostrar u ocultar ficheros generados",
+      "toggle-hide-lockfiles": "Mostrar u ocultar lockfiles",
+      "toggle-hide-tests": "Mostrar u ocultar ficheros de test"
     },
     "repos": "Repos"
   },
@@ -423,7 +436,7 @@
     "current": "actual",
     "worktreeAt": "worktree",
     "rangeHelp": "A..B lista lo que B tiene y A no. A...B compara ambos lados con su merge base.",
-    "empty": "Nada coincide con \"{query}\". Escribe una rama, una etiqueta, un hash o un rango.",
+    "empty": "Ninguna ref coincide con \"{query}\". Prueba una rama, etiqueta, hash o ruta de worktree.",
     "refsFailed": "No se pudieron listar las refs. {message} Escribe un hash de commit para seguir, o abre un terminal para revisar el repositorio.",
     "choose": "elegir",
     "switchDots": "cambiar A..B / A...B",

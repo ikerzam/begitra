@@ -10,8 +10,9 @@ import { isLockfile, type FileFilters } from "@/detail/groupFiles";
 import * as ipc from "@/ipc/commands";
 import { toAppError, type AppError } from "@/ipc/errors";
 import { newOpId } from "@/ipc/invoke";
-import type { DiffPage, DiffTarget, FileChange, Hunk } from "@/ipc/schemas";
+import type { DiffLine, DiffPage, DiffTarget, FileChange, Hunk } from "@/ipc/schemas";
 import type { StreamHandle } from "@/ipc/stream";
+import { fileSides } from "@/review/sides";
 import { shortHash } from "@/shell/format";
 
 import { useOperationsStore } from "./operations";
@@ -101,6 +102,8 @@ export const useReviewStore = defineStore("review", () => {
   const filters = ref<FileFilters>({ hideGenerated: true, hideLockfiles: true, hideTests: false });
   const selectedPath = ref<string | null>(null);
   const revealed = ref(new Set<string>());
+  /** Files read whole after a failed diff ("Show new file"), as one hunk of added lines. */
+  const shown = ref(new Map<string, Hunk>());
   /** The target chosen explicitly; null follows the graph selection. */
   const chosenTarget = ref<ReviewTarget | null>(null);
   /** The change set streamed for the chosen target (or for the commit with other options). */
@@ -189,6 +192,47 @@ export const useReviewStore = defineStore("review", () => {
     revealed.value = new Set(revealed.value).add(path);
   }
 
+  /** The hunk "Show new file" produced for `path`, when the change set failed. */
+  function shownHunk(path: string): Hunk | null {
+    return changeSet.value?.error ? (shown.value.get(path) ?? null) : null;
+  }
+
+  /**
+   * Reads `file` whole on its new side and shows it as added lines: the escape hatch of a
+   * change set the engine could not compute.
+   */
+  async function showNewFile(file: FileChange): Promise<void> {
+    const current = target.value;
+    const root = repo.repo?.root;
+    if (!current || !root) return;
+    const side = fileSides(current, file).new;
+    if (!side) return;
+    try {
+      const blob = await ipc.readBlob(root, side.at, side.path, newOpId("blob"));
+      const lines = (blob.text ?? "").replace(/\n$/, "").split("\n");
+      const added: DiffLine[] = lines.map((text, i) => ({
+        kind: "added",
+        oldNumber: null,
+        newNumber: i + 1,
+        text,
+        spans: [],
+        noNewline: false,
+      }));
+      const hunk: Hunk = {
+        oldStart: 0,
+        oldLines: 0,
+        newStart: 1,
+        newLines: added.length,
+        header: `@@ -0,0 +1,${added.length} @@`,
+        lines: added,
+      };
+      shown.value = new Map(shown.value).set(file.path, hunk);
+    } catch {
+      shown.value = new Map(shown.value);
+      shown.value.delete(file.path);
+    }
+  }
+
   /**
    * Opens the review on `file` of the current target, lifting the filter that would hide it.
    * With a hash, the selected commit becomes the target when another was chosen.
@@ -274,6 +318,7 @@ export const useReviewStore = defineStore("review", () => {
     if (key.value !== before) {
       selectedPath.value = null;
       revealed.value = new Set();
+      shown.value = new Map();
       currentSymbol.value = null;
     }
     if (ownStream.value) loadOwn();
@@ -476,6 +521,7 @@ export const useReviewStore = defineStore("review", () => {
       ownChangeSet.value = null;
       selectedPath.value = null;
       revealed.value = new Set();
+      shown.value = new Map();
       currentSymbol.value = null;
     },
   );
@@ -512,6 +558,8 @@ export const useReviewStore = defineStore("review", () => {
     setFilter,
     select,
     reveal,
+    shownHunk,
+    showNewFile,
     open,
     setTarget,
     reload,

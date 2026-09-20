@@ -3,13 +3,12 @@
 // actions of the header, the path filter, the three hide toggles and the file tree, with the
 // loading, empty and error states of the change set.
 
-import { ArrowDownWideNarrow, ListCollapse, Search, SlidersHorizontal } from "@lucide/vue";
+import { ArrowDownWideNarrow, ChevronsDownUp, ListFilter, Search } from "@lucide/vue";
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Checkbox from "@/components/Checkbox.vue";
 import EmptyState from "@/components/EmptyState.vue";
-import ErrorBanner from "@/components/ErrorBanner.vue";
 import IconButton from "@/components/IconButton.vue";
 import Input from "@/components/Input.vue";
 import PanelHeader from "@/components/PanelHeader.vue";
@@ -17,7 +16,6 @@ import SkeletonRow from "@/components/SkeletonRow.vue";
 import FileList from "@/detail/FileList.vue";
 import { applyFilters, pathMatcher, sortBySize } from "@/detail/groupFiles";
 import type { FileChange } from "@/ipc/schemas";
-import { errorText } from "@/shell/errorMessage";
 import { targetLabel, useReviewStore } from "@/stores/review";
 
 const { t } = useI18n();
@@ -50,12 +48,7 @@ const targetLine = computed(() => {
       return targetLabel(target);
   }
 });
-const changeSetError = computed(() => {
-  const error = changeSet.value?.error;
-  if (!error) return "";
-  const text = errorText(error);
-  return t(text.key, text.params);
-});
+const changeSetError = computed(() => changeSet.value?.error !== undefined);
 
 // Open the first file when the change set arrives and nothing is open yet.
 watch(
@@ -104,7 +97,7 @@ defineExpose({ focus: () => list.value?.focus(), moveFile });
       <template #actions>
         <IconButton
           :label="t('review.filterPaths')"
-          :icon="SlidersHorizontal"
+          :icon="ListFilter"
           :pressed="filterOpen"
           data-testid="files-filter"
           @click="() => void toggleFilter()"
@@ -118,7 +111,7 @@ defineExpose({ focus: () => list.value?.focus(), moveFile });
         />
         <IconButton
           :label="t('review.collapseAll')"
-          :icon="ListCollapse"
+          :icon="ChevronsDownUp"
           data-testid="files-collapse"
           @click="list?.collapseAll()"
         />
@@ -155,9 +148,6 @@ defineExpose({ focus: () => list.value?.focus(), moveFile });
       <template v-if="changeSet?.loading && changeSet.files.length === 0">
         <SkeletonRow v-for="n in 8" :key="n" :index="n" height="tree" />
       </template>
-      <div v-if="changeSetError" class="p-3" data-testid="review-error">
-        <ErrorBanner :message="changeSetError" :output="changeSet?.error?.detail" />
-      </div>
       <FileList
         v-if="changeSet"
         ref="list"

@@ -143,7 +143,7 @@ describe("DiffView", () => {
       file: file([[line(1)]], { isGenerated: true, additions: 12_400 }),
     });
     const guard = wrapper.get('[data-testid="diff-guard"]');
-    expect(guard.text()).toContain("Generated file, 12400 lines added");
+    expect(guard.text()).toContain("Generated file, 12,400 lines added");
     expect(wrapper.find('[data-testid="diff-row"]').exists()).toBe(false);
     await guard.findAll("button")[0]!.trigger("click");
     await nextTick();
@@ -156,10 +156,10 @@ describe("DiffView", () => {
     fakeBackend();
     const binary = file([], { status: "added", isBinary: true, path: "logo.bin" });
     const english = await mountView({ file: binary });
-    expect(english.get('[data-testid="diff-view"]').text()).toContain("Binary file, added.");
+    expect(english.get('[data-testid="diff-guard-title"]').text()).toBe("Binary file, added");
     english.unmount();
     const spanish = mountWithI18n(DiffView, { props: { file: binary } }, { locale: "es" });
-    expect(spanish.text()).toContain("Fichero binario, añadido.");
+    expect(spanish.text()).toContain("Fichero binario, añadido");
     spanish.unmount();
     const repo = useRepoStore();
     await repo.open("/r");

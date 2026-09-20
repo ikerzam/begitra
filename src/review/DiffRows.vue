@@ -4,7 +4,7 @@
 // from the wrap setting and the measured column width, n/p over hunks and ]/[ over the
 // changed symbols.
 
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 
 import DiffRow from "@/components/DiffRow.vue";
 import HunkRow from "@/components/HunkRow.vue";
@@ -16,9 +16,10 @@ import { useReviewStore } from "@/stores/review";
 import { hunkRange, hunkRowIndexes, hunkSymbol, lineKind, rowHeights, rowsOf } from "./diffRows";
 import LineContent from "./LineContent.vue";
 import SideBySideRow from "./SideBySideRow.vue";
+import { useColumns } from "./useColumns";
 import { useHighlight } from "./useHighlight";
 import { useHunkNavigation } from "./useHunkNavigation";
-import { useSymbols } from "./useSymbols";
+import { jumpToSymbol, useSymbols } from "./useSymbols";
 import { useVariableRows } from "./useVariableRows";
 
 const props = defineProps<{
@@ -36,10 +37,10 @@ const body = ref<HTMLElement | null>(null);
 const root = computed(() => repo.repo?.root ?? null);
 const target = computed(() => review.target);
 const file = computed<FileChange | null>(() => props.file);
+const layout = computed(() => review.layout);
 const rows = computed(() => rowsOf(props.hunks, review.layout));
 
-/** Characters per line when wrapping: the text column over the mono character width. */
-const columns = ref(120);
+const { columns } = useColumns(body, layout);
 const heights = computed(() => rowHeights(rows.value, review.wrap, columns.value));
 const virtual = useVariableRows(body, heights);
 const hunkTops = computed(() => hunkRowIndexes(rows.value).map((index) => virtual.rowTop(index)));
@@ -59,37 +60,6 @@ const rendered = computed(() => {
   return list;
 });
 
-/** Width of the mono "M" in pixels, measured once the body is mounted. */
-let charWidth = 7.2;
-let observer: ResizeObserver | null = null;
-
-function measureColumns(): void {
-  const element = body.value;
-  if (!element) return;
-  const gutters = review.layout === "unified" ? 44 * 2 + 22 : (44 + 22) * 2;
-  const width = Math.max(0, element.clientWidth - gutters);
-  const perSide = review.layout === "unified" ? width : width / 2;
-  columns.value = Math.max(20, Math.floor(perSide / charWidth));
-}
-
-onMounted(() => {
-  const probe = document.createElement("canvas").getContext("2d");
-  if (probe && body.value) {
-    probe.font = getComputedStyle(body.value).font || "12px monospace";
-    const measured = probe.measureText("M").width;
-    if (measured > 0) charWidth = measured;
-  }
-  measureColumns();
-  if (typeof ResizeObserver !== "undefined" && body.value) {
-    observer = new ResizeObserver(() => measureColumns());
-    observer.observe(body.value);
-  }
-});
-
-onBeforeUnmount(() => observer?.disconnect());
-
-watch(() => review.layout, measureColumns);
-
 // A new file starts at the top.
 watch(
   () => props.file.path,
@@ -105,28 +75,15 @@ function scrollTo(top: number): void {
 
 useHunkNavigation({ offsets: hunkTops, scrollTop: virtual.scrollTop, scrollTo });
 
-/** Moves to the next or previous changed symbol from the row at the top of the viewport. */
+const viewport = {
+  scrollTop: virtual.scrollTop,
+  rowTop: (index: number) => virtual.rowTop(index),
+  scrollToRow: (index: number) => virtual.scrollToTop(index),
+};
+
 function moveSymbol(step: 1 | -1): void {
-  const changed = symbols.changed.value;
-  if (changed.length === 0) return;
-  const top = virtual.scrollTop.value;
-  let index = -1;
-  if (step > 0) {
-    index = changed.findIndex((entry) => virtual.rowTop(entry.row) > top + 1);
-    if (index < 0) index = 0;
-  } else {
-    index = changed.length - 1;
-    for (let i = changed.length - 1; i >= 0; i -= 1) {
-      if (virtual.rowTop(changed[i]!.row) < top - 1) {
-        index = i;
-        break;
-      }
-    }
-  }
-  const entry = changed[index];
-  if (!entry) return;
-  virtual.scrollToTop(entry.row);
-  review.currentSymbol = entry.symbol.name;
+  const name = jumpToSymbol(symbols.changed.value, viewport, step);
+  if (name !== null) review.currentSymbol = name;
 }
 
 useShortcut("next-symbol", () => moveSymbol(1));
@@ -143,8 +100,9 @@ defineExpose({ moveSymbol, changedSymbols: symbols.changed });
 <template>
   <div
     ref="body"
-    class="relative min-h-0 flex-1 overflow-auto font-mono text-code"
+    class="diff-body relative min-h-0 flex-1 overflow-auto font-mono text-code"
     data-testid="diff-body"
+    tabindex="0"
     @scroll.passive="onScroll"
   >
     <div
@@ -195,3 +153,10 @@ defineExpose({ moveSymbol, changedSymbols: symbols.changed });
     </div>
   </div>
 </template>
+
+<style scoped>
+/* Tabs take four columns, the width the wrap heights count them with (diffRows.ts). */
+.diff-body {
+  tab-size: 4;
+}
+</style>

@@ -21,4 +21,4 @@ export type ToastKind = "success" | "error" | "info";
 
 export type ProgressVariant = "neutral" | "reviewed";
 
-export type SkeletonHeight = "graph" | "list" | "tree";
+export type SkeletonHeight = "graph" | "list" | "tree" | "diff";

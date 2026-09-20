@@ -39,6 +39,14 @@ const types = computed(() => {
 });
 const biggest = computed(() => largest(props.files, 3));
 const directories = computed(() => byDirectory(props.files, 5));
+
+/** "+12,400", "+212 −190": the largest changes in `--text-secondary`, not the diff colours. */
+function changeSize(file: FileChange): string {
+  const parts: string[] = [];
+  if (file.additions > 0) parts.push(`+${n(file.additions)}`);
+  if (file.deletions > 0) parts.push(`−${n(file.deletions)}`);
+  return parts.join(" ");
+}
 const handWritten = computed(() => stats.value.files - stats.value.generated);
 const handShare = computed(() =>
   stats.value.files === 0 ? 0 : Math.round((handWritten.value / stats.value.files) * 100),
@@ -59,8 +67,8 @@ const reviewShare = computed(() =>
         />
       </template>
     </PanelHeader>
-    <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-3 text-md">
-      <div class="flex flex-col gap-1">
+    <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto py-3 text-md">
+      <div class="flex flex-col gap-1 px-3">
         <div class="flex items-center gap-3">
           <span class="font-medium text-fg">{{ t("detail.files", { n: n(stats.files) }) }}</span>
           <DiffStat :added="stats.additions" :removed="stats.deletions" />
@@ -72,8 +80,8 @@ const reviewShare = computed(() =>
         </p>
       </div>
 
-      <div class="flex flex-col">
-        <h3 class="text-sm text-fg-muted">{{ t("review.byType") }}</h3>
+      <div class="flex flex-col px-3">
+        <h3 class="text-sm text-fg-secondary">{{ t("review.byType") }}</h3>
         <p
           v-for="entry in types"
           :key="entry.key"
@@ -81,12 +89,12 @@ const reviewShare = computed(() =>
           data-testid="review-type"
         >
           <span>{{ entry.label }}</span>
-          <span class="text-fg-secondary">{{ n(entry.count) }}</span>
+          <span class="text-sm text-fg-secondary">{{ n(entry.count) }}</span>
         </p>
       </div>
 
-      <div v-if="directories.length > 1" class="flex flex-col">
-        <h3 class="text-sm text-fg-muted">{{ t("review.byDirectory") }}</h3>
+      <div v-if="directories.length > 1" class="flex flex-col px-3">
+        <h3 class="text-sm text-fg-secondary">{{ t("review.byDirectory") }}</h3>
         <p
           v-for="entry in directories"
           :key="entry.folder"
@@ -94,33 +102,33 @@ const reviewShare = computed(() =>
           data-testid="review-directory"
         >
           <span class="truncate font-mono text-mono-sm text-fg">{{ entry.folder }}</span>
-          <span class="text-fg-secondary">{{ n(entry.count) }}</span>
+          <span class="text-sm text-fg-secondary">{{ n(entry.count) }}</span>
         </p>
       </div>
 
-      <div v-if="biggest.length > 0" class="flex flex-col">
-        <h3 class="text-sm text-fg-muted">{{ t("review.largest") }}</h3>
+      <div v-if="biggest.length > 0" class="flex flex-col px-3">
+        <h3 class="text-sm text-fg-secondary">{{ t("review.largest") }}</h3>
         <p
           v-for="file in biggest"
           :key="file.path"
           class="flex h-5 items-center justify-between gap-2"
         >
           <span class="truncate text-fg">{{ splitPath(file.path).name }}</span>
-          <DiffStat :added="file.additions" :removed="file.deletions" />
+          <span class="text-sm text-fg-secondary">{{ changeSize(file) }}</span>
         </p>
       </div>
 
-      <div class="flex flex-col gap-2">
-        <h3 class="text-sm text-fg-muted">{{ t("review.generatedVsHand") }}</h3>
+      <div class="flex flex-col gap-2 px-3">
+        <h3 class="text-sm text-fg-secondary">{{ t("review.generatedVsHand") }}</h3>
         <Progress :value="handShare" :label="t('review.generatedVsHand')" />
-        <p class="text-sm text-fg-secondary">
+        <p class="text-sm text-fg-muted">
           {{ t("review.handWritten", { n: handWritten }) }}
           {{ t("review.generated", { n: stats.generated }) }}
           {{ t("review.testsTouched", { n: stats.tests }) }}
         </p>
       </div>
 
-      <div class="flex flex-col gap-2 border-t border-line pt-3">
+      <div class="flex flex-col gap-2 border-t border-line px-3 pt-3">
         <h3 class="text-lg font-semibold text-fg">{{ t("review.progress") }}</h3>
         <p class="text-sm text-fg-secondary">
           {{ t("review.reviewed", { done: props.reviewedCount, total: stats.files }) }}
