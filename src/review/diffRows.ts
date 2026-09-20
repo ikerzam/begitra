@@ -1,67 +1,171 @@
-// Pure helpers of the diff panel: the rows of a file (a header per hunk, then its lines, cut
-// after MAX_LINES lines so a huge file never stalls the panel), the intra-line segments of a
-// line, and the pieces of a hunk header.
+// Pure helpers of the diff viewer: the row models of a file in both layouts (a header row
+// per hunk, then its lines, or its removed and added lines paired side by side), the row
+// heights with and without wrapping as prefix sums for the virtual list, the intra-line
+// segments of a line merged with its token classes, and the pieces of a hunk header.
 
 import type { DiffLineKind } from "@/components/types";
-import type { DiffLine, Hunk } from "@/ipc/schemas";
+import type { DiffLine, Hunk, Token, TokenClass } from "@/ipc/schemas";
 
-/** Lines rendered before the diff is cut. */
-export const MAX_LINES = 1_500;
+/** Height of a line row (`--row-diff`). */
+export const LINE_HEIGHT = 20;
+/** Height of a hunk header row (`--row-hunk`). */
+export const HUNK_HEIGHT = 28;
 
-export interface Row {
+export type DiffLayout = "unified" | "side-by-side";
+
+export interface HunkRowModel {
+  kind: "hunk";
   key: string;
-  hunk?: Hunk;
-  line?: DiffLine;
+  hunkIndex: number;
+  hunk: Hunk;
 }
 
-export interface DiffRows {
-  rows: Row[];
-  /** The file has more lines than the rows hold. */
-  truncated: boolean;
+export interface LineRowModel {
+  kind: "line";
+  key: string;
+  hunkIndex: number;
+  line: DiffLine;
+}
+
+/** A side-by-side row: a context line on both sides, or a removed and an added line paired. */
+export interface PairRowModel {
+  kind: "pair";
+  key: string;
+  hunkIndex: number;
+  left: DiffLine | null;
+  right: DiffLine | null;
+}
+
+export type DiffRowModel = HunkRowModel | LineRowModel | PairRowModel;
+
+/** The rows of `hunks` in unified layout. */
+export function unifiedRows(hunks: Hunk[]): DiffRowModel[] {
+  const rows: DiffRowModel[] = [];
+  for (const [h, hunk] of hunks.entries()) {
+    rows.push({ kind: "hunk", key: `h${h}`, hunkIndex: h, hunk });
+    for (const [l, line] of hunk.lines.entries()) {
+      rows.push({ kind: "line", key: `h${h}-l${l}`, hunkIndex: h, line });
+    }
+  }
+  return rows;
 }
 
 /**
- * The rows of `hunks`: a header row per hunk followed by its lines, stopping after `maxLines`
- * lines counted across hunks. A hunk none of whose lines fit gets no header either.
+ * The rows of `hunks` side by side: context lines on both sides; a run of removed lines
+ * followed by a run of added lines is paired index by index, the longer run leaving gaps.
  */
-export function buildRows(hunks: Hunk[], maxLines = MAX_LINES): DiffRows {
-  const rows: Row[] = [];
-  let left = maxLines;
+export function sideBySideRows(hunks: Hunk[]): DiffRowModel[] {
+  const rows: DiffRowModel[] = [];
   for (const [h, hunk] of hunks.entries()) {
-    if (left === 0 && hunk.lines.length > 0) break;
-    rows.push({ key: `h${h}`, hunk });
-    for (const [l, line] of hunk.lines.slice(0, left).entries()) {
-      rows.push({ key: `h${h}-l${l}`, line });
+    rows.push({ kind: "hunk", key: `h${h}`, hunkIndex: h, hunk });
+    let i = 0;
+    let n = 0;
+    const lines = hunk.lines;
+    while (i < lines.length) {
+      const line = lines[i]!;
+      if (line.kind === "context") {
+        rows.push({ kind: "pair", key: `h${h}-p${n}`, hunkIndex: h, left: line, right: line });
+        n += 1;
+        i += 1;
+        continue;
+      }
+      const removed: DiffLine[] = [];
+      const added: DiffLine[] = [];
+      while (i < lines.length && lines[i]!.kind === "removed") removed.push(lines[i++]!);
+      while (i < lines.length && lines[i]!.kind === "added") added.push(lines[i++]!);
+      const count = Math.max(removed.length, added.length);
+      for (let k = 0; k < count; k += 1) {
+        rows.push({
+          kind: "pair",
+          key: `h${h}-p${n}`,
+          hunkIndex: h,
+          left: removed[k] ?? null,
+          right: added[k] ?? null,
+        });
+        n += 1;
+      }
     }
-    left -= Math.min(left, hunk.lines.length);
   }
-  const total = hunks.reduce((n, hunk) => n + hunk.lines.length, 0);
-  return { rows, truncated: total > maxLines };
+  return rows;
+}
+
+export function rowsOf(hunks: Hunk[], layout: DiffLayout): DiffRowModel[] {
+  return layout === "unified" ? unifiedRows(hunks) : sideBySideRows(hunks);
+}
+
+/** Lines a text takes in a column `columns` characters wide (at least one). */
+export function wrappedLines(text: string, columns: number): number {
+  if (columns <= 0) return 1;
+  // Tabs count as four columns, like the viewer renders them.
+  let width = 0;
+  for (const char of text) width += char === "\t" ? 4 : 1;
+  return Math.max(1, Math.ceil(width / columns));
+}
+
+/**
+ * The height of every row: hunk headers 28px, lines 20px, or a multiple of 20px when wrapping
+ * on `columns` characters (a pair takes the taller side).
+ */
+export function rowHeights(rows: DiffRowModel[], wrap: boolean, columns: number): number[] {
+  return rows.map((row) => {
+    if (row.kind === "hunk") return HUNK_HEIGHT;
+    if (!wrap) return LINE_HEIGHT;
+    if (row.kind === "line") return LINE_HEIGHT * wrappedLines(row.line.text, columns);
+    const left = row.left ? wrappedLines(row.left.text, columns) : 1;
+    const right = row.right ? wrappedLines(row.right.text, columns) : 1;
+    return LINE_HEIGHT * Math.max(left, right);
+  });
+}
+
+/** Indices of the hunk header rows. */
+export function hunkRowIndexes(rows: DiffRowModel[]): number[] {
+  const indexes: number[] = [];
+  for (const [index, row] of rows.entries()) if (row.kind === "hunk") indexes.push(index);
+  return indexes;
 }
 
 export interface Segment {
   text: string;
   emphasis: boolean;
+  /** Token class from the highlighter; `plain` without one. */
+  class: TokenClass;
 }
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-/** Splits a line into plain and emphasised segments from its spans, which are UTF-8 byte offsets. */
-export function segments(line: DiffLine): Segment[] {
-  if (line.spans.length === 0) return [{ text: line.text, emphasis: false }];
-  const bytes = encoder.encode(line.text);
-  const result: Segment[] = [];
-  let at = 0;
-  for (const span of line.spans) {
-    const start = Math.max(span.start, at);
-    if (span.end <= start) continue;
-    if (start > at)
-      result.push({ text: decoder.decode(bytes.subarray(at, start)), emphasis: false });
-    result.push({ text: decoder.decode(bytes.subarray(start, span.end)), emphasis: true });
-    at = span.end;
+/**
+ * Splits a line into segments at every intra-line span boundary (UTF-8 byte offsets) and
+ * every token boundary, so each segment has one emphasis and one class.
+ */
+export function segments(line: DiffLine, tokens: Token[] = []): Segment[] {
+  if (line.spans.length === 0 && tokens.length === 0) {
+    return [{ text: line.text, emphasis: false, class: "plain" }];
   }
-  if (at < bytes.length) result.push({ text: decoder.decode(bytes.subarray(at)), emphasis: false });
+  const bytes = encoder.encode(line.text);
+  const cuts = new Set<number>([0, bytes.length]);
+  for (const span of line.spans) {
+    cuts.add(Math.min(span.start, bytes.length));
+    cuts.add(Math.min(span.end, bytes.length));
+  }
+  for (const token of tokens) {
+    cuts.add(Math.min(token.start, bytes.length));
+    cuts.add(Math.min(token.end, bytes.length));
+  }
+  const points = [...cuts].sort((a, b) => a - b);
+  const result: Segment[] = [];
+  for (let i = 0; i + 1 < points.length; i += 1) {
+    const start = points[i]!;
+    const end = points[i + 1]!;
+    if (end <= start) continue;
+    const emphasis = line.spans.some((span) => span.start <= start && span.end >= end);
+    const token = tokens.find((t) => t.start <= start && t.end >= end);
+    const text = decoder.decode(bytes.subarray(start, end));
+    const cls = token?.class ?? "plain";
+    const last = result.at(-1);
+    if (last && last.emphasis === emphasis && last.class === cls) last.text += text;
+    else result.push({ text, emphasis, class: cls });
+  }
   return result;
 }
 

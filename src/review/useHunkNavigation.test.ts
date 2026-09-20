@@ -1,6 +1,6 @@
 import { mount } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { defineComponent, h, ref, type PropType } from "vue";
+import { computed, defineComponent, h, nextTick, ref, type PropType } from "vue";
 
 import { ShortcutRegistry, setShortcutRegistry } from "@/shortcuts/registry";
 import { installShortcuts } from "@/shortcuts/useShortcut";
@@ -63,44 +63,44 @@ describe("useHunkNavigation", () => {
     setShortcutRegistry(undefined);
   });
 
-  /** A scrolled body with one header per offset; jsdom lays nothing out, so they are stubbed. */
+  /** A body whose header tops are given; the scroll position is a ref the keys move. */
   const Body = defineComponent({
     props: { offsets: { type: Array as PropType<number[]>, required: true } },
     setup(props) {
-      const body = ref<HTMLElement | null>(null);
-      useHunkNavigation(body);
-      return () =>
-        h(
-          "div",
-          { ref: body, "data-testid": "body" },
-          props.offsets.map((offset) => h("div", { "data-hunk": "", "data-offset": offset })),
-        );
+      const scrollTop = ref(400);
+      useHunkNavigation({
+        offsets: computed(() => props.offsets),
+        scrollTop,
+        scrollTo: (top) => {
+          scrollTop.value = top;
+        },
+      });
+      return () => h("div", { "data-testid": "body", "data-top": scrollTop.value });
     },
   });
 
-  function mountBody(scrollTop: number, headers = offsets) {
+  function mountBody(headers = offsets) {
     const wrapper = mount(Body, { props: { offsets: headers }, attachTo: document.body });
-    const body = wrapper.get('[data-testid="body"]').element;
-    Object.defineProperty(body, "scrollTop", { value: scrollTop, writable: true });
-    for (const header of body.querySelectorAll<HTMLElement>("[data-hunk]")) {
-      Object.defineProperty(header, "offsetTop", { value: Number(header.dataset["offset"]) });
-    }
-    return { wrapper, body };
+    const top = () => Number(wrapper.get('[data-testid="body"]').attributes("data-top"));
+    return { wrapper, top };
   }
 
-  it("scrolls the body to the next and previous headers with n and p", () => {
-    const { wrapper, body } = mountBody(400);
+  it("scrolls the body to the next and previous headers with n and p", async () => {
+    const { wrapper, top } = mountBody();
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "n" }));
-    expect(body.scrollTop).toBe(900);
+    await nextTick();
+    expect(top()).toBe(900);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "p" }));
-    expect(body.scrollTop).toBe(400);
+    await nextTick();
+    expect(top()).toBe(400);
     wrapper.unmount();
   });
 
-  it("does nothing without headers", () => {
-    const { wrapper, body } = mountBody(0, []);
+  it("does nothing without headers", async () => {
+    const { wrapper, top } = mountBody([]);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "n" }));
-    expect(body.scrollTop).toBe(0);
+    await nextTick();
+    expect(top()).toBe(400);
     wrapper.unmount();
   });
 });

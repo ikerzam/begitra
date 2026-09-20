@@ -1,6 +1,6 @@
-// n and p move the diff body from hunk header to hunk header. The body must be the offset
-// parent of the headers (`position: relative`), so that their `offsetTop` and its `scrollTop`
-// share an origin: a header sits at the top of the viewport when the two are equal.
+// n and p move the diff body from hunk header to hunk header. The headers' tops come from
+// the virtual rows (a header sits at the top of the viewport when the scroll position equals
+// its top), so the keys work whether the header is rendered or not.
 
 import type { Ref } from "vue";
 
@@ -25,19 +25,25 @@ export function previousHunkIndex(offsets: number[], top: number): number {
   return offsets.length - 1;
 }
 
-/** Binds n and p to scroll `body` between its `[data-hunk]` headers. */
-export function useHunkNavigation(body: Ref<HTMLElement | null>): {
+export interface HunkNavigationOptions {
+  /** Tops of the hunk header rows. */
+  offsets: Ref<number[]>;
+  /** The current scroll position of the body. */
+  scrollTop: Ref<number>;
+  /** Scrolls the body to a position. */
+  scrollTo: (top: number) => void;
+}
+
+/** Binds n and p to scroll between the hunk headers. */
+export function useHunkNavigation(options: HunkNavigationOptions): {
   moveHunk: (step: 1 | -1) => void;
 } {
   function moveHunk(step: 1 | -1): void {
-    const element = body.value;
-    if (!element) return;
-    const headers = [...element.querySelectorAll<HTMLElement>("[data-hunk]")];
-    const offsets = headers.map((header) => header.offsetTop);
-    const top = element.scrollTop;
+    const offsets = options.offsets.value;
+    const top = options.scrollTop.value;
     const index = step > 0 ? nextHunkIndex(offsets, top) : previousHunkIndex(offsets, top);
     const offset = offsets[index];
-    if (offset !== undefined) element.scrollTop = offset;
+    if (offset !== undefined) options.scrollTo(offset);
   }
 
   useShortcut("next-hunk", () => moveHunk(1));
