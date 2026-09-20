@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ChevronDown, ChevronRight, CircleAlert } from "@lucide/vue";
-import { ref, useId } from "vue";
+import { ref, useId, type Component } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Button from "./Button.vue";
@@ -13,10 +13,12 @@ const props = withDefaults(
     output?: string;
     /** Label of the optional secondary action. */
     action?: string;
+    /** Icon before the action's label, as `terminal` before "Open in terminal". */
+    actionIcon?: Component;
     /** Start with the git output expanded. */
     open?: boolean;
   }>(),
-  { output: "", action: "", open: false },
+  { output: "", action: "", actionIcon: undefined, open: false },
 );
 
 const emit = defineEmits<{ action: [] }>();
@@ -37,7 +39,13 @@ const outputId = useId();
         class="mt-px shrink-0 text-danger"
       />
       <p class="flex-1 text-fg">{{ props.message }}</p>
-      <Button v-if="props.action" variant="secondary" class="shrink-0" @click="emit('action')">
+      <Button
+        v-if="props.action"
+        variant="secondary"
+        class="shrink-0"
+        :icon="props.actionIcon"
+        @click="emit('action')"
+      >
         {{ props.action }}
       </Button>
     </div>

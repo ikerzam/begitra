@@ -111,6 +111,7 @@ describe("GraphPanel filters", () => {
     await popover.get("input").trigger("keydown", { key: "Enter" });
     await settled();
     expect(wrapper.find('[data-testid="path-popover"]').exists()).toBe(false);
+    expect(document.activeElement).toBe(wrapper.get('[data-testid="filter-path"]').element);
     expect(wrapper.get('[data-testid="filter-path"]').text()).toBe("apps/api");
     expect(useGraphStore().filters.path).toBe("apps/api");
     expect(wrapper.findAll('[data-testid="graph-row"]')).toHaveLength(15);

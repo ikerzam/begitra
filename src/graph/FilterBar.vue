@@ -97,6 +97,12 @@ const dateValue = computed({
 const pathOpen = ref(false);
 const pathButton = ref<{ $el: HTMLElement } | null>(null);
 
+/** Closing the popover unmounts its focused input: the focus returns to the button. */
+function closePath(): void {
+  pathOpen.value = false;
+  pathButton.value?.$el.focus();
+}
+
 const countLine = computed(() => {
   if (!graph.isFiltered) return "";
   const matches = formatCount(graph.matches, locale.value);
@@ -159,7 +165,7 @@ const countLine = computed(() => {
         :path="graph.filters.path"
         :anchor="pathButton?.$el"
         @apply="graph.setPath"
-        @close="pathOpen = false"
+        @close="closePath"
       />
     </div>
     <span

@@ -83,12 +83,12 @@ onMounted(() => {
         {{ props.commit.subject }}
       </p>
       <p class="flex items-center gap-2 text-sm">
-        <span class="text-fg">{{ props.commit.author.name }}</span>
+        <span class="text-fg-secondary">{{ props.commit.author.name }}</span>
         <span class="text-fg-muted">{{ props.commit.author.email }}</span>
       </p>
-      <p class="flex items-center gap-2 text-sm text-fg-secondary">
+      <p class="flex items-center gap-2 text-sm text-fg-muted">
         <span>{{ absolute }}</span>
-        <span class="text-fg-muted">({{ relative }})</span>
+        <span>({{ relative }})</span>
       </p>
       <p class="flex items-center justify-between gap-2">
         <span class="truncate font-mono text-mono-sm text-fg-secondary" data-testid="hover-hash">
@@ -98,7 +98,7 @@ onMounted(() => {
       </p>
       <p
         v-if="props.commit.parents.length > 0"
-        class="flex items-center gap-2 text-sm text-fg-secondary"
+        class="flex items-center gap-2 text-sm text-fg-muted"
       >
         <span>
           {{ props.commit.parents.length > 1 ? t("detail.parents") : t("detail.parent") }}
@@ -122,7 +122,7 @@ onMounted(() => {
         />
       </div>
     </div>
-    <div class="flex items-center gap-2 border-t border-line px-2 py-1">
+    <div class="flex items-center gap-2 border-t border-line px-3 py-2">
       <Button
         variant="ghost"
         :icon="FileDiff"

@@ -3,6 +3,7 @@
 // card and the context menu, and its empty and error states (no commit to show, a history that
 // stopped at an error, a repository that could not be opened).
 
+import { Terminal } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -142,7 +143,16 @@ defineExpose({ focus: () => rows.value?.focus() });
     </div>
 
     <template v-else>
+      <EmptyState
+        v-if="showEmpty && graph.isActive"
+        :message="t('graph.noMatches')"
+        data-testid="graph-empty"
+      >
+        <Button variant="secondary" @click="graph.clear()">{{ t("graph.clearFilters") }}</Button>
+      </EmptyState>
+      <EmptyState v-else-if="showEmpty" :message="t('graph.noCommits')" data-testid="graph-empty" />
       <CommitRows
+        v-else
         ref="rows"
         :commits="repo.commits"
         :refs="repo.refs"
@@ -164,20 +174,13 @@ defineExpose({ focus: () => rows.value?.focus() });
               :message="walkError.message"
               :output="walkError.output"
               :action="walkError.action"
+              :action-icon="walkError.corrupt ? Terminal : undefined"
               open
               @action="onWalkErrorAction"
             />
           </div>
         </template>
       </CommitRows>
-      <EmptyState
-        v-if="showEmpty && graph.isActive"
-        :message="t('graph.noMatches')"
-        data-testid="graph-empty"
-      >
-        <Button variant="secondary" @click="graph.clear()">{{ t("graph.clearFilters") }}</Button>
-      </EmptyState>
-      <EmptyState v-else-if="showEmpty" :message="t('graph.noCommits')" data-testid="graph-empty" />
     </template>
 
     <HoverCard

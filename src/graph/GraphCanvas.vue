@@ -50,8 +50,9 @@ function readTokens(): void {
     style.getPropertyValue(`--lane-${i + 1}`).trim(),
   );
   mutedText = style.getPropertyValue("--text-muted").trim();
+  const size = style.getPropertyValue("--text-sm").trim() || "12px";
   const body = getComputedStyle(document.body);
-  font = `12px ${body.fontFamily || "sans-serif"}`;
+  font = `${size} ${body.fontFamily || "sans-serif"}`;
 }
 
 function colourOf(lane: number): string {

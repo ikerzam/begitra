@@ -16,8 +16,8 @@ const emit = defineEmits<{ select: [index: number]; back: [] }>();
 
 const { t } = useI18n();
 const WINDOW = 14;
-/** Five 8px lanes inside the 48px rail (`--rail-w`). */
-const RAIL_LAYOUT: LaneLayout = { laneWidth: 8, offset: 8, drawn: 5 };
+/** Three 12px lanes from x = 10 inside the 48px rail. */
+const RAIL_LAYOUT: LaneLayout = { laneWidth: 12, offset: 10, drawn: 3 };
 const RAIL_WIDTH = 48;
 
 const window = computed(() => {

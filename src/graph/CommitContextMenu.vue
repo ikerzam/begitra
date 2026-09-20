@@ -3,7 +3,7 @@
 // here, compare with… (disabled), select as range end, open in terminal and in
 // editor. Opened at the pointer, or under the focused row from the keyboard.
 
-import { Code, Copy, FileDiff, GitCompareArrows, Locate, Terminal } from "@lucide/vue";
+import { Code, Copy, FileDiff, GitCommitHorizontal, GitCompareArrows, Terminal } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
 
 import ContextMenu from "@/components/ContextMenu.vue";
@@ -54,7 +54,7 @@ const copyHint = formatShortcut("mod+c", shortcutRegistry().platform);
     />
     <ContextMenuItem
       :label="t('graph.selectRangeEnd')"
-      :icon="Locate"
+      :icon="GitCommitHorizontal"
       data-testid="menu-range-end"
       @select="emit('rangeEnd')"
     />
