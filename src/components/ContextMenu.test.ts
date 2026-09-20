@@ -125,6 +125,17 @@ describe("ContextMenu", () => {
     expect(menu.emitted("close")).toHaveLength(1);
   });
 
+  it("ignores a pointer going down on its anchor", () => {
+    const anchor = document.createElement("button");
+    document.body.append(anchor);
+    wrapper = mountWithI18n(ContextMenu, { props: { anchor }, attachTo: document.body });
+    anchor.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    expect(wrapper.emitted("close")).toBeUndefined();
+    document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    expect(wrapper.emitted("close")).toHaveLength(1);
+    anchor.remove();
+  });
+
   it("fixes itself at the given viewport position", () => {
     wrapper = mountWithI18n(ContextMenu, { props: { x: 120, y: 240, label: "Commit actions" } });
     expect(wrapper.attributes("aria-label")).toBe("Commit actions");

@@ -170,6 +170,18 @@ describe("RepoSwitcher", () => {
     wrapper.unmount();
   });
 
+  it("closes from its own button without reopening", async () => {
+    const wrapper = mountSwitcher();
+    const button = wrapper.get('[data-testid="repo-switcher"]');
+    await button.trigger("click");
+    expect(wrapper.find('[data-testid="repo-switcher-menu"]').exists()).toBe(true);
+    // A real click: the pointer goes down on the button (outside the menu), then it clicks.
+    button.element.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    await button.trigger("click");
+    expect(wrapper.find('[data-testid="repo-switcher-menu"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
   it("offers only the two actions without an index", async () => {
     useIndexStore().entries = [];
     const wrapper = mountSwitcher(null);

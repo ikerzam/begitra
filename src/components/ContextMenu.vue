@@ -9,8 +9,10 @@ const props = withDefaults(
     /** Viewport position; when both are given the menu is fixed there. */
     x?: number;
     y?: number;
+    /** An element whose clicks do not count as outside (the button that toggles the menu). */
+    anchor?: HTMLElement | null;
   }>(),
-  { label: "", x: undefined, y: undefined },
+  { label: "", x: undefined, y: undefined, anchor: null },
 );
 
 /** `close` fires on Escape, Tab, a click outside, or after an item is activated. */
@@ -77,9 +79,9 @@ function onClick(event: MouseEvent): void {
 }
 
 function onPointerDownOutside(event: PointerEvent): void {
-  if (root.value && event.target instanceof Node && !root.value.contains(event.target)) {
-    emit("close");
-  }
+  if (!root.value || !(event.target instanceof Node)) return;
+  if (root.value.contains(event.target) || props.anchor?.contains(event.target)) return;
+  emit("close");
 }
 
 onMounted(() => {

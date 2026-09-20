@@ -85,6 +85,7 @@ function goToRepositories(): void {
       v-if="open"
       class="switcher-menu absolute top-full left-0 z-40 mt-1"
       :label="t('switcher.label')"
+      :anchor="button"
       data-testid="repo-switcher-menu"
       @close="close"
     >
