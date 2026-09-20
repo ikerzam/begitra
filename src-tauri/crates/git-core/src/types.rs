@@ -653,6 +653,16 @@ pub struct DiffLine {
     pub no_newline: bool,
 }
 
+/// The git executable the CLI runs, as found by detection or confirmed by a probe.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitDetection {
+    /// The executable: an absolute path, or `git` when PATH resolves it.
+    pub path: PathBuf,
+    /// The first line of `git --version`, e.g. `git version 2.54.0.windows.1`.
+    pub version: String,
+}
+
 /// A working tree of the repository, main or linked.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

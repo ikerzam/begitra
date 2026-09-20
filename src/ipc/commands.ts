@@ -9,6 +9,7 @@ import {
   AnnotationSchema,
   BlobContentSchema,
   ComparisonSchema,
+  GitDetectionSchema,
   MergePreviewSchema,
   CommitCountSchema,
   DiffPageSchema,
@@ -144,6 +145,16 @@ export function worktreeUnlock(repo: string, path: string, opId = newOpId("workt
 /** Whether an absolute path exists (the add dialog checks its Path field with it). */
 export function pathExists(path: string) {
   return call("path_exists", { path }, v.boolean());
+}
+
+/** Looks for git on PATH and in the platform's common locations. */
+export function detectGit(opId = newOpId("detect-git")) {
+  return call("detect_git", { opId }, GitDetectionSchema);
+}
+
+/** Makes the CLI run `path` (empty: git on PATH) once its `--version` answered. */
+export function setGitExecutable(path: string, opId = newOpId("git-executable")) {
+  return call("set_git_executable", { path, opId }, GitDetectionSchema);
 }
 
 export function closeWalk(walkId: string) {

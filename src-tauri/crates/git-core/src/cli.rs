@@ -1,17 +1,148 @@
 //! Runs the system `git` with argv, never through a shell.
 //!
-//! Used by the operations libgit2 does not cover (network, worktree add and remove) and by
-//! the tests that compare the engine with the CLI on fixture repositories.
+//! Used by the operations libgit2 does not cover (path history, the merge preview, the
+//! worktree writes, the status) and by the tests that compare the engine with the CLI on
+//! fixture repositories. The executable is `git` on PATH until the settings name another
+//! ([`set_git_executable`]); [`detect_git`] finds one for them.
 
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::Duration;
 
 use crate::engine::Cancel;
 use crate::error::{GitError, GitResult};
+use crate::types::GitDetection;
+
+/// The executable every CLI call runs; `None` is `git` on PATH.
+static GIT_EXECUTABLE: RwLock<Option<PathBuf>> = RwLock::new(None);
+
+/// The git executable the CLI runs now.
+pub fn git_executable() -> PathBuf {
+    GIT_EXECUTABLE
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("git"))
+}
+
+/// Makes every later CLI call run `path` (or `git` on PATH again for `None`), once
+/// `<path> --version` has answered; a program that does not is refused with
+/// [`GitError::Cli`] and the executable in use stays.
+pub fn set_git_executable(path: Option<&Path>) -> GitResult<GitDetection> {
+    let candidate = path.map_or_else(|| PathBuf::from("git"), Path::to_path_buf);
+    let version = probe_git(&candidate)?;
+    *GIT_EXECUTABLE
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = path.map(Path::to_path_buf);
+    Ok(GitDetection {
+        path: candidate,
+        version,
+    })
+}
+
+/// Runs `<candidate> --version` and returns its first line, or [`GitError::Cli`] when the
+/// program cannot be started, fails, or does not answer like git.
+pub fn probe_git(candidate: &Path) -> GitResult<String> {
+    let text = candidate.to_string_lossy().into_owned();
+    let failed = |stderr: String| GitError::Cli {
+        command: format!("{text} --version"),
+        status: None,
+        stderr,
+    };
+    let mut command = Command::new(candidate);
+    command.arg("--version").stdin(Stdio::null());
+    for var in REDIRECTING_VARS {
+        command.env_remove(var);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let output = command
+        .output()
+        .map_err(|error| failed(format!("could not start {text}: {error}")))?;
+    if !output.status.success() {
+        return Err(GitError::Cli {
+            command: format!("{text} --version"),
+            status: output.status.code(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        });
+    }
+    let first = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
+    if !first.starts_with("git version ") {
+        return Err(failed(format!("{text} is not git: it printed {first:?}")));
+    }
+    Ok(first)
+}
+
+/// Looks for git: the configured executable, then `git` on PATH, then the platform's common
+/// locations; the first one whose `--version` answers wins.
+pub fn detect_git() -> GitResult<GitDetection> {
+    let mut candidates = vec![git_executable(), PathBuf::from("git")];
+    candidates.extend(common_locations());
+    let mut last = None;
+    for candidate in candidates {
+        match probe_git(&candidate) {
+            Ok(version) => {
+                return Ok(GitDetection {
+                    path: candidate,
+                    version,
+                })
+            }
+            Err(error) => last = Some(error),
+        }
+    }
+    Err(last.unwrap_or_else(|| GitError::Cli {
+        command: "git --version".to_owned(),
+        status: None,
+        stderr: "no git found".to_owned(),
+    }))
+}
+
+/// Where installers put git when it is not on PATH.
+fn common_locations() -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    if cfg!(windows) {
+        for var in ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"] {
+            if let Some(base) = std::env::var_os(var) {
+                let base = PathBuf::from(base);
+                found.push(base.join("Git").join("cmd").join("git.exe"));
+                found.push(
+                    base.join("Programs")
+                        .join("Git")
+                        .join("cmd")
+                        .join("git.exe"),
+                );
+            }
+        }
+    } else if cfg!(target_os = "macos") {
+        found.extend(
+            [
+                "/opt/homebrew/bin/git",
+                "/usr/local/bin/git",
+                "/usr/bin/git",
+            ]
+            .iter()
+            .map(PathBuf::from),
+        );
+    } else {
+        found.extend(
+            ["/usr/bin/git", "/usr/local/bin/git"]
+                .iter()
+                .map(PathBuf::from),
+        );
+    }
+    found
+}
 
 /// How often a cancellable run polls the flag while git works; also the latency between
 /// git exiting and the caller learning it.
@@ -48,7 +179,7 @@ const REDIRECTING_VARS: [&str; 9] = [
 /// The command `git <args>` in `cwd`, with the redirecting variables removed and stdin closed.
 /// On Windows the process gets no console, so a GUI caller never flashes a black window.
 pub fn command(cwd: &Path, args: &[&str]) -> Command {
-    let mut command = Command::new("git");
+    let mut command = Command::new(git_executable());
     command.args(args).current_dir(cwd).stdin(Stdio::null());
     for var in REDIRECTING_VARS {
         command.env_remove(var);
@@ -249,6 +380,24 @@ mod tests {
         let cancelled = run_git_cancellable(Path::new("."), &["--version"], &cancel)
             .expect_err("cancelled before starting");
         assert_eq!(cancelled.code(), "op.cancelled");
+    }
+
+    #[test]
+    fn probes_and_detects_git_and_refuses_what_is_not_git() {
+        let version = probe_git(Path::new("git")).expect("git is installed");
+        assert!(version.starts_with("git version "));
+        let detected = detect_git().expect("detected");
+        assert!(detected.version.starts_with("git version "));
+        // A program that exists but is not git, and one that does not exist.
+        let not_git = if cfg!(windows) { "cmd" } else { "sh" };
+        let refused = probe_git(Path::new(not_git)).expect_err("not git");
+        assert_eq!(refused.code(), "git.cli_failed");
+        let missing = probe_git(Path::new("no-such-git-binary-for-tests")).expect_err("missing");
+        assert!(matches!(missing, GitError::Cli { status: None, .. }));
+        // Refusing keeps the executable in use.
+        let before = git_executable();
+        assert!(set_git_executable(Some(Path::new("no-such-git-binary-for-tests"))).is_err());
+        assert_eq!(git_executable(), before);
     }
 
     #[test]

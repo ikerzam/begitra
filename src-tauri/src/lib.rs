@@ -126,6 +126,8 @@ pub fn run() {
             commands::worktrees::worktree_lock,
             commands::worktrees::worktree_unlock,
             commands::worktrees::path_exists,
+            commands::git::detect_git,
+            commands::git::set_git_executable,
         ])
         .run(tauri::generate_context!());
 

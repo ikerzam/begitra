@@ -9,10 +9,10 @@ use std::path::{Path, PathBuf};
 
 use git_core::types::{
     BaseCommit, BlobAt, BlobContent, ChangeKind, ChangeSet, CommitCount, CommitNode, Comparison,
-    ComparisonRelation, DiffLine, DiffOptions, DiffTarget, Edge, Endpoint, FileChange, Hunk,
-    LineKind, MergePreview, MergePreviewKind, Ref, RefKind, Repo, Signature, Span, StatusEntry,
-    StatusOptions, WalkFilter, WalkOptions, WalkOrder, WalkScope, WorkingTreeBase, Worktree,
-    WorktreeAdd, WorktreeBranch,
+    ComparisonRelation, DiffLine, DiffOptions, DiffTarget, Edge, Endpoint, FileChange,
+    GitDetection, Hunk, LineKind, MergePreview, MergePreviewKind, Ref, RefKind, Repo, Signature,
+    Span, StatusEntry, StatusOptions, WalkFilter, WalkOptions, WalkOrder, WalkScope,
+    WorkingTreeBase, Worktree, WorktreeAdd, WorktreeBranch,
 };
 use serde::Serialize;
 use syntax::{Highlight, Symbol, SymbolKind, Token, TokenClass};
@@ -504,6 +504,13 @@ fn write_fixtures() {
         },
     );
     write("worktrees", &worktrees());
+    write(
+        "git-detection",
+        &GitDetection {
+            path: PathBuf::from("/usr/bin/git"),
+            version: "git version 2.46.0".to_owned(),
+        },
+    );
     write(
         "worktree-adds",
         &[

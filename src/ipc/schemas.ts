@@ -408,6 +408,10 @@ export const WorktreeSchema = v.object({
 });
 export type Worktree = v.InferOutput<typeof WorktreeSchema>;
 
+/** The git executable the CLI runs, as detected or confirmed. */
+export const GitDetectionSchema = v.object({ path: v.string(), version: v.string() });
+export type GitDetection = v.InferOutput<typeof GitDetectionSchema>;
+
 /** What a new worktree checks out. */
 export const WorktreeBranchSchema = v.variant("kind", [
   v.object({ kind: v.literal("new"), name: v.string(), start: v.string() }),
@@ -545,6 +549,15 @@ export const commandArgs = {
   }),
   worktree_unlock: v.object({ repo: path, path: worktreePath, opId }),
   path_exists: v.object({ path: worktreePath }),
+  detect_git: v.object({ opId }),
+  set_git_executable: v.object({
+    path: v.pipe(
+      v.string(),
+      v.maxLength(4096),
+      v.check((p) => !p.trimStart().startsWith("-"), "starts with a dash"),
+    ),
+    opId,
+  }),
   count_commits: v.object({ repo: path, scope: WalkScopeSchema, opId }),
   list_worktrees: v.object({ repo: path, opId }),
   walk_commits: v.object({

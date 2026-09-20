@@ -4,6 +4,7 @@
 pub mod compare;
 pub mod diff;
 pub mod external;
+pub mod git;
 pub mod index;
 pub mod repo;
 pub mod review;
