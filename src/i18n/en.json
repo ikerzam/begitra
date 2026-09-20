@@ -273,10 +273,15 @@
       "toggle-sidebar": "Toggle sidebar",
       "open-terminal": "Open in terminal",
       "open-editor": "Open in editor",
-      "close-repository": "Close repository",
+      "pin-repository": "Pin repository",
+      "unpin-repository": "Unpin repository",
+      "go-to-repositories": "Go to repositories",
+      "scan-folders": "Scan folders",
+      "add-scan-folder": "Add scan folder…",
       "locale-en": "Language: English",
       "locale-es": "Language: Spanish"
-    }
+    },
+    "repos": "Repos"
   },
   "external": {
     "terminalFailed": "Couldn't open the terminal. Check the terminal command in Settings.",

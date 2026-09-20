@@ -3,14 +3,18 @@ import {
   Code,
   FileDiff,
   FolderGit2,
+  FolderPlus,
+  FolderSearch,
   GitGraph,
   Languages,
+  LayoutGrid,
   PanelLeft,
+  Pin,
+  PinOff,
   Search,
   Terminal,
-  X,
 } from "@lucide/vue";
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Kbd from "@/components/Kbd.vue";
@@ -21,7 +25,7 @@ import { useShellStore } from "@/stores/shell";
 
 import { paletteCommands } from "./commands";
 import { usePalette, type PaletteRow } from "./usePalette";
-import { usePaletteActions } from "./usePaletteActions";
+import { usePaletteActions, usePaletteRepos } from "./usePaletteActions";
 
 const { t } = useI18n();
 const shell = useShellStore();
@@ -29,6 +33,7 @@ const settings = useSettingsStore();
 const actions = usePaletteActions();
 
 const commands = computed(() => paletteCommands(actions));
+const repos = usePaletteRepos();
 /* The recents live in the settings, so they survive closing the palette and relaunching. */
 const recents = computed({
   get: () => settings.values.paletteRecents,
@@ -39,6 +44,7 @@ const palette = usePalette({
   translate: (key) => t(key),
   onClose: () => shell.closePalette(),
   recents,
+  repos,
 });
 
 const icons: Record<string, typeof Search> = {
@@ -48,10 +54,18 @@ const icons: Record<string, typeof Search> = {
   "toggle-sidebar": PanelLeft,
   "open-terminal": Terminal,
   "open-editor": Code,
-  "close-repository": X,
+  "pin-repository": Pin,
+  "unpin-repository": PinOff,
+  "go-to-repositories": LayoutGrid,
+  "scan-folders": FolderSearch,
+  "add-scan-folder": FolderPlus,
   "locale-en": Languages,
   "locale-es": Languages,
 };
+
+function icon(row: PaletteRow): Component {
+  return row.icon ?? icons[row.command.id] ?? Search;
+}
 
 const input = ref<HTMLInputElement | null>(null);
 const list = ref<HTMLElement | null>(null);
@@ -65,9 +79,16 @@ function optionId(index: number): string {
 const sections = computed(() => {
   const recent = palette.rows.value.filter((row) => row.section === "recent");
   const rest = palette.rows.value.filter((row) => row.section === "commands");
+  const repoRows = palette.rows.value.filter((row) => row.section === "repos");
   return [
     { id: "recent", label: t("palette.recent"), rows: recent, offset: 0 },
     { id: "commands", label: t("palette.commands"), rows: rest, offset: recent.length },
+    {
+      id: "repos",
+      label: t("palette.repos"),
+      rows: repoRows,
+      offset: recent.length + rest.length,
+    },
   ].filter((section) => section.rows.length > 0);
 });
 
@@ -157,13 +178,20 @@ watch(
             @click="palette.run(row)"
           >
             <component
-              :is="icons[row.command.id] ?? Search"
+              :is="icon(row)"
               :size="16"
               :stroke-width="1.5"
               aria-hidden="true"
               class="shrink-0 text-fg-secondary"
             />
             <span class="flex-1 truncate">{{ row.label }}</span>
+            <span
+              v-if="row.context"
+              class="truncate text-sm text-fg-muted"
+              data-testid="palette-row-context"
+            >
+              {{ row.context }}
+            </span>
             <Kbd v-if="hint(row)" :keys="hint(row)" />
           </div>
         </template>

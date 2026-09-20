@@ -273,10 +273,15 @@
       "toggle-sidebar": "Mostrar u ocultar la barra lateral",
       "open-terminal": "Abrir en el terminal",
       "open-editor": "Abrir en el editor",
-      "close-repository": "Cerrar el repositorio",
+      "pin-repository": "Fijar el repositorio",
+      "unpin-repository": "Desfijar el repositorio",
+      "go-to-repositories": "Ir a los repositorios",
+      "scan-folders": "Escanear las carpetas",
+      "add-scan-folder": "Añadir carpeta a escanear…",
       "locale-en": "Idioma: inglés",
       "locale-es": "Idioma: español"
-    }
+    },
+    "repos": "Repos"
   },
   "external": {
     "terminalFailed": "No se pudo abrir el terminal. Revisa el comando del terminal en Ajustes.",

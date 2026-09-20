@@ -1,18 +1,35 @@
-// Palette state: the query, the filtered rows grouped as Recent and Commands, the keyboard
-// cursor, and running a row. The palette renders whatever this returns; it knows nothing of
-// the DOM beyond a keydown handler.
+// Palette state: the query, the filtered rows grouped as Recent, Commands and Repos, the
+// keyboard cursor, and running a row. The palette renders whatever this returns; it knows
+// nothing of the DOM beyond a keydown handler.
 
-import { computed, ref, watch, type ComputedRef, type Ref } from "vue";
+import { computed, ref, watch, type Component, type ComputedRef, type Ref } from "vue";
 
 import type { PaletteCommand } from "./commands";
 
 export const RECENT_LIMIT = 3;
 
+export type PaletteSection = "recent" | "commands" | "repos";
+
+/** An indexed repository the Repos section can open. */
+export interface PaletteRepo {
+  path: string;
+  name: string;
+  /** The muted context column (the path, abbreviated). */
+  context: string;
+  /** Listed while the query is empty (pinned and recent repositories). */
+  featured: boolean;
+  icon?: Component;
+  run: () => void | Promise<void>;
+}
+
 export interface PaletteRow {
   command: PaletteCommand;
   /** Translated label, used for filtering and display. */
   label: string;
-  section: "recent" | "commands";
+  /** Muted text before the shortcut hint. */
+  context?: string;
+  icon?: Component;
+  section: PaletteSection;
 }
 
 export interface PaletteOptions {
@@ -22,6 +39,8 @@ export interface PaletteOptions {
   onClose: () => void;
   /** Ids of the last run commands, most recent first; the caller may hand in a persisted ref. */
   recents?: Ref<string[]>;
+  /** The repositories of the Repos section. */
+  repos?: Ref<PaletteRepo[]> | ComputedRef<PaletteRepo[]>;
 }
 
 export interface Palette {
@@ -48,6 +67,11 @@ export function matchesQuery(label: string, query: string): boolean {
   return true;
 }
 
+/** The id of the row that opens `path`; not a command, so it never lands under Recent. */
+export function repoRowId(path: string): string {
+  return `repo:${path}`;
+}
+
 export function usePalette(options: PaletteOptions): Palette {
   const query = ref("");
   const cursor = ref(0);
@@ -59,7 +83,8 @@ export function usePalette(options: PaletteOptions): Palette {
       .map((command) => ({ command, label: options.translate(command.labelKey) }));
     const matching = all.filter((entry) => matchesQuery(entry.label, query.value));
     const recentRows: PaletteRow[] = [];
-    if (query.value.trim() === "") {
+    const empty = query.value.trim() === "";
+    if (empty) {
       for (const id of recents.value) {
         const entry = matching.find((candidate) => candidate.command.id === id);
         if (entry) recentRows.push({ ...entry, section: "recent" });
@@ -68,7 +93,23 @@ export function usePalette(options: PaletteOptions): Palette {
     const rest = matching
       .filter((entry) => !recentRows.some((row) => row.command.id === entry.command.id))
       .map((entry): PaletteRow => ({ ...entry, section: "commands" }));
-    return [...recentRows, ...rest];
+    const repoRows = (options.repos?.value ?? [])
+      .filter((repo) =>
+        empty ? repo.featured : matchesQuery(`${repo.name} ${repo.context}`, query.value),
+      )
+      .map((repo): PaletteRow => ({
+        command: {
+          id: repoRowId(repo.path),
+          labelKey: "",
+          enabled: () => true,
+          run: repo.run,
+        },
+        label: repo.name,
+        context: repo.context,
+        icon: repo.icon,
+        section: "repos",
+      }));
+    return [...recentRows, ...rest, ...repoRows];
   });
 
   const isEmpty = computed(() => rows.value.length === 0);
@@ -88,10 +129,12 @@ export function usePalette(options: PaletteOptions): Palette {
   }
 
   async function run(row: PaletteRow): Promise<void> {
-    recents.value = [row.command.id, ...recents.value.filter((id) => id !== row.command.id)].slice(
-      0,
-      RECENT_LIMIT,
-    );
+    if (row.section !== "repos") {
+      recents.value = [
+        row.command.id,
+        ...recents.value.filter((id) => id !== row.command.id),
+      ].slice(0, RECENT_LIMIT);
+    }
     options.onClose();
     reset();
     await row.command.run();

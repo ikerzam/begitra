@@ -1,6 +1,7 @@
-// The commands the palette offers: every shortcut binding with an action, plus the
-// few actions without a key. Labels are i18n keys (`palette.commandsById.<id>`); the shortcut id
-// gives the `Kbd` hint. Repos, branches and files are not listed.
+// The commands the palette offers: every shortcut binding with an action, plus the actions
+// without a key (open and scan folders, pin, go to repositories, language). Labels are i18n
+// keys (`palette.commandsById.<id>`); the shortcut id gives the `Kbd` hint. The Repos section
+// is fed separately (see `usePalette`); branches and files are not listed.
 
 export interface PaletteCommand {
   /** Stable id; also the key of its label and, when bound, the shortcut id. */
@@ -17,8 +18,14 @@ export interface PaletteCommand {
 /** Actions the shell exposes to the palette; the shell wires them to stores. */
 export interface PaletteActions {
   hasRepository: () => boolean;
+  /** Whether the open repository is pinned; null when it is not in the index. */
+  repositoryPinned: () => boolean | null;
+  hasScanFolders: () => boolean;
   openFolder: () => Promise<void>;
-  closeRepository: () => Promise<void>;
+  goToRepositories: () => Promise<void>;
+  scanFolders: () => void;
+  addScanFolder: () => Promise<void>;
+  pinRepository: (pinned: boolean) => Promise<void>;
   setGraphFocus: () => void;
   setReviewFocus: () => void;
   toggleSidebar: () => void;
@@ -73,10 +80,34 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       run: actions.openEditor,
     },
     {
-      id: "close-repository",
-      labelKey: "palette.commandsById.close-repository",
+      id: "pin-repository",
+      labelKey: "palette.commandsById.pin-repository",
+      enabled: () => withRepo() && actions.repositoryPinned() === false,
+      run: () => actions.pinRepository(true),
+    },
+    {
+      id: "unpin-repository",
+      labelKey: "palette.commandsById.unpin-repository",
+      enabled: () => withRepo() && actions.repositoryPinned() === true,
+      run: () => actions.pinRepository(false),
+    },
+    {
+      id: "go-to-repositories",
+      labelKey: "palette.commandsById.go-to-repositories",
       enabled: withRepo,
-      run: actions.closeRepository,
+      run: actions.goToRepositories,
+    },
+    {
+      id: "scan-folders",
+      labelKey: "palette.commandsById.scan-folders",
+      enabled: () => actions.hasScanFolders(),
+      run: actions.scanFolders,
+    },
+    {
+      id: "add-scan-folder",
+      labelKey: "palette.commandsById.add-scan-folder",
+      enabled: always,
+      run: actions.addScanFolder,
     },
     {
       id: "locale-en",

@@ -2,7 +2,7 @@ import { computed, ref } from "vue";
 import { describe, expect, it, vi } from "vitest";
 
 import { paletteCommands, type PaletteActions } from "./commands";
-import { matchesQuery, usePalette } from "./usePalette";
+import { matchesQuery, repoRowId, usePalette, type PaletteRepo } from "./usePalette";
 
 const labels: Record<string, string> = {
   "palette.commandsById.open-folder": "Open folder…",
@@ -11,12 +11,27 @@ const labels: Record<string, string> = {
   "palette.commandsById.toggle-sidebar": "Toggle sidebar",
   "palette.commandsById.open-terminal": "Open in terminal",
   "palette.commandsById.open-editor": "Open in editor",
-  "palette.commandsById.close-repository": "Close repository",
+  "palette.commandsById.pin-repository": "Pin repository",
+  "palette.commandsById.unpin-repository": "Unpin repository",
+  "palette.commandsById.go-to-repositories": "Go to repositories",
+  "palette.commandsById.scan-folders": "Scan folders",
+  "palette.commandsById.add-scan-folder": "Add scan folder…",
   "palette.commandsById.locale-en": "Language: English",
   "palette.commandsById.locale-es": "Language: Spanish",
 };
 
-function actions(hasRepository = true): PaletteActions & { calls: string[] } {
+interface ActionOptions {
+  hasRepository?: boolean;
+  pinned?: boolean | null;
+  hasScanFolders?: boolean;
+}
+
+function actions(options: ActionOptions | boolean = {}): PaletteActions & { calls: string[] } {
+  const {
+    hasRepository = true,
+    pinned = false,
+    hasScanFolders = true,
+  } = typeof options === "boolean" ? { hasRepository: options } : options;
   const calls: string[] = [];
   const record = (name: string) => () => {
     calls.push(name);
@@ -24,12 +39,23 @@ function actions(hasRepository = true): PaletteActions & { calls: string[] } {
   return {
     calls,
     hasRepository: () => hasRepository,
+    repositoryPinned: () => pinned,
+    hasScanFolders: () => hasScanFolders,
     openFolder: () => {
       calls.push("openFolder");
       return Promise.resolve();
     },
-    closeRepository: () => {
-      calls.push("closeRepository");
+    goToRepositories: () => {
+      calls.push("goToRepositories");
+      return Promise.resolve();
+    },
+    scanFolders: record("scan"),
+    addScanFolder: () => {
+      calls.push("addScanFolder");
+      return Promise.resolve();
+    },
+    pinRepository: (pinned) => {
+      calls.push(`pin:${pinned}`);
       return Promise.resolve();
     },
     setGraphFocus: record("graph"),
@@ -65,13 +91,14 @@ describe("matchesQuery", () => {
 });
 
 describe("usePalette", () => {
-  function setup(hasRepository = true) {
-    const acts = actions(hasRepository);
+  function setup(options: ActionOptions | boolean = {}, repos?: PaletteRepo[]) {
+    const acts = actions(options);
     const onClose = vi.fn();
     const palette = usePalette({
       commands: computed(() => paletteCommands(acts)),
       translate: (k) => labels[k] ?? k,
       onClose,
+      repos: repos ? ref(repos) : undefined,
     });
     return { acts, onClose, palette };
   }
@@ -85,7 +112,10 @@ describe("usePalette", () => {
       "toggle-sidebar",
       "open-terminal",
       "open-editor",
-      "close-repository",
+      "pin-repository",
+      "go-to-repositories",
+      "scan-folders",
+      "add-scan-folder",
       "locale-en",
       "locale-es",
     ]);
@@ -94,12 +124,70 @@ describe("usePalette", () => {
     expect(palette.isEmpty.value).toBe(false);
   });
 
-  it("hides repository commands without a repository", () => {
-    const { palette } = setup(false);
+  it("hides repository commands without a repository, and Scan folders without folders", () => {
+    const { palette } = setup({ hasRepository: false, hasScanFolders: false });
     const ids = palette.rows.value.map((r) => r.command.id);
     expect(ids).not.toContain("open-terminal");
-    expect(ids).not.toContain("close-repository");
+    expect(ids).not.toContain("go-to-repositories");
+    expect(ids).not.toContain("pin-repository");
+    expect(ids).not.toContain("scan-folders");
     expect(ids).toContain("open-folder");
+    expect(ids).toContain("add-scan-folder");
+  });
+
+  it("offers Unpin for a pinned repository, neither outside the index, and runs the discovery commands", async () => {
+    const pinned = setup({ pinned: true });
+    let ids = pinned.palette.rows.value.map((r) => r.command.id);
+    expect(ids).toContain("unpin-repository");
+    expect(ids).not.toContain("pin-repository");
+    const find = (id: string) => {
+      const row = pinned.palette.rows.value.find((r) => r.command.id === id);
+      if (!row) throw new Error(`missing ${id}`);
+      return row;
+    };
+    await pinned.palette.run(find("unpin-repository"));
+    await pinned.palette.run(find("scan-folders"));
+    await find("add-scan-folder").command.run();
+    await find("go-to-repositories").command.run();
+    expect(pinned.acts.calls).toEqual(["pin:false", "scan", "addScanFolder", "goToRepositories"]);
+
+    const outside = setup({ pinned: null });
+    ids = outside.palette.rows.value.map((r) => r.command.id);
+    expect(ids).not.toContain("pin-repository");
+    expect(ids).not.toContain("unpin-repository");
+  });
+
+  it("lists the featured repositories with an empty query, every match with one, never under Recent", async () => {
+    const opened: string[] = [];
+    const repo = (name: string, featured: boolean): PaletteRepo => ({
+      path: `/code/${name}`,
+      name,
+      context: `~/code/${name}`,
+      featured,
+      run: () => {
+        opened.push(name);
+      },
+    });
+    const { palette, onClose } = setup({}, [
+      repo("geoportal", true),
+      repo("begira", false),
+      repo("geoportal-infra", false),
+    ]);
+    const repoRows = () => palette.rows.value.filter((r) => r.section === "repos");
+    expect(repoRows().map((r) => r.label)).toEqual(["geoportal"]);
+    expect(repoRows()[0]?.context).toBe("~/code/geoportal");
+    expect(repoRows()[0]?.command.id).toBe(repoRowId("/code/geoportal"));
+    palette.query.value = "geo";
+    expect(repoRows().map((r) => r.label)).toEqual(["geoportal", "geoportal-infra"]);
+    palette.query.value = "code/beg";
+    expect(repoRows().map((r) => r.label)).toEqual(["begira"]);
+    expect(palette.rows.value.every((r) => r.section === "repos")).toBe(true);
+    palette.onKeydown(key("Enter"));
+    await Promise.resolve();
+    expect(opened).toEqual(["begira"]);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(palette.recents.value).toEqual([]);
+    expect(palette.rows.value.filter((r) => r.section === "recent")).toEqual([]);
   });
 
   it("runs the row under the cursor with enter, closes, and lists it under Recent", async () => {

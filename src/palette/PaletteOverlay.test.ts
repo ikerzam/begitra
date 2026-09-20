@@ -3,7 +3,10 @@ import { flushPromises } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { IndexEntry } from "@/ipc/schemas";
 import { ShortcutRegistry, setShortcutRegistry } from "@/shortcuts/registry";
+import { useIndexStore } from "@/stores/index";
+import { useRepoStore } from "@/stores/repo";
 import { memoryStorage, useSettingsStore } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
 import { mountWithI18n } from "@/test/mount";
@@ -24,7 +27,82 @@ afterEach(() => {
   setShortcutRegistry(undefined);
 });
 
+function entry(name: string, over: Partial<IndexEntry> = {}): IndexEntry {
+  return {
+    path: `/code/${name}`,
+    name,
+    kind: "main",
+    parentPath: null,
+    scanRoot: "/code",
+    summary: {
+      currentBranch: "main",
+      detached: false,
+      ahead: 0,
+      behind: 0,
+      lastCommitAt: null,
+      dirty: null,
+    },
+    pinned: false,
+    lastOpenedAt: null,
+    refreshedAt: null,
+    missing: false,
+    ...over,
+  };
+}
+
 describe("PaletteOverlay", () => {
+  it("lists the matching repositories under Repos with their path and opens the chosen one", async () => {
+    const index = useIndexStore();
+    index.entries = [
+      entry("geoportal", { pinned: true }),
+      entry("begira"),
+      entry("geoportal-infra"),
+    ];
+    index.loaded = true;
+    clearMocks();
+    const calls: string[] = [];
+    mockIPC((cmd, rawArgs) => {
+      calls.push(cmd);
+      const args = (rawArgs ?? {}) as Record<string, unknown>;
+      if (cmd === "open_repository") {
+        return {
+          root: args["path"],
+          commonDir: `${args["path"] as string}/.git`,
+          currentBranch: "main",
+          detached: false,
+          isLinkedWorktree: false,
+        };
+      }
+      if (cmd === "list_repositories") return index.entries;
+      if (cmd === "list_refs") return [];
+      return null;
+    });
+    const shell = useShellStore();
+    shell.openPalette();
+    const wrapper = mountWithI18n(PaletteOverlay, { attachTo: document.body });
+    // With an empty query only the pinned and recent repositories are listed.
+    const list = wrapper.get('[data-testid="palette-list"]');
+    expect(list.text()).toContain("Repos");
+    expect(wrapper.findAll('[data-testid="palette-row-context"]').map((c) => c.text())).toEqual([
+      "/code/geoportal",
+    ]);
+    const input = wrapper.get('[data-testid="palette-input"]');
+    await input.setValue("geo");
+    const rows = wrapper.findAll('[data-testid="palette-row"]');
+    expect(rows.map((r) => r.text())).toEqual([
+      "geoportal/code/geoportal",
+      "geoportal-infra/code/geoportal-infra",
+    ]);
+    await input.trigger("keydown", { key: "ArrowDown" });
+    await input.trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    expect(shell.paletteOpen).toBe(false);
+    expect(calls).toContain("open_repository");
+    expect(useRepoStore().repo?.root).toBe("/code/geoportal-infra");
+    expect(useSettingsStore().values.paletteRecents).toEqual([]);
+    wrapper.unmount();
+  });
+
   it("lists the commands with their hints, filters, runs with enter and closes", async () => {
     const shell = useShellStore();
     shell.openPalette();
