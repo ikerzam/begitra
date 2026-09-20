@@ -1,5 +1,7 @@
 <script setup lang="ts">
-// The review rail: change overview, review progress and the keyboard hints pinned below.
+// The review rail: change overview (totals, by type, by directory, largest changes,
+// generated vs hand-written), review progress, the notes of the target and the keyboard
+// hints pinned below.
 
 import { PanelRightClose } from "@lucide/vue";
 import { computed } from "vue";
@@ -10,8 +12,10 @@ import IconButton from "@/components/IconButton.vue";
 import Kbd from "@/components/Kbd.vue";
 import PanelHeader from "@/components/PanelHeader.vue";
 import Progress from "@/components/Progress.vue";
-import { byType, largest, splitPath, totals } from "@/detail/groupFiles";
+import { byDirectory, byType, largest, splitPath, totals } from "@/detail/groupFiles";
 import type { FileChange } from "@/ipc/schemas";
+
+import NotesBlock from "./NotesBlock.vue";
 
 const props = defineProps<{ files: FileChange[]; reviewedCount: number }>();
 const emit = defineEmits<{ hide: [] }>();
@@ -34,6 +38,7 @@ const types = computed(() => {
   return rows;
 });
 const biggest = computed(() => largest(props.files, 3));
+const directories = computed(() => byDirectory(props.files, 5));
 const handWritten = computed(() => stats.value.files - stats.value.generated);
 const handShare = computed(() =>
   stats.value.files === 0 ? 0 : Math.round((handWritten.value / stats.value.files) * 100),
@@ -80,6 +85,19 @@ const reviewShare = computed(() =>
         </p>
       </div>
 
+      <div v-if="directories.length > 1" class="flex flex-col">
+        <h3 class="text-sm text-fg-muted">{{ t("review.byDirectory") }}</h3>
+        <p
+          v-for="entry in directories"
+          :key="entry.folder"
+          class="flex h-5 items-center justify-between gap-2"
+          data-testid="review-directory"
+        >
+          <span class="truncate font-mono text-mono-sm text-fg">{{ entry.folder }}</span>
+          <span class="text-fg-secondary">{{ n(entry.count) }}</span>
+        </p>
+      </div>
+
       <div v-if="biggest.length > 0" class="flex flex-col">
         <h3 class="text-sm text-fg-muted">{{ t("review.largest") }}</h3>
         <p
@@ -109,6 +127,8 @@ const reviewShare = computed(() =>
         </p>
         <Progress :value="reviewShare" variant="reviewed" :label="t('review.progress')" />
       </div>
+
+      <NotesBlock />
     </div>
     <!-- Three 24px hint rows with 4px above and below (81px with the hairline). -->
     <div class="flex flex-col border-t border-line px-3 py-1 text-sm text-fg-muted">

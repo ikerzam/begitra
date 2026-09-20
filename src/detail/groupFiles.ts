@@ -205,3 +205,64 @@ export function applyFilters(files: FileChange[], filters: FileFilters): FileCha
     return true;
   });
 }
+
+/**
+ * A path matcher from the files panel's filter: a glob when it holds `*`, `?` or `[`
+ * (`*` stops at `/`, `**` crosses it, a pattern without `/` matches the file name), a
+ * case-insensitive substring of the path otherwise. An empty filter matches everything.
+ */
+export function pathMatcher(filter: string): (path: string) => boolean {
+  const text = filter.trim();
+  if (text === "") return () => true;
+  if (!/[*?[]/.test(text)) {
+    const needle = text.toLowerCase();
+    return (path) => path.toLowerCase().includes(needle);
+  }
+  let source = "";
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i]!;
+    if (char === "*") {
+      if (text[i + 1] === "*") {
+        source += ".*";
+        i += 1;
+      } else source += "[^/]*";
+    } else if (char === "?") source += "[^/]";
+    else if (char === "[") {
+      const close = text.indexOf("]", i);
+      if (close > i) {
+        source += text.slice(i, close + 1);
+        i = close;
+      } else source += "\\[";
+    } else source += char.replace(/[.+^${}()|\\]/g, "\\$&");
+  }
+  const anchored = text.includes("/") ? `^${source}$` : `(^|/)${source}$`;
+  try {
+    const regex = new RegExp(anchored, "i");
+    return (path) => regex.test(path);
+  } catch {
+    const needle = text.toLowerCase();
+    return (path) => path.toLowerCase().includes(needle);
+  }
+}
+
+/** Files by the size of their change (additions plus deletions), largest first. */
+export function sortBySize(files: FileChange[]): FileChange[] {
+  return [...files].sort(
+    (a, b) =>
+      b.additions + b.deletions - (a.additions + a.deletions) || a.path.localeCompare(b.path),
+  );
+}
+
+/** The top-level folders with the most files changed. */
+export function byDirectory(files: FileChange[], limit = 5): { folder: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const file of files) {
+    const { folder } = splitPath(file.path);
+    const top = folder === "/" ? "/" : (folder.split("/")[0] ?? folder);
+    counts.set(top, (counts.get(top) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([folder, count]) => ({ folder, count }))
+    .sort((a, b) => b.count - a.count || a.folder.localeCompare(b.folder))
+    .slice(0, limit);
+}

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // Review focus: two 48px rails, the files panel, the diff panel and the review rail, which
-// collapses under 1100px until the user asks for it.
+// collapses under 1100px until the user asks for it. j and k move the open file from anywhere
+// in the focus; the files panel keeps its own roving focus for the keyboard.
 
-import { computed, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import { applyFilters } from "@/detail/groupFiles";
@@ -10,6 +11,7 @@ import DiffView from "@/review/DiffView.vue";
 import GraphRail from "@/review/GraphRail.vue";
 import ReviewFilesPanel from "@/review/ReviewFilesPanel.vue";
 import ReviewRail from "@/review/ReviewRail.vue";
+import { useShortcut } from "@/shortcuts/useShortcut";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
 import { paneLimits, useShellStore, type SidebarTab } from "@/stores/shell";
@@ -21,12 +23,12 @@ const { t } = useI18n();
 const shell = useShellStore();
 const repo = useRepoStore();
 const review = useReviewStore();
-const filesPanel = ref<{ focus(): void } | null>(null);
+const filesPanel = ref<{ focus(): void; moveFile(step: 1 | -1): void } | null>(null);
 
-const files = computed(() => (repo.detail ? applyFilters(repo.detail.files, review.filters) : []));
+const files = computed(() => applyFilters(review.files, review.filters));
 // The rail counts what it lists: reviewed files hidden by a filter are not part of its total.
 const reviewedShown = computed(
-  () => files.value.filter((file) => review.reviewed.has(file.path)).length,
+  () => files.value.filter((file) => review.isReviewed(file.path)).length,
 );
 const openFile = computed(
   () => files.value.find((file) => file.path === review.selectedPath) ?? null,
@@ -34,11 +36,8 @@ const openFile = computed(
 const filesWidth = computed(() => `${shell.paneSizes.files}px`);
 const railWidth = computed(() => `${shell.paneSizes.reviewRail}px`);
 
-watch(
-  () => repo.detail?.hash ?? null,
-  (hash) => review.forCommit(hash),
-  { immediate: true },
-);
+useShortcut("next-file", () => filesPanel.value?.moveFile(1));
+useShortcut("previous-file", () => filesPanel.value?.moveFile(-1));
 
 async function leaveToSidebar(tab: SidebarTab): Promise<void> {
   await shell.setLayoutMode("graph");

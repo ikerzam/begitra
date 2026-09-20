@@ -2,7 +2,18 @@ import { describe, expect, it } from "vitest";
 
 import type { FileChange } from "@/ipc/schemas";
 
-import { applyFilters, byType, groupFiles, largest, statusOf, totals, typeOf } from "./groupFiles";
+import {
+  applyFilters,
+  byDirectory,
+  byType,
+  groupFiles,
+  largest,
+  pathMatcher,
+  sortBySize,
+  statusOf,
+  totals,
+  typeOf,
+} from "./groupFiles";
 
 function file(path: string, overrides: Partial<FileChange> = {}): FileChange {
   return {
@@ -84,5 +95,59 @@ describe("groupFiles", () => {
     expect(noGenerated).not.toContain("apps/api/src/openapi.ts");
     expect(noGenerated).toContain("pnpm-lock.yaml");
     expect(applyFilters(files, { ...all, hideTests: true })).toHaveLength(6);
+  });
+});
+
+describe("pathMatcher, sortBySize and byDirectory", () => {
+  const paths = [
+    "apps/web/src/map/tile-cache.ts",
+    "apps/web/src/map/map-view.test.tsx",
+    "packages/core/index.ts",
+    "README.md",
+  ];
+
+  it("matches a substring without glob characters, case-insensitively", () => {
+    const matches = pathMatcher("MAP");
+    expect(paths.filter(matches)).toEqual([
+      "apps/web/src/map/tile-cache.ts",
+      "apps/web/src/map/map-view.test.tsx",
+    ]);
+    expect(paths.filter(pathMatcher("  "))).toEqual(paths);
+  });
+
+  it("matches globs against the name, or the path when the pattern has a slash", () => {
+    expect(paths.filter(pathMatcher("*.test.tsx"))).toEqual(["apps/web/src/map/map-view.test.tsx"]);
+    expect(paths.filter(pathMatcher("*.ts"))).toEqual([
+      "apps/web/src/map/tile-cache.ts",
+      "packages/core/index.ts",
+    ]);
+    expect(paths.filter(pathMatcher("apps/**/*.ts"))).toEqual(["apps/web/src/map/tile-cache.ts"]);
+    expect(paths.filter(pathMatcher("apps/*/index.ts"))).toEqual([]);
+    expect(paths.filter(pathMatcher("packages/*/index.ts"))).toEqual(["packages/core/index.ts"]);
+    expect(paths.filter(pathMatcher("READ??.md"))).toEqual(["README.md"]);
+    expect(paths.filter(pathMatcher("[Rr]EADME.md"))).toEqual(["README.md"]);
+    // An unbalanced bracket is taken literally rather than throwing.
+    expect(paths.filter(pathMatcher("[abc"))).toEqual([]);
+  });
+
+  it("sorts by change size and summarises the top folders", () => {
+    const files = [
+      file("a/one.ts", { additions: 1, deletions: 0 }),
+      file("b/two.ts", { additions: 10, deletions: 5 }),
+      file("a/three.ts", { additions: 3, deletions: 3 }),
+      file("root.ts", { additions: 0, deletions: 0 }),
+    ];
+    expect(sortBySize(files).map((f) => f.path)).toEqual([
+      "b/two.ts",
+      "a/three.ts",
+      "a/one.ts",
+      "root.ts",
+    ]);
+    expect(byDirectory(files)).toEqual([
+      { folder: "a", count: 2 },
+      { folder: "/", count: 1 },
+      { folder: "b", count: 1 },
+    ]);
+    expect(byDirectory(files, 1)).toEqual([{ folder: "a", count: 2 }]);
   });
 });

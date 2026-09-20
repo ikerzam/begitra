@@ -20,8 +20,10 @@ const props = withDefaults(
     files: FileChange[];
     /** Path of the selected file, if any. */
     selectedPath?: string | null;
+    /** Paths marked reviewed, shown with the check. */
+    reviewed?: Set<string>;
   }>(),
-  { selectedPath: null },
+  { selectedPath: null, reviewed: () => new Set<string>() },
 );
 const emit = defineEmits<{
   select: [file: FileChange, trigger: SelectTrigger];
@@ -75,7 +77,14 @@ function toggle(folder: string): void {
   collapsed.value = next;
 }
 
-defineExpose({ focus: navigation.focus });
+/** Collapses every folder, or expands them all when every one is collapsed. */
+function collapseAll(): void {
+  const folders = groups.value.map((group) => group.folder);
+  const allCollapsed = folders.every((folder) => collapsed.value.has(folder));
+  collapsed.value = allCollapsed ? new Set() : new Set(folders);
+}
+
+defineExpose({ focus: navigation.focus, collapseAll });
 </script>
 
 <template>
@@ -100,6 +109,7 @@ defineExpose({ focus: navigation.focus });
           :removed="entry.file.isBinary ? undefined : entry.file.deletions"
           :generated="entry.file.isGenerated"
           :binary="entry.file.isBinary"
+          :reviewed="props.reviewed.has(entry.file.path)"
           :selected="entry.file.path === props.selectedPath"
           :tab-stop="entry.file.path === tabStopPath"
           :data-path="entry.file.path"
