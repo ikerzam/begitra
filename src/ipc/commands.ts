@@ -31,6 +31,7 @@ import {
   HighlightSchema,
   IndexEntrySchema,
   PongSchema,
+  AppInfoSchema,
   RefSchema,
   RepoSchema,
   ScanMessageSchema,
@@ -74,6 +75,11 @@ export const defaultDiffOptions: DiffOptions = {
 
 export function ping(message: string) {
   return call("ping", { message }, PongSchema);
+}
+
+/** The version and where the log is written. */
+export function appInfo() {
+  return call("app_info", {}, AppInfoSchema);
 }
 
 export function cancelOperation(opId: string) {

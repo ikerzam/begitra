@@ -49,6 +49,7 @@ describe("SettingsLayout", () => {
       "Git",
       "Terminal and editor",
       "Diff",
+      "About",
       "Shortcuts",
     ]);
     expect(wrapper.get('[data-testid="scan-folders-empty"]').text()).toBe(
@@ -232,6 +233,24 @@ describe("SettingsLayout", () => {
     await nextTick();
     // `useTheme` (mounted by App) writes it on the document root.
     expect(settings.values.theme).toBe("light");
+  });
+
+  it("shows the version and the log file, and opens the folder with the file manager", async () => {
+    const calls = fakeBackend({});
+    const wrapper = mountWithI18n(SettingsLayout, { attachTo: document.body });
+    await flushPromises();
+    await nextTick();
+    expect(wrapper.get('[data-testid="about-version"]').text()).toBe("Begira 0.1.0");
+    expect(wrapper.get('[data-testid="about-log-file"]').text()).toBe(
+      "/home/iker/.local/share/dev.begira.app/logs/begira-2026-09-22.log",
+    );
+    await wrapper.get('[data-testid="about-open-logs"]').trigger("click");
+    await flushPromises();
+    const opened = calls.find((call) => call.cmd === "open_external");
+    expect(opened?.args).toEqual({
+      templates: ["explorer {path}"],
+      path: "/home/iker/.local/share/dev.begira.app/logs",
+    });
   });
 
   it("moves between the fields with j and k when no text field has the focus", async () => {

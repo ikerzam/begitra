@@ -949,6 +949,16 @@
         "push": "Push",
         "markResolved": "Marcar como resuelto"
       }
+    },
+    "about": {
+      "title": "Acerca de",
+      "version": "Versión",
+      "versionLine": "Begira {version}",
+      "logs": "Registros",
+      "logsHint": "Un archivo por día, se conservan los siete más recientes. Un cierre inesperado conserva cada línea escrita antes.",
+      "noLogFile": "El registro se queda en la consola: no se pudo abrir ninguna carpeta de registros.",
+      "openLogs": "Abrir carpeta de registros",
+      "openFailed": "No se pudo abrir {path}."
     }
   }
 }

@@ -1,4 +1,7 @@
-//! Commands that do not touch a repository: `ping`, cancellation and the debug event emitter.
+//! Commands that do not touch a repository: `ping`, the app's own facts, cancellation and
+//! the debug event emitter.
+
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
@@ -33,6 +36,37 @@ pub fn pong(message: String) -> Pong {
 #[tracing::instrument(level = "debug")]
 pub fn ping(message: String) -> Pong {
     pong(message)
+}
+
+/// What the About section shows: the version and where the log is written.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppInfo {
+    /// Application version.
+    pub version: String,
+    /// The day file the log goes to; `None` while the log stays on the console.
+    pub log_file: Option<PathBuf>,
+    /// Its folder, for "Open logs folder".
+    pub log_dir: Option<PathBuf>,
+}
+
+/// Builds the reply from the log file, when one was attached.
+pub fn app_info_from(log_file: Option<PathBuf>) -> AppInfo {
+    let log_dir = log_file
+        .as_ref()
+        .and_then(|file| file.parent().map(Path::to_path_buf));
+    AppInfo {
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+        log_file,
+        log_dir,
+    }
+}
+
+/// The version and the log file's location.
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip(state))]
+pub fn app_info(state: State<'_, AppState>) -> AppInfo {
+    app_info_from(state.log_file())
 }
 
 /// Requests cancellation of an operation in flight; returns whether it was known.

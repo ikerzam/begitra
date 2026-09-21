@@ -949,6 +949,16 @@
         "push": "Push",
         "markResolved": "Mark resolved"
       }
+    },
+    "about": {
+      "title": "About",
+      "version": "Version",
+      "versionLine": "Begira {version}",
+      "logs": "Logs",
+      "logsHint": "One file per day, the seven newest kept. A crash keeps every line written before it.",
+      "noLogFile": "The log stays on the console: no log folder could be opened.",
+      "openLogs": "Open logs folder",
+      "openFailed": "Couldn't open {path}."
     }
   }
 }

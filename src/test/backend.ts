@@ -799,6 +799,12 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
         return [];
       case "open_external":
         return null;
+      case "app_info":
+        return {
+          version: "0.1.0",
+          logFile: "/home/iker/.local/share/dev.begira.app/logs/begira-2026-09-22.log",
+          logDir: "/home/iker/.local/share/dev.begira.app/logs",
+        };
       case "close_repository":
       case "close_walk":
       case "cancel_operation":

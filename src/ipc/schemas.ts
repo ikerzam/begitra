@@ -637,6 +637,14 @@ export const PongSchema = v.object({
 });
 export type Pong = v.InferOutput<typeof PongSchema>;
 
+/** The version and the log file's location (null while the log stays on the console). */
+export const AppInfoSchema = v.object({
+  version: v.string(),
+  logFile: v.nullable(v.string()),
+  logDir: v.nullable(v.string()),
+});
+export type AppInfo = v.InferOutput<typeof AppInfoSchema>;
+
 // --- Command arguments ----------------------------------------------------------------------
 
 const opId = v.pipe(v.string(), v.minLength(1));
@@ -704,6 +712,7 @@ const tagMessage = v.pipe(
 
 export const commandArgs = {
   ping: v.object({ message: v.string() }),
+  app_info: v.object({}),
   cancel_operation: v.object({ opId }),
   debug_emit_repo_changed: v.object({ payload: RepoChangedSchema }),
   open_repository: v.object({ path, opId }),

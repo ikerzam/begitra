@@ -8,6 +8,7 @@ pub mod events;
 pub mod external;
 #[cfg(test)]
 mod fixtures;
+pub mod logging;
 pub mod ops;
 pub mod state;
 pub mod watcher;
@@ -16,16 +17,26 @@ use tauri::Manager;
 
 use state::AppState;
 
-/// Installs the tracing subscriber: `RUST_LOG` when set, otherwise info for the app and the
-/// engine. Safe to call more than once.
-fn init_tracing() {
-    use tracing_subscriber::EnvFilter;
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("begira_lib=info,git_core=info"));
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_target(true)
-        .try_init();
+/// Points the log at the app's log folder (`app_log_dir`), once Tauri can resolve it; a
+/// failure is logged and leaves the console output in place.
+fn attach_log(app: &tauri::App, state: &AppState, slot: Option<&logging::LogSlot>) {
+    let Some(slot) = slot else { return };
+    let dir = match app.path().app_log_dir() {
+        Ok(dir) => dir,
+        Err(error) => {
+            tracing::warn!(error = %error, "no log folder: the log stays on the console");
+            return;
+        }
+    };
+    match slot.attach(&dir) {
+        Ok(path) => {
+            tracing::info!(path = %path.display(), version = env!("CARGO_PKG_VERSION"), "log file attached");
+            state.set_log_file(path);
+        }
+        Err(error) => {
+            tracing::warn!(error = %error, dir = %dir.display(), "the log file could not be opened");
+        }
+    }
 }
 
 /// Drops walk handles idle for longer than [`state::WALK_IDLE_LIMIT`] once a minute, off the
@@ -77,19 +88,22 @@ fn open_index(app: &tauri::App, state: &AppState) {
 /// at that point.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    init_tracing();
+    let log_slot = logging::install();
+    logging::install_panic_hook();
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
-        .setup(|app| {
+        .setup(move |app| {
             let state = app.state::<AppState>().inner().clone();
+            attach_log(app, &state, log_slot.as_ref());
             open_index(app, &state);
             spawn_walk_eviction(state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::system::ping,
+            commands::system::app_info,
             commands::system::cancel_operation,
             commands::system::debug_emit_repo_changed,
             commands::external::open_external,

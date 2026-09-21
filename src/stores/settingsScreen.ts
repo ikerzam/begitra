@@ -1,16 +1,31 @@
 // The settings screen's own state: the git
-// executable's detection and probe, and the shortcut capture with its refusals. The values
-// themselves live in the settings store and apply at once; this store holds what the screen
-// is doing about them.
+// executable's detection and probe, the shortcut capture with its refusals, and the About
+// section's facts (the version, the log folder). The values themselves live in the settings
+// store and apply at once; this store holds what the screen is doing about them.
 
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 
 import * as ipc from "@/ipc/commands";
 import { toAppError, type AppError } from "@/ipc/errors";
+import type { AppInfo } from "@/ipc/schemas";
+import { detectPlatform, type Platform } from "@/shortcuts/platform";
 import { shortcutRegistry, type ShortcutBinding } from "@/shortcuts/registry";
 
 import { useSettingsStore } from "./settings";
+import { useToastsStore } from "./toasts";
+
+/** The file manager on a folder, per platform: argv templates as `open_external` takes them. */
+export function folderTemplates(platform: Platform): string[] {
+  switch (platform) {
+    case "windows":
+      return ["explorer {path}"];
+    case "macos":
+      return ["open {path}"];
+    default:
+      return ["xdg-open {path}"];
+  }
+}
 
 export type GitState = "idle" | "detecting" | "probing" | "ready" | "error";
 
@@ -68,8 +83,11 @@ export function keysOf(event: KeyboardEvent, platform: string): string | null {
 
 export const useSettingsScreenStore = defineStore("settingsScreen", () => {
   const settings = useSettingsStore();
+  const toasts = useToastsStore();
 
   const gitState = ref<GitState>("idle");
+  /** The version and the log file, once asked (the About section). */
+  const appInfo = ref<AppInfo | null>(null);
   const gitVersion = ref<string | null>(null);
   const gitError = ref<AppError | null>(null);
   let gitSerial = 0;
@@ -126,6 +144,35 @@ export const useSettingsScreenStore = defineStore("settingsScreen", () => {
     const mine = gitSerial;
     gitState.value = "probing";
     await settleGit(mine, ipc.setGitExecutable(trimmed));
+  }
+
+  /** Asks the backend for the version and the log file; a failure leaves the section bare. */
+  async function loadAppInfo(): Promise<void> {
+    try {
+      appInfo.value = await ipc.appInfo();
+    } catch {
+      appInfo.value = null;
+    }
+  }
+
+  /** "Open logs folder": the platform's file manager on the folder. */
+  async function openLogsFolder(platform: Platform = detectPlatform()): Promise<boolean> {
+    const dir = appInfo.value?.logDir;
+    if (!dir) return false;
+    try {
+      await ipc.openExternal(folderTemplates(platform), dir);
+      return true;
+    } catch (failure) {
+      const error = toAppError(failure);
+      toasts.push({
+        kind: "error",
+        message: "",
+        key: "settings.about.openFailed",
+        params: { path: dir },
+        output: error.detail ?? error.message,
+      });
+      return false;
+    }
   }
 
   /** At launch: the stored executable takes over the CLI, or the error state shows why not. */
@@ -238,6 +285,9 @@ export const useSettingsScreenStore = defineStore("settingsScreen", () => {
     executable,
     capturing,
     refusal,
+    appInfo,
+    loadAppInfo,
+    openLogsFolder,
     probe,
     detect,
     applyExecutable,

@@ -50,6 +50,8 @@ struct Inner {
     watcher: Mutex<Option<(PathBuf, RepoWatcher)>>,
     /// The token classes of the last files viewed, per repository, keyed by path and content.
     highlights: Mutex<HashMap<PathBuf, VecDeque<CachedHighlight>>>,
+    /// The day file the log is written to, once the folder is resolved.
+    log_file: Mutex<Option<PathBuf>>,
 }
 
 /// One cached highlight with the bytes it holds.
@@ -87,6 +89,25 @@ impl AppState {
     /// The operation registry.
     pub fn ops(&self) -> &Operations {
         &self.inner.ops
+    }
+
+    /// Records the log file the subscriber writes to.
+    pub fn set_log_file(&self, path: PathBuf) {
+        let mut slot = self
+            .inner
+            .log_file
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *slot = Some(path);
+    }
+
+    /// The log file the subscriber writes to, when one was attached.
+    pub fn log_file(&self) -> Option<PathBuf> {
+        self.inner
+            .log_file
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
     }
 
     /// The cached token classes of `key` in the repository at `root`; the handle is cloned

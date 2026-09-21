@@ -17,6 +17,7 @@ import DiffSettings from "./DiffSettings.vue";
 import GitField from "./GitField.vue";
 import ScanFoldersField from "./ScanFoldersField.vue";
 import SettingsField from "./SettingsField.vue";
+import AboutSettings from "./AboutSettings.vue";
 import AppearanceSettings from "./AppearanceSettings.vue";
 import SettingsSection from "./SettingsSection.vue";
 import ShortcutsPanel from "./ShortcutsPanel.vue";
@@ -133,6 +134,8 @@ defineExpose({
         <CommandsSettings />
         <hr class="border-line" />
         <DiffSettings />
+        <hr class="border-line" />
+        <AboutSettings />
         <hr class="border-line" />
       </div>
       <ShortcutsPanel />

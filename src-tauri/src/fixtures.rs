@@ -30,7 +30,7 @@ use crate::commands::remotes::NetworkEvent;
 use crate::commands::review::AnnotationWrite;
 use crate::commands::scan::ScanMessage;
 use crate::commands::staging::CommitResult;
-use crate::commands::system::pong;
+use crate::commands::system::{app_info_from, pong};
 use crate::commands::walk::WalkPage;
 use crate::error::{codes, AppError};
 use crate::events::{RepoChangeKind, RepoChanged};
@@ -831,6 +831,15 @@ fn write_fixtures() {
         },
     );
     write("pong", &pong("hello".to_owned()));
+    write(
+        "app-info",
+        &[
+            app_info_from(Some(PathBuf::from(
+                r"C:\Users\iker\AppData\Local\dev.begira.app\logs\begira-2026-09-22.log",
+            ))),
+            app_info_from(None),
+        ],
+    );
     write(
         "commit-count",
         &CommitCount {
