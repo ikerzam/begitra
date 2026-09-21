@@ -221,16 +221,10 @@ fn fetches_with_prune_and_pulls_with_and_without_rebase() {
 
 #[test]
 fn a_cancel_stops_a_push() {
-    let mut f = Fixture::basic().with_remote();
+    // The flag is set before the run: the push never starts (the runner's mid-run cancel,
+    // which kills git's tree, is covered in `cli.rs`).
+    let f = Fixture::basic().with_remote();
     let e = engine(&f);
-    // Enough data that the push is not over before the cancel: a few MB of random-ish blobs.
-    for i in 0..40 {
-        let content: String = (0..20_000)
-            .map(|j| ((i * 31 + j * 7) % 26 + 97) as u8 as char)
-            .collect();
-        f.write(&format!("big/{i}.txt"), &content);
-    }
-    f.commit("big");
     let cancel = Cancel::new();
     cancel.cancel();
     let error = e
@@ -246,4 +240,117 @@ fn a_cancel_stops_a_push() {
         )
         .expect_err("cancelled");
     assert!(matches!(error, GitError::Cancelled), "{error:?}");
+}
+
+#[test]
+fn a_pull_tells_a_fast_forward_from_a_merge_and_says_up_to_date() {
+    let mut f = Fixture::basic().with_remote();
+    let e = engine(&f);
+    // main's tip on origin is m1, a merge commit; local main one behind: a pull fast-forwards
+    // onto it (a merge commit as the tip is not a merge the pull made).
+    let tip = f.rev("main");
+    f.git(&["reset", "-q", "--hard", "main~1"]);
+    let request = PullRequest {
+        remote: Some("origin".to_owned()),
+        branch: Some("main".to_owned()),
+        rebase: false,
+    };
+    let outcome = e.pull(&request, &mut |_| {}, &never()).expect("pull");
+    assert_eq!(outcome.kind, OutcomeKind::FastForward);
+    assert_eq!(f.head(), tip);
+    assert_eq!(outcome.hash.as_deref(), Some(tip.as_str()));
+    // Again: nothing to do, with and without rebase.
+    let outcome = e.pull(&request, &mut |_| {}, &never()).expect("pull");
+    assert_eq!(outcome.kind, OutcomeKind::UpToDate);
+    let outcome = e
+        .pull(
+            &PullRequest {
+                rebase: true,
+                ..request.clone()
+            },
+            &mut |_| {},
+            &never(),
+        )
+        .expect("pull --rebase");
+    assert_eq!(outcome.kind, OutcomeKind::UpToDate);
+    assert_eq!(f.head(), tip);
+    // The reflog names the pull, as `git pull` does.
+    assert!(
+        f.git(&["reflog", "-1", "--format=%gs"]).starts_with("pull"),
+        "{}",
+        f.git(&["reflog", "-3", "--format=%gs"])
+    );
+    // `pull.ff=only` is the user's: a diverged branch is refused, not merged.
+    f.git(&["switch", "-q", "develop"]);
+    f.git(&["config", "pull.ff", "only"]);
+    let error = e
+        .pull(
+            &PullRequest {
+                remote: Some("origin".to_owned()),
+                branch: Some("develop".to_owned()),
+                rebase: false,
+            },
+            &mut |_| {},
+            &never(),
+        )
+        .expect_err("not a fast-forward");
+    match &error {
+        GitError::Cli { stderr, .. } => assert!(stderr.contains("fast-forward"), "{stderr}"),
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(f.git(&["status", "--porcelain"]), "");
+    f.tick();
+}
+
+#[test]
+fn a_fetch_without_a_remote_fetches_every_remote() {
+    let f = Fixture::basic().with_remote();
+    let e = engine(&f);
+    let second = f.sibling("second.git");
+    let second = second.to_str().expect("utf-8");
+    f.git(&["init", "-q", "--bare", second]);
+    f.git(&["push", "-q", second, "main:on-second"]);
+    let origin = f.sibling("origin.git");
+    f.git_in(&origin, &["branch", "on-origin", "main"]);
+    e.remote_add("second", second, &never()).expect("add");
+    e.fetch(None, false, &mut |_| {}, &never())
+        .expect("fetch --all");
+    assert!(f.try_git(&["rev-parse", "--verify", "origin/on-origin"]).0);
+    assert!(f.try_git(&["rev-parse", "--verify", "second/on-second"]).0);
+}
+
+#[test]
+fn a_branch_that_starts_with_a_plus_never_forces() {
+    let mut f = Fixture::basic().with_remote();
+    let e = engine(&f);
+    // The remote's develop is ahead: a plain push is rejected, and `+develop` would be the
+    // forced refspec, not a branch name.
+    let remote_tip = origin_rev(&f, "develop");
+    let error = e
+        .push(
+            &PushRequest {
+                remote: Some("origin".to_owned()),
+                branch: Some("+develop".to_owned()),
+                set_upstream: false,
+                force_with_lease: false,
+            },
+            &mut |_| {},
+            &never(),
+        )
+        .expect_err("refused");
+    assert!(!matches!(error, GitError::Cli { .. }), "{error:?}");
+    assert_eq!(origin_rev(&f, "develop"), remote_tip);
+    let error = e
+        .pull(
+            &PullRequest {
+                remote: Some("origin".to_owned()),
+                branch: Some("+develop".to_owned()),
+                rebase: false,
+            },
+            &mut |_| {},
+            &never(),
+        )
+        .expect_err("refused");
+    assert!(!matches!(error, GitError::Cli { .. }), "{error:?}");
+    f.tick();
 }

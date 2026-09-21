@@ -234,6 +234,13 @@ fn merges_fast_forward_no_ff_and_ff_only() {
         .expect_err("not a fast-forward");
     assert!(matches!(error, GitError::Cli { .. }), "{error:?}");
     assert_eq!(e.operation_state().expect("state"), OperationState::None);
+    // A revision that names nothing (a path, a typo) is `refs.not_found`, before git runs.
+    for wrong in ["src/lib.rs", "no-such-branch"] {
+        let error = e
+            .merge(wrong, MergeMode::Default, &never())
+            .expect_err("nothing to merge");
+        assert_eq!(error.code(), "refs.not_found", "{wrong}: {error:?}");
+    }
 }
 
 /// A repository where `main` and `other` changed the same line of `README.md`.
@@ -308,6 +315,11 @@ fn rebases_cleanly_and_stops_on_conflicts_with_skip_and_continue() {
     assert_eq!(outcome.kind, OutcomeKind::Done);
     assert_eq!(f.git(&["rev-parse", "HEAD~2"]), f.rev("main"));
     assert_eq!(f.git(&["rev-list", "--count", "main..HEAD"]), "2");
+    // Again onto the same base: up to date, nothing moved.
+    let tip = f.head();
+    let outcome = e.rebase("main", &never()).expect("nothing to do");
+    assert_eq!(outcome.kind, OutcomeKind::UpToDate);
+    assert_eq!(f.head(), tip);
     // A conflicting rebase: topic2 edits README as main did.
     f.git(&["switch", "-q", "-c", "topic2", "v1"]);
     f.write("README.md", "# Topic\n");
@@ -321,6 +333,18 @@ fn rebases_cleanly_and_stops_on_conflicts_with_skip_and_continue() {
     let outcome = e.rebase("main", &never()).expect("stops");
     assert_eq!(outcome.kind, OutcomeKind::Conflicts);
     assert_eq!(outcome.conflicts[0].path, "README.md");
+    assert_eq!(e.operation_state().expect("state"), OperationState::Rebase);
+    // Continue with the conflict unresolved: `git rebase --continue` exits 1 (where a merge
+    // exits 128) and moves nothing, which is a refusal, not a second stop.
+    let stopped_at = f.head();
+    let error = e
+        .sequencer(SequencerAction::Continue, &never())
+        .expect_err("unresolved");
+    match &error {
+        GitError::Cli { stderr, .. } => assert!(stderr.contains("needs merge"), "{stderr}"),
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(f.head(), stopped_at);
     assert_eq!(e.operation_state().expect("state"), OperationState::Rebase);
     // Skip the conflicting commit: the rest replays.
     let outcome = e.sequencer(SequencerAction::Skip, &never()).expect("skip");
@@ -462,4 +486,59 @@ fn conflict_kinds_follow_the_porcelain() {
     }
     e.sequencer(SequencerAction::Abort, &never())
         .expect("abort");
+}
+
+#[test]
+fn a_reset_takes_a_revision_never_a_path() {
+    let mut f = Fixture::basic();
+    let e = engine(&f);
+    f.append("src/lib.rs", "// staged\n");
+    f.git(&["add", "src/lib.rs"]);
+    let head = f.head();
+    // `git reset src/lib.rs` would unstage the path and leave HEAD; the engine resolves the
+    // revision first, so a path is a revision that does not exist.
+    let error = e
+        .reset("src/lib.rs", ResetMode::Mixed, &never())
+        .expect_err("a path is not a revision");
+    assert_eq!(error.code(), "refs.not_found", "{error:?}");
+    assert_eq!(f.head(), head);
+    assert_eq!(f.git(&["status", "--porcelain"]), "M  src/lib.rs");
+    // The option-shaped revision the bridge refuses is not one either.
+    let error = e
+        .reset("--hard", ResetMode::Soft, &never())
+        .expect_err("not a revision");
+    assert_eq!(error.code(), "refs.not_found", "{error:?}");
+    assert_eq!(f.git(&["status", "--porcelain"]), "M  src/lib.rs");
+    f.tick();
+}
+
+#[test]
+fn an_autostash_that_conflicts_after_a_clean_rebase_is_a_stop() {
+    let mut f = Fixture::basic();
+    let e = engine(&f);
+    f.git(&["config", "rebase.autoStash", "true"]);
+    f.git(&["switch", "-q", "-c", "topic", "v1"]);
+    f.write("topic.txt", "one\n");
+    f.commit("topic one");
+    // main changed README since v1 (the merge of develop kept it, c3 did not touch it): make
+    // main's README differ, then edit README in the tree so the autostash re-applies onto a
+    // different base and conflicts.
+    f.git(&["switch", "-q", "main"]);
+    f.write("README.md", "# Main\n");
+    f.commit("main readme");
+    f.git(&["switch", "-q", "topic"]);
+    f.write("README.md", "# Dirty\n");
+    // git rebases (exit 0), then says the autostash conflicted and keeps it in the stash.
+    let outcome = e.rebase("main", &never()).expect("rebased");
+    assert_eq!(outcome.kind, OutcomeKind::Conflicts, "{outcome:?}");
+    assert_eq!(outcome.conflicts[0].path, "README.md");
+    assert_eq!(e.operation_state().expect("state"), OperationState::None);
+    assert_eq!(f.git(&["rev-parse", "HEAD~1"]), f.rev("main"));
+    assert!(
+        f.git(&["stash", "list"]).contains("autostash"),
+        "the stash is kept"
+    );
+    f.git(&["reset", "-q", "--hard"]);
+    f.git(&["stash", "drop", "-q"]);
+    f.tick();
 }

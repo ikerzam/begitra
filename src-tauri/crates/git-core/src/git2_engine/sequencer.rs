@@ -79,11 +79,7 @@ pub(super) fn conflicts(engine: &Git2Engine, cancel: &Cancel) -> GitResult<Vec<C
     ];
     let exit = run_git_cancellable(root, &args, cancel)?;
     if exit.status != Some(0) {
-        return Err(GitError::Cli {
-            command: args.join(" "),
-            status: exit.status,
-            stderr: exit.stderr,
-        });
+        return Err(exit.into_failure(&args));
     }
     Ok(parse_conflicts(&exit.stdout))
 }
@@ -97,14 +93,36 @@ pub(super) fn head_hash(engine: &Git2Engine) -> GitResult<Option<String>> {
     })
 }
 
-/// The outcome of a command that may stop on conflicts: a clean exit is `done` (with HEAD),
-/// an exit that left an operation in progress with conflicted paths is `conflicts`, and
-/// anything else is git's failure. `expected` names the operation the stop would leave.
+/// What a stop changes: HEAD and the conflicted paths, taken before a command so that a
+/// refusal that changed nothing is told from a stop.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Marks {
+    head: Option<String>,
+    conflicts: Vec<Conflict>,
+}
+
+/// See [`Marks`].
+pub(super) fn marks(engine: &Git2Engine, cancel: &Cancel) -> GitResult<Marks> {
+    Ok(Marks {
+        head: head_hash(engine)?,
+        conflicts: conflicts(engine, cancel)?,
+    })
+}
+
+/// The outcome of a command that may stop on conflicts: a clean exit is `done` (with HEAD);
+/// an exit of 1 that left an operation in progress (merge, rebase, cherry-pick, revert:
+/// git's state files say so) with conflicted paths is `conflicts`; anything else is git's
+/// failure with its message. Conflicted paths alone are not a stop: they may predate the
+/// command (a stash pop that conflicted earlier), and git refuses to start anything over them
+/// with the same exit code. With `before`, an exit that moved neither HEAD nor the conflicted
+/// paths is a refusal too (`git rebase --continue` over an unresolved file exits 1 where
+/// `merge --continue` exits 128).
 pub(super) fn outcome(
     engine: &Git2Engine,
     args: &[&str],
     exit: CliExit,
     done: OutcomeKind,
+    before: Option<&Marks>,
     cancel: &Cancel,
 ) -> GitResult<Outcome> {
     if exit.status == Some(0) {
@@ -114,18 +132,41 @@ pub(super) fn outcome(
             conflicts: Vec::new(),
         });
     }
-    let conflicted = conflicts(engine, cancel)?;
-    if exit.status == Some(1) && !conflicted.is_empty() {
-        return Ok(Outcome {
-            kind: OutcomeKind::Conflicts,
-            hash: head_hash(engine)?,
-            conflicts: conflicted,
-        });
+    if exit.status == Some(1) && operation_state(engine)? != OperationState::None {
+        let conflicted = conflicts(engine, cancel)?;
+        let hash = head_hash(engine)?;
+        let unchanged =
+            before.is_some_and(|marks| marks.head == hash && marks.conflicts == conflicted);
+        if !conflicted.is_empty() && !unchanged {
+            return Ok(Outcome {
+                kind: OutcomeKind::Conflicts,
+                hash,
+                conflicts: conflicted,
+            });
+        }
     }
-    Err(GitError::Cli {
-        command: args.join(" "),
-        status: exit.status,
-        stderr: exit.stderr,
+    Err(exit.into_failure(args))
+}
+
+/// A clean exit can still leave conflicted paths: `rebase.autoStash` (or `merge.autoStash`)
+/// re-applies the stash after the operation and reports the conflicts only in words (git
+/// exits 0, keeps the stash). They are the outcome then, with no operation in progress.
+pub(super) fn after_autostash(
+    engine: &Git2Engine,
+    outcome: Outcome,
+    cancel: &Cancel,
+) -> GitResult<Outcome> {
+    if outcome.kind == OutcomeKind::Conflicts {
+        return Ok(outcome);
+    }
+    let conflicted = conflicts(engine, cancel)?;
+    if conflicted.is_empty() {
+        return Ok(outcome);
+    }
+    Ok(Outcome {
+        kind: OutcomeKind::Conflicts,
+        conflicts: conflicted,
+        ..outcome
     })
 }
 
@@ -160,9 +201,21 @@ pub(super) fn sequencer(
     };
     let args = [verb, flag];
     let root = &GitEngine::repo(engine).root;
+    // A continue that moves nothing is a refusal (an unresolved file); a multi-commit rebase
+    // or pick can stop again on the next commit, which moves HEAD or the conflicted paths.
+    let before = match action {
+        SequencerAction::Continue => Some(marks(engine, cancel)?),
+        _ => None,
+    };
     let exit = run_git_env(root, &args, &WRITE_ENV, cancel)?;
-    // A multi-commit rebase or pick can stop again on the next commit.
-    outcome(engine, &args, exit, OutcomeKind::Done, cancel)
+    outcome(
+        engine,
+        &args,
+        exit,
+        OutcomeKind::Done,
+        before.as_ref(),
+        cancel,
+    )
 }
 
 #[cfg(test)]

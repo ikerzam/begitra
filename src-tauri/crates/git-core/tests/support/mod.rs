@@ -9,11 +9,29 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Once;
 
 use tempfile::TempDir;
 
 /// 2024-01-01T00:00:00Z.
 const BASE_TIME: i64 = 1_704_067_200;
+
+static HERMETIC: Once = Once::new();
+
+/// Isolates the git the engine under test runs (it inherits the test process's environment)
+/// from the machine's system and global configuration and language, as the fixture's own
+/// commands are: `merge.ff`, `rebase.autoStash`, `rerere`, `core.hooksPath` or a credential
+/// helper of the user must not reach the tests. Once per process, before any git runs.
+fn hermetic() {
+    HERMETIC.call_once(|| {
+        std::env::set_var("GIT_CONFIG_NOSYSTEM", "1");
+        std::env::set_var(
+            "GIT_CONFIG_GLOBAL",
+            std::env::temp_dir().join("begira-no-global-config"),
+        );
+        std::env::set_var("LC_ALL", "C");
+    });
+}
 
 /// A temporary repository plus the helpers to grow it.
 pub struct Fixture {
@@ -40,6 +58,7 @@ impl Fixture {
     }
 
     fn init_at(folder: &str) -> Self {
+        hermetic();
         let dir = tempfile::Builder::new()
             .prefix("begira-fixture-")
             .tempdir()

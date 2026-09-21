@@ -303,8 +303,8 @@ pub trait GitEngine: Send + Sync {
     /// Removes a remote.
     fn remote_remove(&self, name: &str, cancel: &Cancel) -> GitResult<()>;
 
-    /// Fetches from a remote (every remote's default when `None`), git's progress lines
-    /// handed to `progress` as they arrive; a missing credential fails at once.
+    /// Fetches from a remote (every remote when `None`), git's progress lines handed to
+    /// `progress` as they arrive; git's own credential prompt fails at once.
     fn fetch(
         &self,
         remote: Option<&str>,
@@ -313,8 +313,9 @@ pub trait GitEngine: Send + Sync {
         cancel: &Cancel,
     ) -> GitResult<NetworkResult>;
 
-    /// Pulls (a merge, or a rebase when asked) with the progress streamed; a stop on
-    /// conflicts is an [`Outcome`].
+    /// Pulls: the fetch with its progress streamed and the cancel honoured, then the merge
+    /// (or the rebase, when asked) of what it brought, which no cancel interrupts; a stop
+    /// on conflicts is an [`Outcome`].
     fn pull(
         &self,
         request: &PullRequest,

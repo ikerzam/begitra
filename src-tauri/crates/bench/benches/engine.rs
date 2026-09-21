@@ -806,9 +806,13 @@ fn apply_selection_5k(c: &mut Criterion) {
     group.finish();
 }
 
-/// A bare clone beside the synthetic repository, registered as the remote `bench`: what the
-/// network benchmarks talk to (a local transport, so the numbers are git's negotiation and
-/// pack work, not the wire). Created on first use.
+/// A bare clone beside the synthetic repository, registered as the remote `bench` for the
+/// length of the group: what the network benchmarks talk to (a local transport, so the
+/// numbers are git's negotiation and pack work, not the wire). The clone is made on first
+/// use and again when the synthetic history was regenerated under it (its `main` no longer
+/// matches) or a previous clone was interrupted (no `HEAD`); the remote is removed by
+/// [`forget_bare_remote`] so that its tracking refs never reach the other groups or the
+/// next run.
 fn bare_remote(target: &Target) -> Option<String> {
     if target.name != "synthetic" {
         return None;
@@ -816,7 +820,15 @@ fn bare_remote(target: &Target) -> Option<String> {
     let bare = target
         .path
         .with_file_name(format!("{}-remote.git", target.path.file_name()?.to_str()?));
-    if !bare.join("HEAD").exists() {
+    let local_main = run_git(&target.path, &["rev-parse", "main"]).ok()?;
+    let stale = !bare.join("HEAD").exists()
+        || run_git(&bare, &["rev-parse", "main"])
+            .map(|out| out.stdout != local_main.stdout)
+            .unwrap_or(true);
+    if stale {
+        if bare.exists() {
+            std::fs::remove_dir_all(&bare).ok()?;
+        }
         let cwd = target.path.parent()?;
         run_git(
             cwd,
@@ -831,11 +843,21 @@ fn bare_remote(target: &Target) -> Option<String> {
         )
         .ok()?;
     }
-    let listed = run_git(&target.path, &["remote"]).ok()?;
-    if !listed.stdout.lines().any(|name| name == "bench") {
-        run_git(&target.path, &["remote", "add", "bench", bare.to_str()?]).ok()?;
-    }
+    forget_bare_remote(target);
+    run_git(
+        &target.path,
+        &["remote", "add", "--", "bench", bare.to_str()?],
+    )
+    .ok()?;
     Some("bench".to_owned())
+}
+
+/// Removes the `bench` remote and its tracking refs from the synthetic repository.
+fn forget_bare_remote(target: &Target) {
+    let listed = run_git(&target.path, &["remote"]).map(|out| out.stdout);
+    if listed.is_ok_and(|names| names.lines().any(|name| name == "bench")) {
+        let _ = run_git(&target.path, &["remote", "remove", "--", "bench"]);
+    }
 }
 
 /// A fetch and a push against the local bare remote, both up to date: git's negotiation
@@ -867,6 +889,7 @@ fn fetch_push_bare(c: &mut Criterion) {
                     .expect("push");
             });
         });
+        forget_bare_remote(&target);
     }
     group.finish();
 }

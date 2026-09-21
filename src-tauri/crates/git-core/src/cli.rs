@@ -348,6 +348,24 @@ pub struct CliExit {
     pub stderr: String,
 }
 
+impl CliExit {
+    /// The exit as [`GitError::Cli`] for `args`, with git's words: stderr, or stdout when
+    /// git put its refusal there (`git rebase --continue` prints "<path>: needs merge" on
+    /// stdout and nothing on stderr).
+    pub fn into_failure(self, args: &[&str]) -> GitError {
+        let stderr = if self.stderr.trim().is_empty() {
+            String::from_utf8_lossy(&self.stdout).trim_end().to_owned()
+        } else {
+            self.stderr
+        };
+        GitError::Cli {
+            command: args.join(" "),
+            status: self.status,
+            stderr,
+        }
+    }
+}
+
 /// Runs `git <args>` in `cwd` while polling `cancel` every [`CANCEL_POLL`]; a cancelled run
 /// stops git (see [`abort`]) and returns [`GitError::Cancelled`] at once, without waiting
 /// for the pipes: their reader threads end at end-of-file. Both pipes are drained by their
@@ -360,13 +378,15 @@ pub fn run_git_cancellable(cwd: &Path, args: &[&str], cancel: &Cancel) -> GitRes
     run_polled(command(cwd, args), args.join(" "), cancel, None, None)
 }
 
-/// The environment of a write that must never wait for a terminal or an editor: a
-/// credential helper that needs one fails at once with git's message, and a merge, revert
-/// or `--continue` that would open an editor takes the prepared message.
+/// The environment of a write that must never wait for a terminal or an editor: git's own
+/// credential prompt fails at once with its message (a helper with a window of its own, such
+/// as Git Credential Manager, still opens it, and the caller's timeout bounds that), and a
+/// merge, revert or `--continue` that would open an editor takes the prepared message. `:`
+/// is the editor git knows not to launch, where `true` would spawn a shell for it.
 pub const WRITE_ENV: [(&str, &str); 3] = [
     ("GIT_TERMINAL_PROMPT", "0"),
-    ("GIT_EDITOR", "true"),
-    ("GIT_SEQUENCE_EDITOR", "true"),
+    ("GIT_EDITOR", ":"),
+    ("GIT_SEQUENCE_EDITOR", ":"),
 ];
 
 /// [`run_git_cancellable`] with extra environment variables (see [`WRITE_ENV`]).
@@ -776,6 +796,31 @@ mod tests {
         assert_eq!(result.expect_err("cancelled").code(), "op.cancelled");
         let took = started.elapsed();
         assert!(took < Duration::from_secs(4), "returned after {took:?}");
+    }
+
+    #[test]
+    fn a_cancelled_streaming_run_stops_git_and_what_it_started() {
+        // The streaming runner detaches its readers and returns on the cancel without
+        // waiting for the pipes; the process tree (git, sh, sleep) still ends.
+        let cancel = Cancel::new();
+        let flag = cancel.clone();
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(300));
+            flag.cancel();
+        });
+        let started = std::time::Instant::now();
+        let mut lines = Vec::new();
+        let result = run_git_streaming(
+            Path::new("."),
+            &["-c", "alias.w=!echo start >&2; sleep 8", "w"],
+            &WRITE_ENV,
+            &mut |line| lines.push(line.to_owned()),
+            &cancel,
+        );
+        assert_eq!(result.expect_err("cancelled").code(), "op.cancelled");
+        let took = started.elapsed();
+        assert!(took < Duration::from_secs(4), "returned after {took:?}");
+        assert_eq!(lines, ["start"]);
     }
 
     #[test]

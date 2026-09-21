@@ -1,13 +1,15 @@
 //! Branch, tag and upstream operations, merge, rebase, reset, cherry-pick and revert, through
 //! the git CLI in the repository's root with argv. A name that could look like an
-//! option goes after `--` where git reads one; revisions are checked for a leading dash by
-//! the bridge before any command runs. A merge, rebase, pick or revert that stops on
-//! conflicts is an [`Outcome`], not an error (see [`super::sequencer`]).
+//! option goes after `--` where git reads one, and so do the revisions of a merge and a
+//! rebase; a reset resolves its revision first and passes the hash before `--`, so a path or
+//! an option never reaches git as one (the bridge refuses option-shaped revisions before any
+//! command runs). A merge, rebase, pick or revert that stops on conflicts is an [`Outcome`],
+//! not an error (see [`super::sequencer`]).
 
 use super::{sequencer, Git2Engine};
 use crate::cli::{run_git_env, CliExit, WRITE_ENV};
 use crate::engine::{Cancel, GitEngine};
-use crate::error::{GitError, GitResult};
+use crate::error::GitResult;
 use crate::types::{MergeMode, Outcome, OutcomeKind, ResetMode, SwitchTarget};
 
 /// Runs `git <args>` in the root with the write environment.
@@ -21,11 +23,7 @@ fn git_ok(engine: &Git2Engine, args: &[&str], cancel: &Cancel) -> GitResult<()> 
     if exit.status == Some(0) {
         Ok(())
     } else {
-        Err(GitError::Cli {
-            command: args.join(" "),
-            status: exit.status,
-            stderr: exit.stderr,
-        })
+        Err(exit.into_failure(args))
     }
 }
 
@@ -135,20 +133,18 @@ pub(super) fn merge(
     cancel: &Cancel,
 ) -> GitResult<Outcome> {
     let before = sequencer::head_hash(engine)?;
-    let target = engine.with_repo(|repo| {
-        let object = repo.revparse_single(rev)?;
-        let commit = object.peel_to_commit()?;
-        Ok(commit.id().to_string())
-    })?;
+    let target = engine.with_repo(|repo| Ok(super::resolve_commit(repo, rev)?.to_string()))?;
     let mut args = vec!["merge"];
     match mode {
         MergeMode::Default => {}
         MergeMode::FfOnly => args.push("--ff-only"),
         MergeMode::NoFf => args.push("--no-ff"),
     }
+    args.push("--");
     args.push(rev);
     let exit = git(engine, &args, cancel)?;
-    let outcome = sequencer::outcome(engine, &args, exit, OutcomeKind::Merged, cancel)?;
+    let outcome = sequencer::outcome(engine, &args, exit, OutcomeKind::Merged, None, cancel)?;
+    let outcome = sequencer::after_autostash(engine, outcome, cancel)?;
     if outcome.kind != OutcomeKind::Merged {
         return Ok(outcome);
     }
@@ -163,9 +159,18 @@ pub(super) fn merge(
 /// See [`GitEngine::rebase`].
 #[tracing::instrument(level = "debug", skip_all, fields(onto))]
 pub(super) fn rebase(engine: &Git2Engine, onto: &str, cancel: &Cancel) -> GitResult<Outcome> {
-    let args = ["rebase", onto];
+    let before = sequencer::head_hash(engine)?;
+    let args = ["rebase", "--", onto];
     let exit = git(engine, &args, cancel)?;
-    sequencer::outcome(engine, &args, exit, OutcomeKind::Done, cancel)
+    let outcome = sequencer::outcome(engine, &args, exit, OutcomeKind::Done, None, cancel)?;
+    let outcome = sequencer::after_autostash(engine, outcome, cancel)?;
+    if outcome.kind == OutcomeKind::Done && outcome.hash == before {
+        return Ok(Outcome {
+            kind: OutcomeKind::UpToDate,
+            ..outcome
+        });
+    }
+    Ok(outcome)
 }
 
 /// See [`GitEngine::reset`].
@@ -181,7 +186,9 @@ pub(super) fn reset(
         ResetMode::Mixed => "--mixed",
         ResetMode::Hard => "--hard",
     };
-    git_ok(engine, &["reset", "-q", flag, rev], cancel)
+    // The hash, then `--`: `git reset <path>` would unstage the path and move nothing.
+    let hash = engine.with_repo(|repo| Ok(super::resolve_commit(repo, rev)?.to_string()))?;
+    git_ok(engine, &["reset", "-q", flag, hash.as_str(), "--"], cancel)
 }
 
 /// See [`GitEngine::cherry_pick`].
@@ -194,7 +201,7 @@ pub(super) fn cherry_pick(
     let mut args = vec!["cherry-pick"];
     args.extend(revs.iter().map(String::as_str));
     let exit = git(engine, &args, cancel)?;
-    sequencer::outcome(engine, &args, exit, OutcomeKind::Done, cancel)
+    sequencer::outcome(engine, &args, exit, OutcomeKind::Done, None, cancel)
 }
 
 /// See [`GitEngine::revert`].
@@ -203,5 +210,5 @@ pub(super) fn revert(engine: &Git2Engine, revs: &[String], cancel: &Cancel) -> G
     let mut args = vec!["revert", "--no-edit"];
     args.extend(revs.iter().map(String::as_str));
     let exit = git(engine, &args, cancel)?;
-    sequencer::outcome(engine, &args, exit, OutcomeKind::Done, cancel)
+    sequencer::outcome(engine, &args, exit, OutcomeKind::Done, None, cancel)
 }

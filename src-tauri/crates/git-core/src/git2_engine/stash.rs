@@ -9,11 +9,7 @@ use crate::error::{GitError, GitResult};
 use crate::types::{Outcome, OutcomeKind, StashPush};
 
 fn failed(args: &[&str], exit: CliExit) -> GitError {
-    GitError::Cli {
-        command: args.join(" "),
-        status: exit.status,
-        stderr: exit.stderr,
-    }
+    exit.into_failure(args)
 }
 
 /// `stash@{n}`.
@@ -30,7 +26,7 @@ pub(super) fn stash_push(
     cancel: &Cancel,
 ) -> GitResult<bool> {
     let root = &GitEngine::repo(engine).root;
-    let before = stash_count(engine, cancel)?;
+    let before = stash_tip(engine)?;
     // Not `--literal-pathspecs`: it reaches the `git clean` a stash runs for its untracked
     // files and leaves them on disk (git 2.54); the `:(literal)` magic on each path does not.
     let mut args = vec!["stash", "push", "-q"];
@@ -57,23 +53,22 @@ pub(super) fn stash_push(
     if exit.status != Some(0) {
         return Err(failed(&args, exit));
     }
-    Ok(stash_count(engine, cancel)? > before)
+    // A stash moves `refs/stash`; "nothing to save" leaves it (git says so and exits 0).
+    Ok(stash_tip(engine)? != before)
 }
 
-/// The number of stashes, from the stash reflog.
-fn stash_count(engine: &Git2Engine, cancel: &Cancel) -> GitResult<usize> {
-    let args = ["stash", "list", "--format=%H"];
-    let exit = run_git_env(&GitEngine::repo(engine).root, &args, &WRITE_ENV, cancel)?;
-    if exit.status != Some(0) {
-        return Err(failed(&args, exit));
-    }
-    Ok(String::from_utf8_lossy(&exit.stdout)
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .count())
+/// The newest stash's hash (`refs/stash`), or `None` without a stash; read through libgit2.
+fn stash_tip(engine: &Git2Engine) -> GitResult<Option<String>> {
+    engine.with_repo(|repo| match repo.find_reference("refs/stash") {
+        Ok(reference) => Ok(reference.target().map(|oid| oid.to_string())),
+        Err(error) if error.code() == git2::ErrorCode::NotFound => Ok(None),
+        Err(error) => Err(GitError::from(error)),
+    })
 }
 
 /// `git stash apply|pop stash@{n}`: done, or conflicts with the paths (the stash stays).
+/// git exits 1 both for a conflicting apply and for a refusal over paths conflicted before
+/// it ran (`needs merge`), so a stop is one that added conflicted paths.
 fn apply_or_pop(
     engine: &Git2Engine,
     verb: &str,
@@ -82,6 +77,7 @@ fn apply_or_pop(
 ) -> GitResult<Outcome> {
     let reference = stash_ref(index);
     let args = ["stash", verb, "-q", reference.as_str()];
+    let before = sequencer::conflicts(engine, cancel)?;
     let exit = run_git_env(&GitEngine::repo(engine).root, &args, &WRITE_ENV, cancel)?;
     if exit.status == Some(0) {
         return Ok(Outcome {
@@ -91,7 +87,8 @@ fn apply_or_pop(
         });
     }
     let conflicts = sequencer::conflicts(engine, cancel)?;
-    if exit.status == Some(1) && !conflicts.is_empty() {
+    let added = conflicts.iter().any(|conflict| !before.contains(conflict));
+    if exit.status == Some(1) && added {
         return Ok(Outcome {
             kind: OutcomeKind::Conflicts,
             hash: sequencer::head_hash(engine)?,

@@ -5,7 +5,7 @@ mod support;
 use git_core::engine::{Cancel, GitEngine};
 use git_core::error::GitError;
 use git_core::git2_engine::Git2Engine;
-use git_core::types::{OutcomeKind, StashPush};
+use git_core::types::{OperationState, OutcomeKind, StashPush};
 use support::Fixture;
 
 fn engine(f: &Fixture) -> Git2Engine {
@@ -140,6 +140,23 @@ fn a_conflicting_pop_reports_the_conflicts_and_keeps_the_stash() {
     assert_eq!(outcome.conflicts[0].path, "README.md");
     assert_eq!(stash_list(&f).len(), 1, "the stash stays");
     assert!(f.git(&["status", "--porcelain"]).contains("UU README.md"));
+    // Over the conflicted path git refuses to start anything, with the exit code of a stop:
+    // neither a rebase nor another apply is a stop, and nothing is in progress.
+    assert_eq!(e.operation_state().expect("state"), OperationState::None);
+    let error = e
+        .rebase("HEAD~1", &never())
+        .expect_err("refused over an unmerged file");
+    match &error {
+        GitError::Cli { stderr, .. } => assert!(
+            stderr.contains("unstaged changes") || stderr.contains("needs merge"),
+            "{stderr}"
+        ),
+        other => panic!("unexpected {other:?}"),
+    }
+    let error = e.stash_apply(0, &never()).expect_err("refused");
+    assert!(matches!(error, GitError::Cli { .. }), "{error:?}");
+    assert_eq!(e.operation_state().expect("state"), OperationState::None);
+    assert_eq!(stash_list(&f).len(), 1);
     f.git(&["reset", "-q", "--hard"]);
     f.tick();
 }
