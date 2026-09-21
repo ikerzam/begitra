@@ -3,12 +3,24 @@
     "author": "Iker Z. <iker@example.com>",
     "template": "# subject\n\n# body\n",
     "headMessage": "feat(auth): refresh tokens\n\nThe body.",
-    "unborn": false
+    "unborn": false,
+    "operation": "none",
+    "preparedMessage": null
   },
   {
     "author": "Iker Z. <iker@example.com>",
     "template": null,
     "headMessage": null,
-    "unborn": true
+    "unborn": true,
+    "operation": "none",
+    "preparedMessage": null
+  },
+  {
+    "author": "Iker Z. <iker@example.com>",
+    "template": null,
+    "headMessage": "main readme",
+    "unborn": false,
+    "operation": "merge",
+    "preparedMessage": "Merge branch 'other'\n\n# Conflicts:\n#\tREADME.md"
   }
 ]

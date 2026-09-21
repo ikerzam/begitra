@@ -71,7 +71,8 @@
       "isBinary": false,
       "isLarge": false,
       "isGenerated": false,
-      "isTest": false
+      "isTest": false,
+      "isLossy": false
     },
     {
       "status": "added",
@@ -84,7 +85,8 @@
       "isBinary": true,
       "isLarge": false,
       "isGenerated": false,
-      "isTest": false
+      "isTest": false,
+      "isLossy": false
     },
     {
       "status": "modified",
@@ -97,7 +99,8 @@
       "isBinary": false,
       "isLarge": true,
       "isGenerated": true,
-      "isTest": false
+      "isTest": false,
+      "isLossy": false
     },
     {
       "status": "deleted",
@@ -110,7 +113,8 @@
       "isBinary": false,
       "isLarge": false,
       "isGenerated": false,
-      "isTest": true
+      "isTest": true,
+      "isLossy": false
     }
   ],
   "additions": 6002,
