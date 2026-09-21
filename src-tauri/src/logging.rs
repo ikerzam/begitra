@@ -1,9 +1,11 @@
 //! The log file: `tracing` records go to `<log dir>/begira-<date>.log`,
-//! one line per record, written through to the file as each arrives (a `Mutex<File>` is the
-//! subscriber's writer: the OS has every line before the call returns, so a crash keeps
-//! what was written), the seven newest day files kept. The subscriber is installed at start
-//! with the console layer (debug builds) and an empty slot for the file layer, which the
-//! app fills once Tauri resolves the log folder; a panic is logged before the process ends.
+//! one file per launch named by its UTC day (a launch that crosses midnight keeps its file;
+//! the time is on every line), one line per record, written through to the file as each
+//! arrives (a `Mutex<File>` is the subscriber's writer: the OS has every line before the
+//! call returns, so a crash keeps what was written), the seven newest day files kept. The
+//! subscriber is installed at start with the console layer (debug builds) and an empty slot
+//! for the file layer, which the app fills once Tauri resolves the log folder; a panic is
+//! logged before the process ends, whatever the filter says.
 
 use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
@@ -18,8 +20,14 @@ use tracing_subscriber::{reload, EnvFilter, Registry};
 /// Day files kept in the log folder; the newest by name, since the date is the name.
 pub const KEEP_FILES: usize = 7;
 
-/// The filter when neither `BEGIRA_LOG` nor `RUST_LOG` sets one.
-pub const DEFAULT_FILTER: &str = "begira_lib=info,git_core=info,repo_index=info";
+/// The filter when neither `BEGIRA_LOG` nor `RUST_LOG` sets one: the app, the engine, the
+/// index, the updater plugin (its failures go through `log`) and Tauri's warnings.
+pub const DEFAULT_FILTER: &str =
+    "begira_lib=info,git_core=info,repo_index=info,tauri_plugin_updater=info,tauri=warn";
+
+/// The panic hook's target; its directive is added to every filter so the line survives a
+/// narrow `BEGIRA_LOG` (a targeted directive wins over a bare one).
+const PANIC_TARGET: &str = "begira_lib::panic";
 
 const PREFIX: &str = "begira-";
 const SUFFIX: &str = ".log";
@@ -61,21 +69,42 @@ fn now() -> i64 {
         .unwrap_or(0)
 }
 
+/// Whether a file name is a day file's (`begira-YYYY-MM-DD.log`), so that nothing else in
+/// the folder takes one of the kept slots.
+fn is_day_file(name: &str) -> bool {
+    let Some(date) = name
+        .strip_prefix(PREFIX)
+        .and_then(|rest| rest.strip_suffix(SUFFIX))
+    else {
+        return false;
+    };
+    let bytes = date.as_bytes();
+    bytes.len() == 10
+        && bytes.iter().enumerate().all(|(i, b)| {
+            if i == 4 || i == 7 {
+                *b == b'-'
+            } else {
+                b.is_ascii_digit()
+            }
+        })
+}
+
 /// Removes the day files beyond the `keep` newest in `dir`; returns what was removed. Files
-/// with other names are left alone.
+/// with other names are left alone, and a file that cannot be removed does not stop the rest.
 pub fn prune(dir: &Path, keep: usize) -> std::io::Result<Vec<PathBuf>> {
     let mut names: Vec<String> = fs::read_dir(dir)?
         .filter_map(Result::ok)
         .filter_map(|entry| entry.file_name().into_string().ok())
-        .filter(|name| name.starts_with(PREFIX) && name.ends_with(SUFFIX))
+        .filter(|name| is_day_file(name))
         .collect();
     names.sort();
     let excess = names.len().saturating_sub(keep);
     let mut removed = Vec::new();
     for name in names.into_iter().take(excess) {
         let path = dir.join(name);
-        fs::remove_file(&path)?;
-        removed.push(path);
+        if fs::remove_file(&path).is_ok() {
+            removed.push(path);
+        }
     }
     Ok(removed)
 }
@@ -89,16 +118,29 @@ pub fn open_day_file(dir: &Path, unix_seconds: i64) -> std::io::Result<(PathBuf,
     Ok((path, file))
 }
 
-/// The filter: `BEGIRA_LOG`, then `RUST_LOG`, then [`DEFAULT_FILTER`].
+/// The filter: `BEGIRA_LOG`, then `RUST_LOG`, then [`DEFAULT_FILTER`], always with the
+/// panic hook's directive; a variable that does not parse is said on stderr and skipped.
 pub fn filter() -> EnvFilter {
-    for variable in ["BEGIRA_LOG", "RUST_LOG"] {
-        if let Ok(spec) = std::env::var(variable) {
-            if let Ok(filter) = EnvFilter::try_new(&spec) {
-                return filter;
+    let base = ["BEGIRA_LOG", "RUST_LOG"]
+        .into_iter()
+        .filter_map(|variable| std::env::var(variable).ok().map(|spec| (variable, spec)))
+        .find_map(|(variable, spec)| match EnvFilter::try_new(&spec) {
+            Ok(filter) => Some(filter),
+            Err(error) => {
+                eprintln!("begira: {variable}={spec:?} is not a filter ({error}); ignored");
+                None
             }
-        }
+        })
+        .unwrap_or_else(|| EnvFilter::new(DEFAULT_FILTER));
+    with_panic_directive(base)
+}
+
+/// Adds the panic hook's directive to a filter.
+fn with_panic_directive(filter: EnvFilter) -> EnvFilter {
+    match format!("{PANIC_TARGET}=error").parse() {
+        Ok(directive) => filter.add_directive(directive),
+        Err(_) => filter,
     }
-    EnvFilter::new(DEFAULT_FILTER)
 }
 
 /// The file layer over an open file: no colours, the target and the time on every line.
@@ -109,28 +151,34 @@ fn file_layer(file: File) -> FileLayer {
         .with_target(true)
 }
 
-/// Installs the global subscriber: the filter, the console layer in debug builds, and the
-/// empty slot for the file layer. Returns `None` when a subscriber was installed already
-/// (the tests, a second call).
-pub fn install() -> Option<LogSlot> {
+/// The subscriber: the empty slot for the file layer on the registry (the type the alias
+/// names), the console layer when asked, and the filter last so it gates the whole stack.
+fn stack(filter: EnvFilter, console: bool) -> (impl tracing::Subscriber + Send + Sync, LogSlot) {
     let (slot, handle) = reload::Layer::new(None::<FileLayer>);
-    let console = if cfg!(debug_assertions) {
-        Some(
-            tracing_subscriber::fmt::layer()
-                .with_writer(std::io::stderr)
-                .with_target(true),
-        )
-    } else {
-        None
-    };
-    // The filter last, so it gates the whole stack; the slot first, so its layer sits on
-    // the registry (the type the alias names).
+    let console = console.then(|| {
+        tracing_subscriber::fmt::layer()
+            .with_writer(std::io::stderr)
+            .with_target(true)
+    });
     let subscriber = tracing_subscriber::registry()
         .with(slot)
         .with(console)
-        .with(filter());
-    subscriber.try_init().ok()?;
-    Some(LogSlot { handle })
+        .with(filter);
+    (subscriber, LogSlot { handle })
+}
+
+/// Installs the global subscriber: the filter, the console layer in debug builds, and the
+/// empty slot for the file layer. Returns `None` when a subscriber was installed already
+/// (the tests, a second call), saying so on stderr.
+pub fn install() -> Option<LogSlot> {
+    let (subscriber, slot) = stack(filter(), cfg!(debug_assertions));
+    match subscriber.try_init() {
+        Ok(()) => Some(slot),
+        Err(error) => {
+            eprintln!("begira: the log subscriber was not installed ({error})");
+            None
+        }
+    }
 }
 
 impl LogSlot {
@@ -213,6 +261,8 @@ mod tests {
             fs::write(dir.path().join(format!("begira-2024-01-{day:02}.log")), "x").expect("write");
         }
         fs::write(dir.path().join("notes.txt"), "keep").expect("write");
+        // A file with the prefix but not a day's name never takes a slot.
+        fs::write(dir.path().join("begira-crash.log"), "keep").expect("write");
         let removed = prune(dir.path(), KEEP_FILES).expect("prune");
         let names: Vec<_> = removed
             .iter()
@@ -222,10 +272,42 @@ mod tests {
         assert!(dir.path().join("begira-2024-01-03.log").exists());
         assert!(dir.path().join("begira-2024-01-09.log").exists());
         assert!(dir.path().join("notes.txt").exists());
+        assert!(dir.path().join("begira-crash.log").exists());
         // Opening a day file prunes too, and appends to an existing day.
         let (path, _) = open_day_file(dir.path(), 1_704_758_400).expect("open");
         assert!(path.ends_with("begira-2024-01-09.log"));
         assert_eq!(fs::read_to_string(&path).expect("read"), "x");
+    }
+
+    #[test]
+    fn the_stack_gates_both_layers_and_the_slot_takes_the_file_later() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        // The default filter given explicitly: the env test next door mutates the variables.
+        let filter = with_panic_directive(EnvFilter::new(DEFAULT_FILTER));
+        let (subscriber, slot) = stack(filter, false);
+        let path = dir.path().join("logs");
+        tracing::subscriber::with_default(subscriber, || {
+            // Nothing is attached yet: the record goes nowhere and nothing panics.
+            tracing::info!(target: "begira_lib::early", "before the file");
+            let file = slot.attach(&path).expect("attach");
+            assert!(file.exists());
+            tracing::info!(target: "begira_lib::commands", repo = "/r", "after the file");
+            // Outside the default filter: dropped by the outer EnvFilter.
+            tracing::error!(target: "git2::odb", "libgit2 chatter");
+            // The panic hook's line lands whatever the target filter says.
+            install_panic_hook();
+            let outcome = std::panic::catch_unwind(|| {
+                panic!("a test panic with a message");
+            });
+            assert!(outcome.is_err());
+            let content = fs::read_to_string(&file).expect("read");
+            assert!(!content.contains("before the file"), "{content}");
+            assert!(content.contains("after the file"), "{content}");
+            assert!(content.contains("repo=\"/r\""), "{content}");
+            assert!(!content.contains("libgit2 chatter"), "{content}");
+            assert!(content.contains("a test panic with a message"), "{content}");
+            assert!(content.contains("location="), "{content}");
+        });
     }
 
     #[test]
@@ -236,17 +318,21 @@ mod tests {
             .map(|v| (v, std::env::var(v).ok()))
             .collect();
         std::env::set_var("BEGIRA_LOG", "git_core=trace");
-        assert_eq!(filter().to_string(), "git_core=trace");
+        assert!(filter().to_string().contains("git_core=trace"));
         std::env::remove_var("BEGIRA_LOG");
         std::env::set_var("RUST_LOG", "warn");
-        assert_eq!(filter().to_string(), "warn");
+        assert!(filter().to_string().contains("warn"));
         std::env::remove_var("RUST_LOG");
-        // The filter prints its directives in its own order.
+        // The filter prints its directives in its own order; the panic directive is always in.
         let mut printed: Vec<_> = filter().to_string().split(',').map(str::to_owned).collect();
         let mut expected: Vec<_> = DEFAULT_FILTER.split(',').map(str::to_owned).collect();
+        expected.push(format!("{PANIC_TARGET}=error"));
         printed.sort();
         expected.sort();
         assert_eq!(printed, expected);
+        std::env::set_var("BEGIRA_LOG", "git_core=trace");
+        assert!(filter().to_string().contains("begira_lib::panic=error"));
+        std::env::remove_var("BEGIRA_LOG");
         for (variable, value) in saved {
             match value {
                 Some(value) => std::env::set_var(variable, value),

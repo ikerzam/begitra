@@ -109,6 +109,20 @@ impl GitError {
         }
     }
 
+    /// The raw text behind the message, when there is some: libgit2's reason, git's stderr,
+    /// the OS's reason; what the app shows behind "Show git output" and the CLI puts in
+    /// `detail`.
+    pub fn detail(&self) -> Option<&str> {
+        match self {
+            GitError::Invalid { reason, .. }
+            | GitError::CorruptObject { reason, .. }
+            | GitError::GitNotStarted { reason, .. }
+            | GitError::BlobUnreadable { reason, .. } => Some(reason),
+            GitError::Cli { stderr, .. } => Some(stderr),
+            _ => None,
+        }
+    }
+
     /// Every code an engine error can carry, for the tests that keep the IPC list in sync.
     pub const CODES: [&'static str; 14] = [
         "repo.not_found",

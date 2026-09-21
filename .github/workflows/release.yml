@@ -57,6 +57,14 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Refuse to release with the updater's placeholder key
+        shell: bash
+        run: |
+          if grep -q "REPLACE_WITH" src-tauri/tauri.conf.json; then
+            echo "plugins.updater.pubkey is still the placeholder: run tauri signer generate" >&2
+            exit 1
+          fi
+
       - name: Build and upload the bundles
         uses: tauri-apps/tauri-action@v1
         env:

@@ -180,6 +180,11 @@ fn log_streams_pages_then_done_and_honours_the_limit() {
     let f = Fixture::new();
     let (status, out, err) = cli(&["log", f.path()]);
     assert_eq!((status, err.as_str()), (0, ""));
+    // `kind` first, then the page's fields in the engine's order, whatever serde_json's map is.
+    assert!(
+        out.starts_with("{\"kind\":\"page\",\"commits\":[{\"hash\":"),
+        "{out}"
+    );
     let pages = lines(&out);
     assert_eq!(pages.len(), 2, "{out}");
     assert_eq!(pages[0]["kind"], "page");

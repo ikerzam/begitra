@@ -7,7 +7,8 @@
 //! usage on stderr with exit status 2. Nothing here writes to a repository.
 //!
 //! Arguments are parsed by hand: a subcommand, a path, a few flags. Ten commands do not
-//! justify an argument-parsing dependency.
+//! justify an argument-parsing dependency. A stream that fails half way ends without the done
+//! line: the failure document on stderr is the signal.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -16,7 +17,8 @@ use git_core::engine::{Cancel, GitEngine};
 use git_core::error::GitError;
 use git_core::git2_engine::Git2Engine;
 use git_core::types::{
-    BlobAt, DiffOptions, DiffTarget, StatusOptions, WalkOptions, WalkScope, WorkingTreeBase,
+    BlobAt, DiffOptions, DiffTarget, StatusOptions, WalkOptions, WalkOrder, WalkScope,
+    WorkingTreeBase,
 };
 use serde::Serialize;
 
@@ -29,8 +31,9 @@ Usage: begira-cli <command> <repo> [options]
 Commands:
   open <repo>                          the repository as the app opens it
   refs <repo>                          branches, remotes, tags, stashes and HEAD
-  log <repo> [--branch <name>] [--limit <n>]
-                                       the history, as NDJSON pages then {\"kind\":\"done\"}
+  log <repo> [--branch <name>] [--limit <n>] [--order lazy|date-topo]
+                                       the history (the app's lazy order by default), as NDJSON
+                                       pages then {\"kind\":\"done\"}
   status <repo>                        the working tree's changed, untracked and renamed paths
   diff <repo> (--commit <rev> | --range <a>..<b> | --range <a>...<b> | --working-tree [--base head|index])
                                        the change set, as NDJSON pages then {\"kind\":\"done\"}
@@ -41,6 +44,7 @@ Commands:
 Options:
   --pretty        indent single documents (pages stay one per line)
   --json          accepted; every output is JSON
+  --              the rest are positionals, even when they start with --
   --help, -h      this text
   --version, -V   the version
 
@@ -60,6 +64,7 @@ pub enum Command {
     Log {
         scope: WalkScope,
         limit: Option<u32>,
+        order: WalkOrder,
     },
     Status,
     Diff {
@@ -103,19 +108,10 @@ pub struct Failure {
 
 impl From<GitError> for Failure {
     fn from(error: GitError) -> Self {
-        let detail = match &error {
-            GitError::Invalid { reason, .. } | GitError::CorruptObject { reason, .. } => {
-                Some(reason.clone())
-            }
-            GitError::GitNotStarted { reason, .. } => Some(reason.clone()),
-            GitError::Cli { stderr, .. } => Some(stderr.clone()),
-            GitError::BlobUnreadable { reason, .. } => Some(reason.clone()),
-            _ => None,
-        };
         Self {
             code: error.code().to_owned(),
             message: error.to_string(),
-            detail,
+            detail: error.detail().map(str::to_owned),
         }
     }
 }
@@ -132,11 +128,25 @@ impl From<std::io::Error> for Failure {
 
 impl From<serde_json::Error> for Failure {
     fn from(error: serde_json::Error) -> Self {
+        // A write that failed inside serde is an output error (`head` closed the pipe).
+        if error.io_error_kind().is_some() {
+            return Self::from(std::io::Error::from(error));
+        }
         Self {
             code: "internal".to_owned(),
             message: format!("could not serialise the result: {error}"),
             detail: None,
         }
+    }
+}
+
+impl Failure {
+    /// Whether the consumer went away (`begira-cli log repo | head`): nothing to report.
+    fn is_broken_pipe(&self) -> bool {
+        self.code == "internal"
+            && self.message.contains("could not write the output")
+            && (self.message.contains("Broken pipe")
+                || self.message.contains("pipe is being closed"))
     }
 }
 
@@ -151,8 +161,8 @@ struct Args<'a> {
 }
 
 /// Flags that take a value.
-const VALUED: [&str; 6] = [
-    "--branch", "--limit", "--commit", "--range", "--base", "--rev",
+const VALUED: [&str; 7] = [
+    "--branch", "--limit", "--commit", "--range", "--base", "--rev", "--order",
 ];
 /// Flags that take none.
 const BARE: [&str; 3] = ["--pretty", "--json", "--working-tree"];
@@ -162,7 +172,16 @@ impl<'a> Args<'a> {
         let mut positionals = Vec::new();
         let mut flags = Vec::new();
         let mut rest = args.iter();
+        let mut options_ended = false;
         while let Some(arg) = rest.next() {
+            if arg == "--" && !options_ended {
+                options_ended = true;
+                continue;
+            }
+            if options_ended {
+                positionals.push(arg.as_str());
+                continue;
+            }
             if let Some(flag) = arg.strip_prefix("--").map(|_| arg.as_str()) {
                 if let Some((name, value)) = flag.split_once('=') {
                     if !VALUED.contains(&name) {
@@ -213,14 +232,22 @@ impl<'a> Args<'a> {
     }
 }
 
-/// Parses the arguments after the program name.
+/// Parses the arguments after the program name; `--help` and `--version` answer wherever
+/// they appear before a `--`.
 pub fn parse(args: &[String]) -> Result<Parsed, UsageError> {
+    for arg in args.iter().take_while(|arg| *arg != "--") {
+        match arg.as_str() {
+            "--help" | "-h" => return Ok(Parsed::Help),
+            "--version" | "-V" => return Ok(Parsed::Version),
+            _ => {}
+        }
+    }
     let Some(name) = args.first() else {
         return Err(UsageError("missing command".to_owned()));
     };
     match name.as_str() {
-        "--help" | "-h" | "help" => return Ok(Parsed::Help),
-        "--version" | "-V" | "version" => return Ok(Parsed::Version),
+        "help" => return Ok(Parsed::Help),
+        "version" => return Ok(Parsed::Version),
         _ => {}
     }
     let rest = Args::split(&args[1..])?;
@@ -252,7 +279,21 @@ pub fn parse(args: &[String]) -> Result<Parsed, UsageError> {
                 ),
                 None => None,
             };
-            Command::Log { scope, limit }
+            // The app's order: the first page in milliseconds whatever the history's size.
+            let order = match rest.value("--order").unwrap_or("lazy") {
+                "lazy" => WalkOrder::Lazy,
+                "date-topo" => WalkOrder::DateTopo,
+                other => {
+                    return Err(UsageError(format!(
+                        "--order takes lazy or date-topo, not {other}"
+                    )))
+                }
+            };
+            Command::Log {
+                scope,
+                limit,
+                order,
+            }
         }
         "status" => {
             rest.at_most(1)?;
@@ -361,38 +402,38 @@ fn document<T: Serialize>(out: &mut dyn Write, value: &T, pretty: bool) -> Resul
     Ok(())
 }
 
-/// One NDJSON line: the value's fields with `"kind"` first.
-fn line<T: Serialize>(out: &mut dyn Write, kind: &str, value: &T) -> Result<(), Failure> {
-    let mut object = match serde_json::to_value(value)? {
-        serde_json::Value::Object(map) => map,
-        other => {
-            let mut map = serde_json::Map::new();
-            map.insert("value".to_owned(), other);
-            map
-        }
-    };
-    let mut ordered = serde_json::Map::new();
-    ordered.insert(
-        "kind".to_owned(),
-        serde_json::Value::String(kind.to_owned()),
-    );
-    ordered.append(&mut object);
-    serde_json::to_writer(&mut *out, &serde_json::Value::Object(ordered))?;
+/// One NDJSON line, `"kind"` first and the value's fields after it in the engine's order,
+/// streamed straight to the writer and flushed whole.
+#[derive(Serialize)]
+struct Line<'a, T: Serialize> {
+    kind: &'static str,
+    #[serde(flatten)]
+    value: &'a T,
+}
+
+fn line<T: Serialize>(out: &mut dyn Write, kind: &'static str, value: &T) -> Result<(), Failure> {
+    serde_json::to_writer(&mut *out, &Line { kind, value })?;
     out.write_all(b"\n")?;
+    out.flush()?;
     Ok(())
 }
 
 /// The closing NDJSON line.
 fn done(out: &mut dyn Write) -> Result<(), Failure> {
     out.write_all(b"{\"kind\":\"done\"}\n")?;
+    out.flush()?;
     Ok(())
 }
 
-/// Points the engine's CLI at `BEGIRA_GIT` when set; a program that is not git is the failure.
+/// Points the engine's CLI at `BEGIRA_GIT` when set to something; a program that is not git
+/// is the failure.
 fn choose_git() -> Result<(), Failure> {
     let Some(path) = std::env::var_os("BEGIRA_GIT") else {
         return Ok(());
     };
+    if path.is_empty() {
+        return Ok(());
+    }
     git_core::cli::set_git_executable(Some(Path::new(&path)), &Cancel::never())?;
     Ok(())
 }
@@ -406,9 +447,14 @@ pub fn run(invocation: &Invocation, out: &mut dyn Write) -> Result<(), Failure> 
     match &invocation.command {
         Command::Open => document(out, engine.repo(), pretty),
         Command::Refs => document(out, &engine.refs(&cancel)?, pretty),
-        Command::Log { scope, limit } => {
+        Command::Log {
+            scope,
+            limit,
+            order,
+        } => {
             let options = WalkOptions {
                 page_size: limit.map_or(LOG_PAGE, |n| n.min(LOG_PAGE)),
+                order: *order,
                 ..WalkOptions::default()
             };
             let mut walk = engine.walk(scope, &options, &cancel)?;
@@ -470,18 +516,23 @@ pub fn main_with(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i
         }
         Ok(Parsed::Run(invocation)) => match run(&invocation, out) {
             Ok(()) => 0,
+            // The consumer closed the pipe: it has what it wanted, nothing to report.
+            Err(failure) if failure.is_broken_pipe() => 0,
             Err(failure) => {
                 let _ = serde_json::to_writer(&mut *err, &failure);
                 let _ = err.write_all(b"\n");
                 1
             }
         },
-        Err(UsageError(problem)) => {
-            let _ = writeln!(err, "begira-cli: {problem}\n");
-            let _ = err.write_all(USAGE.as_bytes());
-            2
-        }
+        Err(UsageError(problem)) => usage_error(&problem, err),
     }
+}
+
+/// Reports a usage problem before the usage on `err`; the exit status is 2.
+pub fn usage_error(problem: &str, err: &mut dyn Write) -> i32 {
+    let _ = writeln!(err, "begira-cli: {problem}\n");
+    let _ = err.write_all(USAGE.as_bytes());
+    2
 }
 
 #[cfg(test)]
@@ -513,16 +564,28 @@ mod tests {
                 scope: WalkScope::Ref {
                     name: "main".to_owned()
                 },
-                limit: Some(3)
+                limit: Some(3),
+                order: WalkOrder::Lazy,
             }
         );
         assert_eq!(
-            run_of(&["log", "/r", "--json"]).command,
+            run_of(&["log", "/r", "--json", "--order", "date-topo"]).command,
             Command::Log {
                 scope: WalkScope::All,
-                limit: None
+                limit: None,
+                order: WalkOrder::DateTopo,
             }
         );
+        // `--` ends the options; --help and --version answer anywhere before it.
+        assert_eq!(
+            run_of(&["blob", "--", "/r", "--weird-file"]).command,
+            Command::Blob {
+                at: BlobAt::WorkingTree,
+                path: "--weird-file".to_owned()
+            }
+        );
+        assert_eq!(parse(&args(&["refs", "/r", "--help"])), Ok(Parsed::Help));
+        assert_eq!(parse(&args(&["refs", "/r", "--", "--version"])).ok(), None);
         assert_eq!(
             run_of(&["diff", "/r", "--range", "a...b"]).command,
             Command::Diff {
@@ -571,6 +634,10 @@ mod tests {
             (
                 vec!["log", "/r", "--limit", "0"],
                 "--limit needs a count, not 0",
+            ),
+            (
+                vec!["log", "/r", "--order", "topo"],
+                "--order takes lazy or date-topo",
             ),
             (vec!["diff", "/r"], "diff takes one of"),
             (

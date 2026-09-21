@@ -167,19 +167,10 @@ impl std::error::Error for AppError {}
 
 impl From<GitError> for AppError {
     fn from(error: GitError) -> Self {
-        let detail = match &error {
-            GitError::Invalid { reason, .. } | GitError::CorruptObject { reason, .. } => {
-                Some(reason.clone())
-            }
-            GitError::GitNotStarted { reason, .. } => Some(reason.clone()),
-            GitError::Cli { stderr, .. } => Some(stderr.clone()),
-            GitError::BlobUnreadable { reason, .. } => Some(reason.clone()),
-            _ => None,
-        };
         Self {
             code: error.code().to_owned(),
             message: error.to_string(),
-            detail,
+            detail: error.detail().map(str::to_owned),
         }
     }
 }
