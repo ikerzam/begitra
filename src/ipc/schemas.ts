@@ -474,6 +474,90 @@ export const CommitContextSchema = v.object({
 });
 export type CommitContext = v.InferOutput<typeof CommitContextSchema>;
 
+/** What `switch` checks out. */
+export const SwitchTargetSchema = v.variant("kind", [
+  v.object({ kind: v.literal("branch"), name: v.string() }),
+  v.object({ kind: v.literal("detached"), rev: v.string() }),
+]);
+export type SwitchTarget = v.InferOutput<typeof SwitchTargetSchema>;
+
+export const MergeModeSchema = v.picklist(["default", "ff-only", "no-ff"]);
+export type MergeMode = v.InferOutput<typeof MergeModeSchema>;
+
+export const ResetModeSchema = v.picklist(["soft", "mixed", "hard"]);
+export type ResetMode = v.InferOutput<typeof ResetModeSchema>;
+
+export const SequencerActionSchema = v.picklist(["continue", "skip", "abort"]);
+export type SequencerAction = v.InferOutput<typeof SequencerActionSchema>;
+
+export const OutcomeKindSchema = v.picklist([
+  "fast-forward",
+  "merged",
+  "done",
+  "up-to-date",
+  "conflicts",
+]);
+export type OutcomeKind = v.InferOutput<typeof OutcomeKindSchema>;
+
+export const ConflictKindSchema = v.picklist([
+  "both-modified",
+  "both-added",
+  "both-deleted",
+  "deleted-by-us",
+  "deleted-by-them",
+  "added-by-us",
+  "added-by-them",
+]);
+export type ConflictKind = v.InferOutput<typeof ConflictKindSchema>;
+
+export const ConflictSchema = v.object({ path: v.string(), kind: ConflictKindSchema });
+export type Conflict = v.InferOutput<typeof ConflictSchema>;
+
+/** How an operation that may stop on conflicts ended. */
+export const OutcomeSchema = v.object({
+  kind: OutcomeKindSchema,
+  hash: v.nullable(v.string()),
+  conflicts: v.array(ConflictSchema),
+});
+export type Outcome = v.InferOutput<typeof OutcomeSchema>;
+
+export const RemoteSchema = v.object({
+  name: v.string(),
+  fetchUrl: v.string(),
+  pushUrl: v.string(),
+});
+export type Remote = v.InferOutput<typeof RemoteSchema>;
+
+export const PullRequestSchema = v.object({
+  remote: v.nullable(v.string()),
+  branch: v.nullable(v.string()),
+  rebase: v.boolean(),
+});
+export type PullRequest = v.InferOutput<typeof PullRequestSchema>;
+
+export const PushRequestSchema = v.object({
+  remote: v.nullable(v.string()),
+  branch: v.nullable(v.string()),
+  setUpstream: v.boolean(),
+  forceWithLease: v.boolean(),
+});
+export type PushRequest = v.InferOutput<typeof PushRequestSchema>;
+
+/** One message of a streamed fetch, pull or push: progress lines, then the result. */
+export const NetworkEventSchema = v.variant("kind", [
+  v.object({ kind: v.literal("progress"), line: v.string() }),
+  v.object({ kind: v.literal("result"), summary: v.array(v.string()) }),
+  v.object({ kind: v.literal("outcome"), outcome: OutcomeSchema }),
+]);
+export type NetworkEvent = v.InferOutput<typeof NetworkEventSchema>;
+
+export const StashPushSchema = v.object({
+  message: v.nullable(v.string()),
+  includeUntracked: v.boolean(),
+  paths: v.array(v.string()),
+});
+export type StashPush = v.InferOutput<typeof StashPushSchema>;
+
 /** What a new worktree checks out. */
 export const WorktreeBranchSchema = v.variant("kind", [
   v.object({ kind: v.literal("new"), name: v.string(), start: v.string() }),
@@ -593,6 +677,30 @@ const lockReason = v.pipe(
   v.maxLength(200),
   v.check((reason) => !reason.trimStart().startsWith("-"), "starts with a dash"),
 );
+/** A branch, tag or remote name as git accepts it for a new ref (the backend checks the rest). */
+const refName = v.pipe(
+  revision,
+  v.check((name) => !/[\s~^:?*[\\]/.test(name) && !name.includes(".."), "not a ref name"),
+  v.check((name) => !name.endsWith("/") && !name.endsWith("."), "ends with a slash or a dot"),
+);
+/** A remote URL or path: at most 2,048 characters, never shaped like an option. */
+const remoteUrl = v.pipe(
+  v.string(),
+  v.trim(),
+  v.minLength(1),
+  v.maxLength(2048),
+  v.check((url) => !url.startsWith("-"), "starts with a dash"),
+);
+/** One to 100 revisions for a cherry-pick or a revert. */
+const revisions = v.pipe(v.array(revision), v.minLength(1), v.maxLength(100));
+/** A stash index, `stash@{n}`. */
+const stashIndex = v.pipe(count, v.maxValue(999));
+/** A tag message with a line, at most 10,000 characters. */
+const tagMessage = v.pipe(
+  v.string(),
+  v.maxLength(10_000),
+  v.check((m) => m.split("\n").some((line) => line.trim() !== ""), "blank"),
+);
 
 export const commandArgs = {
   ping: v.object({ message: v.string() }),
@@ -653,6 +761,76 @@ export const commandArgs = {
     opId,
   }),
   commit_context: v.object({ repo: path, opId }),
+  branch_create: v.object({
+    repo: path,
+    name: refName,
+    start: revision,
+    checkout: v.boolean(),
+    opId,
+  }),
+  switch: v.object({
+    repo: path,
+    target: v.variant("kind", [
+      v.object({ kind: v.literal("branch"), name: refName }),
+      v.object({ kind: v.literal("detached"), rev: revision }),
+    ]),
+    opId,
+  }),
+  branch_rename: v.object({ repo: path, from: refName, to: refName, opId }),
+  branch_delete: v.object({ repo: path, name: refName, force: v.boolean(), opId }),
+  merge: v.object({ repo: path, rev: revision, mode: MergeModeSchema, opId }),
+  rebase: v.object({ repo: path, onto: revision, opId }),
+  reset: v.object({ repo: path, rev: revision, mode: ResetModeSchema, opId }),
+  cherry_pick: v.object({ repo: path, revs: revisions, opId }),
+  revert: v.object({ repo: path, revs: revisions, opId }),
+  tag_create: v.object({
+    repo: path,
+    name: refName,
+    rev: revision,
+    message: v.nullable(tagMessage),
+    opId,
+  }),
+  tag_delete: v.object({ repo: path, name: refName, opId }),
+  set_upstream: v.object({ repo: path, branch: refName, upstream: v.nullable(refName), opId }),
+  operation_state: v.object({ repo: path, opId }),
+  conflicts: v.object({ repo: path, opId }),
+  mark_resolved: v.object({ repo: path, paths: repoPaths, opId }),
+  sequencer: v.object({ repo: path, action: SequencerActionSchema, opId }),
+  remotes: v.object({ repo: path, opId }),
+  remote_add: v.object({ repo: path, name: refName, url: remoteUrl, opId }),
+  remote_remove: v.object({ repo: path, name: refName, opId }),
+  fetch: v.object({ repo: path, remote: v.nullable(refName), prune: v.boolean(), opId }),
+  pull: v.object({
+    repo: path,
+    request: v.object({
+      remote: v.nullable(refName),
+      branch: v.nullable(refName),
+      rebase: v.boolean(),
+    }),
+    opId,
+  }),
+  push: v.object({
+    repo: path,
+    request: v.object({
+      remote: v.nullable(refName),
+      branch: v.nullable(refName),
+      setUpstream: v.boolean(),
+      forceWithLease: v.boolean(),
+    }),
+    opId,
+  }),
+  stash_push: v.object({
+    repo: path,
+    request: v.object({
+      message: v.nullable(v.pipe(v.string(), v.maxLength(10_000))),
+      includeUntracked: v.boolean(),
+      paths: v.array(repoPath),
+    }),
+    opId,
+  }),
+  stash_apply: v.object({ repo: path, index: stashIndex, opId }),
+  stash_pop: v.object({ repo: path, index: stashIndex, opId }),
+  stash_drop: v.object({ repo: path, index: stashIndex, opId }),
   detect_git: v.object({ opId }),
   set_git_executable: v.object({
     path: v.pipe(

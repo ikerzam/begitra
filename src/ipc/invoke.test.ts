@@ -47,6 +47,41 @@ describe("checkArgs", () => {
     expect(checkArgs("ping", { message: "hi" })).toEqual({ message: "hi" });
   });
 
+  it("refuses ref names git would refuse and option-shaped remotes", () => {
+    const refused = (run: () => unknown): string | undefined => {
+      try {
+        run();
+      } catch (error) {
+        return (error as AppError).detail;
+      }
+      return undefined;
+    };
+    const create = (name: string) =>
+      checkArgs("branch_create", { repo: "/r", name, start: "main", checkout: true, opId: "op" });
+    expect(create("feature/tile-cache")).toBeTruthy();
+    for (const bad of ["", "-x", "a b", "a..b", "a~1", "a/", "a\\b"]) {
+      expect(
+        refused(() => create(bad)),
+        JSON.stringify(bad),
+      ).toMatch(/^name: /);
+    }
+    expect(
+      refused(() =>
+        checkArgs("push", {
+          repo: "/r",
+          request: { remote: "--mirror", branch: null, setUpstream: false, forceWithLease: false },
+          opId: "op",
+        }),
+      ),
+    ).toMatch(/^request\.remote: /);
+    expect(refused(() => checkArgs("cherry_pick", { repo: "/r", revs: [], opId: "op" }))).toMatch(
+      /^revs: /,
+    );
+    expect(
+      checkArgs("reset", { repo: "/r", rev: "HEAD~1", mode: "hard", opId: "op" }),
+    ).toBeTruthy();
+  });
+
   it("refuses staging paths outside the repository and a commit without a subject", () => {
     const refused = (run: () => unknown): string | undefined => {
       try {

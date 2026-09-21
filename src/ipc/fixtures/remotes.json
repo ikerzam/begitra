@@ -1,0 +1,12 @@
+[
+  {
+    "name": "origin",
+    "fetchUrl": "git@github.com:ikerzam/geoportal.git",
+    "pushUrl": "git@github.com:ikerzam/geoportal.git"
+  },
+  {
+    "name": "upstream",
+    "fetchUrl": "https://github.com/geoportal/geoportal.git",
+    "pushUrl": "https://github.com/geoportal/geoportal.git"
+  }
+]

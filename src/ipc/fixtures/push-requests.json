@@ -1,0 +1,14 @@
+[
+  {
+    "remote": null,
+    "branch": null,
+    "setUpstream": false,
+    "forceWithLease": false
+  },
+  {
+    "remote": "origin",
+    "branch": "claude/fix-auth",
+    "setUpstream": true,
+    "forceWithLease": true
+  }
+]

@@ -1,0 +1,12 @@
+[
+  {
+    "remote": null,
+    "branch": null,
+    "rebase": false
+  },
+  {
+    "remote": "origin",
+    "branch": "main",
+    "rebase": true
+  }
+]

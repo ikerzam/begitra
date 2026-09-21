@@ -1,0 +1,10 @@
+[
+  {
+    "kind": "branch",
+    "name": "claude/fix-auth"
+  },
+  {
+    "kind": "detached",
+    "rev": "v2.3.1"
+  }
+]

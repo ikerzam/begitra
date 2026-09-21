@@ -9,11 +9,13 @@ use std::path::{Path, PathBuf};
 
 use git_core::types::{
     BaseCommit, BlobAt, BlobContent, ChangeKind, ChangeSet, CommitContext, CommitCount, CommitNode,
-    CommitRequest, Comparison, ComparisonRelation, DiffLine, DiffOptions, DiffTarget, Edge,
-    Endpoint, FileChange, GitDetection, Hunk, LineKind, MergePreview, MergePreviewKind,
-    OperationState, PatchSelection, Ref, RefKind, Repo, SelectedHunk, SelectedLine, Signature,
-    Span, StatusEntry, StatusOptions, WalkFilter, WalkOptions, WalkOrder, WalkScope,
-    WorkingTreeBase, Worktree, WorktreeAdd, WorktreeBranch,
+    CommitRequest, Comparison, ComparisonRelation, Conflict, ConflictKind, DiffLine, DiffOptions,
+    DiffTarget, Edge, Endpoint, FileChange, GitDetection, Hunk, LineKind, MergeMode, MergePreview,
+    MergePreviewKind, OperationState, Outcome, OutcomeKind, PatchSelection, PullRequest,
+    PushRequest, Ref, RefKind, Remote, Repo, ResetMode, SelectedHunk, SelectedLine,
+    SequencerAction, Signature, Span, StashPush, StatusEntry, StatusOptions, SwitchTarget,
+    WalkFilter, WalkOptions, WalkOrder, WalkScope, WorkingTreeBase, Worktree, WorktreeAdd,
+    WorktreeBranch,
 };
 use serde::Serialize;
 use syntax::{Highlight, Symbol, SymbolKind, Token, TokenClass};
@@ -24,6 +26,7 @@ use repo_index::{
 
 use crate::channels::StreamMessage;
 use crate::commands::diff::DiffPage;
+use crate::commands::remotes::NetworkEvent;
 use crate::commands::review::AnnotationWrite;
 use crate::commands::scan::ScanMessage;
 use crate::commands::staging::CommitResult;
@@ -484,6 +487,193 @@ fn scan_messages() -> Vec<ScanMessage> {
 }
 
 /// Regenerates every fixture. Deterministic, so a clean checkout produces no diff.
+/// The branch, history, network and stash types: what `switch`, the outcomes, the conflicts,
+/// the remotes, the network
+/// requests and events, and a stash push carry.
+fn write_phase7() {
+    let conflicts = vec![
+        Conflict {
+            path: "apps/api/src/auth/middleware.ts".to_owned(),
+            kind: ConflictKind::BothModified,
+        },
+        Conflict {
+            path: "apps/api/src/auth/refresh.ts".to_owned(),
+            kind: ConflictKind::DeletedByThem,
+        },
+        Conflict {
+            path: "docs/auth.md".to_owned(),
+            kind: ConflictKind::BothAdded,
+        },
+    ];
+    write(
+        "switch-targets",
+        &[
+            SwitchTarget::Branch {
+                name: "claude/fix-auth".to_owned(),
+            },
+            SwitchTarget::Detached {
+                rev: "v2.3.1".to_owned(),
+            },
+        ],
+    );
+    write(
+        "merge-modes",
+        &[MergeMode::Default, MergeMode::FfOnly, MergeMode::NoFf],
+    );
+    write(
+        "reset-modes",
+        &[ResetMode::Soft, ResetMode::Mixed, ResetMode::Hard],
+    );
+    write(
+        "sequencer-actions",
+        &[
+            SequencerAction::Continue,
+            SequencerAction::Skip,
+            SequencerAction::Abort,
+        ],
+    );
+    write(
+        "operation-states",
+        &[
+            OperationState::None,
+            OperationState::Merge,
+            OperationState::Rebase,
+            OperationState::CherryPick,
+            OperationState::Revert,
+        ],
+    );
+    write(
+        "outcomes",
+        &[
+            Outcome {
+                kind: OutcomeKind::FastForward,
+                hash: Some("9f3e2c1a7b5d4e6f8a0b1c2d3e4f5a6b7c8d9e0f".to_owned()),
+                conflicts: Vec::new(),
+            },
+            Outcome {
+                kind: OutcomeKind::Merged,
+                hash: Some("a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4".to_owned()),
+                conflicts: Vec::new(),
+            },
+            Outcome {
+                kind: OutcomeKind::Done,
+                hash: Some("7f8e9d0a1b2c3d4e5f67890a1b2c3d4e5f678901".to_owned()),
+                conflicts: Vec::new(),
+            },
+            Outcome {
+                kind: OutcomeKind::UpToDate,
+                hash: None,
+                conflicts: Vec::new(),
+            },
+            Outcome {
+                kind: OutcomeKind::Conflicts,
+                hash: None,
+                conflicts: conflicts.clone(),
+            },
+        ],
+    );
+    write("conflicts", &conflicts);
+    write(
+        "remotes",
+        &[
+            Remote {
+                name: "origin".to_owned(),
+                fetch_url: "git@github.com:ikerzam/geoportal.git".to_owned(),
+                push_url: "git@github.com:ikerzam/geoportal.git".to_owned(),
+            },
+            Remote {
+                name: "upstream".to_owned(),
+                fetch_url: "https://github.com/geoportal/geoportal.git".to_owned(),
+                push_url: "https://github.com/geoportal/geoportal.git".to_owned(),
+            },
+        ],
+    );
+    write(
+        "pull-requests",
+        &[
+            PullRequest {
+                remote: None,
+                branch: None,
+                rebase: false,
+            },
+            PullRequest {
+                remote: Some("origin".to_owned()),
+                branch: Some("main".to_owned()),
+                rebase: true,
+            },
+        ],
+    );
+    write(
+        "push-requests",
+        &[
+            PushRequest {
+                remote: None,
+                branch: None,
+                set_upstream: false,
+                force_with_lease: false,
+            },
+            PushRequest {
+                remote: Some("origin".to_owned()),
+                branch: Some("claude/fix-auth".to_owned()),
+                set_upstream: true,
+                force_with_lease: true,
+            },
+        ],
+    );
+    write(
+        "network-events",
+        &[
+            StreamMessage::Page {
+                seq: 0,
+                data: NetworkEvent::Progress {
+                    line: "Enumerating objects: 12, done.".to_owned(),
+                },
+            },
+            StreamMessage::Page {
+                seq: 1,
+                data: NetworkEvent::Progress {
+                    line: "Writing objects:  50% (6/12)".to_owned(),
+                },
+            },
+            StreamMessage::Page {
+                seq: 2,
+                data: NetworkEvent::Result {
+                    summary: vec![
+                        "   9f3e2c1..a1b2c3d  claude/fix-auth -> claude/fix-auth".to_owned(),
+                        " * [new branch]      feature/tile-cache -> feature/tile-cache".to_owned(),
+                    ],
+                },
+            },
+            StreamMessage::Page {
+                seq: 3,
+                data: NetworkEvent::Outcome {
+                    outcome: Outcome {
+                        kind: OutcomeKind::Conflicts,
+                        hash: None,
+                        conflicts: conflicts.clone(),
+                    },
+                },
+            },
+            StreamMessage::Done,
+        ],
+    );
+    write(
+        "stash-pushes",
+        &[
+            StashPush {
+                message: None,
+                include_untracked: false,
+                paths: Vec::new(),
+            },
+            StashPush {
+                message: Some("wip: tiles".to_owned()),
+                include_untracked: true,
+                paths: vec!["apps/web/src/map/tile-cache.ts".to_owned()],
+            },
+        ],
+    );
+}
+
 #[test]
 fn write_fixtures() {
     write("repo", &repo());
@@ -631,6 +821,7 @@ fn write_fixtures() {
         ],
     );
     write("app-errors", &app_errors());
+    write_phase7();
     write(
         "repo-changed",
         &RepoChanged {

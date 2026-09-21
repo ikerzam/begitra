@@ -23,7 +23,7 @@ export interface StreamHandle {
 
 type StreamCommand = Extract<
   CommandName,
-  "walk_commits" | "walk_continue" | "diff" | "scan_folders"
+  "walk_commits" | "walk_continue" | "diff" | "scan_folders" | "fetch" | "pull" | "push"
 >;
 
 const envelope = streamMessageSchema(v.unknown());

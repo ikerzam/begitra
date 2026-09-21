@@ -1,0 +1,57 @@
+[
+  {
+    "kind": "page",
+    "seq": 0,
+    "data": {
+      "kind": "progress",
+      "line": "Enumerating objects: 12, done."
+    }
+  },
+  {
+    "kind": "page",
+    "seq": 1,
+    "data": {
+      "kind": "progress",
+      "line": "Writing objects:  50% (6/12)"
+    }
+  },
+  {
+    "kind": "page",
+    "seq": 2,
+    "data": {
+      "kind": "result",
+      "summary": [
+        "   9f3e2c1..a1b2c3d  claude/fix-auth -> claude/fix-auth",
+        " * [new branch]      feature/tile-cache -> feature/tile-cache"
+      ]
+    }
+  },
+  {
+    "kind": "page",
+    "seq": 3,
+    "data": {
+      "kind": "outcome",
+      "outcome": {
+        "kind": "conflicts",
+        "hash": null,
+        "conflicts": [
+          {
+            "path": "apps/api/src/auth/middleware.ts",
+            "kind": "both-modified"
+          },
+          {
+            "path": "apps/api/src/auth/refresh.ts",
+            "kind": "deleted-by-them"
+          },
+          {
+            "path": "docs/auth.md",
+            "kind": "both-added"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "kind": "done"
+  }
+]

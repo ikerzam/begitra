@@ -1,0 +1,14 @@
+[
+  {
+    "path": "apps/api/src/auth/middleware.ts",
+    "kind": "both-modified"
+  },
+  {
+    "path": "apps/api/src/auth/refresh.ts",
+    "kind": "deleted-by-them"
+  },
+  {
+    "path": "docs/auth.md",
+    "kind": "both-added"
+  }
+]

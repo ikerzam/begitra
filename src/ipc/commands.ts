@@ -14,6 +14,19 @@ import {
   CommitContextSchema,
   CommitCountSchema,
   CommitResultSchema,
+  ConflictSchema,
+  type MergeMode,
+  type NetworkEvent,
+  NetworkEventSchema,
+  OperationStateSchema,
+  OutcomeSchema,
+  type PullRequest,
+  type PushRequest,
+  RemoteSchema,
+  type ResetMode,
+  type SequencerAction,
+  type StashPush,
+  type SwitchTarget,
   DiffPageSchema,
   HighlightSchema,
   IndexEntrySchema,
@@ -148,6 +161,162 @@ export function commit(repo: string, request: CommitRequest, opId = newOpId("com
 /** The author, the template, HEAD's message and whether HEAD is unborn. */
 export function commitContext(repo: string, opId = newOpId("commit-context")) {
   return call("commit_context", { repo, opId }, CommitContextSchema);
+}
+
+// --- Branches, the sequencer, remotes and the stash -----------------------------------------
+
+/** Creates a branch at `start`, checking it out when `checkout`. */
+export function branchCreate(
+  repo: string,
+  name: string,
+  start: string,
+  checkout: boolean,
+  opId = newOpId("branch-create"),
+) {
+  return call("branch_create", { repo, name, start, checkout, opId }, v.null());
+}
+
+/** Switches to a branch or a detached revision; a dirty switch is git's refusal. */
+export function switchTo(repo: string, target: SwitchTarget, opId = newOpId("switch")) {
+  return call("switch", { repo, target, opId }, v.null());
+}
+
+export function branchRename(repo: string, from: string, to: string, opId = newOpId("rename")) {
+  return call("branch_rename", { repo, from, to, opId }, v.null());
+}
+
+/** Deletes a branch; an unmerged one needs `force`. */
+export function branchDelete(
+  repo: string,
+  name: string,
+  force: boolean,
+  opId = newOpId("branch-delete"),
+) {
+  return call("branch_delete", { repo, name, force, opId }, v.null());
+}
+
+/** Merges `rev` into HEAD; a stop on conflicts is an outcome. */
+export function merge(repo: string, rev: string, mode: MergeMode, opId = newOpId("merge")) {
+  return call("merge", { repo, rev, mode, opId }, OutcomeSchema);
+}
+
+export function rebase(repo: string, onto: string, opId = newOpId("rebase")) {
+  return call("rebase", { repo, onto, opId }, OutcomeSchema);
+}
+
+export function reset(repo: string, rev: string, mode: ResetMode, opId = newOpId("reset")) {
+  return call("reset", { repo, rev, mode, opId }, v.null());
+}
+
+export function cherryPick(repo: string, revs: string[], opId = newOpId("cherry-pick")) {
+  return call("cherry_pick", { repo, revs, opId }, OutcomeSchema);
+}
+
+export function revert(repo: string, revs: string[], opId = newOpId("revert")) {
+  return call("revert", { repo, revs, opId }, OutcomeSchema);
+}
+
+/** Creates a tag at `rev`, annotated with `message` when given. */
+export function tagCreate(
+  repo: string,
+  name: string,
+  rev: string,
+  message: string | null,
+  opId = newOpId("tag-create"),
+) {
+  return call("tag_create", { repo, name, rev, message, opId }, v.null());
+}
+
+export function tagDelete(repo: string, name: string, opId = newOpId("tag-delete")) {
+  return call("tag_delete", { repo, name, opId }, v.null());
+}
+
+/** Sets a branch's upstream (`remote/branch`), or unsets it with null. */
+export function setUpstream(
+  repo: string,
+  branch: string,
+  upstream: string | null,
+  opId = newOpId("upstream"),
+) {
+  return call("set_upstream", { repo, branch, upstream, opId }, v.null());
+}
+
+export function operationState(repo: string, opId = newOpId("operation")) {
+  return call("operation_state", { repo, opId }, OperationStateSchema);
+}
+
+export function conflicts(repo: string, opId = newOpId("conflicts")) {
+  return call("conflicts", { repo, opId }, v.array(ConflictSchema));
+}
+
+/** Marks conflicted paths resolved (`git add`). */
+export function markResolved(repo: string, paths: string[], opId = newOpId("resolved")) {
+  return call("mark_resolved", { repo, paths, opId }, v.null());
+}
+
+/** Continues, skips or aborts the operation in progress. */
+export function sequencer(repo: string, action: SequencerAction, opId = newOpId("sequencer")) {
+  return call("sequencer", { repo, action, opId }, OutcomeSchema);
+}
+
+export function remotes(repo: string, opId = newOpId("remotes")) {
+  return call("remotes", { repo, opId }, v.array(RemoteSchema));
+}
+
+export function remoteAdd(repo: string, name: string, url: string, opId = newOpId("remote-add")) {
+  return call("remote_add", { repo, name, url, opId }, v.null());
+}
+
+export function remoteRemove(repo: string, name: string, opId = newOpId("remote-remove")) {
+  return call("remote_remove", { repo, name, opId }, v.null());
+}
+
+/** Fetches (every remote when `remote` is null), git's progress lines as pages. */
+export function fetch(
+  repo: string,
+  remote: string | null,
+  prune: boolean,
+  onEvent: (event: NetworkEvent, seq: number) => void,
+  opId?: string,
+): StreamHandle {
+  return stream("fetch", { repo, remote, prune }, NetworkEventSchema, onEvent, opId);
+}
+
+/** Pulls with the progress streamed; the last page carries the outcome. */
+export function pull(
+  repo: string,
+  request: PullRequest,
+  onEvent: (event: NetworkEvent, seq: number) => void,
+  opId?: string,
+): StreamHandle {
+  return stream("pull", { repo, request }, NetworkEventSchema, onEvent, opId);
+}
+
+/** Pushes with the progress streamed; the last page carries git's ref lines. */
+export function push(
+  repo: string,
+  request: PushRequest,
+  onEvent: (event: NetworkEvent, seq: number) => void,
+  opId?: string,
+): StreamHandle {
+  return stream("push", { repo, request }, NetworkEventSchema, onEvent, opId);
+}
+
+/** Stashes the working tree or the given paths; false when there was nothing to save. */
+export function stashPush(repo: string, request: StashPush, opId = newOpId("stash-push")) {
+  return call("stash_push", { repo, request, opId }, v.boolean());
+}
+
+export function stashApply(repo: string, index: number, opId = newOpId("stash-apply")) {
+  return call("stash_apply", { repo, index, opId }, OutcomeSchema);
+}
+
+export function stashPop(repo: string, index: number, opId = newOpId("stash-pop")) {
+  return call("stash_pop", { repo, index, opId }, OutcomeSchema);
+}
+
+export function stashDrop(repo: string, index: number, opId = newOpId("stash-drop")) {
+  return call("stash_drop", { repo, index, opId }, v.null());
 }
 
 export function listWorktrees(repo: string, opId = newOpId("worktrees")) {

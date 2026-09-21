@@ -45,7 +45,7 @@ pub struct CommitResult {
     pub hash: String,
 }
 
-fn validate_paths(field: &str, paths: &[String]) -> Result<(), AppError> {
+pub(crate) fn validate_paths(field: &str, paths: &[String]) -> Result<(), AppError> {
     if paths.is_empty() {
         return Err(AppError::invalid_argument(field, "empty"));
     }

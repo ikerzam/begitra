@@ -1,0 +1,7 @@
+[
+  "none",
+  "merge",
+  "rebase",
+  "cherry-pick",
+  "revert"
+]

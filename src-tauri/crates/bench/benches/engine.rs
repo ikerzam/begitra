@@ -14,9 +14,9 @@ use git_core::engine::{Cancel, GitEngine};
 use git_core::error::GitError;
 use git_core::git2_engine::Git2Engine;
 use git_core::types::{
-    BlobAt, DiffOptions, DiffTarget, PatchSelection, SelectedHunk, SelectedLine, SelectionTarget,
-    StatusOptions, WalkFilter, WalkOptions, WalkOrder, WalkScope, WorkingTreeBase, WorktreeAdd,
-    WorktreeBranch,
+    BlobAt, DiffOptions, DiffTarget, PatchSelection, PushRequest, SelectedHunk, SelectedLine,
+    SelectionTarget, StatusOptions, WalkFilter, WalkOptions, WalkOrder, WalkScope, WorkingTreeBase,
+    WorktreeAdd, WorktreeBranch,
 };
 
 /// A benchmark repository that is present on disk.
@@ -806,6 +806,71 @@ fn apply_selection_5k(c: &mut Criterion) {
     group.finish();
 }
 
+/// A bare clone beside the synthetic repository, registered as the remote `bench`: what the
+/// network benchmarks talk to (a local transport, so the numbers are git's negotiation and
+/// pack work, not the wire). Created on first use.
+fn bare_remote(target: &Target) -> Option<String> {
+    if target.name != "synthetic" {
+        return None;
+    }
+    let bare = target
+        .path
+        .with_file_name(format!("{}-remote.git", target.path.file_name()?.to_str()?));
+    if !bare.join("HEAD").exists() {
+        let cwd = target.path.parent()?;
+        run_git(
+            cwd,
+            &[
+                "clone",
+                "--bare",
+                "--quiet",
+                "--",
+                target.path.to_str()?,
+                bare.to_str()?,
+            ],
+        )
+        .ok()?;
+    }
+    let listed = run_git(&target.path, &["remote"]).ok()?;
+    if !listed.stdout.lines().any(|name| name == "bench") {
+        run_git(&target.path, &["remote", "add", "bench", bare.to_str()?]).ok()?;
+    }
+    Some("bench".to_owned())
+}
+
+/// A fetch and a push against the local bare remote, both up to date: git's negotiation
+/// over the synthetic history. No budget.
+fn fetch_push_bare(c: &mut Criterion) {
+    let mut group = c.benchmark_group("fetch_push_bare");
+    group.sample_size(10);
+    for target in present() {
+        let Some(remote) = bare_remote(&target) else {
+            continue;
+        };
+        let engine = engine(&target.path);
+        let mut drop_line = |_line: &str| {};
+        group.bench_with_input(BenchmarkId::new("fetch", target.name), &engine, |b, e| {
+            b.iter(|| {
+                e.fetch(Some(&remote), false, &mut drop_line, &Cancel::never())
+                    .expect("fetch");
+            });
+        });
+        let request = PushRequest {
+            remote: Some(remote.clone()),
+            branch: Some("main".to_owned()),
+            set_upstream: false,
+            force_with_lease: false,
+        };
+        group.bench_with_input(BenchmarkId::new("push", target.name), &engine, |b, e| {
+            b.iter(|| {
+                e.push(&request, &mut drop_line, &Cancel::never())
+                    .expect("push");
+            });
+        });
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     open,
@@ -831,6 +896,7 @@ criterion_group!(
     worktree_dashboard,
     worktree_add_remove,
     stage_unstage_10k,
-    apply_selection_5k
+    apply_selection_5k,
+    fetch_push_bare
 );
 criterion_main!(benches);
