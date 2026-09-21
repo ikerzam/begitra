@@ -4,7 +4,6 @@
 // upstream, tag, reset (soft, mixed or hard, as radios) and "Stash and switch"
 // after a dirty switch was refused. Each confirms through the store.
 
-import { Check } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -12,9 +11,10 @@ import Checkbox from "@/components/Checkbox.vue";
 import Dialog from "@/components/Dialog.vue";
 import ErrorBanner from "@/components/ErrorBanner.vue";
 import Input from "@/components/Input.vue";
+import RadioGroup from "@/components/RadioGroup.vue";
 import Select from "@/components/Select.vue";
 import Textarea from "@/components/Textarea.vue";
-import type { SelectOption } from "@/components/types";
+import type { RadioOption, SelectOption } from "@/components/types";
 import type { ResetMode } from "@/ipc/schemas";
 import { shortHash } from "@/shell/format";
 import { targetName, useBranchesStore } from "@/stores/branches";
@@ -28,7 +28,19 @@ const branches = useBranchesStore();
 const repo = useRepoStore();
 const changes = useChangesStore();
 
-const resetModes = ["soft", "mixed", "hard"] as const;
+const resetModes = computed<RadioOption[]>(() =>
+  (["soft", "mixed", "hard"] as const).map((option) => ({
+    value: option,
+    label: t(`branches.dialogs.${option}`),
+    hint: t(`branches.dialogs.${option}Hint`),
+  })),
+);
+const resetMode = computed({
+  get: () => mode.value,
+  set: (value: string) => {
+    if (value === "soft" || value === "mixed" || value === "hard") mode.value = value;
+  },
+});
 
 const name = ref("");
 const checkout = ref(true);
@@ -243,37 +255,13 @@ function confirm(): void {
       @confirm="confirm"
       @cancel="branches.dismiss()"
     >
-      <!-- Radios drawn as 14px boxes: one tab stop, the arrows move between them. -->
-      <div
-        role="radiogroup"
-        :aria-label="t('branches.dialogs.resetModes')"
-        class="flex flex-col gap-2"
+      <!-- 14px radio boxes: one tab stop, the arrows move between the modes. -->
+      <RadioGroup
+        v-model="resetMode"
+        :options="resetModes"
+        :label="t('branches.dialogs.resetModes')"
         data-testid="reset-modes"
-      >
-        <label
-          v-for="option in resetModes"
-          :key="option"
-          class="inline-flex items-center gap-2 text-md text-fg select-none"
-          :data-testid="`reset-${option}`"
-        >
-          <input
-            v-model="mode"
-            type="radio"
-            name="reset-mode"
-            :value="option"
-            class="peer sr-only"
-          />
-          <span
-            aria-hidden="true"
-            class="reset-box flex shrink-0 items-center justify-center rounded-sm border peer-focus-visible:outline-2 peer-focus-visible:outline-focus"
-            :class="mode === option ? 'border-fg bg-fg text-app' : 'border-line-strong bg-app'"
-          >
-            <Check v-if="mode === option" :size="12" :stroke-width="2" />
-          </span>
-          <span class="text-fg">{{ t(`branches.dialogs.${option}`) }}</span>
-          <span class="ml-2 text-fg-muted">{{ t(`branches.dialogs.${option}Hint`) }}</span>
-        </label>
-      </div>
+      />
     </Dialog>
 
     <Dialog
@@ -293,11 +281,3 @@ function confirm(): void {
     </Dialog>
   </template>
 </template>
-
-<style scoped>
-/* The 14px box of `Checkbox`, for the reset modes' radios. */
-.reset-box {
-  width: 14px;
-  height: 14px;
-}
-</style>

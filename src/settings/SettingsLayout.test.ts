@@ -44,6 +44,7 @@ describe("SettingsLayout", () => {
     expect(wrapper.get("h1").text()).toBe("Settings");
     expect(wrapper.text()).toContain("Changes apply immediately and are stored on this machine.");
     expect(wrapper.findAll("h2").map((h) => h.text())).toEqual([
+      "Appearance",
       "Discovery",
       "Git",
       "Terminal and editor",
@@ -216,6 +217,21 @@ describe("SettingsLayout", () => {
     await nextTick();
     await nextTick();
     expect(document.activeElement).toBe(row.get('[data-testid="shortcut-change"]').element);
+  });
+
+  it("applies the theme at once from the Appearance radios", async () => {
+    const wrapper = await mountSettings();
+    const settings = useSettingsStore();
+    const group = wrapper.get('[data-testid="theme"]');
+    expect(group.attributes("role")).toBe("radiogroup");
+    expect(group.findAll("label").map((l) => l.text())).toEqual(["System", "Dark", "Light"]);
+    expect(group.get<HTMLInputElement>('[data-testid="radio-system"] input').element.checked).toBe(
+      true,
+    );
+    await group.get('[data-testid="radio-light"] input').setValue(true);
+    await nextTick();
+    // `useTheme` (mounted by App) writes it on the document root.
+    expect(settings.values.theme).toBe("light");
   });
 
   it("moves between the fields with j and k when no text field has the focus", async () => {

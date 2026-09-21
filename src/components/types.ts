@@ -11,6 +11,13 @@ export interface SelectOption {
   disabled?: boolean;
 }
 
+/** One choice of a `RadioGroup`: the value, its label and an optional muted hint. */
+export interface RadioOption {
+  value: string;
+  label: string;
+  hint?: string;
+}
+
 export type RefKind = "local" | "current" | "remote" | "tag" | "head" | "stash";
 
 /** `untracked` is the "?" of the unstaged list: a file git does not know yet. */

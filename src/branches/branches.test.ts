@@ -95,7 +95,7 @@ describe("BranchDialogs", () => {
     expect(dialog.text()).toContain("Reset main to aaaaaaa?");
     expect(dialog.text()).toContain("The reflog keeps the previous HEAD for 90 days");
     expect(dialog.get('[data-testid="dialog-confirm"]').text()).toBe("Reset mixed");
-    await dialog.get('[data-testid="reset-hard"] input').setValue(true);
+    await dialog.get('[data-testid="radio-hard"] input').setValue(true);
     await nextTick();
     expect(dialog.get('[data-testid="dialog-confirm"]').text()).toBe("Reset hard");
     expect(dialog.get('[data-testid="dialog-confirm"]').attributes("data-variant")).toBe(

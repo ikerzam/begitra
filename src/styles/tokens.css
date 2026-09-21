@@ -1,7 +1,8 @@
 /*
  * Design tokens; design/tokens.json is the machine-readable copy that the token
- * test compares with this file. Dark theme is the default; [data-theme="light"] is a placeholder
- * remap for v2. Components never use literal colours: only these properties.
+ * test compares with this file. Dark theme is the default; [data-theme="light"] redefines every
+ * colour token for the light theme; `useTheme` sets the attribute from the
+ * setting. Components never use literal colours: only these properties.
  */
 
 :root {
@@ -139,6 +140,10 @@
   --info: #0062d1;
   --reviewed: #1a7f37;
   --shadow-color: #00000033;
+
+  /* Lanes 2 and 7 are near invisible as 8px dots on white; the rest keep their hue. */
+  --lane-2: #16a34a;
+  --lane-7: #ca8a04;
 
   --ref-local: #d4d4d4;
   --ref-remote: #7c3aed;

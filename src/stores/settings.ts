@@ -20,6 +20,8 @@ export interface HideByDefault {
   tests: boolean;
 }
 export type Locale = "en" | "es";
+/** The theme: `system` follows `prefers-color-scheme`. */
+export type Theme = "system" | "dark" | "light";
 
 /** One side of a comparison: a revision, or a worktree meaning its checked-out commit. */
 export interface CompareEndpoint {
@@ -81,6 +83,8 @@ export interface Settings {
   hideByDefault: HideByDefault;
   /** Shortcut overrides by binding id, in the registry's notation (`shift+mod+t`). */
   shortcuts: Record<string, string>;
+  /** The theme of the window. */
+  theme: Theme;
 }
 
 export type DiffLayout = "unified" | "side-by-side";
@@ -115,6 +119,7 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   tabWidth: v.picklist([2, 4, 8]),
   hideByDefault: v.object({ generated: v.boolean(), lockfiles: v.boolean(), tests: v.boolean() }),
   shortcuts: v.record(v.string(), v.pipe(v.string(), v.minLength(1), v.maxLength(40))),
+  theme: v.picklist(["system", "dark", "light"]),
 };
 
 export const settingsKeys = Object.keys(schemas) as (keyof Settings)[];
@@ -161,6 +166,7 @@ export function defaultSettings(platform: Platform): Settings {
     tabWidth: 4,
     hideByDefault: { generated: true, lockfiles: true, tests: false },
     shortcuts: {},
+    theme: "system",
   };
 }
 

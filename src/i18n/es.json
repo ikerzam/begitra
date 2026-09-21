@@ -867,6 +867,16 @@
   "settings": {
     "title": "Ajustes",
     "subtitle": "Los cambios se aplican al momento y se guardan en este equipo.",
+    "appearance": {
+      "title": "Apariencia",
+      "theme": "Tema",
+      "hint": "Sistema sigue a la plataforma.",
+      "themes": {
+        "system": "Sistema",
+        "dark": "Oscuro",
+        "light": "Claro"
+      }
+    },
     "discovery": {
       "title": "Descubrimiento",
       "scanFolders": "Carpetas a escanear",

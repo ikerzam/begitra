@@ -867,6 +867,16 @@
   "settings": {
     "title": "Settings",
     "subtitle": "Changes apply immediately and are stored on this machine.",
+    "appearance": {
+      "title": "Appearance",
+      "theme": "Theme",
+      "hint": "System follows the platform.",
+      "themes": {
+        "system": "System",
+        "dark": "Dark",
+        "light": "Light"
+      }
+    },
     "discovery": {
       "title": "Discovery",
       "scanFolders": "Scan folders",

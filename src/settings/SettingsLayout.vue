@@ -17,6 +17,7 @@ import DiffSettings from "./DiffSettings.vue";
 import GitField from "./GitField.vue";
 import ScanFoldersField from "./ScanFoldersField.vue";
 import SettingsField from "./SettingsField.vue";
+import AppearanceSettings from "./AppearanceSettings.vue";
 import SettingsSection from "./SettingsSection.vue";
 import ShortcutsPanel from "./ShortcutsPanel.vue";
 import { useCommittedText } from "./useCommittedText";
@@ -90,6 +91,8 @@ defineExpose({
     </header>
     <div class="settings-columns grid">
       <div class="flex flex-col gap-4">
+        <AppearanceSettings />
+        <hr class="border-line" />
         <SettingsSection :title="t('settings.discovery.title')">
           <ScanFoldersField />
           <SettingsField

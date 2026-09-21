@@ -118,8 +118,11 @@ for (const [name, size, leading] of typeRoles) {
 
 lines.push(
   "",
-  "  /* Spacing and sizes: the design scale only, no 4px multiplier */",
+  "  /* Spacing and sizes: the design scale only, no 4px multiplier. Zero is on it: without it",
+  "     `left-0`, `right-0` and `inset-0` generate nothing and an absolutely positioned row",
+  "     shrinks to its content (found on 2026-09-21 in the virtualised lists). */",
   "  --spacing: initial;",
+  "  --spacing-0: 0px;",
 );
 for (const [token, name] of Object.entries(spacingNames)) {
   assertToken("sizes", token);
