@@ -88,6 +88,7 @@ export const useSettingsScreenStore = defineStore("settingsScreen", () => {
   const gitState = ref<GitState>("idle");
   /** The version and the log file, once asked (the About section). */
   const appInfo = ref<AppInfo | null>(null);
+  const appInfoState = ref<"pending" | "loaded" | "failed">("pending");
   const gitVersion = ref<string | null>(null);
   const gitError = ref<AppError | null>(null);
   let gitSerial = 0;
@@ -146,12 +147,14 @@ export const useSettingsScreenStore = defineStore("settingsScreen", () => {
     await settleGit(mine, ipc.setGitExecutable(trimmed));
   }
 
-  /** Asks the backend for the version and the log file; a failure leaves the section bare. */
+  /** Asks the backend for the version and the log file; a failure reads "unavailable". */
   async function loadAppInfo(): Promise<void> {
     try {
       appInfo.value = await ipc.appInfo();
+      appInfoState.value = "loaded";
     } catch {
       appInfo.value = null;
+      appInfoState.value = "failed";
     }
   }
 
@@ -286,6 +289,7 @@ export const useSettingsScreenStore = defineStore("settingsScreen", () => {
     capturing,
     refusal,
     appInfo,
+    appInfoState,
     loadAppInfo,
     openLogsFolder,
     probe,

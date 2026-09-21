@@ -121,8 +121,8 @@
 
   --text: #171717;
   --text-secondary: #666666;
-  --text-muted: #8a8a8a;
-  --text-disabled: #c2c2c2;
+  --text-muted: #737373;
+  --text-disabled: #adadad;
 
   --accent-text: #0062d1;
   --focus-ring: #0070f3;
@@ -141,9 +141,16 @@
   --reviewed: #1a7f37;
   --shadow-color: #00000033;
 
-  /* Lanes 2 and 7 are near invisible as 8px dots on white; the rest keep their hue. */
+  /* The lanes take their 600 shades: the dark hues are 1.4:1 to 2.7:1 as 8px dots on white,
+     and the remote and stash badges share lanes 4 and 8 again, as section 2 says. */
+  --lane-1: #ea580c;
   --lane-2: #16a34a;
+  --lane-3: #0284c7;
+  --lane-4: #7c3aed;
+  --lane-5: #db2777;
+  --lane-6: #0d9488;
   --lane-7: #ca8a04;
+  --lane-8: #64748b;
 
   --ref-local: #d4d4d4;
   --ref-remote: #7c3aed;

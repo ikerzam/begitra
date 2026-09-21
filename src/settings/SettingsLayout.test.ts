@@ -258,34 +258,60 @@ describe("SettingsLayout", () => {
     });
   });
 
-  it("checks for updates only when asked and offers the version found", async () => {
+  it("checks for updates only when asked, keeps one control with the focus, and offers the version found", async () => {
     updaterPlugin.check.mockReset();
     const wrapper = await mountSettings();
     expect(updaterPlugin.check).not.toHaveBeenCalled();
-    expect(wrapper.find('[data-testid="update-status"]').exists()).toBe(false);
-    updaterPlugin.check.mockResolvedValueOnce(null);
-    await wrapper.get('[data-testid="update-check"]').trigger("click");
+    expect(wrapper.get('[data-testid="update-status"]').text()).toBe("");
+    const control = wrapper.get('[data-testid="update-control"]');
+    expect(control.text()).toBe("Check for updates");
+    (control.element as HTMLElement).focus();
+    let resolveCheck: (update: unknown) => void = () => {};
+    updaterPlugin.check.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveCheck = resolve;
+        }),
+    );
+    await control.trigger("click");
+    await nextTick();
+    // While checking the same element stays, busy but not disabled: the focus is kept.
+    expect(control.attributes("aria-busy")).toBe("true");
+    expect(control.attributes("disabled")).toBeUndefined();
+    expect(document.activeElement).toBe(control.element);
+    expect(wrapper.get('[data-testid="update-status"]').text()).toBe("Checking…");
+    resolveCheck(null);
     await flushPromises();
     expect(wrapper.get('[data-testid="update-status"]').text()).toBe("Begira is up to date.");
+    expect(document.activeElement).toBe(control.element);
     updaterPlugin.check.mockResolvedValueOnce({
       version: "0.2.0",
       currentVersion: "0.1.0",
       body: null,
-      downloadAndInstall: vi.fn(),
+      downloadAndInstall: vi.fn(() => Promise.resolve()),
     });
-    await wrapper.get('[data-testid="update-check"]').trigger("click");
+    await control.trigger("click");
     await flushPromises();
-    expect(wrapper.get('[data-testid="update-status"]').text()).toBe("0.2.0 is available.");
-    expect(wrapper.get('[data-testid="update-install"]').text()).toBe("Download and install");
-    updaterPlugin.check.mockRejectedValueOnce(new Error("offline"));
-    // A failed check shows the banner with the plugin's words and keeps the control.
+    expect(wrapper.get('[data-testid="update-status"]').text()).toBe("Version 0.2.0 is available.");
+    expect(control.text()).toBe("Download and install");
+    expect(control.attributes("data-variant")).toBe("primary");
+    await control.trigger("click");
+    await flushPromises();
+    expect(wrapper.get('[data-testid="update-status"]').text()).toBe(
+      "Version 0.2.0 is installed. Restart to run it.",
+    );
+    expect(control.text()).toBe("Restart");
+    expect(document.activeElement).toBe(control.element);
+    // A failed check shows the banner with the plugin's words behind "Show details".
     useUpdaterStore().dismiss();
+    updaterPlugin.check.mockRejectedValueOnce(new Error("offline"));
     await useUpdaterStore().check();
     await nextTick();
-    expect(wrapper.get('[data-testid="update-failed"]').text()).toContain(
-      "The update could not be completed. offline",
-    );
-    expect(wrapper.find('[data-testid="update-check"]').exists()).toBe(true);
+    const failed = wrapper.get('[data-testid="update-failed"]');
+    expect(failed.text()).toContain("The update could not be completed.");
+    expect(failed.get('[data-testid="error-banner-toggle"]').text()).toBe("Show details");
+    expect(failed.findAll("button")).toHaveLength(1);
+    expect(control.text()).toBe("Check for updates");
   });
 
   it("moves between the fields with j and k when no text field has the focus", async () => {

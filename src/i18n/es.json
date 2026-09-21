@@ -873,7 +873,7 @@
     "appearance": {
       "title": "Apariencia",
       "theme": "Tema",
-      "hint": "Sistema sigue a la plataforma.",
+      "hint": "«Sistema» sigue el tema de la plataforma.",
       "themes": {
         "system": "Sistema",
         "dark": "Oscuro",
@@ -963,16 +963,18 @@
       "openLogs": "Abrir carpeta de registros",
       "openFailed": "No se pudo abrir {path}.",
       "updates": "Actualizaciones",
-      "check": "Buscar actualizaciones…",
+      "check": "Buscar actualizaciones",
       "checking": "Buscando…",
       "upToDate": "Begira está al día.",
-      "available": "{version} está disponible.",
+      "available": "La versión {version} está disponible.",
       "downloadInstall": "Descargar e instalar",
       "downloading": "Descargando {version}…",
-      "installed": "{version} está instalada. Reinicia para usarla.",
+      "installed": "La versión {version} está instalada. Reinicia para usarla.",
       "restart": "Reiniciar",
-      "failed": "No se pudo completar la actualización. {message}",
-      "endpointHint": "Las versiones se consultan en GitHub solo al pulsar el control."
+      "failed": "No se pudo completar la actualización.",
+      "endpointHint": "Las versiones se consultan en GitHub solo al pulsar este botón.",
+      "showDetails": "Mostrar detalles",
+      "versionUnavailable": "Versión no disponible"
     }
   }
 }

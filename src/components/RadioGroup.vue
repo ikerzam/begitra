@@ -44,6 +44,7 @@ const name = useId();
         :name="name"
         :value="option.value"
         :disabled="props.disabled"
+        :aria-describedby="option.hint ? `${name}-${option.value}-hint` : undefined"
         class="peer sr-only"
       />
       <span
@@ -62,7 +63,9 @@ const name = useId();
         <Check v-if="model === option.value" :size="12" :stroke-width="2" />
       </span>
       <span>{{ option.label }}</span>
-      <span v-if="option.hint" class="ml-2 text-fg-muted">{{ option.hint }}</span>
+      <span v-if="option.hint" :id="`${name}-${option.value}-hint`" class="ml-2 text-fg-muted">
+        {{ option.hint }}
+      </span>
     </label>
   </div>
 </template>

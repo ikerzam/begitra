@@ -71,10 +71,10 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 defineExpose({
-  /** "Add folder" first (the first control in DOM order can be a folder's remove button). */
+  /** The theme's chosen radio first: the screen opens on Appearance. */
   focus: () => {
-    const add = page.value?.querySelector<HTMLElement>('[data-testid="scan-folders-add"]');
-    (add ?? page.value?.querySelector<HTMLElement>("input, select, button"))?.focus();
+    const theme = page.value?.querySelector<HTMLElement>('[data-testid="theme"] input:checked');
+    (theme ?? page.value?.querySelector<HTMLElement>("input, select, button"))?.focus();
   },
 });
 </script>

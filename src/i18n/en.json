@@ -873,7 +873,7 @@
     "appearance": {
       "title": "Appearance",
       "theme": "Theme",
-      "hint": "System follows the platform.",
+      "hint": "System follows the platform's theme.",
       "themes": {
         "system": "System",
         "dark": "Dark",
@@ -963,16 +963,18 @@
       "openLogs": "Open logs folder",
       "openFailed": "Couldn't open {path}.",
       "updates": "Updates",
-      "check": "Check for updates…",
+      "check": "Check for updates",
       "checking": "Checking…",
       "upToDate": "Begira is up to date.",
-      "available": "{version} is available.",
+      "available": "Version {version} is available.",
       "downloadInstall": "Download and install",
       "downloading": "Downloading {version}…",
-      "installed": "{version} is installed. Restart to run it.",
+      "installed": "Version {version} is installed. Restart to run it.",
       "restart": "Restart",
-      "failed": "The update could not be completed. {message}",
-      "endpointHint": "Releases are checked on GitHub only when you press the control."
+      "failed": "The update could not be completed.",
+      "endpointHint": "Releases are checked on GitHub only when you press this button.",
+      "showDetails": "Show details",
+      "versionUnavailable": "Version unavailable"
     }
   }
 }

@@ -17,8 +17,10 @@ const props = withDefaults(
     actionIcon?: Component;
     /** Start with the git output expanded. */
     open?: boolean;
+    /** What the disclosure names when the output is not git's ("Show details"). */
+    outputLabel?: string;
   }>(),
-  { output: "", action: "", actionIcon: undefined, open: false },
+  { output: "", action: "", actionIcon: undefined, open: false, outputLabel: "" },
 );
 
 const emit = defineEmits<{ action: [] }>();
@@ -66,7 +68,10 @@ const outputId = useId();
             :stroke-width="1.5"
             aria-hidden="true"
           />
-          {{ expanded ? t("errorBanner.hideGitOutput") : t("errorBanner.showGitOutput") }}
+          {{
+            props.outputLabel ||
+            (expanded ? t("errorBanner.hideGitOutput") : t("errorBanner.showGitOutput"))
+          }}
         </button>
         <pre
           v-if="expanded"

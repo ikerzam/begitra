@@ -1,7 +1,9 @@
 <script setup lang="ts">
 // The settings' About section: the version, the log file with "Open logs folder",
 // and the update check: nothing runs until the control is pressed; the version found offers
-// "Download and install" (the progress in the status bar), then "Restart".
+// "Download and install" (the progress in the status bar), then "Restart". One button
+// element carries every state, so the focus stays on it while the check or the download runs
+// (`aria-busy`, never `disabled`: a disabled control lets the focus go).
 
 import { FolderOpen, RefreshCw } from "@lucide/vue";
 import { computed, onMounted } from "vue";
@@ -22,6 +24,20 @@ const updater = useUpdaterStore();
 const busy = computed(
   () => updater.state.kind === "checking" || updater.state.kind === "downloading",
 );
+
+/** The one control's label, variant and action, per state. */
+const control = computed(() => {
+  switch (updater.state.kind) {
+    case "available":
+    case "downloading":
+      return { label: t("settings.about.downloadInstall"), primary: true, run: updater.install };
+    case "installed":
+      return { label: t("settings.about.restart"), primary: true, run: updater.restart };
+    default:
+      return { label: t("settings.about.check"), primary: false, run: updater.check };
+  }
+});
+
 /** The sentence beside the control, per state; none while idle. */
 const status = computed(() => {
   const state = updater.state;
@@ -41,28 +57,47 @@ const status = computed(() => {
   }
 });
 
+const version = computed(() => {
+  switch (screen.appInfoState) {
+    case "loaded":
+      return t("settings.about.versionLine", { version: screen.appInfo?.version ?? "" });
+    case "failed":
+      return t("settings.about.versionUnavailable");
+    default:
+      return "";
+  }
+});
+
+function press(): void {
+  if (busy.value) return;
+  void control.value.run();
+}
+
 onMounted(() => {
-  if (!screen.appInfo) void screen.loadAppInfo();
+  if (screen.appInfoState === "pending") void screen.loadAppInfo();
 });
 </script>
 
 <template>
   <SettingsSection :title="t('settings.about.title')">
     <SettingsField :label="t('settings.about.version')">
-      <p class="text-md text-fg" data-testid="about-version">
-        {{ t("settings.about.versionLine", { version: screen.appInfo?.version ?? "…" }) }}
-      </p>
+      <p class="text-md text-fg" data-testid="about-version">{{ version }}</p>
     </SettingsField>
     <SettingsField :label="t('settings.about.logs')" :hint="t('settings.about.logsHint')" wide>
       <div class="flex items-center gap-3">
         <span
           v-if="screen.appInfo?.logFile"
           class="min-w-0 truncate font-mono text-mono-sm text-fg-secondary"
+          :title="screen.appInfo.logFile"
           data-testid="about-log-file"
         >
           {{ screen.appInfo.logFile }}
         </span>
-        <span v-else class="text-md text-fg-muted" data-testid="about-no-log">
+        <span
+          v-else-if="screen.appInfoState === 'loaded'"
+          class="text-md text-fg-muted"
+          data-testid="about-no-log"
+        >
           {{ t("settings.about.noLogFile") }}
         </span>
         <Button
@@ -85,46 +120,25 @@ onMounted(() => {
       <div class="flex flex-col gap-3">
         <div class="flex items-center gap-3">
           <Button
-            v-if="updater.state.kind === 'available'"
-            variant="primary"
-            data-testid="update-install"
-            @click="() => void updater.install()"
+            :variant="control.primary ? 'primary' : 'secondary'"
+            :icon="control.primary ? undefined : RefreshCw"
+            :aria-busy="busy ? 'true' : undefined"
+            :aria-disabled="busy ? 'true' : undefined"
+            data-testid="update-control"
+            @click="press"
           >
-            {{ t("settings.about.downloadInstall") }}
+            {{ control.label }}
           </Button>
-          <Button
-            v-else-if="updater.state.kind === 'installed'"
-            variant="primary"
-            data-testid="update-restart"
-            @click="() => void updater.restart()"
-          >
-            {{ t("settings.about.restart") }}
-          </Button>
-          <Button
-            v-else
-            variant="secondary"
-            :icon="RefreshCw"
-            :disabled="busy"
-            data-testid="update-check"
-            @click="() => void updater.check()"
-          >
-            {{ t("settings.about.check") }}
-          </Button>
-          <span
-            v-if="status"
-            class="text-md text-fg-secondary"
-            role="status"
-            data-testid="update-status"
-          >
+          <span class="text-md text-fg-secondary" role="status" data-testid="update-status">
             {{ status }}
           </span>
         </div>
         <ErrorBanner
           v-if="updater.state.kind === 'failed'"
-          :message="t('settings.about.failed', { message: updater.state.error.message })"
-          :action="t('settings.about.check')"
+          :message="t('settings.about.failed')"
+          :output="updater.state.error.detail ?? updater.state.error.message"
+          :output-label="t('settings.about.showDetails')"
           data-testid="update-failed"
-          @action="() => void updater.check()"
         />
       </div>
     </SettingsField>

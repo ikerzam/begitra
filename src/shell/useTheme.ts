@@ -1,8 +1,10 @@
 // The theme on the document root: `data-theme` is `dark` or `light` from
 // the setting, and for `system` from `prefers-color-scheme`, followed while the app runs.
 // The tokens do the rest; components never read the theme (`GraphCanvas` repaints on the
-// attribute, since a canvas holds no custom properties).
+// attribute, since a canvas holds no custom properties). The window's own chrome (the title
+// bar) follows through Tauri's `setTheme`, which is a no-op outside the app.
 
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { onBeforeUnmount, onMounted, watch } from "vue";
 
 import { useSettingsStore, type Theme } from "@/stores/settings";
@@ -20,11 +22,21 @@ export function resolveTheme(setting: Theme): Exclude<Theme, "system"> {
   return setting === "system" ? platformTheme() : setting;
 }
 
-/** Writes the resolved theme on the document root. */
+/** Writes the resolved theme on the document root and asks the window's chrome to follow. */
 export function applyTheme(setting: Theme): Exclude<Theme, "system"> {
   const theme = resolveTheme(setting);
   document.documentElement.dataset["theme"] = theme;
+  void windowTheme(setting === "system" ? null : theme);
   return theme;
+}
+
+/** The native window's theme: `null` follows the platform. Outside Tauri there is no window. */
+async function windowTheme(theme: "dark" | "light" | null): Promise<void> {
+  try {
+    await getCurrentWindow().setTheme(theme);
+  } catch {
+    // Not running inside Tauri (the tests, a browser).
+  }
 }
 
 /** Keeps the document root's theme in step with the setting and the platform. */
