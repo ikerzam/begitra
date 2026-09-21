@@ -45,6 +45,8 @@ const emit = defineEmits<{
   rowLeave: [];
   /** A context menu for a row, at viewport coordinates. */
   menu: [index: number, x: number, y: number];
+  /** A context menu for a ref badge of a row, at viewport coordinates. */
+  refMenu: [index: number, ref: GitRef, x: number, y: number];
   copyHash: [index: number];
 }>();
 
@@ -135,6 +137,15 @@ function onScroll(): void {
   emit("rowLeave");
 }
 
+/** A badge with a ref behind it opens the ref's menu instead of the commit's. */
+function onBadgeMenu(index: number, badge: Badge, event: MouseEvent): void {
+  if (!badge.ref) return;
+  event.preventDefault();
+  event.stopPropagation();
+  emit("select", index);
+  emit("refMenu", index, badge.ref, event.clientX, event.clientY);
+}
+
 function onContextMenu(index: number, event: MouseEvent): void {
   event.preventDefault();
   emit("select", index);
@@ -216,6 +227,8 @@ defineExpose({ focus: navigation.focus, revealSelected });
               :key="badge.key"
               :kind="badge.kind"
               :label="badge.label"
+              :data-ref="badge.ref?.fullName"
+              @contextmenu="(event: MouseEvent) => onBadgeMenu(index, badge, event)"
             />
           </template>
         </GraphRow>

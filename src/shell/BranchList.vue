@@ -10,6 +10,7 @@ import { computed, onUnmounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import BranchContextMenu from "@/branches/BranchContextMenu.vue";
+import type { BranchAction } from "@/branches/useBranchActions";
 import ListRow from "@/components/ListRow.vue";
 import SkeletonRow from "@/components/SkeletonRow.vue";
 import type { Ref as GitRef } from "@/ipc/schemas";
@@ -19,19 +20,6 @@ import { useGraphStore } from "@/stores/graph";
 import { useRepoStore } from "@/stores/repo";
 
 import { branchLanes } from "./branchLanes";
-
-/** What the row's menu offers; `checkout` is Enter on a row too. */
-export type BranchAction =
-  | "checkout"
-  | "createHere"
-  | "merge"
-  | "rebase"
-  | "compare"
-  | "rename"
-  | "setUpstream"
-  | "push"
-  | "delete"
-  | "deleteTag";
 
 const props = defineProps<{ filter: string }>();
 const emit = defineEmits<{ action: [kind: BranchAction, ref: GitRef] }>();

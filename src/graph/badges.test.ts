@@ -36,5 +36,8 @@ describe("commitBadges", () => {
     const badges = commitBadges(["main", "origin/main", "stash@{0}", "mystery"], byName);
     expect(badges.map((b) => b.kind)).toEqual(["current", "remote", "stash", "local"]);
     expect(badges[3]?.label).toBe("mystery");
+    // The ref behind a badge is what its menu acts on; a name without a ref has none.
+    expect(badges[0]?.ref?.fullName).toBe("refs/local-branch/main");
+    expect(badges[3]?.ref).toBeUndefined();
   });
 });

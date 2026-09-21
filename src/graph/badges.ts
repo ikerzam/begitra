@@ -9,6 +9,8 @@ export interface Badge {
   key: string;
   kind: BadgeKind;
   label: string;
+  /** The ref behind the badge, for its menu; none when the name matched no listed ref. */
+  ref?: GitRef;
 }
 
 function badgeKind(ref: GitRef): BadgeKind {
@@ -52,7 +54,11 @@ export function commitBadges(names: string[], byName: Map<string, GitRef[]>): Ba
     used.set(name, index + 1);
     const ref = candidates[index];
     const kind = ref ? badgeKind(ref) : "local";
-    badges.push({ key: `${kind}:${name}`, kind, label: name });
+    badges.push(
+      ref
+        ? { key: `${kind}:${name}`, kind, label: name, ref }
+        : { key: `${kind}:${name}`, kind, label: name },
+    );
   }
   return badges;
 }

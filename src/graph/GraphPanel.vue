@@ -7,10 +7,12 @@ import { Terminal } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
+import BranchContextMenu from "@/branches/BranchContextMenu.vue";
+import { useBranchActions, type BranchAction } from "@/branches/useBranchActions";
 import Button from "@/components/Button.vue";
 import EmptyState from "@/components/EmptyState.vue";
 import ErrorBanner from "@/components/ErrorBanner.vue";
-import type { CommitNode } from "@/ipc/schemas";
+import type { CommitNode, Ref as GitRef } from "@/ipc/schemas";
 import { errorText } from "@/shell/errorMessage";
 import { shortHash } from "@/shell/format";
 import { useGraphStore } from "@/stores/graph";
@@ -31,10 +33,14 @@ const repo = useRepoStore();
 const graph = useGraphStore();
 const toasts = useToastsStore();
 const actions = useCommitActions();
+const branchActions = useBranchActions();
 const hover = useHoverCard();
 const rows = ref<{ focus(): void } | null>(null);
 
 const menu = ref<{ index: number; x: number; y: number } | null>(null);
+/** The menu of a ref badge: the branch actions of the sidebar's rows, from the graph. */
+const refMenu = ref<{ ref: GitRef; x: number; y: number } | null>(null);
+const currentName = computed(() => repo.currentBranch?.name ?? null);
 const menuCommit = computed(() => (menu.value ? repo.commits[menu.value.index] : undefined));
 const hoverCommit = computed(() =>
   hover.target.value ? repo.commits[hover.target.value.index] : undefined,
@@ -52,6 +58,24 @@ function openMenu(index: number, x: number, y: number): void {
 function closeMenu(): void {
   menu.value = null;
   rows.value?.focus();
+}
+
+function openRefMenu(_index: number, target: GitRef, x: number, y: number): void {
+  hover.hide();
+  menu.value = null;
+  refMenu.value = { ref: target, x, y };
+}
+
+function closeRefMenu(): void {
+  refMenu.value = null;
+  rows.value?.focus();
+}
+
+/** The badge menu's choice: closed first, then run with its ref. */
+function chooseRefAction(kind: BranchAction): void {
+  const target = refMenu.value?.ref;
+  refMenu.value = null;
+  if (target) branchActions.run(kind, target);
 }
 
 function withMenuCommit(action: (commit: CommitNode) => unknown): void {
@@ -160,6 +184,7 @@ defineExpose({ focus: () => rows.value?.focus() });
         @row-enter="hover.onRowEnter"
         @row-leave="hover.onRowLeave"
         @menu="openMenu"
+        @ref-menu="openRefMenu"
         @copy-hash="(index) => void actions.copyHash(commitAt(index)!)"
       >
         <template #after>
@@ -198,6 +223,24 @@ defineExpose({ focus: () => rows.value?.focus() });
           hover.hide();
         }
       "
+    />
+    <BranchContextMenu
+      v-if="refMenu"
+      :target="refMenu.ref"
+      :current="currentName"
+      :x="refMenu.x"
+      :y="refMenu.y"
+      @close="closeRefMenu"
+      @checkout="chooseRefAction('checkout')"
+      @create-here="chooseRefAction('createHere')"
+      @merge="chooseRefAction('merge')"
+      @rebase="chooseRefAction('rebase')"
+      @compare="chooseRefAction('compare')"
+      @rename="chooseRefAction('rename')"
+      @set-upstream="chooseRefAction('setUpstream')"
+      @push="chooseRefAction('push')"
+      @delete="chooseRefAction('delete')"
+      @delete-tag="chooseRefAction('deleteTag')"
     />
     <CommitContextMenu
       v-if="menu"

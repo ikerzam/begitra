@@ -6,6 +6,7 @@ import { nextTick } from "vue";
 
 import { fakeBackend, fakeCommit } from "@/test/backend";
 import { mountWithI18n } from "@/test/mount";
+import { useBranchesStore } from "@/stores/branches";
 import { useGraphStore } from "@/stores/graph";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
@@ -217,6 +218,26 @@ describe("GraphPanel hover card and context menu", () => {
     await wrapper.get('[data-testid="menu-range-end"]').trigger("click");
     expect(useReviewStore().rangeEnd).toBe(fakeCommit(4).hash);
     expect(wrapper.get('[data-testid="chip-range-end"]').text()).toContain("Range end 0000000");
+    wrapper.unmount();
+  });
+
+  it("opens the branch menu from a ref badge instead of the commit's", async () => {
+    fakeBackend();
+    const repo = await openRepository();
+    const wrapper = await mountPanel();
+    const badge = wrapper.get('[data-testid="graph-row"] [data-ref="refs/heads/main"]');
+    expect(badge.text()).toBe("main");
+    await badge.trigger("contextmenu", { clientX: 200, clientY: 80 });
+    const menu = wrapper.get('[role="menu"]');
+    expect(menu.attributes("aria-label")).toBe("Branch actions");
+    expect(menu.attributes("style")).toContain("left: 200px");
+    expect(wrapper.find('[data-testid="menu-copy-hash"]').exists()).toBe(false);
+    expect(repo.selectedIndex).toBe(0);
+    // The current branch: no checkout, merge, rebase or delete; the dialogs are open.
+    expect(wrapper.get('[data-testid="menu-checkout"]').attributes("aria-disabled")).toBe("true");
+    await wrapper.get('[data-testid="menu-rename"]').trigger("click");
+    expect(wrapper.find('[role="menu"]').exists()).toBe(false);
+    expect(useBranchesStore().prompt).toEqual({ kind: "rename", name: "main" });
     wrapper.unmount();
   });
 
