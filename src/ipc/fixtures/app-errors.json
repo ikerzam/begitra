@@ -86,6 +86,10 @@
     "message": "Sample message for watcher.unavailable"
   },
   {
+    "code": "updater.failed",
+    "message": "Sample message for updater.failed"
+  },
+  {
     "code": "internal",
     "message": "Sample message for internal"
   }

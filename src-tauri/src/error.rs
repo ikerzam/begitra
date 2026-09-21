@@ -55,11 +55,14 @@ pub mod codes {
     pub const INDEX_FOLDER: &str = "index.folder";
     /// The filesystem watcher could not be started; the repository is open without it.
     pub const WATCHER_UNAVAILABLE: &str = "watcher.unavailable";
+    /// The update check, download or install failed (raised by the frontend from the
+    /// updater plugin's words in `detail`; listed here so the two code lists stay one).
+    pub const UPDATER_FAILED: &str = "updater.failed";
     /// Anything else.
     pub const INTERNAL: &str = "internal";
 
     /// Every code, in the order of the declarations above.
-    pub const ALL: [&str; 22] = [
+    pub const ALL: [&str; 23] = [
         REPO_NOT_FOUND,
         REPO_INVALID,
         REPO_CORRUPT_OBJECT,
@@ -81,6 +84,7 @@ pub mod codes {
         INDEX_DATABASE,
         INDEX_FOLDER,
         WATCHER_UNAVAILABLE,
+        UPDATER_FAILED,
         INTERNAL,
     ];
 }

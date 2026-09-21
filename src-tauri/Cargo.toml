@@ -59,6 +59,9 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-store = "2"
 tauri-plugin-dialog = "2"
+# The update check the About section runs, and the relaunch after an install.
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 git-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true

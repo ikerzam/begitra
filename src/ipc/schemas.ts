@@ -42,6 +42,7 @@ export const errorCodes = [
   "index.database",
   "index.folder",
   "watcher.unavailable",
+  "updater.failed",
   "internal",
 ] as const;
 export type ErrorCode = (typeof errorCodes)[number];

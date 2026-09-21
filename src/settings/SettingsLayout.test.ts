@@ -1,7 +1,7 @@
 import { clearMocks } from "@tauri-apps/api/mocks";
 import { flushPromises } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
 
 import { defaultSkipFolders } from "@/ipc/commands";
@@ -10,10 +10,15 @@ import { useIndexStore } from "@/stores/index";
 import { useReviewStore } from "@/stores/review";
 import { memoryStorage, useSettingsStore } from "@/stores/settings";
 import { useSettingsScreenStore } from "@/stores/settingsScreen";
+import { useUpdaterStore } from "@/stores/updater";
 import { fakeBackend, settled, type FakeBackendOptions } from "@/test/backend";
 import { mountWithI18n } from "@/test/mount";
 
 import SettingsLayout from "./SettingsLayout.vue";
+
+const updaterPlugin = vi.hoisted(() => ({ check: vi.fn<() => Promise<unknown>>() }));
+vi.mock("@tauri-apps/plugin-updater", () => ({ check: updaterPlugin.check }));
+vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: vi.fn() }));
 
 beforeEach(async () => {
   setActivePinia(createPinia());
@@ -251,6 +256,36 @@ describe("SettingsLayout", () => {
       templates: ["explorer {path}"],
       path: "/home/iker/.local/share/dev.begira.app/logs",
     });
+  });
+
+  it("checks for updates only when asked and offers the version found", async () => {
+    updaterPlugin.check.mockReset();
+    const wrapper = await mountSettings();
+    expect(updaterPlugin.check).not.toHaveBeenCalled();
+    expect(wrapper.find('[data-testid="update-status"]').exists()).toBe(false);
+    updaterPlugin.check.mockResolvedValueOnce(null);
+    await wrapper.get('[data-testid="update-check"]').trigger("click");
+    await flushPromises();
+    expect(wrapper.get('[data-testid="update-status"]').text()).toBe("Begira is up to date.");
+    updaterPlugin.check.mockResolvedValueOnce({
+      version: "0.2.0",
+      currentVersion: "0.1.0",
+      body: null,
+      downloadAndInstall: vi.fn(),
+    });
+    await wrapper.get('[data-testid="update-check"]').trigger("click");
+    await flushPromises();
+    expect(wrapper.get('[data-testid="update-status"]').text()).toBe("0.2.0 is available.");
+    expect(wrapper.get('[data-testid="update-install"]').text()).toBe("Download and install");
+    updaterPlugin.check.mockRejectedValueOnce(new Error("offline"));
+    // A failed check shows the banner with the plugin's words and keeps the control.
+    useUpdaterStore().dismiss();
+    await useUpdaterStore().check();
+    await nextTick();
+    expect(wrapper.get('[data-testid="update-failed"]').text()).toContain(
+      "The update could not be completed. offline",
+    );
+    expect(wrapper.find('[data-testid="update-check"]').exists()).toBe(true);
   });
 
   it("moves between the fields with j and k when no text field has the focus", async () => {
