@@ -2,8 +2,10 @@
 //! streamed. The network commands are the writes of the app that can be cancelled: git's
 //! progress lines reach the frontend as pages of the stream envelope while git
 //! runs, the result (the ref lines git printed, or the outcome of a pull) is the last page,
-//! and a cancel kills git's process tree, which ends the transport too. A credential helper
-//! that would need a terminal fails at once (`GIT_TERMINAL_PROMPT=0`, set by the engine).
+//! and a cancel kills git's process tree, which ends the transport too (a pull honours it
+//! until its fetch is done; the merge or rebase that follows runs whole). git's own
+//! credential prompt fails at once (`GIT_TERMINAL_PROMPT=0`, set by the engine); a helper
+//! with a window of its own still opens it, and the timeout bounds that.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -129,17 +131,17 @@ pub async fn remote_remove(
     .await
 }
 
-/// Fetches from a remote (every remote when `null`), streaming git's progress; `prune`
-/// drops the tracking branches gone on the remote.
+/// Fetches from a remote (every remote, `--all`, when `null`), streaming git's progress;
+/// `prune` drops the tracking branches gone on the remote.
 #[tauri::command]
-#[tracing::instrument(level = "debug", skip(state, on_progress))]
+#[tracing::instrument(level = "debug", skip(state, on_page))]
 pub async fn fetch(
     state: State<'_, AppState>,
     repo: PathBuf,
     remote: Option<String>,
     prune: bool,
     op_id: String,
-    on_progress: Channel<StreamMessage<NetworkEvent>>,
+    on_page: Channel<StreamMessage<NetworkEvent>>,
 ) -> Result<(), AppError> {
     validate_optional_name("remote", remote.as_deref())?;
     let app = state.inner().clone();
@@ -148,7 +150,7 @@ pub async fn fetch(
         app.ops(),
         &op_id,
         NETWORK_TIMEOUT,
-        on_progress,
+        on_page,
         move |cancel, stream| {
             let engine = worker.open(&repo)?;
             let mut on_line = |line: &str| {
@@ -167,16 +169,16 @@ pub async fn fetch(
     .await
 }
 
-/// Pulls with the progress streamed; the last page is the outcome (a stop on conflicts
-/// included).
+/// Pulls with the fetch's progress streamed; the last page is the outcome of the merge or
+/// the rebase (a stop on conflicts included). A cancel is honoured until the fetch is done.
 #[tauri::command]
-#[tracing::instrument(level = "debug", skip(state, on_progress), fields(rebase = request.rebase))]
+#[tracing::instrument(level = "debug", skip(state, on_page), fields(rebase = request.rebase))]
 pub async fn pull(
     state: State<'_, AppState>,
     repo: PathBuf,
     request: PullRequest,
     op_id: String,
-    on_progress: Channel<StreamMessage<NetworkEvent>>,
+    on_page: Channel<StreamMessage<NetworkEvent>>,
 ) -> Result<(), AppError> {
     validate_optional_name("remote", request.remote.as_deref())?;
     validate_optional_name("branch", request.branch.as_deref())?;
@@ -192,7 +194,7 @@ pub async fn pull(
         app.ops(),
         &op_id,
         NETWORK_TIMEOUT,
-        on_progress,
+        on_page,
         move |cancel, stream| {
             let engine = worker.open(&repo)?;
             let mut on_line = |line: &str| {
@@ -211,13 +213,13 @@ pub async fn pull(
 /// Pushes with the progress streamed; a rejected push is git's message in the terminal
 /// error.
 #[tauri::command]
-#[tracing::instrument(level = "debug", skip(state, on_progress), fields(set_upstream = request.set_upstream, force = request.force_with_lease))]
+#[tracing::instrument(level = "debug", skip(state, on_page), fields(set_upstream = request.set_upstream, force = request.force_with_lease))]
 pub async fn push(
     state: State<'_, AppState>,
     repo: PathBuf,
     request: PushRequest,
     op_id: String,
-    on_progress: Channel<StreamMessage<NetworkEvent>>,
+    on_page: Channel<StreamMessage<NetworkEvent>>,
 ) -> Result<(), AppError> {
     validate_optional_name("remote", request.remote.as_deref())?;
     validate_optional_name("branch", request.branch.as_deref())?;
@@ -233,7 +235,7 @@ pub async fn push(
         app.ops(),
         &op_id,
         NETWORK_TIMEOUT,
-        on_progress,
+        on_page,
         move |cancel, stream| {
             let engine = worker.open(&repo)?;
             let mut on_line = |line: &str| {

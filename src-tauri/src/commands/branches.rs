@@ -2,9 +2,10 @@
 //! sequencer that finishes or abandons an operation stopped on conflicts. Every name and
 //! revision is checked here before git runs: short, never option-shaped, no control
 //! characters, and branch and tag names in the shape `git check-ref-format --branch`
-//! accepts. Like the staging writes, none is registered for cancellation (a killed git
-//! leaves `index.lock` or half an operation behind); the timeout alone bounds them, ten
-//! minutes for the ones that run hooks or rewrite a working tree.
+//! accepts, never starting with `+` (a forced refspec on a fetch or push line). Like the
+//! staging writes, none is registered for cancellation (a killed git leaves `index.lock` or
+//! half an operation behind); the timeout alone bounds them, ten minutes for the ones that
+//! run hooks, sign or rewrite a working tree.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -73,6 +74,10 @@ pub(crate) fn validate_name(field: &str, value: &str) -> Result<(), AppError> {
     }
     if value.ends_with('/') || value.ends_with('.') || value == "@" {
         return bad("ends with a slash or a dot");
+    }
+    if value.starts_with('+') {
+        // Legal to `check-ref-format`, but a forced refspec on a fetch or push line.
+        return bad("starts with a plus");
     }
     if value
         .split('/')
@@ -296,7 +301,8 @@ pub async fn tag_create(
         validate_message("message", message)?;
     }
     let app = state.inner().clone();
-    run_unregistered(&op_id, DEFAULT_TIMEOUT, move |cancel| {
+    // An annotated tag under `tag.gpgSign` waits on the signing program as a commit does.
+    run_unregistered(&op_id, WRITE_TIMEOUT, move |cancel| {
         app.open(&repo)?
             .tag_create(&name, &rev, message.as_deref(), &cancel)
     })
@@ -391,7 +397,9 @@ pub async fn mark_resolved(
     .await
 }
 
-/// Continues, skips or aborts the operation in progress.
+/// Continues, skips or aborts the operation in progress; with nothing in progress (it was
+/// finished elsewhere), or a skip on a merge (which has none), the action is refused as an
+/// argument error before git runs.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state))]
 pub async fn sequencer(
@@ -402,7 +410,20 @@ pub async fn sequencer(
 ) -> Result<Outcome, AppError> {
     let app = state.inner().clone();
     run_unregistered(&op_id, WRITE_TIMEOUT, move |cancel| {
-        app.open(&repo)?.sequencer(action, &cancel)
+        let engine = app.open(&repo)?;
+        match engine.operation_state()? {
+            OperationState::None => {
+                return Err(AppError::invalid_argument(
+                    "action",
+                    "no merge, rebase, cherry-pick or revert is in progress",
+                ));
+            }
+            OperationState::Merge if action == SequencerAction::Skip => {
+                return Err(AppError::invalid_argument("action", "a merge has no skip"));
+            }
+            _ => {}
+        }
+        engine.sequencer(action, &cancel).map_err(AppError::from)
     })
     .await
 }
@@ -448,6 +469,7 @@ mod tests {
             ".hidden",
             "a.lock",
             "@",
+            "+develop",
             "line\nbreak",
         ] {
             assert_eq!(
