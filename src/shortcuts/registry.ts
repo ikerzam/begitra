@@ -10,7 +10,7 @@ export interface ShortcutBinding {
   /** Canonical keys, e.g. `mod+k`. */
   keys: string;
   /** Where the binding applies; `global` bindings fire everywhere. */
-  scope: "global" | "list" | "review";
+  scope: "global" | "list" | "review" | "changes";
 }
 
 /** The default bindings. */
@@ -18,6 +18,7 @@ export const defaultBindings: readonly ShortcutBinding[] = [
   { id: "palette", keys: "mod+k", scope: "global" },
   { id: "graph-focus", keys: "mod+1", scope: "global" },
   { id: "review-focus", keys: "mod+2", scope: "global" },
+  { id: "changes-focus", keys: "mod+3", scope: "global" },
   { id: "toggle-sidebar", keys: "mod+b", scope: "global" },
   { id: "diff-from", keys: "mod+d", scope: "global" },
   { id: "compare-with", keys: "shift+mod+c", scope: "global" },
@@ -34,6 +35,10 @@ export const defaultBindings: readonly ShortcutBinding[] = [
   { id: "open-editor", keys: "mod+e", scope: "global" },
   { id: "add-worktree", keys: "shift+mod+w", scope: "global" },
   { id: "settings", keys: "mod+,", scope: "global" },
+  { id: "stage-file", keys: "s", scope: "changes" },
+  { id: "unstage-file", keys: "u", scope: "changes" },
+  { id: "discard-file", keys: "backspace", scope: "changes" },
+  { id: "commit", keys: "mod+enter", scope: "changes" },
 ];
 
 export type ShortcutHandler = (event: KeyboardEvent) => void;
@@ -61,6 +66,16 @@ export function isEditableTarget(target: TargetLike): boolean {
   const tag = target.tagName?.toUpperCase();
   if (tag === "INPUT") return !NON_TEXT_INPUTS.has((target.type ?? "text").toLowerCase());
   return tag === "TEXTAREA" || tag === "SELECT";
+}
+
+/**
+ * Whether a key event comes from inside a dialog or a menu, where the keys of a screen
+ * (list, review and changes scopes) must not reach the screen behind; the global chords
+ * (the palette, the layouts) still do.
+ */
+export function isOverlayTarget(target: unknown): boolean {
+  if (!(target instanceof Element)) return false;
+  return target.closest('[role="dialog"], [role="menu"]') !== null;
 }
 
 export class ShortcutRegistry {
@@ -135,12 +150,17 @@ export class ShortcutRegistry {
     // A list that already moved on this key (j/k in a focused tree) keeps the event.
     if (event.defaultPrevented) return false;
     const editable = isEditableTarget(event.target as TargetLike);
+    // The focused element too: a synthetic event dispatched on the window has no target.
+    const overlay =
+      isOverlayTarget(event.target) ||
+      (typeof document !== "undefined" && isOverlayTarget(document.activeElement));
     for (const binding of this.bindings.values()) {
       const stack = this.handlers.get(binding.id);
       const handler = stack?.[stack.length - 1];
       if (!handler) continue;
       if (!matchesKeys(binding.keys, event, this.platform)) continue;
       if (editable && !binding.keys.includes("+")) continue;
+      if (overlay && binding.scope !== "global") continue;
       event.preventDefault();
       handler(event);
       return true;

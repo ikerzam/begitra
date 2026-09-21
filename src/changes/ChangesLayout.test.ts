@@ -1,0 +1,344 @@
+import { clearMocks } from "@tauri-apps/api/mocks";
+import type { VueWrapper } from "@vue/test-utils";
+import { createPinia, setActivePinia } from "pinia";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { nextTick } from "vue";
+
+import type { PatchSelection } from "@/ipc/schemas";
+import { ShortcutRegistry, setShortcutRegistry } from "@/shortcuts/registry";
+import { installShortcuts } from "@/shortcuts/useShortcut";
+import { useChangesStore } from "@/stores/changes";
+import { useRepoStore } from "@/stores/repo";
+import { useReviewStore } from "@/stores/review";
+import { memoryStorage, useSettingsStore } from "@/stores/settings";
+import { fakeBackend, settled, type Call, type FakeBackendOptions } from "@/test/backend";
+import { changedFile } from "@/test/changes";
+import { mountWithI18n } from "@/test/mount";
+
+import ChangesLayout from "./ChangesLayout.vue";
+
+const unstagedFiles = () => [
+  changedFile("src/a.ts"),
+  changedFile("src/b.ts"),
+  changedFile("docs/new.md", { status: "added", additions: 3, deletions: 0 }),
+];
+const stagedFiles = () => [changedFile("src/c.ts")];
+
+let uninstall: () => void = () => {};
+
+beforeEach(async () => {
+  setActivePinia(createPinia());
+  await useSettingsStore().init(memoryStorage(), "windows");
+  setShortcutRegistry(new ShortcutRegistry("windows"));
+  uninstall = installShortcuts(window);
+});
+
+afterEach(() => {
+  uninstall();
+  setShortcutRegistry(undefined);
+  clearMocks();
+  document.body.innerHTML = "";
+});
+
+/** Opens the repository and mounts the screen with a 200px diff body jsdom cannot measure. */
+async function mountScreen(options: FakeBackendOptions = {}) {
+  const calls = fakeBackend({
+    changes: { unstaged: unstagedFiles(), staged: stagedFiles() },
+    ...options,
+  });
+  await useRepoStore().open("/r");
+  await settled();
+  const wrapper = mountWithI18n(ChangesLayout, { attachTo: document.body });
+  await settled();
+  await measure(wrapper);
+  return { wrapper, calls };
+}
+
+async function measure(wrapper: VueWrapper): Promise<void> {
+  const body = wrapper.find('[data-testid="diff-body"]');
+  if (!body.exists()) return;
+  Object.defineProperty(body.element, "clientHeight", { value: 200, configurable: true });
+  Object.defineProperty(body.element, "clientWidth", { value: 800, configurable: true });
+  await body.trigger("scroll");
+  await nextTick();
+}
+
+function of(calls: Call[], cmd: string): Call[] {
+  return calls.filter((call) => call.cmd === cmd);
+}
+
+function press(key: string, init: KeyboardEventInit = {}): void {
+  window.dispatchEvent(new KeyboardEvent("keydown", { key, ...init, bubbles: true }));
+}
+
+describe("ChangesLayout", () => {
+  it("lists both lists with their letters and opens the selected file with hunk actions", async () => {
+    const { wrapper } = await mountScreen();
+    const headers = wrapper.findAll('[data-testid="panel-header"]');
+    expect(headers.map((h) => h.get('[data-testid="panel-header-title"]').text())).toEqual([
+      "Unstaged",
+      "Staged",
+    ]);
+    expect(headers.map((h) => h.get('[data-testid="panel-header-count"]').text())).toEqual([
+      "3",
+      "1",
+    ]);
+    const rows = wrapper.findAll('[data-testid="tree-row"]');
+    expect(rows.map((row) => row.get('[data-testid="tree-row-name"]').text())).toEqual([
+      "src/a.ts",
+      "src/b.ts",
+      "docs/new.md",
+      "src/c.ts",
+    ]);
+    expect(rows[2]?.find('[data-status="untracked"]').text()).toBe("?");
+    expect(rows[3]?.find('[data-status="modified"]').exists()).toBe(true);
+    expect(rows[0]?.attributes("aria-selected")).toBe("true");
+    expect(wrapper.get('[data-testid="changes-path"]').text()).toBe("src/a.ts");
+    const hunk = wrapper.get('[data-testid="hunk-row"]');
+    expect(hunk.get('[data-testid="hunk-stage"]').text()).toBe("Stage hunk");
+    expect(hunk.get('[data-testid="hunk-discard"]').text()).toBe("Discard hunk…");
+    expect(wrapper.get('[data-testid="file-action"]').text()).toBe("Discard file…");
+    wrapper.unmount();
+  });
+
+  it("picks lines with a click and stages them, the rest staying unstaged", async () => {
+    const { wrapper, calls } = await mountScreen();
+    const rows = wrapper.findAll('[data-testid="diff-row"]');
+    expect(rows.map((row) => row.attributes("data-kind"))).toEqual([
+      "context",
+      "del",
+      "add",
+      "add",
+    ]);
+    await rows[1]!.trigger("click");
+    await rows[3]!.trigger("click", { shiftKey: true });
+    await nextTick();
+    expect(wrapper.findAll('[data-testid="diff-row"][data-selected="true"]')).toHaveLength(3);
+    // A context line cannot be picked; a picked line toggles off again.
+    await rows[0]!.trigger("click");
+    await rows[3]!.trigger("click");
+    await nextTick();
+    expect(wrapper.findAll('[data-testid="diff-row"][data-selected="true"]')).toHaveLength(2);
+    expect(wrapper.get('[data-testid="changes-selected-count"]').text()).toBe("2 lines selected");
+    const stage = wrapper.get('[data-testid="hunk-stage"]');
+    expect(stage.text()).toBe("Stage lines");
+    await stage.trigger("click");
+    await settled();
+    const applied = of(calls, "apply_selection");
+    expect(applied).toHaveLength(1);
+    expect(applied[0]?.args["target"]).toBe("stage");
+    const selection = applied[0]?.args["selection"] as PatchSelection;
+    expect(selection.path).toBe("src/a.ts");
+    expect(selection.hunks[0]?.lines.map((line) => line.selected)).toEqual([
+      false,
+      true,
+      true,
+      false,
+    ]);
+    // The file is in both lists now and the picked lines are gone with the reload.
+    const names = wrapper.findAll('[data-testid="tree-row-name"]').map((name) => name.text());
+    expect(names).toEqual(["src/a.ts", "src/b.ts", "docs/new.md", "src/c.ts", "src/a.ts"]);
+    expect(wrapper.findAll('[data-selected="true"]')).toHaveLength(0);
+    wrapper.unmount();
+  });
+
+  it("moves a cursor over the changed lines with the arrows and picks with Space, on both layouts", async () => {
+    const { wrapper } = await mountScreen();
+    const body = wrapper.get('[data-testid="diff-body"]');
+    await body.trigger("keydown", { key: "ArrowDown" });
+    await body.trigger("keydown", { key: "ArrowDown" });
+    await nextTick();
+    const rows = wrapper.findAll('[data-testid="diff-row"]');
+    expect(rows[2]?.classes()).toContain("diff-row-cursor");
+    await body.trigger("keydown", { key: " " });
+    await nextTick();
+    expect(rows[2]?.attributes("data-selected")).toBe("true");
+    expect(rows[1]?.attributes("data-selected")).toBeUndefined();
+    // Escape drops the cursor, not the picked lines.
+    await body.trigger("keydown", { key: "Escape" });
+    await nextTick();
+    expect(wrapper.findAll(".diff-row-cursor")).toHaveLength(0);
+    expect(wrapper.findAll('[data-selected="true"]')).toHaveLength(1);
+    // Side by side keeps the pick (the added line, now on the right of the first pair); a
+    // click on the left cell picks the removed line beside it.
+    await useReviewStore().setLayout("side-by-side");
+    await nextTick();
+    await measure(wrapper);
+    const pairs = wrapper.findAll('[data-testid="side-by-side-row"]');
+    expect(pairs[1]?.get('[data-testid="side-right"]').attributes("data-selected")).toBe("true");
+    expect(pairs[1]?.get('[data-testid="side-left"]').attributes("data-selected")).toBeUndefined();
+    await pairs[1]!.get('[data-testid="side-left"]').trigger("click");
+    await nextTick();
+    expect(pairs[1]?.get('[data-testid="side-left"]').attributes("data-selected")).toBe("true");
+    expect(wrapper.get('[data-testid="changes-selected-count"]').text()).toBe("2 lines selected");
+    wrapper.unmount();
+  });
+
+  it("stages the selected file with s, unstages with u from the row menu, moves with j", async () => {
+    const { wrapper, calls } = await mountScreen();
+    (wrapper.get('[data-list="unstaged"][data-path="src/a.ts"]').element as HTMLElement).focus();
+    press("s");
+    await settled();
+    await nextTick();
+    expect(of(calls, "stage_paths")[0]?.args["paths"]).toEqual(["src/a.ts"]);
+    // The row that took its place is selected and keeps the focus: src/b.ts.
+    expect(wrapper.get('[data-testid="changes-path"]').text()).toBe("src/b.ts");
+    expect(document.activeElement?.getAttribute("data-path")).toBe("src/b.ts");
+    press("j");
+    await nextTick();
+    expect(wrapper.get('[data-testid="changes-path"]').text()).toBe("docs/new.md");
+    // Enter on a row opens its menu; the staged rows offer Unstage.
+    const staged = wrapper.findAll('[data-list="staged"]');
+    await staged[1]!.trigger("contextmenu");
+    await nextTick();
+    expect(wrapper.find('[data-testid="menu-stage"]').exists()).toBe(false);
+    await wrapper.get('[data-testid="menu-unstage"]').trigger("click");
+    await settled();
+    expect(of(calls, "unstage_paths")[0]?.args["paths"]).toEqual(["src/a.ts"]);
+    wrapper.unmount();
+  });
+
+  it("confirms a discard naming the files, the untracked one as deleted, then discards", async () => {
+    const { wrapper, calls } = await mountScreen();
+    await wrapper.get('[data-testid="discard-all"]').trigger("click");
+    await nextTick();
+    const dialog = wrapper.get('[role="dialog"]');
+    expect(dialog.text()).toContain("Discard 3 files?");
+    expect(dialog.text()).toContain(
+      "The unstaged changes to src/a.ts, src/b.ts and docs/new.md are lost, and new.md is deleted: it is not tracked yet.",
+    );
+    expect(dialog.text()).toContain("Discarded changes cannot be recovered.");
+    expect(wrapper.get('[data-testid="dialog-confirm"]').text()).toBe("Discard 3 files");
+    await wrapper.get('[data-testid="dialog-cancel"]').trigger("click");
+    await nextTick();
+    expect(of(calls, "discard_paths")).toHaveLength(0);
+    // Backspace on the selected untracked file: one file, deleted.
+    useChangesStore().select("unstaged", "docs/new.md");
+    await nextTick();
+    press("Backspace");
+    await nextTick();
+    const one = wrapper.get('[role="dialog"]');
+    expect(one.text()).toContain("Discard 1 file?");
+    expect(one.text()).toContain("new.md is deleted: it is not tracked yet.");
+    expect(one.text()).not.toContain("unstaged changes");
+    // The screen's keys stay out of the dialog: j does not move, s does not stage.
+    press("j");
+    press("s");
+    await settled();
+    expect(of(calls, "stage_paths")).toHaveLength(0);
+    expect(wrapper.get('[data-testid="changes-path"]').text()).toBe("docs/new.md");
+    await wrapper.get('[data-testid="dialog-confirm"]').trigger("click");
+    await settled();
+    expect(of(calls, "discard_paths")[0]?.args).toMatchObject({
+      tracked: [],
+      untracked: ["docs/new.md"],
+    });
+    expect(wrapper.findAll('[data-list="unstaged"]')).toHaveLength(2);
+    wrapper.unmount();
+  });
+
+  it("confirms a hunk discard with its range and applies it in reverse", async () => {
+    const { wrapper, calls } = await mountScreen();
+    await wrapper.get('[data-testid="hunk-discard"]').trigger("click");
+    await nextTick();
+    const dialog = wrapper.get('[role="dialog"]');
+    expect(dialog.text()).toContain("Discard hunk?");
+    expect(dialog.text()).toContain("The hunk at @@ -1,2 +1,3 @@ of src/a.ts is lost.");
+    await wrapper.get('[data-testid="dialog-confirm"]').trigger("click");
+    await settled();
+    expect(of(calls, "apply_selection")[0]?.args["target"]).toBe("discard");
+    wrapper.unmount();
+  });
+
+  it("shows the empty sentence on a clean tree with the commit button disabled", async () => {
+    const { wrapper } = await mountScreen({ changes: { unstaged: [], staged: [] } });
+    expect(wrapper.get('[data-testid="changes-empty"]').text()).toBe(
+      "Nothing to commit, the working tree is clean.",
+    );
+    expect(wrapper.get('[data-testid="changes-viewer-empty"]').text()).toContain(
+      "let an agent, and they show up here.",
+    );
+    const header = wrapper.get('[data-testid="panel-header"]');
+    expect(header.get('[data-testid="panel-header-title"]').text()).toBe("Changes");
+    expect(header.get('[data-testid="panel-header-count"]').text()).toBe("0");
+    expect(wrapper.get('[data-testid="commit-button"]').attributes("disabled")).toBeDefined();
+    // The whole box is inert on a clean tree; the viewer has no header.
+    expect(wrapper.get('[data-testid="commit-subject"]').attributes("disabled")).toBeDefined();
+    expect(wrapper.get('[data-testid="commit-body"]').attributes("disabled")).toBeDefined();
+    expect(wrapper.find('[data-testid="changes-viewer"] header').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("shows a failed diff in the lists panel with Try again", async () => {
+    const { wrapper, calls } = await mountScreen({ failDiff: true });
+    const banner = wrapper.get('[data-testid="changes-load-failed"]');
+    expect(banner.text()).toContain("Couldn't read the working tree.");
+    expect(wrapper.findAll('[data-testid="tree-row"]')).toHaveLength(0);
+    expect(wrapper.find('[data-testid="changes-viewer-failed"]').exists()).toBe(true);
+    const before = of(calls, "diff").length;
+    await banner.get("button").trigger("click");
+    await settled();
+    expect(of(calls, "diff").length).toBe(before + 2);
+    wrapper.unmount();
+  });
+
+  it("shows git's output in the banner when a hunk is refused, and reloads", async () => {
+    const { wrapper, calls } = await mountScreen({ failStaging: true });
+    await wrapper.get('[data-testid="hunk-stage"]').trigger("click");
+    await settled();
+    const banner = wrapper.get('[data-testid="changes-failed"]');
+    expect(banner.text()).toContain("git refused the hunk of src/a.ts");
+    expect(banner.text()).toContain("patch does not apply");
+    const before = of(calls, "diff").length;
+    await banner.get("button").trigger("click");
+    await settled();
+    expect(of(calls, "diff").length).toBe(before + 2);
+    // Reload dismisses the failure too.
+    expect(wrapper.find('[data-testid="changes-failed"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("commits with Ctrl+Enter from the subject, clears the box and reads Amend when amending", async () => {
+    const { wrapper, calls } = await mountScreen();
+    const subject = wrapper.get('[data-testid="commit-subject"]');
+    expect(wrapper.get('[data-testid="commit-author"]').text()).toBe("Iker Z. <iker@x>");
+    expect(wrapper.get('[data-testid="commit-button"]').attributes("disabled")).toBeDefined();
+    await subject.setValue("feat: thing");
+    await wrapper.get('[data-testid="commit-body"]').setValue("why");
+    expect(wrapper.get('[data-testid="commit-button"]').attributes("disabled")).toBeUndefined();
+    // Enter alone stays in the field; the commit key is Ctrl+Enter.
+    await subject.trigger("keydown", { key: "Enter" });
+    await settled();
+    expect(of(calls, "commit")).toHaveLength(0);
+    await subject.trigger("keydown", { key: "Enter", ctrlKey: true });
+    await settled();
+    expect(of(calls, "commit")[0]?.args["request"]).toEqual({
+      message: "feat: thing\n\nwhy",
+      amend: false,
+      signoff: false,
+    });
+    expect((subject.element as HTMLInputElement).value).toBe("");
+    expect(wrapper.findAll('[data-list="staged"]')).toHaveLength(0);
+    // Amend borrows HEAD's message and renames the button.
+    await wrapper.get('[data-testid="commit-amend"] input').setValue(true);
+    await nextTick();
+    expect((subject.element as HTMLInputElement).value).toBe("fix(auth): commit 0");
+    expect(wrapper.get('[data-testid="commit-button"]').text()).toBe("Amend");
+    expect(wrapper.get('[data-testid="commit-author"]').text()).toBe("Amends 0000000 · Iker Z.");
+    wrapper.unmount();
+  });
+
+  it("counts a subject past 72 characters and keeps the message when the hook refuses", async () => {
+    const { wrapper } = await mountScreen({ failCommit: true });
+    const subject = wrapper.get('[data-testid="commit-subject"]');
+    await subject.setValue("x".repeat(80));
+    expect(wrapper.get('[data-testid="commit-subject-over"]').text()).toBe("80 of 72 characters");
+    await wrapper.get('[data-testid="commit-button"]').trigger("submit");
+    await settled();
+    expect((subject.element as HTMLInputElement).value).toBe("x".repeat(80));
+    const banner = wrapper.get('[data-testid="changes-failed"]');
+    expect(banner.text()).toContain("The commit was not made.");
+    expect(banner.text()).toContain("commit-msg hook");
+    wrapper.unmount();
+  });
+});

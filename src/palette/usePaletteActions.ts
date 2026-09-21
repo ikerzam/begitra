@@ -11,6 +11,7 @@ import type { IndexEntry } from "@/ipc/schemas";
 import { useExternal } from "@/shell/useExternal";
 import { useOpenFolder } from "@/shell/useOpenFolder";
 import { useIndexStore } from "@/stores/index";
+import { useChangesStore } from "@/stores/changes";
 import { useCompareStore } from "@/stores/compare";
 import { usePickerStore } from "@/stores/picker";
 import { useRepoStore } from "@/stores/repo";
@@ -35,6 +36,7 @@ export function usePaletteActions(): PaletteActions {
   const picker = usePickerStore();
   const compare = useCompareStore();
   const worktrees = useWorktreesStore();
+  const changes = useChangesStore();
 
   return {
     hasRepository: () => repo.state.kind === "ready",
@@ -98,6 +100,13 @@ export function usePaletteActions(): PaletteActions {
     swapComparison: () => compare.swap(),
     openComparisonInReview: () => compare.openInReview(),
     showWorktrees: () => worktrees.show(),
+    showChanges: () => shell.setLayoutMode("changes"),
+    inChanges: () => shell.layoutMode === "changes",
+    changesAll: (action) => {
+      if (action === "stage") void changes.stageAll();
+      else if (action === "unstage") void changes.unstageAll();
+      else shortcutRegistry().run("discard-all");
+    },
     openSettings: () => shell.setLayoutMode("settings"),
     addWorktree: () => worktrees.openAdd(),
     hasPrunableWorktrees: () => worktrees.prunable.length > 0,

@@ -1,8 +1,10 @@
 <script setup lang="ts">
-// The virtualised rows of one file: hunk headers with their reviewed control, unified lines
-// or side-by-side pairs with the intra-line emphasis and the two-tone highlighting, heights
-// from the wrap setting and the measured column width, n/p over hunks and ]/[ over the
-// changed symbols.
+// The virtualised rows of one file: hunk headers with their reviewed control (or the actions
+// the changes screen puts there), unified lines or side-by-side pairs with the intra-line
+// emphasis and the two-tone highlighting, heights from the wrap setting and the measured
+// column width, n/p over hunks and ]/[ over the changed symbols. In `selectable` mode the
+// changed lines can be picked for a partial stage: a click toggles a line, shift-click extends
+// from the last click, and the arrows move a cursor that Space toggles.
 
 import { computed, ref, watch } from "vue";
 
@@ -11,9 +13,19 @@ import HunkRow from "@/components/HunkRow.vue";
 import type { FileChange, Hunk } from "@/ipc/schemas";
 import { useShortcut } from "@/shortcuts/useShortcut";
 import { useRepoStore } from "@/stores/repo";
-import { useReviewStore } from "@/stores/review";
+import { useReviewStore, type ReviewTarget } from "@/stores/review";
 
-import { hunkRange, hunkRowIndexes, hunkSymbol, lineKind, rowHeights, rowsOf } from "./diffRows";
+import {
+  hunkRange,
+  hunkRowIndexes,
+  hunkSymbol,
+  lineKind,
+  rowHeights,
+  rowLineKeys,
+  rowsOf,
+  selectableRowIndexes,
+  type DiffRowModel,
+} from "./diffRows";
 import LineContent from "./LineContent.vue";
 import SideBySideRow from "./SideBySideRow.vue";
 import { useColumns } from "./useColumns";
@@ -22,20 +34,32 @@ import { useHunkNavigation } from "./useHunkNavigation";
 import { jumpToSymbol, useSymbols } from "./useSymbols";
 import { useVariableRows } from "./useVariableRows";
 
-const props = defineProps<{
-  file: FileChange;
-  /** The hunks shown; the file's own, or one made from a file read whole. */
-  hunks: Hunk[];
-  /** Whether the highlighter should be asked (not for collapsed cards). */
-  highlighted: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    file: FileChange;
+    /** The hunks shown; the file's own, or one made from a file read whole. */
+    hunks: Hunk[];
+    /** Whether the highlighter should be asked (not for collapsed cards). */
+    highlighted: boolean;
+    /** Where the file's sides live; the review's target when not given. */
+    target?: ReviewTarget | null;
+    /** Changed lines can be picked (the changes screen). */
+    selectable?: boolean;
+    /** The picked lines, by `hunk:line` key. */
+    selected?: Set<string>;
+  }>(),
+  { target: undefined, selectable: false, selected: () => new Set<string>() },
+);
+
+/** `select`: the keys of the lines a click or Space named; `extend` unions them, else toggles. */
+const emit = defineEmits<{ select: [keys: string[], extend: boolean] }>();
 
 const repo = useRepoStore();
 const review = useReviewStore();
 const body = ref<HTMLElement | null>(null);
 
 const root = computed(() => repo.repo?.root ?? null);
-const target = computed(() => review.target);
+const target = computed(() => (props.target === undefined ? review.target : props.target));
 const file = computed<FileChange | null>(() => props.file);
 const layout = computed(() => review.layout);
 const rows = computed(() => rowsOf(props.hunks, review.layout));
@@ -60,11 +84,120 @@ const rendered = computed(() => {
   return list;
 });
 
-// A new file starts at the top.
+// --- Line selection ---------------------------------------------------------------------
+
+/** The row of the last plain click or toggle, where a shift-click extends from. */
+const anchorRow = ref<number | null>(null);
+/** The row the keyboard cursor rests on, if any. */
+const cursorRow = ref<number | null>(null);
+const selectableRows = computed(() => selectableRowIndexes(rows.value));
+
+function isSelected(row: DiffRowModel, side?: "left" | "right"): boolean {
+  if (row.kind === "line") return props.selected.has(rowLineKeys(row)[0] ?? "");
+  if (row.kind !== "pair") return false;
+  const index = side === "left" ? row.leftIndex : row.rightIndex;
+  return index !== null && props.selected.has(`${row.hunkIndex}:${index}`);
+}
+
+/** The keys between two rows inclusive, in row order. */
+function keysBetween(a: number, b: number): string[] {
+  const keys: string[] = [];
+  for (let i = Math.min(a, b); i <= Math.max(a, b); i += 1) {
+    const row = rows.value[i];
+    if (row) keys.push(...rowLineKeys(row));
+  }
+  return keys;
+}
+
+function pick(index: number, keys: string[], extend: boolean): void {
+  if (keys.length === 0) return;
+  if (extend && anchorRow.value !== null) {
+    emit("select", keysBetween(anchorRow.value, index), true);
+  } else {
+    emit("select", keys, false);
+    anchorRow.value = index;
+  }
+}
+
+function onRowClick(index: number, event: MouseEvent): void {
+  if (!props.selectable) return;
+  const row = rows.value[index];
+  if (!row) return;
+  pick(index, rowLineKeys(row), event.shiftKey);
+}
+
+function onSideClick(index: number, side: "left" | "right", event: MouseEvent): void {
+  if (!props.selectable) return;
+  const row = rows.value[index];
+  if (row?.kind !== "pair") return;
+  const line = side === "left" ? row.left : row.right;
+  const lineIndex = side === "left" ? row.leftIndex : row.rightIndex;
+  if (!line || line.kind === "context" || lineIndex === null) return;
+  pick(index, [`${row.hunkIndex}:${lineIndex}`], event.shiftKey);
+}
+
+/** Moves the cursor over the selectable rows; from nothing, the last click or the first row on screen. */
+function moveCursor(step: 1 | -1): void {
+  const candidates = selectableRows.value;
+  if (candidates.length === 0) return;
+  let next: number;
+  if (cursorRow.value === null && anchorRow.value !== null) {
+    next = Math.max(0, candidates.indexOf(anchorRow.value));
+  } else if (cursorRow.value === null) {
+    const first = virtual.range.value.start;
+    const at = candidates.findIndex((index) => index >= first);
+    next = at < 0 ? candidates.length - 1 : at;
+  } else {
+    const at = candidates.indexOf(cursorRow.value);
+    next = Math.min(Math.max(at + step, 0), candidates.length - 1);
+  }
+  const index = candidates[next];
+  if (index === undefined) return;
+  cursorRow.value = index;
+  revealRow(index);
+}
+
+function revealRow(index: number): void {
+  const element = body.value;
+  if (!element) return;
+  const top = virtual.rowTop(index);
+  const bottom = top + (heights.value[index] ?? 0);
+  if (top < element.scrollTop) scrollTo(top);
+  else if (bottom > element.scrollTop + element.clientHeight) {
+    scrollTo(bottom - element.clientHeight);
+  }
+}
+
+function onKeydown(event: KeyboardEvent): void {
+  if (!props.selectable || event.ctrlKey || event.metaKey || event.altKey) return;
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    moveCursor(event.key === "ArrowDown" ? 1 : -1);
+  } else if (event.key === " " && cursorRow.value !== null) {
+    event.preventDefault();
+    const row = rows.value[cursorRow.value];
+    if (row) pick(cursorRow.value, rowLineKeys(row), event.shiftKey);
+  } else if (event.key === "Escape" && cursorRow.value !== null) {
+    event.preventDefault();
+    cursorRow.value = null;
+  }
+}
+
+// A new file starts at the top, with no cursor or anchor.
 watch(
   () => props.file.path,
-  () => virtual.scrollToTop(0),
+  () => {
+    virtual.scrollToTop(0);
+    anchorRow.value = null;
+    cursorRow.value = null;
+  },
 );
+
+// A layout change renumbers the rows.
+watch(layout, () => {
+  anchorRow.value = null;
+  cursorRow.value = null;
+});
 
 function scrollTo(top: number): void {
   const element = body.value;
@@ -94,7 +227,7 @@ function onScroll(): void {
   review.currentSymbol = null;
 }
 
-defineExpose({ moveSymbol, changedSymbols: symbols.changed });
+defineExpose({ moveSymbol, changedSymbols: symbols.changed, focus: () => body.value?.focus() });
 </script>
 
 <template>
@@ -105,6 +238,7 @@ defineExpose({ moveSymbol, changedSymbols: symbols.changed });
     data-testid="diff-body"
     tabindex="0"
     @scroll.passive="onScroll"
+    @keydown="onKeydown"
   >
     <div
       class="relative"
@@ -124,14 +258,28 @@ defineExpose({ moveSymbol, changedSymbols: symbols.changed });
               :symbol="hunkSymbol(rows[index].hunk)"
               :reviewed="review.isHunkReviewed(props.file.path, rows[index].hunk)"
               @toggle-reviewed="review.toggleHunkReviewed(props.file.path, rows[index].hunk)"
-            />
+            >
+              <template v-if="$slots.hunkActions" #default>
+                <slot
+                  name="hunkActions"
+                  :hunk="rows[index].hunk"
+                  :hunk-index="rows[index].hunkIndex"
+                />
+              </template>
+            </HunkRow>
           </template>
           <template v-else-if="rows[index]?.kind === 'line'">
             <DiffRow
               :kind="lineKind(rows[index].line)"
               :old-number="rows[index].line.oldNumber ?? undefined"
               :new-number="rows[index].line.newNumber ?? undefined"
-              :class="{ 'h-auto min-h-row-diff': review.wrap }"
+              :selected="isSelected(rows[index])"
+              :cursor="cursorRow === index"
+              :class="{
+                'h-auto min-h-row-diff': review.wrap,
+                'cursor-pointer': props.selectable && rows[index].line.kind !== 'context',
+              }"
+              @click="(event: MouseEvent) => onRowClick(index, event)"
             >
               <LineContent
                 :line="rows[index].line"
@@ -147,6 +295,10 @@ defineExpose({ moveSymbol, changedSymbols: symbols.changed });
               :left-tokens="rows[index].left ? highlight.tokens.value.old(rows[index].left) : []"
               :right-tokens="rows[index].right ? highlight.tokens.value.new(rows[index].right) : []"
               :wrap="review.wrap"
+              :left-selected="isSelected(rows[index], 'left')"
+              :right-selected="isSelected(rows[index], 'right')"
+              :cursor="cursorRow === index"
+              @select-side="(side, event) => onSideClick(index, side, event)"
             />
           </template>
         </div>

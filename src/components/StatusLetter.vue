@@ -12,6 +12,7 @@ const colorClasses: Record<FileStatus, string> = {
   modified: "text-warn",
   deleted: "text-del",
   renamed: "text-warn",
+  untracked: "text-fg-muted",
 };
 </script>
 

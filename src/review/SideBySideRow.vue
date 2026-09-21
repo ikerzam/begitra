@@ -16,12 +16,28 @@ const props = withDefaults(
     leftTokens?: Token[];
     rightTokens?: Token[];
     wrap?: boolean;
+    /** The side's changed line is picked for a partial stage: `--bg-selected` over the tint. */
+    leftSelected?: boolean;
+    rightSelected?: boolean;
+    /** The selection cursor rests on this row. */
+    cursor?: boolean;
   }>(),
-  { leftTokens: () => [], rightTokens: () => [], wrap: false },
+  {
+    leftTokens: () => [],
+    rightTokens: () => [],
+    wrap: false,
+    leftSelected: false,
+    rightSelected: false,
+    cursor: false,
+  },
 );
 
-function cellClass(line: DiffLine | null): string {
+/** A click on one side, for the line selection of the changes screen. */
+const emit = defineEmits<{ selectSide: [side: "left" | "right", event: MouseEvent] }>();
+
+function cellClass(line: DiffLine | null, selected: boolean): string {
   if (!line) return "bg-hover";
+  if (selected) return "bg-selected";
   if (line.kind === "added") return "bg-add-bg";
   if (line.kind === "removed") return "bg-del-bg";
   return "hover:bg-hover";
@@ -45,12 +61,15 @@ const rightNumber = computed(() => props.right?.newNumber ?? props.right?.oldNum
 <template>
   <div
     class="grid min-h-row-diff grid-cols-2 items-stretch font-mono text-code"
+    :class="{ 'side-cursor': props.cursor }"
     data-testid="side-by-side-row"
   >
     <div
       class="side-cell grid items-start border-r border-line"
-      :class="cellClass(props.left)"
+      :class="cellClass(props.left, props.leftSelected)"
+      :data-selected="props.leftSelected ? 'true' : undefined"
       data-testid="side-left"
+      @click="(event) => emit('selectSide', 'left', event)"
     >
       <span class="pr-2 text-right text-mono-sm text-fg-muted select-none">{{ leftNumber }}</span>
       <span class="text-center select-none" :class="markerClass(props.left)">{{
@@ -66,8 +85,10 @@ const rightNumber = computed(() => props.right?.newNumber ?? props.right?.oldNum
     </div>
     <div
       class="side-cell grid items-start"
-      :class="cellClass(props.right)"
+      :class="cellClass(props.right, props.rightSelected)"
+      :data-selected="props.rightSelected ? 'true' : undefined"
       data-testid="side-right"
+      @click="(event) => emit('selectSide', 'right', event)"
     >
       <span class="pr-2 text-right text-mono-sm text-fg-muted select-none">{{ rightNumber }}</span>
       <span class="text-center select-none" :class="markerClass(props.right)">{{
@@ -89,5 +110,10 @@ const rightNumber = computed(() => props.right?.newNumber ?? props.right?.oldNum
 .side-cell {
   grid-template-columns: var(--diff-gutter-w, 44px) var(--diff-marker-w, 22px) minmax(0, 1fr);
   line-height: var(--row-diff, 20px);
+}
+
+/* The selection cursor is the focus ring drawn inside the row (see DiffRow). */
+.side-cursor {
+  box-shadow: inset 0 0 0 2px var(--focus-ring);
 }
 </style>

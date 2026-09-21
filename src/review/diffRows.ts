@@ -24,6 +24,8 @@ export interface LineRowModel {
   kind: "line";
   key: string;
   hunkIndex: number;
+  /** Index of the line inside its hunk (the selection's key with `hunkIndex`). */
+  lineIndex: number;
   line: DiffLine;
 }
 
@@ -34,6 +36,9 @@ export interface PairRowModel {
   hunkIndex: number;
   left: DiffLine | null;
   right: DiffLine | null;
+  /** Indexes of the two lines inside their hunk; null on the side without a line. */
+  leftIndex: number | null;
+  rightIndex: number | null;
 }
 
 export type DiffRowModel = HunkRowModel | LineRowModel | PairRowModel;
@@ -44,7 +49,7 @@ export function unifiedRows(hunks: Hunk[]): DiffRowModel[] {
   for (const [h, hunk] of hunks.entries()) {
     rows.push({ kind: "hunk", key: `h${h}`, hunkIndex: h, hunk });
     for (const [l, line] of hunk.lines.entries()) {
-      rows.push({ kind: "line", key: `h${h}-l${l}`, hunkIndex: h, line });
+      rows.push({ kind: "line", key: `h${h}-l${l}`, hunkIndex: h, lineIndex: l, line });
     }
   }
   return rows;
@@ -64,23 +69,35 @@ export function sideBySideRows(hunks: Hunk[]): DiffRowModel[] {
     while (i < lines.length) {
       const line = lines[i]!;
       if (line.kind === "context") {
-        rows.push({ kind: "pair", key: `h${h}-p${n}`, hunkIndex: h, left: line, right: line });
-        n += 1;
-        i += 1;
-        continue;
-      }
-      const removed: DiffLine[] = [];
-      const added: DiffLine[] = [];
-      while (i < lines.length && lines[i]!.kind === "removed") removed.push(lines[i++]!);
-      while (i < lines.length && lines[i]!.kind === "added") added.push(lines[i++]!);
-      const count = Math.max(removed.length, added.length);
-      for (let k = 0; k < count; k += 1) {
         rows.push({
           kind: "pair",
           key: `h${h}-p${n}`,
           hunkIndex: h,
-          left: removed[k] ?? null,
-          right: added[k] ?? null,
+          left: line,
+          right: line,
+          leftIndex: i,
+          rightIndex: i,
+        });
+        n += 1;
+        i += 1;
+        continue;
+      }
+      const removed: number[] = [];
+      const added: number[] = [];
+      while (i < lines.length && lines[i]!.kind === "removed") removed.push(i++);
+      while (i < lines.length && lines[i]!.kind === "added") added.push(i++);
+      const count = Math.max(removed.length, added.length);
+      for (let k = 0; k < count; k += 1) {
+        const leftIndex = removed[k] ?? null;
+        const rightIndex = added[k] ?? null;
+        rows.push({
+          kind: "pair",
+          key: `h${h}-p${n}`,
+          hunkIndex: h,
+          left: leftIndex === null ? null : lines[leftIndex]!,
+          right: rightIndex === null ? null : lines[rightIndex]!,
+          leftIndex,
+          rightIndex,
         });
         n += 1;
       }
@@ -121,6 +138,31 @@ export function rowHeights(rows: DiffRowModel[], wrap: boolean, columns: number)
 export function hunkRowIndexes(rows: DiffRowModel[]): number[] {
   const indexes: number[] = [];
   for (const [index, row] of rows.entries()) if (row.kind === "hunk") indexes.push(index);
+  return indexes;
+}
+
+/** The selection keys (`hunk:line`) of the changed lines a row holds; none for context. */
+export function rowLineKeys(row: DiffRowModel): string[] {
+  if (row.kind === "line") {
+    return row.line.kind === "context" ? [] : [`${row.hunkIndex}:${row.lineIndex}`];
+  }
+  if (row.kind === "pair") {
+    const keys: string[] = [];
+    if (row.left && row.left.kind !== "context" && row.leftIndex !== null) {
+      keys.push(`${row.hunkIndex}:${row.leftIndex}`);
+    }
+    if (row.right && row.right.kind !== "context" && row.rightIndex !== null) {
+      keys.push(`${row.hunkIndex}:${row.rightIndex}`);
+    }
+    return keys;
+  }
+  return [];
+}
+
+/** Indices of the rows that hold a changed line: what the selection cursor moves over. */
+export function selectableRowIndexes(rows: DiffRowModel[]): number[] {
+  const indexes: number[] = [];
+  for (const [index, row] of rows.entries()) if (rowLineKeys(row).length > 0) indexes.push(index);
   return indexes;
 }
 

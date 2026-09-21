@@ -10,7 +10,7 @@ import { computed, ref } from "vue";
 import { defaultSkipFolders } from "@/ipc/commands";
 import { detectPlatform, type Platform } from "@/shortcuts/platform";
 
-export type LayoutMode = "graph" | "review" | "compare" | "worktrees" | "settings";
+export type LayoutMode = "graph" | "review" | "compare" | "worktrees" | "settings" | "changes";
 export type TabWidth = 2 | 4 | 8;
 
 /** The filters a new review starts with (the settings' Diff section, "Hide by default"). */
@@ -98,7 +98,7 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   editorCommand: v.pipe(v.string(), v.minLength(1)),
   paneSizes: v.object({ sidebar: px, detail: v.nullable(px), files: px, reviewRail: px }),
   sidebarCollapsed: v.boolean(),
-  layoutMode: v.picklist(["graph", "review", "compare", "worktrees", "settings"]),
+  layoutMode: v.picklist(["graph", "review", "compare", "worktrees", "settings", "changes"]),
   locale: v.picklist(["en", "es"]),
   paletteRecents: v.array(v.string()),
   scanRoots: v.array(path),

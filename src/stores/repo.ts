@@ -220,16 +220,16 @@ export const useRepoStore = defineStore("repo", () => {
 
   /**
    * Lists the history again for `scope` and `filter`. The rows are replaced as the new pages
-   * arrive; the selected commit is selected again when the first request lists it (its change
-   * set is kept), otherwise the first row is.
+   * arrive; `selectHash` (the selected commit by default) is selected again when the first
+   * request lists it (its change set is kept), otherwise the first row is.
    */
-  function restartWalk(scope: WalkScope, filter?: WalkFilter): void {
+  function restartWalk(scope: WalkScope, filter?: WalkFilter, selectHash?: string): void {
     walkScope.value = scope;
     walkFilter.value = filter;
     const root = repo.value?.root;
     if (!root || state.value.kind !== "ready") return;
     stopWalk();
-    pendingSelection = selectedCommit.value?.hash ?? null;
+    pendingSelection = selectHash ?? selectedCommit.value?.hash ?? null;
     commits.value = [];
     walk.value = null;
     selectedIndex.value = -1;

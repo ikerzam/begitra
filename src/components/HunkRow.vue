@@ -33,17 +33,22 @@ const { t } = useI18n();
     >
       {{ props.symbol }}
     </span>
-    <!-- A ghost button whose label turns --reviewed once the hunk is marked; Button cannot recolour. -->
-    <button
-      type="button"
-      :aria-pressed="props.reviewed"
-      data-testid="hunk-row-reviewed"
-      class="ml-auto inline-flex h-control shrink-0 items-center gap-2 rounded-md px-3 text-md font-medium hover:bg-hover active:bg-active"
-      :class="props.reviewed ? 'text-reviewed' : 'text-fg-secondary hover:text-fg'"
-      @click="emit('toggleReviewed')"
-    >
-      <Check :size="16" :stroke-width="1.5" aria-hidden="true" />
-      {{ props.reviewed ? t("hunkRow.reviewed") : t("hunkRow.markReviewed") }}
-    </button>
+    <!-- The actions: the reviewed control by default; the changes screen puts its own here. -->
+    <div class="ml-auto flex shrink-0 items-center gap-2" data-testid="hunk-row-actions">
+      <slot>
+        <!-- A ghost button whose label turns --reviewed once the hunk is marked; Button cannot recolour. -->
+        <button
+          type="button"
+          :aria-pressed="props.reviewed"
+          data-testid="hunk-row-reviewed"
+          class="inline-flex h-control shrink-0 items-center gap-2 rounded-md px-3 text-md font-medium hover:bg-hover active:bg-active"
+          :class="props.reviewed ? 'text-reviewed' : 'text-fg-secondary hover:text-fg'"
+          @click="emit('toggleReviewed')"
+        >
+          <Check :size="16" :stroke-width="1.5" aria-hidden="true" />
+          {{ props.reviewed ? t("hunkRow.reviewed") : t("hunkRow.markReviewed") }}
+        </button>
+      </slot>
+    </div>
   </div>
 </template>

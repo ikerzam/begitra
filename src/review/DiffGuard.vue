@@ -12,10 +12,17 @@ import { statusOf } from "@/detail/groupFiles";
 import type { FileChange } from "@/ipc/schemas";
 import { useReviewStore } from "@/stores/review";
 
-const props = defineProps<{
-  file: FileChange;
-  reason: "large" | "generated" | "binary" | "unmerged";
-}>();
+const props = withDefaults(
+  defineProps<{
+    file: FileChange;
+    reason: "large" | "generated" | "binary" | "unmerged";
+    /** Whether "Mark reviewed" is offered (not on the changes screen). */
+    reviewable?: boolean;
+  }>(),
+  { reviewable: true },
+);
+/** "Show anyway": the owner reveals the file. */
+const emit = defineEmits<{ reveal: [] }>();
 
 const { t, n, locale } = useI18n();
 const review = useReviewStore();
@@ -55,10 +62,11 @@ const canShow = computed(() => props.reason === "large" || props.reason === "gen
       <p class="font-medium text-fg" data-testid="diff-guard-title">{{ title }}</p>
       <p class="mt-2">{{ body }}</p>
       <div class="mt-4 flex items-center gap-2">
-        <Button v-if="canShow" variant="secondary" @click="review.reveal(props.file.path)">
+        <Button v-if="canShow" variant="secondary" @click="emit('reveal')">
           {{ t("review.showAnyway") }}
         </Button>
         <Button
+          v-if="props.reviewable"
           variant="ghost"
           :icon="Check"
           :class="reviewed ? 'text-reviewed' : ''"

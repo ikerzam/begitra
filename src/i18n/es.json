@@ -34,8 +34,10 @@
       "added": "Añadido",
       "modified": "Modificado",
       "deleted": "Borrado",
-      "renamed": "Renombrado"
-    }
+      "renamed": "Renombrado",
+      "untracked": "Sin seguimiento"
+    },
+    "untracked": "?"
   },
   "toast": {
     "showGitOutput": "Ver la salida de git",
@@ -129,7 +131,23 @@
     "symbol": "En {name}",
     "worktrees": "worktrees",
     "fields": "campos",
-    "edit": "editar"
+    "edit": "editar",
+    "changes": "{unstaged} sin preparar, {staged} preparados",
+    "workingTreeClean": "Árbol de trabajo limpio",
+    "loadingChanges": "Cargando los cambios",
+    "amending": "corrigiendo {hash}",
+    "writeFailed": "{action} falló en {n} fichero | {action} falló en {n} ficheros",
+    "commitFailed": "El commit falló",
+    "stage": "preparar",
+    "commit": "commit",
+    "amend": "corregir",
+    "writeKinds": {
+      "stage": "Preparar",
+      "unstage": "Quitar de preparados",
+      "discard": "Descartar"
+    },
+    "graph": "grafo",
+    "changesFailed": "No se pudo leer el árbol de trabajo"
   },
   "operations": {
     "opening": "Abriendo {name}",
@@ -139,7 +157,12 @@
     "computingDiff": "Calculando el diff de {target}",
     "comparing": "Comparando {a} y {b}",
     "readingWorktrees": "Leyendo los worktrees",
-    "addingWorktree": "Añadiendo el worktree"
+    "addingWorktree": "Añadiendo el worktree",
+    "readingChanges": "Leyendo el árbol de trabajo",
+    "staging": "Preparando",
+    "unstaging": "Quitando de preparados",
+    "discarding": "Descartando",
+    "committing": "Creando el commit"
   },
   "home": {
     "title": "Repositorios",
@@ -396,7 +419,15 @@
       "show-worktrees": "Mostrar los worktrees",
       "add-worktree": "Añadir worktree…",
       "prune-worktrees": "Limpiar los worktrees",
-      "settings": "Ajustes…"
+      "settings": "Ajustes…",
+      "changes-focus": "Mostrar los cambios",
+      "stage-file": "Preparar el fichero o las líneas seleccionadas",
+      "unstage-file": "Quitar de preparados el fichero o las líneas seleccionadas",
+      "discard-file": "Descartar el fichero o las líneas seleccionadas…",
+      "stage-all": "Preparar todo",
+      "unstage-all": "Quitar todo de preparados",
+      "discard-all": "Descartar todo…",
+      "commit": "Commit"
     },
     "repos": "Repos"
   },
@@ -541,6 +572,62 @@
     "removeMenu": "Eliminar worktree…",
     "count": "{n} worktree enlazado | {n} worktrees enlazados"
   },
+  "changes": {
+    "title": "Cambios",
+    "unstaged": "Sin preparar",
+    "staged": "Preparados",
+    "rowMenu": "Acciones del fichero",
+    "stage": "Preparar",
+    "unstage": "Quitar de preparados",
+    "discard": "Descartar…",
+    "stageAll": "Preparar todo",
+    "unstageAll": "Quitar todo de preparados",
+    "discardAll": "Descartar todo…",
+    "unstageFile": "Quitar el fichero de preparados",
+    "discardFile": "Descartar el fichero…",
+    "stageHunk": "Preparar el hunk",
+    "unstageHunk": "Quitar el hunk de preparados",
+    "discardHunk": "Descartar el hunk…",
+    "stageLines": "Preparar las líneas",
+    "unstageLines": "Quitar las líneas de preparados",
+    "discardLines": "Descartar las líneas…",
+    "selectedLines": "{n} línea seleccionada | {n} líneas seleccionadas",
+    "lossy": "no es UTF-8, solo el fichero entero",
+    "empty": "Nada que commitear, el árbol de trabajo está limpio.",
+    "emptyViewer": "Nada que commitear, el árbol de trabajo está limpio. Edita ficheros, o deja que lo haga un agente, y aparecerán aquí.",
+    "noFile": "Elige un fichero para ver sus cambios. Usa j y k para moverte por las listas.",
+    "loadFailed": "No se pudo leer el árbol de trabajo. {message}",
+    "tryAgain": "Reintentar",
+    "reload": "Recargar",
+    "staleHunk": "git rechazó el hunk de {path}: el fichero cambió en disco después de mostrar el diff. Las listas se han recargado; elige el hunk de nuevo.",
+    "writeFailed": "{message} Las listas se han recargado.",
+    "commitFailed": "El commit no se ha creado. {message}",
+    "subject": "Asunto",
+    "subjectOver": "{n} de 72 caracteres",
+    "body": "Descripción (opcional)",
+    "amend": "Corregir el último commit",
+    "signOff": "Firmar (sign-off)",
+    "commit": "Commit",
+    "amendButton": "Corregir",
+    "amends": "Corrige {hash} · {author}",
+    "unbornAuthor": "Primer commit · {author}",
+    "discardDialog": {
+      "title": "¿Descartar {n} fichero? | ¿Descartar {n} ficheros?",
+      "linesTitle": "¿Descartar {n} línea? | ¿Descartar {n} líneas?",
+      "hunkTitle": "¿Descartar el hunk?",
+      "bodyFiles": "Los cambios sin preparar de {paths} se pierden",
+      "bodyUntracked": "{names} se borra: aún no está en seguimiento. | {names} se borran: aún no están en seguimiento.",
+      "bodyLines": "La {n} línea seleccionada de {path} se pierde. | Las {n} líneas seleccionadas de {path} se pierden.",
+      "bodyHunk": "El hunk en {range} de {path} se pierde.",
+      "cannotRecover": "Los cambios descartados no se pueden recuperar.",
+      "confirm": "Descartar {n} fichero | Descartar {n} ficheros",
+      "confirmLines": "Descartar {n} línea | Descartar {n} líneas",
+      "confirmHunk": "Descartar el hunk",
+      "and": "y",
+      "andMore": "{names} y {n} más",
+      "bodyUntrackedClause": ", y {names} se borra: aún no está en seguimiento. | , y {names} se borran: aún no están en seguimiento."
+    }
+  },
   "settings": {
     "title": "Ajustes",
     "subtitle": "Los cambios se aplican al momento y se guardan en este equipo.",
@@ -599,6 +686,7 @@
         "palette": "Paleta de comandos",
         "graphFocus": "Vista de grafo",
         "reviewFocus": "Vista de revisión",
+        "changesFocus": "Cambios",
         "toggleSidebar": "Mostrar u ocultar la barra lateral",
         "diffFrom": "Diff desde…",
         "compareWith": "Comparar con…",
@@ -608,7 +696,10 @@
         "openTerminal": "Abrir en la terminal",
         "openEditor": "Abrir en el editor",
         "addWorktree": "Añadir worktree",
-        "settings": "Ajustes"
+        "settings": "Ajustes",
+        "stageUnstageFile": "Preparar / quitar de preparados el fichero o las líneas",
+        "discardFile": "Descartar el fichero o las líneas",
+        "commit": "Commit"
       }
     }
   }

@@ -7,6 +7,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
+import ChangesLayout from "@/changes/ChangesLayout.vue";
 import DropTarget from "@/discovery/DropTarget.vue";
 import { useDragDrop } from "@/discovery/useDragDrop";
 import type { FileChange } from "@/ipc/schemas";
@@ -60,6 +61,7 @@ const reviewLayout = ref<{ focusFiles(): void } | null>(null);
 const compareLayout = ref<{ focusSides(): void } | null>(null);
 const worktreesLayout = ref<{ focusRows(): void } | null>(null);
 const settingsLayout = ref<{ focus(): void } | null>(null);
+const changesLayout = ref<{ focusLists(): void } | null>(null);
 
 const repositoryName = computed(() => (repo.repo ? baseName(repo.repo.root) : null));
 const reviewMode = computed(() => shell.layoutMode === "review" && repo.state.kind === "ready");
@@ -73,6 +75,7 @@ const worktreesMode = computed(
   () => shell.layoutMode === "worktrees" && repo.state.kind === "ready",
 );
 const settingsMode = computed(() => shell.layoutMode === "settings");
+const changesMode = computed(() => shell.layoutMode === "changes" && repo.state.kind === "ready");
 /**
  * One sidebar for every layout but review focus and the settings (which show the rail), so
  * switching layouts keeps its filter, its lists and the focus of a tab that switched to the
@@ -116,6 +119,9 @@ useShortcut("add-worktree", () => {
   if (repo.state.kind === "ready") worktrees.openAdd();
 });
 useShortcut("settings", () => void shell.setLayoutMode("settings"));
+useShortcut("changes-focus", () => {
+  if (repo.state.kind === "ready") void shell.setLayoutMode("changes");
+});
 useShortcut("diff-from", () => {
   if (repo.state.kind === "ready") picker.open({ kind: "diff-from" });
 });
@@ -197,6 +203,11 @@ watch(settingsMode, (on) => {
   if (on) void nextTick(() => settingsLayout.value?.focus());
 });
 
+// The changes screen starts on its lists ("j/k files", "s stage").
+watch(changesMode, (on) => {
+  if (on) void nextTick(() => changesLayout.value?.focusLists());
+});
+
 /** Switches to review focus, on `file` when the detail tree chose one. */
 async function review(file?: FileChange): Promise<void> {
   if (repo.state.kind !== "ready") return;
@@ -233,6 +244,7 @@ async function removeFromList(): Promise<void> {
       <CompareLayout v-else-if="compareMode" ref="compareLayout" />
       <WorktreesLayout v-else-if="worktreesMode" ref="worktreesLayout" />
       <SettingsLayout v-else-if="settingsMode" ref="settingsLayout" />
+      <ChangesLayout v-else-if="changesMode" ref="changesLayout" />
       <GraphFocusLayout
         v-else
         ref="graphLayout"

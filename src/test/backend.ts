@@ -8,6 +8,7 @@ import { mockIPC } from "@tauri-apps/api/mocks";
 import type {
   Annotation,
   AnnotationWrite,
+  CommitContext,
   CommitNode,
   DiffLine,
   DiffTarget,
@@ -15,7 +16,9 @@ import type {
   Hunk,
   IndexEntry,
   MergePreview,
+  PatchSelection,
   RepoSummary,
+  SelectionTarget,
   WalkFilter,
   WalkScope,
   Worktree,
@@ -63,6 +66,30 @@ export interface FakeBackendOptions {
   gitDetection?: { path: string; version: string } | false;
   /** The executables `set_git_executable` accepts besides "" and "git"; others fail. */
   gitExecutables?: string[];
+  /**
+   * The lists of the changes screen: what the working-tree-against-index and the index diffs
+   * answer. The staging writes move files between them by path (a partial selection keeps
+   * the file in both), discard removes them, a commit empties the staged list.
+   */
+  changes?: { unstaged: FileChange[]; staged: FileChange[] };
+  /** Every staging write rejects with `git.cli_failed` (a stale hunk). */
+  failStaging?: boolean;
+  /** `commit` rejects with `git.cli_failed` (a hook's output). */
+  failCommit?: boolean;
+  /** What `commit_context` answers, over the defaults (a born branch, no template). */
+  commitContext?: Partial<CommitContext>;
+  /** Every diff answers after this many milliseconds (the loading states, by eye). */
+  diffDelayMs?: number;
+}
+
+/** The hash `commit` answers. */
+export const FAKE_COMMIT_HASH = "c0ffee".padEnd(40, "0");
+
+/** Whether every changed line of a selection is selected. */
+function selectsWhole(selection: PatchSelection): boolean {
+  return selection.hunks.every((hunk) =>
+    hunk.lines.every((line) => line.kind === "context" || line.selected),
+  );
 }
 
 /** The main worktree at `/r` and two linked ones, one of them prunable. */
@@ -202,6 +229,25 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
   const all = Array.from({ length: total }, (_, i) => fakeCommit(i));
   const annotations: Record<string, Annotation[]> = options.annotations ?? {};
   let worktrees: Worktree[] = (options.worktrees ?? []).map((worktree) => ({ ...worktree }));
+  let unstaged: FileChange[] = [...(options.changes?.unstaged ?? [])];
+  let staged: FileChange[] = [...(options.changes?.staged ?? [])];
+  const stagingFailure = () =>
+    // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+    Promise.reject({
+      code: "git.cli_failed",
+      message: "git apply failed",
+      detail: "error: patch failed: src/lib.ts:1\nerror: src/lib.ts: patch does not apply",
+    });
+  /** Moves the files at `paths` from one list to the other. */
+  const move = (
+    paths: string[],
+    from: FileChange[],
+    to: FileChange[],
+  ): [FileChange[], FileChange[]] => {
+    const moving = from.filter((file) => paths.includes(file.path));
+    const kept = to.filter((file) => !paths.includes(file.path));
+    return [from.filter((file) => !paths.includes(file.path)), [...kept, ...moving]];
+  };
   const entryFor = (path: string, summary: RepoSummary): IndexEntry => ({
     path,
     name: path.slice(path.lastIndexOf("/") + 1),
@@ -214,10 +260,12 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
     refreshedAt: 1_700_000_000,
     missing: false,
   });
-  const send = (channel: Channel<unknown>, messages: unknown[]) => {
-    queueMicrotask(() => {
+  const send = (channel: Channel<unknown>, messages: unknown[], delayMs?: number) => {
+    const deliver = () => {
       for (const message of messages) channel.onmessage(message);
-    });
+    };
+    if (delayMs) setTimeout(deliver, delayMs);
+    else queueMicrotask(deliver);
   };
   const listFor = (scope: WalkScope, filter: WalkFilter): CommitNode[] => {
     let listed =
@@ -336,17 +384,28 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
           ]);
           return null;
         }
-        const files = fakeFiles(args["target"] as DiffTarget);
+        const target = args["target"] as DiffTarget;
+        const files = !options.changes
+          ? fakeFiles(target)
+          : target.kind === "index"
+            ? staged
+            : target.kind === "working-tree" && target.base === "index"
+              ? unstaged
+              : fakeFiles(target);
         const additions = files.reduce((n, f) => n + f.additions, 0);
         const deletions = files.reduce((n, f) => n + f.deletions, 0);
-        send(args["onPage"] as Channel<unknown>, [
-          {
-            kind: "page",
-            seq: 0,
-            data: { additions, deletions, totalFiles: files.length, files },
-          },
-          { kind: "done" },
-        ]);
+        send(
+          args["onPage"] as Channel<unknown>,
+          [
+            {
+              kind: "page",
+              seq: 0,
+              data: { additions, deletions, totalFiles: files.length, files },
+            },
+            { kind: "done" },
+          ],
+          options.diffDelayMs,
+        );
         return null;
       }
       case "read_blob": {
@@ -528,6 +587,66 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
       }
       case "path_exists":
         return options.existingPaths?.includes(args["path"] as string) ?? false;
+      case "stage_paths": {
+        if (options.failStaging) return stagingFailure();
+        [unstaged, staged] = move(args["paths"] as string[], unstaged, staged);
+        return null;
+      }
+      case "unstage_paths": {
+        if (options.failStaging) return stagingFailure();
+        [staged, unstaged] = move(args["paths"] as string[], staged, unstaged);
+        return null;
+      }
+      case "discard_paths": {
+        if (options.failStaging) return stagingFailure();
+        const gone = [...(args["tracked"] as string[]), ...(args["untracked"] as string[])];
+        unstaged = unstaged.filter((file) => !gone.includes(file.path));
+        return null;
+      }
+      case "apply_selection": {
+        if (options.failStaging) return stagingFailure();
+        const selection = args["selection"] as PatchSelection;
+        const target = args["target"] as SelectionTarget;
+        const paths = [selection.path];
+        if (selectsWhole(selection)) {
+          if (target === "stage") [unstaged, staged] = move(paths, unstaged, staged);
+          else if (target === "unstage") [staged, unstaged] = move(paths, staged, unstaged);
+          else unstaged = unstaged.filter((file) => file.path !== selection.path);
+        } else if (target !== "discard") {
+          // Part of the file crosses: it is now in both lists.
+          const source = target === "stage" ? unstaged : staged;
+          const file = source.find((entry) => entry.path === selection.path);
+          if (file && target === "stage" && !staged.some((f) => f.path === file.path)) {
+            staged = [...staged, file];
+          } else if (file && target === "unstage" && !unstaged.some((f) => f.path === file.path)) {
+            unstaged = [...unstaged, file];
+          }
+        }
+        return null;
+      }
+      case "commit": {
+        if (options.failCommit) {
+          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+          return Promise.reject({
+            code: "git.cli_failed",
+            message: "git commit failed",
+            detail:
+              "husky - commit-msg hook exited with code 1 (error)\nsubject must start with a type",
+          });
+        }
+        staged = [];
+        return { hash: FAKE_COMMIT_HASH };
+      }
+      case "commit_context":
+        return {
+          author: "Iker Z. <iker@x>",
+          template: null,
+          headMessage: "fix(auth): commit 0",
+          unborn: false,
+          operation: "none",
+          preparedMessage: null,
+          ...options.commitContext,
+        } satisfies CommitContext;
       case "refresh_repository": {
         const path = args["path"] as string;
         const summary = options.summaries?.[path];

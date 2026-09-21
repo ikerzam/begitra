@@ -10,6 +10,7 @@ import { shortcutRegistry } from "@/shortcuts/registry";
 import { useIndexStore } from "@/stores/index";
 import { useOperationsStore } from "@/stores/operations";
 import { useRepoStore } from "@/stores/repo";
+import { useChangesStore } from "@/stores/changes";
 import { useCompareStore } from "@/stores/compare";
 import { targetLabel, useReviewStore } from "@/stores/review";
 import { useShellStore } from "@/stores/shell";
@@ -25,6 +26,7 @@ const index = useIndexStore();
 const operations = useOperationsStore();
 const review = useReviewStore();
 const compare = useCompareStore();
+const changes = useChangesStore();
 const home = useHomeDir();
 
 /** The open repository, or the folder being opened or that failed to open. */
@@ -84,6 +86,38 @@ const diffFailed = computed(() => {
     : t("statusBar.diffFailedAll");
 });
 
+/** Changes: the counts, the clean tree, the loading, or the write that failed (in danger). */
+const changesText = computed<{ text: string; failed: boolean }>(() => {
+  if (shell.layoutMode !== "changes" || repo.state.kind !== "ready") {
+    return { text: "", failed: false };
+  }
+  const failed = changes.failed;
+  if (failed) {
+    const text =
+      failed.kind === "commit"
+        ? t("statusBar.commitFailed")
+        : t(
+            "statusBar.writeFailed",
+            { action: t(`statusBar.writeKinds.${failed.kind}`), n: failed.files },
+            failed.files,
+          );
+    return { text, failed: true };
+  }
+  if (changes.error) return { text: t("statusBar.changesFailed"), failed: true };
+  if (!changes.loaded || (changes.loading && changes.unstagedCount + changes.stagedCount === 0)) {
+    return { text: t("statusBar.loadingChanges"), failed: false };
+  }
+  if (changes.isEmpty) return { text: t("statusBar.workingTreeClean"), failed: false };
+  const counts = t("statusBar.changes", {
+    unstaged: changes.unstagedCount,
+    staged: changes.stagedCount,
+  });
+  const head = repo.currentBranch?.target ?? repo.commits[0]?.hash;
+  const amending =
+    changes.draft.amend && head ? ` · ${t("statusBar.amending", { hash: shortHash(head) })}` : "";
+  return { text: `${counts}${amending}`, failed: false };
+});
+
 /** With no repository open: how many the index holds, or that there are none. */
 const indexText = computed(() =>
   index.counts.repositories > 0
@@ -127,6 +161,28 @@ const hints = computed(() => {
       { keys: registry.hint("palette"), label: t("statusBar.commands") },
     ];
   }
+  if (shell.layoutMode === "changes") {
+    // A clean tree (or one still loading) has nothing to stage: the way back to the graph
+    // and the palette instead.
+    if (
+      changes.isEmpty ||
+      !changes.loaded ||
+      (changes.loading && changes.unstagedCount + changes.stagedCount === 0)
+    ) {
+      return [
+        { keys: registry.hint("graph-focus"), label: t("statusBar.graph") },
+        { keys: registry.hint("palette"), label: t("statusBar.commands") },
+      ];
+    }
+    return [
+      { keys: "j/k", label: t("statusBar.files") },
+      { keys: registry.hint("stage-file"), label: t("statusBar.stage") },
+      {
+        keys: registry.hint("commit"),
+        label: changes.draft.amend ? t("statusBar.amend") : t("statusBar.commit"),
+      },
+    ];
+  }
   return [
     { keys: "j/k", label: t("statusBar.commits") },
     { keys: "↵", label: t("statusBar.review") },
@@ -162,6 +218,13 @@ const hints = computed(() => {
         {{ path }}
       </span>
     </template>
+    <span
+      v-if="changesText.text"
+      :class="changesText.failed ? 'text-danger' : 'text-fg-muted'"
+      data-testid="status-changes"
+    >
+      {{ changesText.text }}
+    </span>
     <span v-if="historyStopped" class="text-danger" data-testid="status-history-stopped">
       {{ historyStopped }}
     </span>

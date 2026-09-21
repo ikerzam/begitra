@@ -11,8 +11,19 @@ const props = withDefaults(
     newNumber?: number;
     /** Plain code; use the default slot instead to mark intra-line emphasis spans. */
     code?: string;
+    /** A changed line picked for a partial stage: `--bg-selected` over the tint. */
+    selected?: boolean;
+    /** The selection cursor rests here (the keyboard's way to pick lines). */
+    cursor?: boolean;
   }>(),
-  { kind: "context", oldNumber: undefined, newNumber: undefined, code: "" },
+  {
+    kind: "context",
+    oldNumber: undefined,
+    newNumber: undefined,
+    code: "",
+    selected: false,
+    cursor: false,
+  },
 );
 
 const rowClasses: Record<DiffLineKind, string> = {
@@ -35,9 +46,13 @@ const markerClass = computed(() => {
 <template>
   <div
     :data-kind="props.kind"
+    :data-selected="props.selected ? 'true' : undefined"
     data-testid="diff-row"
     class="diff-row grid h-row-diff items-center font-mono text-code whitespace-pre"
-    :class="rowClasses[props.kind]"
+    :class="[
+      props.selected ? 'bg-selected' : rowClasses[props.kind],
+      { 'diff-row-cursor': props.cursor },
+    ]"
   >
     <span
       class="pr-2 text-right text-mono-sm text-fg-muted select-none"
@@ -64,5 +79,10 @@ const markerClass = computed(() => {
   grid-template-columns:
     var(--diff-gutter-w, 44px) var(--diff-gutter-w, 44px) var(--diff-marker-w, 22px)
     minmax(0, 1fr);
+}
+
+/* The cursor is the focus ring drawn inside the row, so it never widens the list. */
+.diff-row-cursor {
+  box-shadow: inset 0 0 0 2px var(--focus-ring);
 }
 </style>

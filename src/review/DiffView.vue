@@ -111,7 +111,12 @@ useShortcut("mark-reviewed", () => {
       :target="review.target"
       :file="props.file"
     />
-    <DiffGuard v-else-if="guard" :file="props.file" :reason="guard" />
+    <DiffGuard
+      v-else-if="guard"
+      :file="props.file"
+      :reason="guard"
+      @reveal="review.reveal(props.file.path)"
+    />
     <DiffRows
       v-else-if="hunks.length > 0 || !failed"
       :file="props.file"

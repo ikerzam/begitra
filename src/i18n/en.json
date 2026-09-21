@@ -34,8 +34,10 @@
       "added": "Added",
       "modified": "Modified",
       "deleted": "Deleted",
-      "renamed": "Renamed"
-    }
+      "renamed": "Renamed",
+      "untracked": "Untracked"
+    },
+    "untracked": "?"
   },
   "toast": {
     "showGitOutput": "Show git output",
@@ -129,7 +131,23 @@
     "symbol": "At {name}",
     "worktrees": "worktrees",
     "fields": "fields",
-    "edit": "edit"
+    "edit": "edit",
+    "changes": "{unstaged} unstaged, {staged} staged",
+    "workingTreeClean": "Working tree clean",
+    "loadingChanges": "Loading changes",
+    "amending": "amending {hash}",
+    "writeFailed": "{action} failed for {n} file | {action} failed for {n} files",
+    "commitFailed": "Commit failed",
+    "stage": "stage",
+    "commit": "commit",
+    "amend": "amend",
+    "writeKinds": {
+      "stage": "Stage",
+      "unstage": "Unstage",
+      "discard": "Discard"
+    },
+    "graph": "graph",
+    "changesFailed": "Couldn't read the working tree"
   },
   "operations": {
     "opening": "Opening {name}",
@@ -139,7 +157,12 @@
     "computingDiff": "Computing diff for {target}",
     "comparing": "Comparing {a} and {b}",
     "readingWorktrees": "Reading worktrees",
-    "addingWorktree": "Adding worktree"
+    "addingWorktree": "Adding worktree",
+    "readingChanges": "Reading the working tree",
+    "staging": "Staging",
+    "unstaging": "Unstaging",
+    "discarding": "Discarding",
+    "committing": "Committing"
   },
   "home": {
     "title": "Repositories",
@@ -396,7 +419,15 @@
       "show-worktrees": "Show worktrees",
       "add-worktree": "Add worktree…",
       "prune-worktrees": "Prune worktrees",
-      "settings": "Settings…"
+      "settings": "Settings…",
+      "changes-focus": "Show changes",
+      "stage-file": "Stage the selected file or lines",
+      "unstage-file": "Unstage the selected file or lines",
+      "discard-file": "Discard the selected file or lines…",
+      "stage-all": "Stage all",
+      "unstage-all": "Unstage all",
+      "discard-all": "Discard all…",
+      "commit": "Commit"
     },
     "repos": "Repos"
   },
@@ -541,6 +572,62 @@
     "removeMenu": "Remove worktree…",
     "count": "{n} linked worktree | {n} linked worktrees"
   },
+  "changes": {
+    "title": "Changes",
+    "unstaged": "Unstaged",
+    "staged": "Staged",
+    "rowMenu": "File actions",
+    "stage": "Stage",
+    "unstage": "Unstage",
+    "discard": "Discard…",
+    "stageAll": "Stage all",
+    "unstageAll": "Unstage all",
+    "discardAll": "Discard all…",
+    "unstageFile": "Unstage file",
+    "discardFile": "Discard file…",
+    "stageHunk": "Stage hunk",
+    "unstageHunk": "Unstage hunk",
+    "discardHunk": "Discard hunk…",
+    "stageLines": "Stage lines",
+    "unstageLines": "Unstage lines",
+    "discardLines": "Discard lines…",
+    "selectedLines": "{n} line selected | {n} lines selected",
+    "lossy": "not UTF-8, whole file only",
+    "empty": "Nothing to commit, the working tree is clean.",
+    "emptyViewer": "Nothing to commit, the working tree is clean. Edit files, or let an agent, and they show up here.",
+    "noFile": "Select a file to see its changes. Use j and k to move through the lists.",
+    "loadFailed": "Couldn't read the working tree. {message}",
+    "tryAgain": "Try again",
+    "reload": "Reload",
+    "staleHunk": "git refused the hunk of {path}: the file changed on disk after the diff was shown. The lists were reloaded; pick the hunk again.",
+    "writeFailed": "{message} The lists were reloaded.",
+    "commitFailed": "The commit was not made. {message}",
+    "subject": "Subject",
+    "subjectOver": "{n} of 72 characters",
+    "body": "Description (optional)",
+    "amend": "Amend last commit",
+    "signOff": "Sign off",
+    "commit": "Commit",
+    "amendButton": "Amend",
+    "amends": "Amends {hash} · {author}",
+    "unbornAuthor": "First commit · {author}",
+    "discardDialog": {
+      "title": "Discard {n} file? | Discard {n} files?",
+      "linesTitle": "Discard {n} line? | Discard {n} lines?",
+      "hunkTitle": "Discard hunk?",
+      "bodyFiles": "The unstaged changes to {paths} are lost",
+      "bodyUntracked": "{names} is deleted: it is not tracked yet. | {names} are deleted: they are not tracked yet.",
+      "bodyLines": "The {n} selected line of {path} is lost. | The {n} selected lines of {path} are lost.",
+      "bodyHunk": "The hunk at {range} of {path} is lost.",
+      "cannotRecover": "Discarded changes cannot be recovered.",
+      "confirm": "Discard {n} file | Discard {n} files",
+      "confirmLines": "Discard {n} line | Discard {n} lines",
+      "confirmHunk": "Discard hunk",
+      "and": "and",
+      "andMore": "{names} and {n} more",
+      "bodyUntrackedClause": ", and {names} is deleted: it is not tracked yet. | , and {names} are deleted: they are not tracked yet."
+    }
+  },
   "settings": {
     "title": "Settings",
     "subtitle": "Changes apply immediately and are stored on this machine.",
@@ -599,6 +686,7 @@
         "palette": "Command palette",
         "graphFocus": "Graph focus",
         "reviewFocus": "Review focus",
+        "changesFocus": "Changes",
         "toggleSidebar": "Toggle sidebar",
         "diffFrom": "Diff from…",
         "compareWith": "Compare with…",
@@ -608,7 +696,10 @@
         "openTerminal": "Open in terminal",
         "openEditor": "Open in editor",
         "addWorktree": "Add worktree",
-        "settings": "Settings"
+        "settings": "Settings",
+        "stageUnstageFile": "Stage / unstage file or lines",
+        "discardFile": "Discard file or lines",
+        "commit": "Commit"
       }
     }
   }

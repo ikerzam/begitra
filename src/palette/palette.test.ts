@@ -8,6 +8,7 @@ const labels: Record<string, string> = {
   "palette.commandsById.open-folder": "Open folder…",
   "palette.commandsById.graph-focus": "Switch to graph focus",
   "palette.commandsById.review-focus": "Switch to review focus",
+  "palette.commandsById.changes-focus": "Show changes",
   "palette.commandsById.toggle-sidebar": "Toggle sidebar",
   "palette.commandsById.open-terminal": "Open in terminal",
   "palette.commandsById.open-editor": "Open in editor",
@@ -138,6 +139,14 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
       calls.push("compareWith");
     },
     inComparison: () => false,
+    showChanges: () => {
+      calls.push("showChanges");
+      return Promise.resolve();
+    },
+    inChanges: () => false,
+    changesAll: (action) => {
+      calls.push(`changesAll:${action}`);
+    },
     swapComparison: () => {
       calls.push("swapComparison");
       return Promise.resolve();
@@ -193,6 +202,7 @@ describe("usePalette", () => {
       "open-folder",
       "graph-focus",
       "review-focus",
+      "changes-focus",
       "toggle-sidebar",
       "open-terminal",
       "open-editor",
@@ -247,7 +257,17 @@ describe("usePalette", () => {
     await pinned.palette.run(find("scan-folders"));
     await find("add-scan-folder").command.run();
     await find("go-to-repositories").command.run();
-    expect(pinned.acts.calls).toEqual(["pin:false", "scan", "addScanFolder", "goToRepositories"]);
+    await find("changes-focus").command.run();
+    expect(pinned.acts.calls).toEqual([
+      "pin:false",
+      "scan",
+      "addScanFolder",
+      "goToRepositories",
+      "showChanges",
+    ]);
+    // The staging commands wait for the changes screen.
+    expect(ids).not.toContain("stage-all");
+    expect(ids).not.toContain("commit");
 
     const outside = setup({ pinned: null });
     ids = outside.palette.rows.value.map((r) => r.command.id);

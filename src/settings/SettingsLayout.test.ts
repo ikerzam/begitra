@@ -56,11 +56,14 @@ describe("SettingsLayout", () => {
     expect(input(wrapper, "skip-folders").element.value).toBe(defaultSkipFolders.join(", "));
     expect(input(wrapper, "max-depth").element.value).toBe("6");
     const rows = wrapper.findAll('[data-testid="shortcut-rows"] li');
-    expect(rows).toHaveLength(13);
+    expect(rows).toHaveLength(17);
     expect(rows[0]?.text()).toContain("Command palette");
     expect(rows[0]?.find("kbd").text()).toBe("Ctrl K");
     const pair = wrapper.get('[data-testid="shortcut-nextPreviousCommitOrFile"]');
     expect(pair.findAll("kbd").map((k) => k.text())).toEqual(["j", "k"]);
+    const staging = wrapper.get('[data-testid="shortcut-stageUnstageFile"]');
+    expect(staging.findAll("kbd").map((k) => k.text())).toEqual(["s", "u"]);
+    expect(wrapper.get('[data-testid="shortcut-commit"]').find("kbd").text()).toBe("Ctrl ↵");
     expect(wrapper.text()).toContain(
       "Shortcuts follow the platform: ⌘ is Ctrl on Windows and Linux.",
     );

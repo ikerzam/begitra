@@ -52,6 +52,11 @@ export interface PaletteActions {
   swapComparison: () => Promise<void>;
   openComparisonInReview: () => Promise<void>;
   showWorktrees: () => Promise<void>;
+  /** Opens the changes screen. */
+  showChanges: () => Promise<void>;
+  inChanges: () => boolean;
+  /** "Stage all", "Unstage all" and "Discard all…" of the changes screen. */
+  changesAll: (action: "stage" | "unstage" | "discard") => void;
   openSettings: () => Promise<void>;
   addWorktree: () => void;
   /** Whether some worktree entry can be pruned (its folder is gone). */
@@ -82,6 +87,13 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       shortcutId: "review-focus",
       enabled: always,
       run: actions.setReviewFocus,
+    },
+    {
+      id: "changes-focus",
+      labelKey: "palette.commandsById.changes-focus",
+      shortcutId: "changes-focus",
+      enabled: withRepo,
+      run: actions.showChanges,
     },
     {
       id: "toggle-sidebar",
@@ -237,6 +249,19 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       enabled: () => withRepo() && actions.hasPrunableWorktrees(),
       run: actions.pruneWorktrees,
     },
+    ...["stage-file", "unstage-file", "discard-file", "commit"].map((id) => ({
+      id,
+      labelKey: `palette.commandsById.${id}`,
+      shortcutId: id,
+      enabled: () => withRepo() && actions.inChanges(),
+      run: () => actions.runShortcut(id),
+    })),
+    ...(["stage", "unstage", "discard"] as const).map((action) => ({
+      id: `${action}-all`,
+      labelKey: `palette.commandsById.${action}-all`,
+      enabled: () => withRepo() && actions.inChanges(),
+      run: () => actions.changesAll(action),
+    })),
     {
       id: "toggle-overview",
       labelKey: "palette.commandsById.toggle-overview",

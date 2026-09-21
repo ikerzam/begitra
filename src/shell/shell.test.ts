@@ -304,6 +304,15 @@ function backend(
         };
       case "merge_preview":
         return { kind: "up-to-date", conflicts: [] };
+      case "commit_context":
+        return {
+          author: "Iker Z. <iker@x>",
+          template: null,
+          headMessage: "feat: change 0",
+          unborn: false,
+          operation: "none",
+          preparedMessage: null,
+        };
       case "list_worktrees":
         return [
           {
@@ -619,6 +628,33 @@ describe("AppShell", () => {
     expect(wrapper.find('[data-testid="review-rail"]').exists()).toBe(false);
     await wrapper.get('[data-testid="show-overview"]').trigger("click");
     expect(wrapper.find('[data-testid="review-rail"]').exists()).toBe(true);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "1", ctrlKey: true }));
+    await settle();
+    expect(wrapper.find('[data-testid="graph-focus"]').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("switches to the changes screen with Ctrl 3, keeps the sidebar, counts in the status bar", async () => {
+    backend();
+    const shell = useShellStore();
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    shell.setWindowWidth(1440);
+    await useRepoStore().open("/r");
+    await settle();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "3", ctrlKey: true }));
+    await settle();
+    expect(shell.layoutMode).toBe("changes");
+    expect(wrapper.find('[data-testid="changes-screen"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="sidebar"]').exists()).toBe(true);
+    // The same two files answer both diffs of the fake: two unstaged, two staged.
+    expect(wrapper.get('[data-testid="status-changes"]').text()).toBe("2 unstaged, 2 staged");
+    expect(wrapper.get('[data-testid="status-hints"]').text()).toContain("stage");
+    expect(wrapper.get('[data-testid="status-hints"]').text()).toContain("Ctrl ↵");
+    // The lists have the focus, so j moves the selected file.
+    expect(document.activeElement?.getAttribute("data-path")).toBe("src/app.ts");
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "j" }));
+    await settle();
+    expect(wrapper.get('[data-testid="changes-path"]').text()).toBe("pnpm-lock.yaml");
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "1", ctrlKey: true }));
     await settle();
     expect(wrapper.find('[data-testid="graph-focus"]').exists()).toBe(true);
