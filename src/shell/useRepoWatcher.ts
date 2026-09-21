@@ -1,6 +1,7 @@
 // Keeps the open repository current: starts the filesystem watcher when a repository opens
 // (a watcher that cannot start becomes a toast: the repository stays open without change
-// detection), and on `repo:changed` refreshes the refs when they changed, the worktree list
+// detection), and on `repo:changed` refreshes the refs when they changed (and lists the
+// history again when a tip moved, unless the app's own write just did), the worktree list
 // when a worktree came or went, and the index entry on any change. The backend debounces, so
 // nothing is coalesced here.
 
@@ -47,10 +48,18 @@ export function useRepoWatcher(): void {
     }
   }
 
+  /** A tip moved outside the app (a terminal, an agent): the graph follows, selection kept. */
+  async function followRefs(): Promise<void> {
+    const { tipsMoved } = await repo.refreshRefs();
+    if (tipsMoved && !repo.recentlyRestarted()) {
+      repo.restartWalk(repo.walkScope, repo.walkFilter);
+    }
+  }
+
   function onChange(change: RepoChanged): void {
     const root = repo.repo?.root;
     if (!root || change.repo !== root) return;
-    if (change.kinds.includes("refs")) void repo.refreshRefs();
+    if (change.kinds.includes("refs")) void followRefs();
     if (change.kinds.includes("worktrees")) void repo.loadWorktrees();
     review.onRepoChanged(change.kinds);
     compare.onRepoChanged(change.kinds);

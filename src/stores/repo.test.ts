@@ -3,10 +3,10 @@ import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { CommitNode, Repo } from "@/ipc/schemas";
+import type { CommitNode, Ref as GitRef, Repo } from "@/ipc/schemas";
 
 import { useOperationsStore } from "./operations";
-import { useRepoStore } from "./repo";
+import { tipsSignature, useRepoStore } from "./repo";
 import { useSettingsStore } from "./settings";
 
 const repo: Repo = {
@@ -51,6 +51,8 @@ interface BackendOptions {
   openGate?: Promise<void>;
   /** Walk pages are delivered only after this promise resolves. */
   walkGate?: Promise<void>;
+  /** What `list_refs` answers instead of the one `main`. */
+  refs?: GitRef[];
 }
 
 function mockBackend(options: BackendOptions = {}): Call[] {
@@ -83,6 +85,7 @@ function mockBackend(options: BackendOptions = {}): Call[] {
           // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
           return Promise.reject({ code: "internal", message: "refs exploded" });
         }
+        if (options.refs) return options.refs.map((entry) => ({ ...entry }));
         return [
           {
             name: "main",
@@ -464,18 +467,42 @@ describe("repo store, after the review", () => {
     expect(settings.values.lastRepository).toBeNull();
   });
 
-  it("refreshes the refs on demand and ignores a listing that fails", async () => {
+  it("refreshes the refs on demand, says whether a tip moved, and ignores a listing that fails", async () => {
     const calls = mockBackend();
     const store = useRepoStore();
     await store.open("/r");
-    await store.refreshRefs();
+    expect(await store.refreshRefs()).toEqual({ tipsMoved: false });
     expect(calls.filter((c) => c.cmd === "list_refs")).toHaveLength(2);
     expect(store.refs).toHaveLength(1);
     clearMocks();
     mockBackend({ refsFail: true });
-    await store.refreshRefs();
+    expect(await store.refreshRefs()).toEqual({ tipsMoved: false });
     expect(store.refs).toHaveLength(1);
     expect(store.state.kind).toBe("ready");
+    // A branch pointing elsewhere is a moved tip; a stash entry is not.
+    const main = store.refs[0]!;
+    clearMocks();
+    mockBackend({ refs: [{ ...main, target: commit(5).hash }] });
+    expect(await store.refreshRefs()).toEqual({ tipsMoved: true });
+    clearMocks();
+    mockBackend({
+      refs: [
+        { ...main, target: commit(5).hash },
+        {
+          ...main,
+          name: "stash@{0}",
+          fullName: "refs/stash",
+          kind: "stash",
+          target: "f".repeat(40),
+        },
+      ],
+    });
+    expect(await store.refreshRefs()).toEqual({ tipsMoved: false });
+    expect(tipsSignature(store.refs)).toBe(`refs/heads/main=${commit(5).hash}`);
+    expect(store.recentlyRestarted()).toBe(false);
+    store.restartWalk(store.walkScope, store.walkFilter);
+    expect(store.recentlyRestarted()).toBe(true);
+    expect(store.recentlyRestarted(0)).toBe(false);
   });
 
   it("marks the refs as loaded once they arrive", async () => {

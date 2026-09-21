@@ -51,6 +51,15 @@ export interface Detail {
 /** Pages requested per walk call; 4 pages of 500 keep the first paint fast and memory bounded. */
 export const PAGES_PER_REQUEST = 4;
 
+/** Where the tips point: every ref but the stash entries, as `fullName=target` sorted. */
+export function tipsSignature(refs: GitRef[]): string {
+  return refs
+    .filter((entry) => entry.kind !== "stash")
+    .map((entry) => `${entry.fullName}=${entry.target}`)
+    .sort()
+    .join("|");
+}
+
 export const useRepoStore = defineStore("repo", () => {
   const operations = useOperationsStore();
   const settings = useSettingsStore();
@@ -87,6 +96,8 @@ export const useRepoStore = defineStore("repo", () => {
   let walkSerial = 0;
   /** Hash to select again once a restarted walk lists it. */
   let pendingSelection: string | null = null;
+  /** When the walk was last listed again, for the watcher (see `recentlyRestarted`). */
+  let lastRestartAt = 0;
 
   const selectedCommit = computed<CommitNode | undefined>(() => commits.value[selectedIndex.value]);
   const canLoadMore = computed(
@@ -228,6 +239,7 @@ export const useRepoStore = defineStore("repo", () => {
     walkFilter.value = filter;
     const root = repo.value?.root;
     if (!root || state.value.kind !== "ready") return;
+    lastRestartAt = Date.now();
     stopWalk();
     pendingSelection = selectHash ?? selectedCommit.value?.hash ?? null;
     commits.value = [];
@@ -391,20 +403,33 @@ export const useRepoStore = defineStore("repo", () => {
   }
 
   /** Lists the refs again (after a `repo:changed` with refs, or a branch switch outside). */
-  async function refreshRefs(): Promise<void> {
+  /**
+   * Lists the refs again; `tipsMoved` says whether HEAD, a branch or a tag points somewhere
+   * else than before (a stash entry or a reflog touch does not count), so the watcher knows
+   * when the history must be listed again.
+   */
+  async function refreshRefs(): Promise<{ tipsMoved: boolean }> {
     const root = repo.value?.root;
-    if (!root) return;
+    if (!root) return { tipsMoved: false };
     const myGeneration = generation;
+    const before = tipsSignature(refs.value);
     try {
       const listed = await ipc.listRefs(root);
-      if (myGeneration !== generation) return;
+      if (myGeneration !== generation) return { tipsMoved: false };
       refs.value = listed;
       refsLoaded.value = true;
       refsError.value = null;
+      return { tipsMoved: tipsSignature(listed) !== before };
     } catch (error) {
       // The refs shown stay until the next change; the picker reports the failure.
       if (myGeneration === generation) refsError.value = toAppError(error);
+      return { tipsMoved: false };
     }
+  }
+
+  /** Whether the walk was listed again within `withinMs` (the app's own writes do it). */
+  function recentlyRestarted(withinMs = 2000): boolean {
+    return Date.now() - lastRestartAt < withinMs;
   }
 
   /** Closes the repository and returns to the home screen, which the next launch shows too. */
@@ -445,6 +470,7 @@ export const useRepoStore = defineStore("repo", () => {
     open,
     loadMore,
     restartWalk,
+    recentlyRestarted,
     loadWorktrees,
     refreshRefs,
     select,

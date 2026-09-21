@@ -99,8 +99,11 @@ function backend(
     emptyIndex?: boolean;
     /** A merge stopped on this conflicted path. */
     conflict?: string;
+    /** The commit `main` and `origin/main` point at; the test moves it to fake a commit outside. */
+    tip?: { index: number };
   } = {},
 ) {
+  const tip = options.tip ?? { index: 0 };
   const calls: string[] = [];
   /** The fake index: forgets drop entries and a gone folder is flagged on refresh. */
   let listed = options.emptyIndex ? [] : indexEntries.map((entry) => ({ ...entry }));
@@ -134,7 +137,7 @@ function backend(
             name: "main",
             fullName: "refs/heads/main",
             kind: "local-branch",
-            target: commit(0).hash,
+            target: commit(tip.index).hash,
             isCurrent: true,
             upstream: "origin/main",
             ahead: 2,
@@ -146,7 +149,7 @@ function backend(
             name: "origin/main",
             fullName: "refs/remotes/origin/main",
             kind: "remote-branch",
-            target: commit(0).hash,
+            target: commit(tip.index).hash,
             isCurrent: false,
             upstream: null,
             ahead: null,
@@ -415,6 +418,39 @@ describe("launch and the watcher", () => {
     await settle();
     expect(calls.filter((c) => c === "list_worktrees")).toHaveLength(worktreeListings + 1);
     expect(useSettingsStore().values.lastRepository).toBe("/r");
+    wrapper.unmount();
+  });
+
+  it("lists the history again when a tip moved outside the app, keeping the selection", async () => {
+    await useSettingsStore().init(memoryStorage({ lastRepository: "/r" }), "windows");
+    const tip = { index: 0 };
+    const calls = backend({ tip });
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    await settle();
+    const repo = useRepoStore();
+    const walks = () => calls.filter((c) => c === "walk_commits").length;
+    expect(walks()).toBe(1);
+    repo.select(1);
+    expect(repo.selectedCommit?.hash).toBe(commit(1).hash);
+    // A refs event that moves no tip (a reflog touch, packed-refs rewritten): no new walk.
+    await emit("repo:changed", { repo: "/r", kinds: ["refs"], paths: [] });
+    await settle();
+    expect(walks()).toBe(1);
+    // A commit from a terminal: the tip moves, the history is listed again, the selection stays.
+    tip.index = 3;
+    await emit("repo:changed", { repo: "/r", kinds: ["refs"], paths: [] });
+    await settle();
+    expect(walks()).toBe(2);
+    expect(repo.selectedCommit?.hash).toBe(commit(1).hash);
+    // The app's own write listed the history itself: the event that follows does not again.
+    repo.restartWalk(repo.walkScope, repo.walkFilter, commit(2).hash);
+    await settle();
+    expect(walks()).toBe(3);
+    tip.index = 4;
+    await emit("repo:changed", { repo: "/r", kinds: ["refs"], paths: [] });
+    await settle();
+    expect(walks()).toBe(3);
+    expect(repo.selectedCommit?.hash).toBe(commit(2).hash);
     wrapper.unmount();
   });
 
