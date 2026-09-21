@@ -145,6 +145,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "begira-cli"
+version = "0.1.0"
+dependencies = [
+ "git-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "bench"
 version = "0.1.0"
 dependencies = [

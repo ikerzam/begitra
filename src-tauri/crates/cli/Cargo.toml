@@ -1,0 +1,24 @@
+[package]
+name = "begira-cli"
+description = "Headless JSON CLI over Begira's git engine, for scripts and agents"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+git-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lib]
+name = "begira_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "begira-cli"
+path = "src/main.rs"
