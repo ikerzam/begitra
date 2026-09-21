@@ -8,8 +8,10 @@ use std::sync::Arc;
 use crate::error::{GitError, GitResult};
 use crate::types::{
     BlobAt, BlobContent, ChangeSet, ChangeSetPage, CommitContext, CommitCount, CommitRequest,
-    Comparison, DiffOptions, DiffTarget, MergePreview, Page, PatchSelection, Ref, Repo,
-    SelectionTarget, StatusEntry, StatusOptions, WalkOptions, WalkScope, Worktree, WorktreeAdd,
+    Comparison, Conflict, DiffOptions, DiffTarget, MergeMode, MergePreview, NetworkResult,
+    OperationState, Outcome, Page, PatchSelection, PullRequest, PushRequest, Ref, Remote, Repo,
+    ResetMode, SelectionTarget, SequencerAction, StashPush, StatusEntry, StatusOptions,
+    SwitchTarget, WalkOptions, WalkScope, Worktree, WorktreeAdd,
 };
 
 /// Cooperative cancellation flag checked by long operations between units of work.
@@ -226,4 +228,117 @@ pub trait GitEngine: Send + Sync {
 
     /// The author ident, the commit template, HEAD's message and whether HEAD is unborn.
     fn commit_context(&self, cancel: &Cancel) -> GitResult<CommitContext>;
+
+    /// Creates a branch at `start` (`git branch`), checking it out at once when asked
+    /// (`git switch -c`).
+    fn branch_create(
+        &self,
+        name: &str,
+        start: &str,
+        checkout: bool,
+        cancel: &Cancel,
+    ) -> GitResult<()>;
+
+    /// Switches to a branch or a detached revision (`git switch`); git's refusal when local
+    /// changes would be overwritten is [`GitError::Cli`] with its message and nothing changes.
+    fn switch(&self, target: &SwitchTarget, cancel: &Cancel) -> GitResult<()>;
+
+    /// Renames a branch (`git branch -m`).
+    fn branch_rename(&self, from: &str, to: &str, cancel: &Cancel) -> GitResult<()>;
+
+    /// Deletes a branch (`git branch -d`, `-D` when forced); git's refusal of an unmerged
+    /// branch is [`GitError::Cli`].
+    fn branch_delete(&self, name: &str, force: bool, cancel: &Cancel) -> GitResult<()>;
+
+    /// Merges a revision into HEAD; a stop on conflicts is an [`Outcome`], not an error.
+    fn merge(&self, rev: &str, mode: MergeMode, cancel: &Cancel) -> GitResult<Outcome>;
+
+    /// Rebases HEAD onto a revision, never interactively.
+    fn rebase(&self, onto: &str, cancel: &Cancel) -> GitResult<Outcome>;
+
+    /// Resets HEAD (`--soft`, `--mixed`, `--hard`); the reflog keeps the previous HEAD.
+    fn reset(&self, rev: &str, mode: ResetMode, cancel: &Cancel) -> GitResult<()>;
+
+    /// Cherry-picks revisions onto HEAD.
+    fn cherry_pick(&self, revs: &[String], cancel: &Cancel) -> GitResult<Outcome>;
+
+    /// Reverts revisions (`--no-edit`).
+    fn revert(&self, revs: &[String], cancel: &Cancel) -> GitResult<Outcome>;
+
+    /// Creates a tag at a revision, annotated when a message is given.
+    fn tag_create(
+        &self,
+        name: &str,
+        rev: &str,
+        message: Option<&str>,
+        cancel: &Cancel,
+    ) -> GitResult<()>;
+
+    /// Deletes a tag.
+    fn tag_delete(&self, name: &str, cancel: &Cancel) -> GitResult<()>;
+
+    /// Sets a branch's upstream, or unsets it with `None`.
+    fn set_upstream(&self, branch: &str, upstream: Option<&str>, cancel: &Cancel) -> GitResult<()>;
+
+    /// What the repository is in the middle of, from its state files.
+    fn operation_state(&self) -> GitResult<OperationState>;
+
+    /// The conflicted paths with their kinds, from `git status --porcelain=v2`.
+    fn conflicts(&self, cancel: &Cancel) -> GitResult<Vec<Conflict>>;
+
+    /// Marks conflicted paths resolved: `git add`, as git itself asks for.
+    fn mark_resolved(&self, paths: &[String], cancel: &Cancel) -> GitResult<()> {
+        self.stage_paths(paths, cancel)
+    }
+
+    /// Continues, skips or aborts the operation in progress with its git command.
+    fn sequencer(&self, action: SequencerAction, cancel: &Cancel) -> GitResult<Outcome>;
+
+    /// The remotes with their fetch and push URLs.
+    fn remotes(&self, cancel: &Cancel) -> GitResult<Vec<Remote>>;
+
+    /// Adds a remote.
+    fn remote_add(&self, name: &str, url: &str, cancel: &Cancel) -> GitResult<()>;
+
+    /// Removes a remote.
+    fn remote_remove(&self, name: &str, cancel: &Cancel) -> GitResult<()>;
+
+    /// Fetches from a remote (every remote's default when `None`), git's progress lines
+    /// handed to `progress` as they arrive; a missing credential fails at once.
+    fn fetch(
+        &self,
+        remote: Option<&str>,
+        prune: bool,
+        progress: &mut dyn FnMut(&str),
+        cancel: &Cancel,
+    ) -> GitResult<NetworkResult>;
+
+    /// Pulls (a merge, or a rebase when asked) with the progress streamed; a stop on
+    /// conflicts is an [`Outcome`].
+    fn pull(
+        &self,
+        request: &PullRequest,
+        progress: &mut dyn FnMut(&str),
+        cancel: &Cancel,
+    ) -> GitResult<Outcome>;
+
+    /// Pushes with the progress streamed; a rejected push is [`GitError::Cli`].
+    fn push(
+        &self,
+        request: &PushRequest,
+        progress: &mut dyn FnMut(&str),
+        cancel: &Cancel,
+    ) -> GitResult<NetworkResult>;
+
+    /// Pushes a stash; `false` when there was nothing to save.
+    fn stash_push(&self, request: &StashPush, cancel: &Cancel) -> GitResult<bool>;
+
+    /// Applies `stash@{index}`, keeping it; conflicts are an [`Outcome`].
+    fn stash_apply(&self, index: u32, cancel: &Cancel) -> GitResult<Outcome>;
+
+    /// Pops `stash@{index}`; on conflicts the stash is kept and the [`Outcome`] says so.
+    fn stash_pop(&self, index: u32, cancel: &Cancel) -> GitResult<Outcome>;
+
+    /// Drops `stash@{index}`.
+    fn stash_drop(&self, index: u32, cancel: &Cancel) -> GitResult<()>;
 }

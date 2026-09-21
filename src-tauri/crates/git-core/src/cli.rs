@@ -9,6 +9,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -359,6 +360,44 @@ pub fn run_git_cancellable(cwd: &Path, args: &[&str], cancel: &Cancel) -> GitRes
     run_polled(command(cwd, args), args.join(" "), cancel, None, None)
 }
 
+/// The environment of a write that must never wait for a terminal or an editor: a
+/// credential helper that needs one fails at once with git's message, and a merge, revert
+/// or `--continue` that would open an editor takes the prepared message.
+pub const WRITE_ENV: [(&str, &str); 3] = [
+    ("GIT_TERMINAL_PROMPT", "0"),
+    ("GIT_EDITOR", "true"),
+    ("GIT_SEQUENCE_EDITOR", "true"),
+];
+
+/// [`run_git_cancellable`] with extra environment variables (see [`WRITE_ENV`]).
+#[tracing::instrument(level = "debug", skip_all, fields(cwd = %cwd.display(), args = ?args))]
+pub fn run_git_env(
+    cwd: &Path,
+    args: &[&str],
+    env: &[(&str, &str)],
+    cancel: &Cancel,
+) -> GitResult<CliExit> {
+    let mut command = command(cwd, args);
+    command.envs(env.iter().copied());
+    run_polled(command, args.join(" "), cancel, None, None)
+}
+
+/// [`run_git_env`] with git's stderr handed to `on_line` line by line as it arrives: the
+/// progress of a fetch or a push (`--progress` writes `\r`-separated updates, so `\r` ends
+/// a line as `\n` does). The whole stderr is still in the exit for the error message.
+#[tracing::instrument(level = "debug", skip_all, fields(cwd = %cwd.display(), args = ?args))]
+pub fn run_git_streaming(
+    cwd: &Path,
+    args: &[&str],
+    env: &[(&str, &str)],
+    on_line: &mut dyn FnMut(&str),
+    cancel: &Cancel,
+) -> GitResult<CliExit> {
+    let mut command = command(cwd, args);
+    command.envs(env.iter().copied());
+    run_polled_streaming(command, args.join(" "), cancel, on_line)
+}
+
 /// [`run_git_cancellable`] with `input` on git's stdin (a pathspec list, a commit message,
 /// a patch), written from its own thread so that neither side blocks on a full pipe.
 #[tracing::instrument(level = "debug", skip_all, fields(cwd = %cwd.display(), args = ?args, input_bytes = input.len()))]
@@ -379,6 +418,134 @@ pub fn run_git_with_input(
 
 /// A pipe reader's result: the bytes, or the read error.
 type Piped = thread::JoinHandle<std::io::Result<Vec<u8>>>;
+
+/// Reads a pipe in chunks and sends every line (ended by `\r` or `\n`) as it completes,
+/// then the whole content; used for git's progress on stderr.
+fn read_pipe_lines<R: Read + Send + 'static>(
+    name: &str,
+    pipe: Option<R>,
+    lines: mpsc::Sender<String>,
+) -> std::io::Result<Piped> {
+    thread::Builder::new()
+        .name(format!("begira-git-{name}"))
+        .spawn(move || {
+            let mut all = Vec::new();
+            let Some(mut pipe) = pipe else {
+                return Ok(all);
+            };
+            let mut chunk = [0_u8; 4096];
+            let mut pending = Vec::new();
+            loop {
+                let read = pipe.read(&mut chunk)?;
+                if read == 0 {
+                    break;
+                }
+                all.extend_from_slice(&chunk[..read]);
+                for &byte in &chunk[..read] {
+                    if byte == b'\n' || byte == b'\r' {
+                        if !pending.is_empty() {
+                            let line = String::from_utf8_lossy(&pending).into_owned();
+                            // The receiver is gone once the caller stopped listening.
+                            let _ = lines.send(line);
+                            pending.clear();
+                        }
+                    } else {
+                        pending.push(byte);
+                    }
+                }
+            }
+            if !pending.is_empty() {
+                let _ = lines.send(String::from_utf8_lossy(&pending).into_owned());
+            }
+            Ok(all)
+        })
+}
+
+/// [`run_polled`] whose stderr lines reach `on_line` as they arrive.
+fn run_polled_streaming(
+    mut command: Command,
+    joined: String,
+    cancel: &Cancel,
+    on_line: &mut dyn FnMut(&str),
+) -> GitResult<CliExit> {
+    let run_failed = |what: String| GitError::Cli {
+        command: joined.clone(),
+        status: None,
+        stderr: what,
+    };
+    cancel.check()?;
+    isolate(&mut command);
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| GitError::GitNotStarted {
+            command: joined.clone(),
+            reason: error.to_string(),
+        })?;
+    let out_reader = match read_pipe("out", child.stdout.take()) {
+        Ok(reader) => reader,
+        Err(error) => {
+            abort(child);
+            return Err(run_failed(format!(
+                "could not start the output thread: {error}"
+            )));
+        }
+    };
+    let (sender, lines) = mpsc::channel();
+    let err_reader = match read_pipe_lines("err", child.stderr.take(), sender) {
+        Ok(reader) => reader,
+        Err(error) => {
+            abort(child);
+            return Err(run_failed(format!(
+                "could not start the error thread: {error}"
+            )));
+        }
+    };
+    let deliver = |on_line: &mut dyn FnMut(&str)| {
+        while let Ok(line) = lines.try_recv() {
+            on_line(&line);
+        }
+    };
+    let status = loop {
+        deliver(on_line);
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if cancel.is_cancelled() {
+                    abort(child);
+                    return Err(GitError::Cancelled);
+                }
+                thread::sleep(CANCEL_POLL);
+            }
+            Err(error) => {
+                abort(child);
+                return Err(run_failed(format!("could not wait for git: {error}")));
+            }
+        }
+    };
+    while !(out_reader.is_finished() && err_reader.is_finished()) {
+        deliver(on_line);
+        if cancel.is_cancelled() {
+            return Err(GitError::Cancelled);
+        }
+        thread::sleep(CANCEL_POLL);
+    }
+    deliver(on_line);
+    let stdout = out_reader
+        .join()
+        .unwrap_or_else(|_| Ok(Vec::new()))
+        .map_err(|error| run_failed(format!("could not read git's output: {error}")))?;
+    let stderr = err_reader
+        .join()
+        .unwrap_or_else(|_| Ok(Vec::new()))
+        .map_err(|error| run_failed(format!("could not read git's messages: {error}")))?;
+    Ok(CliExit {
+        status: status.code(),
+        stdout,
+        stderr: String::from_utf8_lossy(&stderr).into_owned(),
+    })
+}
 
 fn read_pipe<R: Read + Send + 'static>(name: &str, pipe: Option<R>) -> std::io::Result<Piped> {
     thread::Builder::new()
@@ -653,6 +820,35 @@ mod tests {
             &cancel,
         )
         .expect_err("cancelled before starting");
+        assert_eq!(cancelled.code(), "op.cancelled");
+    }
+
+    #[test]
+    fn streaming_hands_over_stderr_lines_as_they_come_and_keeps_the_whole_output() {
+        // `git -c alias.x='!...'` writes to stderr through a shell; `\r` and `\n` both end
+        // a line, as git's progress meter writes them.
+        let mut seen = Vec::new();
+        let exit = run_git_streaming(
+            Path::new("."),
+            &[
+                "-c",
+                "alias.x=!printf 'first\\rsecond\\nthird' >&2; echo out",
+                "x",
+            ],
+            &WRITE_ENV,
+            &mut |line| seen.push(line.to_owned()),
+            &Cancel::never(),
+        )
+        .expect("runs");
+        assert_eq!(exit.status, Some(0), "{}", exit.stderr);
+        assert_eq!(seen, ["first", "second", "third"]);
+        assert_eq!(exit.stderr, "first\rsecond\nthird");
+        assert_eq!(String::from_utf8_lossy(&exit.stdout).trim(), "out");
+        let cancel = Cancel::new();
+        cancel.cancel();
+        let cancelled =
+            run_git_streaming(Path::new("."), &["--version"], &[], &mut |_| {}, &cancel)
+                .expect_err("cancelled before starting");
         assert_eq!(cancelled.code(), "op.cancelled");
     }
 

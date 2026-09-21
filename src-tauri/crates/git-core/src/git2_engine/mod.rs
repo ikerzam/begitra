@@ -5,6 +5,7 @@
 //! repository handle and the `open` logic.
 
 mod blob;
+mod branches;
 mod cli_walk;
 mod compare;
 mod count;
@@ -13,7 +14,10 @@ mod diff_pages;
 mod filter;
 pub mod patch;
 mod refs;
+mod remotes;
+mod sequencer;
 mod staging;
+mod stash;
 mod status;
 mod status_porcelain;
 mod walk;
@@ -28,9 +32,11 @@ use git2::{ErrorClass, ErrorCode, Oid, Repository};
 use crate::engine::{Cancel, CommitWalk, DiffWalk, GitEngine};
 use crate::error::{GitError, GitResult};
 use crate::types::{
-    BlobAt, BlobContent, CommitContext, CommitCount, CommitRequest, Comparison, DiffOptions,
-    DiffTarget, MergePreview, PatchSelection, Ref, Repo, SelectionTarget, StatusEntry,
-    StatusOptions, WalkOptions, WalkScope, Worktree, WorktreeAdd,
+    BlobAt, BlobContent, CommitContext, CommitCount, CommitRequest, Comparison, Conflict,
+    DiffOptions, DiffTarget, MergeMode, MergePreview, NetworkResult, OperationState, Outcome,
+    PatchSelection, PullRequest, PushRequest, Ref, Remote, Repo, ResetMode, SelectionTarget,
+    SequencerAction, StashPush, StatusEntry, StatusOptions, SwitchTarget, WalkOptions, WalkScope,
+    Worktree, WorktreeAdd,
 };
 
 /// A repository opened with libgit2.
@@ -330,6 +336,134 @@ impl GitEngine for Git2Engine {
 
     fn commit_context(&self, cancel: &Cancel) -> GitResult<CommitContext> {
         staging::commit_context(self, cancel)
+    }
+
+    fn branch_create(
+        &self,
+        name: &str,
+        start: &str,
+        checkout: bool,
+        cancel: &Cancel,
+    ) -> GitResult<()> {
+        branches::branch_create(self, name, start, checkout, cancel)
+    }
+
+    fn switch(&self, target: &SwitchTarget, cancel: &Cancel) -> GitResult<()> {
+        branches::switch(self, target, cancel)
+    }
+
+    fn branch_rename(&self, from: &str, to: &str, cancel: &Cancel) -> GitResult<()> {
+        branches::branch_rename(self, from, to, cancel)
+    }
+
+    fn branch_delete(&self, name: &str, force: bool, cancel: &Cancel) -> GitResult<()> {
+        branches::branch_delete(self, name, force, cancel)
+    }
+
+    fn merge(&self, rev: &str, mode: MergeMode, cancel: &Cancel) -> GitResult<Outcome> {
+        branches::merge(self, rev, mode, cancel)
+    }
+
+    fn rebase(&self, onto: &str, cancel: &Cancel) -> GitResult<Outcome> {
+        branches::rebase(self, onto, cancel)
+    }
+
+    fn reset(&self, rev: &str, mode: ResetMode, cancel: &Cancel) -> GitResult<()> {
+        branches::reset(self, rev, mode, cancel)
+    }
+
+    fn cherry_pick(&self, revs: &[String], cancel: &Cancel) -> GitResult<Outcome> {
+        branches::cherry_pick(self, revs, cancel)
+    }
+
+    fn revert(&self, revs: &[String], cancel: &Cancel) -> GitResult<Outcome> {
+        branches::revert(self, revs, cancel)
+    }
+
+    fn tag_create(
+        &self,
+        name: &str,
+        rev: &str,
+        message: Option<&str>,
+        cancel: &Cancel,
+    ) -> GitResult<()> {
+        branches::tag_create(self, name, rev, message, cancel)
+    }
+
+    fn tag_delete(&self, name: &str, cancel: &Cancel) -> GitResult<()> {
+        branches::tag_delete(self, name, cancel)
+    }
+
+    fn set_upstream(&self, branch: &str, upstream: Option<&str>, cancel: &Cancel) -> GitResult<()> {
+        branches::set_upstream(self, branch, upstream, cancel)
+    }
+
+    fn operation_state(&self) -> GitResult<OperationState> {
+        sequencer::operation_state(self)
+    }
+
+    fn conflicts(&self, cancel: &Cancel) -> GitResult<Vec<Conflict>> {
+        sequencer::conflicts(self, cancel)
+    }
+
+    fn sequencer(&self, action: SequencerAction, cancel: &Cancel) -> GitResult<Outcome> {
+        sequencer::sequencer(self, action, cancel)
+    }
+
+    fn remotes(&self, cancel: &Cancel) -> GitResult<Vec<Remote>> {
+        remotes::remotes(self, cancel)
+    }
+
+    fn remote_add(&self, name: &str, url: &str, cancel: &Cancel) -> GitResult<()> {
+        remotes::remote_add(self, name, url, cancel)
+    }
+
+    fn remote_remove(&self, name: &str, cancel: &Cancel) -> GitResult<()> {
+        remotes::remote_remove(self, name, cancel)
+    }
+
+    fn fetch(
+        &self,
+        remote: Option<&str>,
+        prune: bool,
+        progress: &mut dyn FnMut(&str),
+        cancel: &Cancel,
+    ) -> GitResult<NetworkResult> {
+        remotes::fetch(self, remote, prune, progress, cancel)
+    }
+
+    fn pull(
+        &self,
+        request: &PullRequest,
+        progress: &mut dyn FnMut(&str),
+        cancel: &Cancel,
+    ) -> GitResult<Outcome> {
+        remotes::pull(self, request, progress, cancel)
+    }
+
+    fn push(
+        &self,
+        request: &PushRequest,
+        progress: &mut dyn FnMut(&str),
+        cancel: &Cancel,
+    ) -> GitResult<NetworkResult> {
+        remotes::push(self, request, progress, cancel)
+    }
+
+    fn stash_push(&self, request: &StashPush, cancel: &Cancel) -> GitResult<bool> {
+        stash::stash_push(self, request, cancel)
+    }
+
+    fn stash_apply(&self, index: u32, cancel: &Cancel) -> GitResult<Outcome> {
+        stash::stash_apply(self, index, cancel)
+    }
+
+    fn stash_pop(&self, index: u32, cancel: &Cancel) -> GitResult<Outcome> {
+        stash::stash_pop(self, index, cancel)
+    }
+
+    fn stash_drop(&self, index: u32, cancel: &Cancel) -> GitResult<()> {
+        stash::stash_drop(self, index, cancel)
     }
 }
 

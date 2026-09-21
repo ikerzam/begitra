@@ -767,3 +767,187 @@ pub struct CommitContext {
     /// HEAD names no commit yet.
     pub unborn: bool,
 }
+
+/// What `switch` checks out.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", tag = "kind")]
+pub enum SwitchTarget {
+    /// A local branch, by name.
+    Branch {
+        /// Branch name.
+        name: String,
+    },
+    /// A detached HEAD at a revision.
+    Detached {
+        /// The revision.
+        rev: String,
+    },
+}
+
+/// How a merge may complete.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MergeMode {
+    /// A fast-forward when possible, a merge commit otherwise (git's default).
+    Default,
+    /// Only a fast-forward; refused otherwise (`--ff-only`).
+    FfOnly,
+    /// Always a merge commit (`--no-ff`).
+    NoFf,
+}
+
+/// What a reset moves besides HEAD.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ResetMode {
+    /// HEAD only; the index and the working tree keep the changes (`--soft`).
+    Soft,
+    /// HEAD and the index; the working tree keeps the changes (`--mixed`).
+    Mixed,
+    /// HEAD, the index and the working tree (`--hard`).
+    Hard,
+}
+
+/// How an operation that may stop on conflicts ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum OutcomeKind {
+    /// HEAD moved forward without a new commit.
+    FastForward,
+    /// A merge commit was made.
+    Merged,
+    /// The operation completed (a rebase, a pick, a revert, a stash apply, a sequencer step).
+    Done,
+    /// Nothing to do.
+    UpToDate,
+    /// The operation stopped on conflicts and stays in progress.
+    Conflicts,
+}
+
+/// The kind of a conflicted path, from the `u` record of `git status --porcelain=v2`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ConflictKind {
+    /// `UU`: both sides modified.
+    BothModified,
+    /// `AA`: both sides added.
+    BothAdded,
+    /// `DD`: both sides deleted.
+    BothDeleted,
+    /// `DU`: deleted by us, modified by them.
+    DeletedByUs,
+    /// `UD`: modified by us, deleted by them.
+    DeletedByThem,
+    /// `AU`: added by us.
+    AddedByUs,
+    /// `UA`: added by them.
+    AddedByThem,
+}
+
+/// A conflicted path.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Conflict {
+    /// Repository-relative path.
+    pub path: String,
+    /// What each side did.
+    pub kind: ConflictKind,
+}
+
+/// The result of an operation that may stop on conflicts.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Outcome {
+    /// How it ended.
+    pub kind: OutcomeKind,
+    /// HEAD after the operation, when it moved.
+    pub hash: Option<String>,
+    /// The conflicted paths when it stopped on conflicts.
+    pub conflicts: Vec<Conflict>,
+}
+
+/// The operation a repository is in the middle of.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum OperationState {
+    /// Nothing in progress.
+    None,
+    /// A merge stopped on conflicts (`MERGE_HEAD`).
+    Merge,
+    /// A rebase in progress.
+    Rebase,
+    /// A cherry-pick in progress.
+    CherryPick,
+    /// A revert in progress.
+    Revert,
+}
+
+/// What to do with the operation in progress.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SequencerAction {
+    /// Go on once the conflicts are resolved.
+    Continue,
+    /// Drop the current commit and go on (rebase, cherry-pick, revert).
+    Skip,
+    /// Abandon the operation and return to the state before it.
+    Abort,
+}
+
+/// A remote with its URLs.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Remote {
+    /// Remote name.
+    pub name: String,
+    /// URL fetched from.
+    pub fetch_url: String,
+    /// URL pushed to (the fetch URL unless configured apart).
+    pub push_url: String,
+}
+
+/// A pull request: `git pull [--rebase] [remote [branch]]`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequest {
+    /// Remote to pull from; the branch's upstream remote when `None`.
+    pub remote: Option<String>,
+    /// Remote branch to pull; the upstream branch when `None`.
+    pub branch: Option<String>,
+    /// Rebase the local commits on top instead of merging.
+    pub rebase: bool,
+}
+
+/// A push request: `git push [--set-upstream] [--force-with-lease] [remote [branch]]`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PushRequest {
+    /// Remote to push to; the upstream remote when `None`.
+    pub remote: Option<String>,
+    /// Local branch to push; the current branch when `None`.
+    pub branch: Option<String>,
+    /// Record the remote branch as the upstream (`-u`).
+    pub set_upstream: bool,
+    /// Overwrite the remote branch only if it is where the tracking ref says (`--force-with-lease`).
+    pub force_with_lease: bool,
+}
+
+/// What a fetch or a push reported: the ref lines git printed, one per updated ref.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkResult {
+    /// git's summary lines (`   a1b2c3d..e4f5a6b  main -> main`, `* [new branch] …`).
+    pub summary: Vec<String>,
+}
+
+/// A stash push request.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StashPush {
+    /// The stash message; git's default ("WIP on <branch>: …") when `None`.
+    pub message: Option<String>,
+    /// Stash untracked files too (`--include-untracked`).
+    pub include_untracked: bool,
+    /// Stash these paths only; everything when empty.
+    pub paths: Vec<String>,
+}
