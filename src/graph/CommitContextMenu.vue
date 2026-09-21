@@ -3,7 +3,19 @@
 // here, compare with…, select as range end, open in terminal and in
 // editor. Opened at the pointer, or under the focused row from the keyboard.
 
-import { Code, Copy, FileDiff, GitCommitHorizontal, GitCompareArrows, Terminal } from "@lucide/vue";
+import {
+  Code,
+  Copy,
+  FileDiff,
+  GitBranchPlus,
+  GitCommitHorizontal,
+  GitCompareArrows,
+  RotateCcw,
+  Tag,
+  Terminal,
+  Undo2,
+  Waypoints,
+} from "@lucide/vue";
 import { useI18n } from "vue-i18n";
 
 import ContextMenu from "@/components/ContextMenu.vue";
@@ -12,13 +24,23 @@ import ContextMenuSeparator from "@/components/ContextMenuSeparator.vue";
 import { formatShortcut } from "@/shortcuts/platform";
 import { shortcutRegistry } from "@/shortcuts/registry";
 
-const props = defineProps<{ x: number; y: number }>();
+const props = defineProps<{
+  x: number;
+  y: number;
+  /** The current branch, named in "Reset <branch> to here"; null when detached. */
+  branch?: string | null;
+}>();
 const emit = defineEmits<{
   copyHash: [];
   copyMessage: [];
   diffFrom: [];
   compareWith: [];
   rangeEnd: [];
+  createBranch: [];
+  tag: [];
+  cherryPick: [];
+  revert: [];
+  reset: [];
   openTerminal: [];
   openEditor: [];
   close: [];
@@ -57,6 +79,38 @@ const copyHint = formatShortcut("mod+c", shortcutRegistry().platform);
       :icon="GitCommitHorizontal"
       data-testid="menu-range-end"
       @select="emit('rangeEnd')"
+    />
+    <ContextMenuSeparator />
+    <ContextMenuItem
+      :label="t('branches.createHere')"
+      :icon="GitBranchPlus"
+      data-testid="menu-create-branch"
+      @select="emit('createBranch')"
+    />
+    <ContextMenuItem
+      :label="t('branches.tagHere')"
+      :icon="Tag"
+      data-testid="menu-tag"
+      @select="emit('tag')"
+    />
+    <ContextMenuItem
+      :label="t('branches.cherryPick')"
+      :icon="Waypoints"
+      data-testid="menu-cherry-pick"
+      @select="emit('cherryPick')"
+    />
+    <ContextMenuItem
+      :label="t('branches.revert')"
+      :icon="Undo2"
+      data-testid="menu-revert"
+      @select="emit('revert')"
+    />
+    <ContextMenuItem
+      :label="t('branches.resetHere', { branch: props.branch ?? 'HEAD' })"
+      :icon="RotateCcw"
+      destructive
+      data-testid="menu-reset"
+      @select="emit('reset')"
     />
     <ContextMenuSeparator />
     <ContextMenuItem

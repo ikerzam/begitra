@@ -9,6 +9,7 @@ import { Tag } from "@lucide/vue";
 import { computed, onUnmounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
+import BranchContextMenu from "@/branches/BranchContextMenu.vue";
 import ListRow from "@/components/ListRow.vue";
 import SkeletonRow from "@/components/SkeletonRow.vue";
 import type { Ref as GitRef } from "@/ipc/schemas";
@@ -19,12 +20,28 @@ import { useRepoStore } from "@/stores/repo";
 
 import { branchLanes } from "./branchLanes";
 
+/** What the row's menu offers; `checkout` is Enter on a row too. */
+export type BranchAction =
+  | "checkout"
+  | "createHere"
+  | "merge"
+  | "rebase"
+  | "compare"
+  | "rename"
+  | "setUpstream"
+  | "push"
+  | "delete"
+  | "deleteTag";
+
 const props = defineProps<{ filter: string }>();
+const emit = defineEmits<{ action: [kind: BranchAction, ref: GitRef] }>();
 
 const { t } = useI18n();
 const repo = useRepoStore();
 const graph = useGraphStore();
 const listbox = ref<HTMLElement | null>(null);
+const menu = ref<{ ref: GitRef; x: number; y: number } | null>(null);
+const currentName = computed(() => repo.currentBranch?.name ?? null);
 
 interface BranchRow {
   ref: GitRef;
@@ -94,11 +111,50 @@ const countLine = computed(() => {
 });
 const tabStopRow = computed(() => Math.max(0, selectedRow.value));
 
+const rowElement = (index: number) => listbox.value?.querySelector(`[data-index="${index}"]`);
 const navigation = useListNavigation({
   count: rowCount,
   selected: selectedRow,
-  rowElement: (index) => listbox.value?.querySelector(`[data-index="${index}"]`),
+  rowElement,
+  onActivate: (index) => {
+    const ref = flatRows.value[index]?.ref;
+    if (ref && !ref.isCurrent) emit("action", "checkout", ref);
+  },
 });
+
+/** The menu opens under the row, past the lane dot, where the graph opens its own. */
+const MENU_OFFSET_X = 116;
+
+function onKeydown(event: KeyboardEvent): void {
+  if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+    const ref = flatRows.value[selectedRow.value]?.ref;
+    if (!ref) return;
+    event.preventDefault();
+    const rect = rowElement(selectedRow.value)?.getBoundingClientRect();
+    menu.value = { ref, x: rect ? rect.left + MENU_OFFSET_X : 0, y: rect ? rect.bottom : 0 };
+    return;
+  }
+  navigation.onKeydown(event);
+}
+
+function onContextMenu(index: number, event: MouseEvent): void {
+  event.preventDefault();
+  navigation.select(index);
+  const ref = flatRows.value[index]?.ref;
+  if (ref) menu.value = { ref, x: event.clientX, y: event.clientY };
+}
+
+function closeMenu(): void {
+  menu.value = null;
+  navigation.focus();
+}
+
+/** The menu's choice: closed first, then reported with its ref. */
+function choose(kind: BranchAction): void {
+  const target = menu.value?.ref;
+  menu.value = null;
+  if (target) emit("action", kind, target);
+}
 
 function rowIndex(groupIndex: number, index: number): number {
   let offset = 0;
@@ -117,7 +173,7 @@ defineExpose({ focus: navigation.focus });
     :aria-label="t('sidebar.branches')"
     class="min-h-0 flex-1 overflow-y-auto pb-2"
     data-testid="branch-list"
-    @keydown="navigation.onKeydown"
+    @keydown="onKeydown"
   >
     <template v-for="(group, groupIndex) in groups" :key="group.id">
       <p class="px-3 pt-3 pb-1 text-sm text-fg-muted">{{ group.label }}</p>
@@ -133,11 +189,30 @@ defineExpose({ focus: navigation.focus });
         :selected="rowIndex(groupIndex, index) === selectedRow"
         :tab-stop="rowIndex(groupIndex, index) === tabStopRow"
         @select="navigation.select(rowIndex(groupIndex, index))"
+        @contextmenu="(event: MouseEvent) => onContextMenu(rowIndex(groupIndex, index), event)"
       />
     </template>
     <p v-if="countLine" class="px-3 pt-3 text-sm text-fg-muted" data-testid="branch-count">
       {{ countLine }}
     </p>
+    <BranchContextMenu
+      v-if="menu"
+      :target="menu.ref"
+      :current="currentName"
+      :x="menu.x"
+      :y="menu.y"
+      @close="closeMenu"
+      @checkout="choose('checkout')"
+      @create-here="choose('createHere')"
+      @merge="choose('merge')"
+      @rebase="choose('rebase')"
+      @compare="choose('compare')"
+      @rename="choose('rename')"
+      @set-upstream="choose('setUpstream')"
+      @push="choose('push')"
+      @delete="choose('delete')"
+      @delete-tag="choose('deleteTag')"
+    />
     <template v-if="groups.length === 0 && repo.state.kind === 'ready' && !repo.refsLoaded">
       <SkeletonRow v-for="n in 6" :key="n" :index="n" height="list" />
     </template>

@@ -1,0 +1,303 @@
+<script setup lang="ts">
+// The dialogs of the branch actions, one at a time from `branches.prompt`: create (name,
+// checkout), rename, delete and "Delete anyway" with git's refusal and the reflog note, set
+// upstream, tag, reset (soft, mixed or hard, as radios) and "Stash and switch"
+// after a dirty switch was refused. Each confirms through the store.
+
+import { Check } from "@lucide/vue";
+import { computed, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
+
+import Checkbox from "@/components/Checkbox.vue";
+import Dialog from "@/components/Dialog.vue";
+import ErrorBanner from "@/components/ErrorBanner.vue";
+import Input from "@/components/Input.vue";
+import Select from "@/components/Select.vue";
+import Textarea from "@/components/Textarea.vue";
+import type { SelectOption } from "@/components/types";
+import type { ResetMode } from "@/ipc/schemas";
+import { shortHash } from "@/shell/format";
+import { targetName, useBranchesStore } from "@/stores/branches";
+import { useChangesStore } from "@/stores/changes";
+import { useRepoStore } from "@/stores/repo";
+
+import { validName } from "./names";
+
+const { t } = useI18n();
+const branches = useBranchesStore();
+const repo = useRepoStore();
+const changes = useChangesStore();
+
+const resetModes = ["soft", "mixed", "hard"] as const;
+
+const name = ref("");
+const checkout = ref(true);
+const message = ref("");
+const upstream = ref("");
+const mode = ref<ResetMode>("mixed");
+
+const nameInvalid = computed(() => name.value.trim() !== "" && !validName(name.value));
+const nameError = computed(() => (nameInvalid.value ? t("branches.dialogs.invalidName") : ""));
+
+const remoteBranches = computed<SelectOption[]>(() => [
+  { value: "", label: t("branches.dialogs.noUpstream") },
+  ...repo.refs
+    .filter((entry) => entry.kind === "remote-branch")
+    .map((entry) => ({ value: entry.name, label: entry.name })),
+]);
+
+// Each prompt starts its fields afresh; the reset dialog counts the uncommitted changes.
+watch(
+  () => branches.prompt,
+  (prompt) => {
+    name.value = prompt?.kind === "rename" ? prompt.name : "";
+    checkout.value = true;
+    message.value = "";
+    upstream.value = prompt?.kind === "upstream" ? (prompt.current ?? "") : "";
+    mode.value = "mixed";
+    if (prompt?.kind === "reset" && !changes.loaded) void changes.load();
+  },
+);
+
+function resetLabel(): string {
+  return t("branches.dialogs.reset", { mode: t(`branches.dialogs.${mode.value}`).toLowerCase() });
+}
+
+/** The reset sentence names the uncommitted changes when the lists are loaded. */
+const resetBody = computed(() => {
+  const prompt = branches.prompt;
+  if (prompt?.kind !== "reset") return "";
+  const count = changes.unstagedCount + changes.stagedCount;
+  const params = { branch: prompt.branch, rev: prompt.label, n: count };
+  return changes.loaded && count > 0
+    ? t("branches.dialogs.resetBodyChanges", params, count)
+    : t("branches.dialogs.resetBody", params);
+});
+
+function confirm(): void {
+  const prompt = branches.prompt;
+  if (!prompt) return;
+  switch (prompt.kind) {
+    case "create":
+      if (validName(name.value))
+        void branches.create(name.value.trim(), prompt.start, checkout.value);
+      break;
+    case "rename":
+      if (validName(name.value)) void branches.rename(prompt.name, name.value.trim());
+      break;
+    case "delete":
+      void branches.remove(prompt.name, prompt.force);
+      break;
+    case "upstream":
+      void branches.setUpstream(prompt.branch, upstream.value === "" ? null : upstream.value);
+      break;
+    case "tag":
+      if (validName(name.value)) {
+        void branches.tag(
+          name.value.trim(),
+          prompt.rev,
+          message.value.trim() === "" ? null : message.value.trim(),
+        );
+      }
+      break;
+    case "reset":
+      void branches.reset(prompt.rev, mode.value);
+      break;
+    case "dirtySwitch":
+      void branches.stashAndSwitch(prompt.target);
+      break;
+  }
+}
+</script>
+
+<template>
+  <template v-if="branches.prompt">
+    <Dialog
+      v-if="branches.prompt.kind === 'create'"
+      :title="t('branches.dialogs.createTitle')"
+      :body="t('branches.dialogs.createBody', { start: branches.prompt.startLabel })"
+      :confirm-label="t('branches.dialogs.create')"
+      :confirm-disabled="!validName(name)"
+      data-testid="branch-create-dialog"
+      @confirm="confirm"
+      @cancel="branches.dismiss()"
+    >
+      <form class="flex flex-col gap-3" @submit.prevent="confirm">
+        <label class="flex flex-col gap-1 text-md text-fg-secondary">
+          {{ t("branches.dialogs.name") }}
+          <Input
+            v-model="name"
+            :placeholder="t('branches.dialogs.namePlaceholder')"
+            :error="nameError"
+            data-autofocus
+            data-testid="branch-name"
+          />
+        </label>
+        <Checkbox
+          v-model="checkout"
+          :label="t('branches.dialogs.checkout')"
+          data-testid="branch-checkout"
+        />
+      </form>
+    </Dialog>
+
+    <Dialog
+      v-else-if="branches.prompt.kind === 'rename'"
+      :title="t('branches.dialogs.renameTitle', { name: branches.prompt.name })"
+      :confirm-label="t('branches.dialogs.rename')"
+      :confirm-disabled="!validName(name) || name.trim() === branches.prompt.name"
+      data-testid="branch-rename-dialog"
+      @confirm="confirm"
+      @cancel="branches.dismiss()"
+    >
+      <form class="flex flex-col gap-3" @submit.prevent="confirm">
+        <label class="flex flex-col gap-1 text-md text-fg-secondary">
+          {{ t("branches.dialogs.name") }}
+          <Input v-model="name" :error="nameError" data-autofocus data-testid="branch-name" />
+        </label>
+      </form>
+    </Dialog>
+
+    <Dialog
+      v-else-if="branches.prompt.kind === 'delete'"
+      :title="
+        branches.prompt.force
+          ? t('branches.dialogs.deleteAnywayTitle', { name: branches.prompt.name })
+          : t('branches.dialogs.deleteTitle', { name: branches.prompt.name })
+      "
+      :body="
+        branches.prompt.force
+          ? t('branches.dialogs.deleteAnywayBody')
+          : t('branches.dialogs.deleteBody')
+      "
+      :confirm-label="
+        branches.prompt.force ? t('branches.dialogs.deleteAnyway') : t('branches.dialogs.delete')
+      "
+      variant="destructive"
+      data-testid="branch-delete-dialog"
+      @confirm="confirm"
+      @cancel="branches.dismiss()"
+    >
+      <ErrorBanner
+        v-if="branches.prompt.output"
+        :message="t('branches.failed', { message: '' }).trim()"
+        :output="branches.prompt.output"
+        open
+      />
+    </Dialog>
+
+    <Dialog
+      v-else-if="branches.prompt.kind === 'upstream'"
+      :title="t('branches.dialogs.upstreamTitle', { branch: branches.prompt.branch })"
+      :body="t('branches.dialogs.upstreamBody')"
+      :confirm-label="t('branches.dialogs.setUpstream')"
+      data-testid="branch-upstream-dialog"
+      @confirm="confirm"
+      @cancel="branches.dismiss()"
+    >
+      <label class="flex flex-col gap-1 text-md text-fg-secondary">
+        {{ t("branches.dialogs.upstream") }}
+        <Select
+          v-model="upstream"
+          :options="remoteBranches"
+          data-autofocus
+          data-testid="branch-upstream"
+        />
+      </label>
+    </Dialog>
+
+    <Dialog
+      v-else-if="branches.prompt.kind === 'tag'"
+      :title="t('branches.dialogs.tagTitle', { label: branches.prompt.label })"
+      :body="t('branches.dialogs.tagBody')"
+      :confirm-label="t('branches.dialogs.tag')"
+      :confirm-disabled="!validName(name)"
+      data-testid="tag-dialog"
+      @confirm="confirm"
+      @cancel="branches.dismiss()"
+    >
+      <form class="flex flex-col gap-3" @submit.prevent="confirm">
+        <label class="flex flex-col gap-1 text-md text-fg-secondary">
+          {{ t("branches.dialogs.tagName") }}
+          <Input v-model="name" :error="nameError" data-autofocus data-testid="tag-name" />
+        </label>
+        <label class="flex flex-col gap-1 text-md text-fg-secondary">
+          {{ t("branches.dialogs.tagMessage") }}
+          <Textarea v-model="message" :rows="3" data-testid="tag-message" />
+        </label>
+      </form>
+    </Dialog>
+
+    <Dialog
+      v-else-if="branches.prompt.kind === 'reset'"
+      :title="
+        t('branches.dialogs.resetTitle', {
+          branch: branches.prompt.branch,
+          rev: shortHash(branches.prompt.rev),
+        })
+      "
+      :body="resetBody"
+      :confirm-label="resetLabel()"
+      :variant="mode === 'hard' ? 'destructive' : 'default'"
+      data-testid="reset-dialog"
+      @confirm="confirm"
+      @cancel="branches.dismiss()"
+    >
+      <!-- Radios drawn as 14px boxes: one tab stop, the arrows move between them. -->
+      <div
+        role="radiogroup"
+        :aria-label="t('branches.dialogs.resetModes')"
+        class="flex flex-col gap-2"
+        data-testid="reset-modes"
+      >
+        <label
+          v-for="option in resetModes"
+          :key="option"
+          class="inline-flex items-center gap-2 text-md text-fg select-none"
+          :data-testid="`reset-${option}`"
+        >
+          <input
+            v-model="mode"
+            type="radio"
+            name="reset-mode"
+            :value="option"
+            class="peer sr-only"
+          />
+          <span
+            aria-hidden="true"
+            class="reset-box flex shrink-0 items-center justify-center rounded-sm border peer-focus-visible:outline-2 peer-focus-visible:outline-focus"
+            :class="mode === option ? 'border-fg bg-fg text-app' : 'border-line-strong bg-app'"
+          >
+            <Check v-if="mode === option" :size="12" :stroke-width="2" />
+          </span>
+          <span class="text-fg">{{ t(`branches.dialogs.${option}`) }}</span>
+          <span class="ml-2 text-fg-muted">{{ t(`branches.dialogs.${option}Hint`) }}</span>
+        </label>
+      </div>
+    </Dialog>
+
+    <Dialog
+      v-else-if="branches.prompt.kind === 'dirtySwitch'"
+      :title="t('branches.dialogs.dirtySwitchTitle')"
+      :body="t('branches.dialogs.dirtySwitchBody', { name: targetName(branches.prompt.target) })"
+      :confirm-label="t('branches.dialogs.stashAndSwitch')"
+      data-testid="dirty-switch-dialog"
+      @confirm="confirm"
+      @cancel="branches.dismiss()"
+    >
+      <ErrorBanner
+        :message="t('branches.failed', { message: '' }).trim()"
+        :output="branches.prompt.output"
+        open
+      />
+    </Dialog>
+  </template>
+</template>
+
+<style scoped>
+/* The 14px box of `Checkbox`, for the reset modes' radios. */
+.reset-box {
+  width: 14px;
+  height: 14px;
+}
+</style>

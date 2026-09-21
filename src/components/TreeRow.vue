@@ -24,6 +24,8 @@ const props = withDefaults(
     binary?: boolean;
     /** The comparison's preview says this file would conflict: "conflict" before the stats. */
     conflict?: boolean;
+    /** Muted text after the name (the kind of a conflict: "both modified"). */
+    meta?: string;
     reviewed?: boolean;
     selected?: boolean;
     /** Roving tab stop; defaults to the selected row. Lists without a selection pass it to the first row. */
@@ -40,6 +42,7 @@ const props = withDefaults(
     generated: false,
     binary: false,
     conflict: false,
+    meta: "",
     reviewed: false,
     selected: false,
     tabStop: undefined,
@@ -122,6 +125,9 @@ function onKeydown(event: KeyboardEvent): void {
     <StatusLetter v-else-if="props.status" :status="props.status" />
     <span class="flex-1 truncate" :class="nameClass" data-testid="tree-row-name">
       {{ props.name }}
+    </span>
+    <span v-if="props.meta" class="shrink-0 text-sm text-fg-muted" data-testid="tree-row-meta">
+      {{ props.meta }}
     </span>
     <span
       v-if="isFolder && props.count !== undefined"

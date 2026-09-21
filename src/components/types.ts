@@ -14,7 +14,7 @@ export interface SelectOption {
 export type RefKind = "local" | "current" | "remote" | "tag" | "head" | "stash";
 
 /** `untracked` is the "?" of the unstaged list: a file git does not know yet. */
-export type FileStatus = "added" | "modified" | "deleted" | "renamed" | "untracked";
+export type FileStatus = "added" | "modified" | "deleted" | "renamed" | "untracked" | "unmerged";
 
 export type DiffLineKind = "context" | "add" | "del" | "gap";
 

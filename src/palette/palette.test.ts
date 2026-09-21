@@ -9,6 +9,16 @@ const labels: Record<string, string> = {
   "palette.commandsById.graph-focus": "Switch to graph focus",
   "palette.commandsById.review-focus": "Switch to review focus",
   "palette.commandsById.changes-focus": "Show changes",
+  "palette.commandsById.checkout": "Checkout…",
+  "palette.commandsById.create-branch": "Create branch…",
+  "palette.commandsById.merge-into": "Merge into current branch…",
+  "palette.commandsById.rebase-onto": "Rebase current branch onto…",
+  "palette.commandsById.push": "Push…",
+  "palette.commandsById.pull": "Pull…",
+  "palette.commandsById.fetch-all": "Fetch all remotes",
+  "palette.commandsById.remotes": "Remotes…",
+  "palette.commandsById.stashes": "Stashes…",
+  "palette.commandsById.stash-changes": "Stash changes…",
   "palette.commandsById.toggle-sidebar": "Toggle sidebar",
   "palette.commandsById.open-terminal": "Open in terminal",
   "palette.commandsById.open-editor": "Open in editor",
@@ -147,6 +157,27 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
     changesAll: (action) => {
       calls.push(`changesAll:${action}`);
     },
+    branchAction: (action) => {
+      calls.push(`branch:${action}`);
+    },
+    network: (action) => {
+      calls.push(`network:${action}`);
+    },
+    fetchAll: () => {
+      calls.push("fetchAll");
+      return Promise.resolve();
+    },
+    openRemotes: () => {
+      calls.push("remotes");
+      return Promise.resolve();
+    },
+    openStashes: () => {
+      calls.push("stashes");
+    },
+    inOperation: () => false,
+    sequencer: (action) => {
+      calls.push(`sequencer:${action}`);
+    },
     swapComparison: () => {
       calls.push("swapComparison");
       return Promise.resolve();
@@ -221,6 +252,16 @@ describe("usePalette", () => {
       "settings",
       "show-worktrees",
       "add-worktree",
+      "checkout",
+      "create-branch",
+      "merge-into",
+      "rebase-onto",
+      "push",
+      "pull",
+      "fetch-all",
+      "remotes",
+      "stashes",
+      "stash-changes",
       "toggle-hide-generated",
       "toggle-hide-lockfiles",
       "toggle-hide-tests",

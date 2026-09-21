@@ -12,6 +12,9 @@ import { useExternal } from "@/shell/useExternal";
 import { useOpenFolder } from "@/shell/useOpenFolder";
 import { useIndexStore } from "@/stores/index";
 import { useChangesStore } from "@/stores/changes";
+import { useRemotesStore } from "@/stores/remotes";
+import { useSequencerStore } from "@/stores/sequencer";
+import { useStashStore } from "@/stores/stash";
 import { useCompareStore } from "@/stores/compare";
 import { usePickerStore } from "@/stores/picker";
 import { useRepoStore } from "@/stores/repo";
@@ -37,6 +40,9 @@ export function usePaletteActions(): PaletteActions {
   const compare = useCompareStore();
   const worktrees = useWorktreesStore();
   const changes = useChangesStore();
+  const remotes = useRemotesStore();
+  const sequencer = useSequencerStore();
+  const stash = useStashStore();
 
   return {
     hasRepository: () => repo.state.kind === "ready",
@@ -101,6 +107,21 @@ export function usePaletteActions(): PaletteActions {
     openComparisonInReview: () => compare.openInReview(),
     showWorktrees: () => worktrees.show(),
     showChanges: () => shell.setLayoutMode("changes"),
+    branchAction: (action) => picker.open({ kind: "branch-action", action }),
+    network: (action) => {
+      const branch = repo.currentBranch?.name;
+      if (branch) remotes.ask({ kind: action, branch });
+    },
+    fetchAll: async () => {
+      await remotes.fetch(null, false);
+    },
+    openRemotes: () => remotes.openSheet(),
+    openStashes: () => stash.openSheet(),
+    inOperation: () => sequencer.inProgress,
+    sequencer: (action) => {
+      if (action === "abort") sequencer.askAbort();
+      else void sequencer.act("continue");
+    },
     inChanges: () => shell.layoutMode === "changes",
     changesAll: (action) => {
       if (action === "stage") void changes.stageAll();

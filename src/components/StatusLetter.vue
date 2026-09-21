@@ -13,6 +13,7 @@ const colorClasses: Record<FileStatus, string> = {
   deleted: "text-del",
   renamed: "text-warn",
   untracked: "text-fg-muted",
+  unmerged: "text-danger",
 };
 </script>
 

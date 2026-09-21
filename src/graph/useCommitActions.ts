@@ -7,6 +7,7 @@ import { useI18n } from "vue-i18n";
 import type { CommitNode } from "@/ipc/schemas";
 import { shortHash } from "@/shell/format";
 import { useExternal } from "@/shell/useExternal";
+import { useBranchesStore } from "@/stores/branches";
 import { useGraphStore } from "@/stores/graph";
 import { usePickerStore } from "@/stores/picker";
 import { useToastsStore } from "@/stores/toasts";
@@ -29,6 +30,7 @@ export function useCommitActions() {
   const toasts = useToastsStore();
   const external = useExternal();
   const picker = usePickerStore();
+  const branches = useBranchesStore();
 
   async function copy(text: string, doneKey: string, params: Record<string, string>) {
     if (await copyText(text)) {
@@ -55,6 +57,19 @@ export function useCommitActions() {
         other: { kind: "revision", rev: commit.hash, label: shortHash(commit.hash) },
       }),
     rangeEnd: (commit: CommitNode) => graph.setRangeEnd(commit.hash),
+    createBranch: (commit: CommitNode) =>
+      branches.ask({ kind: "create", start: commit.hash, startLabel: shortHash(commit.hash) }),
+    tag: (commit: CommitNode) =>
+      branches.ask({ kind: "tag", rev: commit.hash, label: shortHash(commit.hash) }),
+    cherryPick: (commit: CommitNode) => branches.cherryPick([commit.hash]),
+    revert: (commit: CommitNode) => branches.revert([commit.hash]),
+    reset: (commit: CommitNode, branch: string | null) =>
+      branches.ask({
+        kind: "reset",
+        rev: commit.hash,
+        label: shortHash(commit.hash),
+        branch: branch ?? "HEAD",
+      }),
     openTerminal: () => external.openTerminal(),
     openEditor: () => external.openEditor(),
   };

@@ -7,7 +7,12 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
+import BranchDialogs from "@/branches/BranchDialogs.vue";
+import OperationBanner from "@/branches/OperationBanner.vue";
 import ChangesLayout from "@/changes/ChangesLayout.vue";
+import NetworkDialog from "@/remotes/NetworkDialog.vue";
+import RemotesSheet from "@/remotes/RemotesSheet.vue";
+import StashSheet from "@/stash/StashSheet.vue";
 import DropTarget from "@/discovery/DropTarget.vue";
 import { useDragDrop } from "@/discovery/useDragDrop";
 import type { FileChange } from "@/ipc/schemas";
@@ -15,8 +20,13 @@ import PaletteOverlay from "@/palette/PaletteOverlay.vue";
 import CompareLayout from "@/compare/CompareLayout.vue";
 import PickerOverlay from "@/picker/PickerOverlay.vue";
 import { baseName, shortHash } from "@/shell/format";
+import { isOverlayTarget } from "@/shortcuts/registry";
 import { installShortcuts, useShortcut } from "@/shortcuts/useShortcut";
 import { useIndexStore } from "@/stores/index";
+import { useOperationsStore } from "@/stores/operations";
+import { useRemotesStore } from "@/stores/remotes";
+import { useSequencerStore } from "@/stores/sequencer";
+import { useStashStore } from "@/stores/stash";
 import { usePickerStore } from "@/stores/picker";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
@@ -52,6 +62,10 @@ const worktrees = useWorktreesStore();
 const settingsScreen = useSettingsScreenStore();
 const reviewStore = useReviewStore();
 const picker = usePickerStore();
+const remotes = useRemotesStore();
+const stash = useStashStore();
+const sequencer = useSequencerStore();
+const operations = useOperationsStore();
 const { openFolder } = useOpenFolder();
 const external = useExternal();
 const { dragging } = useDragDrop((path) => void index.open(path));
@@ -125,6 +139,17 @@ useShortcut("changes-focus", () => {
 useShortcut("diff-from", () => {
   if (repo.state.kind === "ready") picker.open({ kind: "diff-from" });
 });
+useShortcut("push", () => {
+  const branch = repo.currentBranch?.name;
+  if (repo.state.kind === "ready" && branch) remotes.ask({ kind: "push", branch });
+});
+
+/** Escape outside every overlay cancels the network command in flight ("esc cancel push"). */
+function onEscape(event: KeyboardEvent): void {
+  if (event.key !== "Escape" || !operations.current?.cancellable) return;
+  if (isOverlayTarget(event.target) || isOverlayTarget(document.activeElement)) return;
+  void remotes.cancel();
+}
 
 let uninstall: (() => void) | undefined;
 const onResize = () => shell.setWindowWidth(window.innerWidth);
@@ -133,12 +158,14 @@ onMounted(() => {
   uninstall = installShortcuts(window);
   onResize();
   window.addEventListener("resize", onResize);
+  window.addEventListener("keydown", onEscape);
   void launch();
 });
 
 onBeforeUnmount(() => {
   uninstall?.();
   window.removeEventListener("resize", onResize);
+  window.removeEventListener("keydown", onEscape);
 });
 
 /** The index loads while the last repository reopens; a gone one leaves home flagged. */
@@ -164,6 +191,8 @@ watch(
     if (kind === "error" || kind === "empty") shell.setSidebarTab("repos");
     if (kind === "ready") {
       shell.setSidebarTab(shell.layoutMode === "worktrees" ? "worktrees" : "branches");
+      // An operation stopped before the app opened the repository shows its banner at once.
+      void sequencer.load();
     }
   },
 );
@@ -233,6 +262,7 @@ async function removeFromList(): Promise<void> {
       @open-palette="shell.openPalette()"
       @set-layout-mode="(mode) => void shell.setLayoutMode(mode)"
     />
+    <OperationBanner />
     <div class="relative flex min-h-0 flex-1">
       <Sidebar v-if="showSidebar" />
       <SidebarRail
@@ -261,6 +291,14 @@ async function removeFromList(): Promise<void> {
       v-if="worktrees.addOpen && repo.state.kind === 'ready'"
       @close="worktrees.closeAdd()"
     />
+    <BranchDialogs v-if="repo.state.kind === 'ready'" />
+    <NetworkDialog
+      v-if="remotes.prompt && remotes.prompt.kind !== 'removeRemote'"
+      :mode="remotes.prompt.kind"
+      :branch="remotes.prompt.branch"
+    />
+    <RemotesSheet v-if="remotes.sheetOpen" />
+    <StashSheet v-if="stash.sheetOpen" />
     <ToastHost />
   </div>
 </template>

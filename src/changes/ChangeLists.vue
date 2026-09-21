@@ -6,7 +6,7 @@
 // act on the selected row (the layout binds them), and the selected row is the tab stop.
 // Skeleton rows while the diffs stream, the empty sentence on a clean tree.
 
-import { Minus, Plus, Undo2 } from "@lucide/vue";
+import { Check, CheckCheck, Code, Minus, Plus, Terminal, Undo2 } from "@lucide/vue";
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -20,11 +20,13 @@ import SkeletonRow from "@/components/SkeletonRow.vue";
 import TreeRow from "@/components/TreeRow.vue";
 import type { FileStatus } from "@/components/types";
 import { statusOf } from "@/detail/groupFiles";
-import type { FileChange } from "@/ipc/schemas";
+import type { Conflict, FileChange } from "@/ipc/schemas";
 import { errorText } from "@/shell/errorMessage";
 import { useShortcutHint } from "@/shortcuts/useShortcut";
 import { useListNavigation } from "@/shortcuts/useListNavigation";
+import { useExternal } from "@/shell/useExternal";
 import { useChangesStore, type ChangeList } from "@/stores/changes";
+import { useSequencerStore } from "@/stores/sequencer";
 
 const emit = defineEmits<{
   /** "Discard…" on rows, or "Discard all…": the layout confirms. */
@@ -33,8 +35,13 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const changes = useChangesStore();
+const sequencer = useSequencerStore();
+const external = useExternal();
 const panel = ref<HTMLElement | null>(null);
 const menu = ref<{ list: ChangeList; file: FileChange; x: number; y: number } | null>(null);
+/** The conflict row whose menu is open. */
+const conflictMenu = ref<{ conflict: Conflict; x: number; y: number } | null>(null);
+const resolveHint = useShortcutHint("mark-resolved");
 /** Whether the focus was last seen inside the panel (a row that leaves the DOM takes it). */
 let focusInside = false;
 const stageHint = useShortcutHint("stage-file");
@@ -42,29 +49,69 @@ const unstageHint = useShortcutHint("unstage-file");
 const discardHint = useShortcutHint("discard-file");
 
 interface Row {
-  list: ChangeList;
+  list: ChangeList | "conflicts";
   file: FileChange;
 }
 
-/** Both lists as one sequence, for the keyboard. */
+/** A conflict as a row: the working tree's entry of its path, or a bare one to name it. */
+function conflictRow(conflict: Conflict): Row {
+  const file = changes.unstaged.files.find((entry) => entry.path === conflict.path) ?? {
+    status: "unmerged",
+    path: conflict.path,
+    oldPath: null,
+    similarity: null,
+    additions: 0,
+    deletions: 0,
+    hunks: [],
+    isBinary: false,
+    isLarge: false,
+    isGenerated: false,
+    isTest: false,
+    isLossy: false,
+  };
+  return { list: "conflicts", file };
+}
+
+/** The three lists as one sequence, for the keyboard: conflicts first. */
 const rows = computed<Row[]>(() => [
+  ...sequencer.conflicts.map(conflictRow),
   ...changes.unstaged.files.map((file) => ({ list: "unstaged" as const, file })),
   ...changes.staged.files.map((file) => ({ list: "staged" as const, file })),
 ]);
 const count = computed(() => rows.value.length);
+/** The conflict row the selection stands on, when the file was picked from that list. */
+const selectedConflict = ref<string | null>(null);
 const selectedIndex = computed({
   get: () => {
     const current = changes.selected;
     if (!current) return -1;
+    if (selectedConflict.value === current.path && current.list === "unstaged") {
+      const at = rows.value.findIndex(
+        (row) => row.list === "conflicts" && row.file.path === current.path,
+      );
+      if (at >= 0) return at;
+    }
     return rows.value.findIndex(
       (row) => row.list === current.list && row.file.path === current.path,
     );
   },
   set: (index: number) => {
     const row = rows.value[index];
-    if (row) changes.select(row.list, row.file.path);
+    if (row) selectRow(row);
   },
 });
+
+/** A conflict opens its working-tree entry in the viewer (the unstaged list has it). */
+function selectRow(row: Row): void {
+  if (row.list === "conflicts") {
+    selectedConflict.value = row.file.path;
+    changes.select("unstaged", row.file.path);
+  } else {
+    selectedConflict.value = null;
+    changes.select(row.list, row.file.path);
+  }
+}
+
 const tabStop = computed(() => (selectedIndex.value >= 0 ? selectedIndex.value : 0));
 const showSkeletons = (list: ChangeList) =>
   changes[list].loading && changes[list].files.length === 0;
@@ -83,6 +130,15 @@ function rowElement(index: number): Element | null | undefined {
   if (!row) return null;
   const path = row.file.path.replace(/["\\]/g, "\\$&");
   return panel.value?.querySelector(`[data-list="${row.list}"][data-path="${path}"]`);
+}
+
+/** The selected row of a conflict or a file: the rows share the sequence. */
+function isSelected(list: Row["list"], path: string): boolean {
+  const current = changes.selected;
+  if (!current || current.path !== path) return false;
+  if (list === "conflicts") return current.list === "unstaged" && selectedConflict.value === path;
+  if (list === "unstaged") return current.list === "unstaged" && selectedConflict.value !== path;
+  return current.list === list;
 }
 
 const navigation = useListNavigation({
@@ -106,8 +162,27 @@ function statusLetter(list: ChangeList, file: FileChange): FileStatus {
 }
 
 function openMenu(row: Row, x: number, y: number): void {
-  changes.select(row.list, row.file.path);
-  menu.value = { ...row, x, y };
+  selectRow(row);
+  if (row.list === "conflicts") {
+    const conflict = sequencer.conflicts.find((entry) => entry.path === row.file.path);
+    if (conflict) conflictMenu.value = { conflict, x, y };
+    return;
+  }
+  menu.value = { list: row.list, file: row.file, x, y };
+}
+
+function closeConflictMenu(): void {
+  conflictMenu.value = null;
+  navigation.focus();
+}
+
+function conflictAction(action: "resolve" | "editor" | "terminal"): void {
+  const current = conflictMenu.value;
+  if (!current) return;
+  conflictMenu.value = null;
+  if (action === "resolve") void sequencer.markResolved([current.conflict.path]);
+  else if (action === "editor") void external.openEditor();
+  else void external.openTerminal();
 }
 
 function onContextMenu(row: Row, event: MouseEvent): void {
@@ -161,7 +236,7 @@ function onFocusOut(event: FocusEvent): void {
 watch(
   () => changes.selected,
   () => {
-    if (!focusInside || menu.value) return;
+    if (!focusInside || menu.value || conflictMenu.value) return;
     void nextTick(() => {
       const active = document.activeElement;
       if (active && active !== document.body && panel.value?.contains(active)) return;
@@ -195,6 +270,35 @@ defineExpose({ focus: navigation.focus, moveFile });
           @action="changes.load()"
         />
       </div>
+      <template v-if="sequencer.conflicts.length > 0">
+        <PanelHeader :title="t('sequencer.conflicts')" :count="sequencer.conflicts.length">
+          <template #actions>
+            <IconButton
+              :label="t('sequencer.markAllResolved')"
+              :icon="CheckCheck"
+              :disabled="sequencer.busy"
+              data-testid="resolve-all"
+              @click="() => void sequencer.markResolved(sequencer.conflicts.map((c) => c.path))"
+            />
+          </template>
+        </PanelHeader>
+        <div role="tree" class="py-1" data-testid="conflicts-list">
+          <TreeRow
+            v-for="(conflict, index) in sequencer.conflicts"
+            :key="conflict.path"
+            :name="conflict.path"
+            status="unmerged"
+            :meta="t(`sequencer.kinds.${conflict.kind}`)"
+            :selected="isSelected('conflicts', conflict.path)"
+            :tab-stop="tabStop === index"
+            data-list="conflicts"
+            :data-path="conflict.path"
+            :title="conflict.path"
+            @select="selectRow(conflictRow(conflict))"
+            @contextmenu="(event: MouseEvent) => onContextMenu(conflictRow(conflict), event)"
+          />
+        </div>
+      </template>
       <PanelHeader
         :title="t('changes.unstaged')"
         :count="
@@ -233,8 +337,8 @@ defineExpose({ focus: navigation.focus, moveFile });
           :removed="file.isBinary ? undefined : file.deletions"
           :generated="file.isGenerated"
           :binary="file.isBinary"
-          :selected="changes.selected?.list === 'unstaged' && changes.selected.path === file.path"
-          :tab-stop="tabStop === index"
+          :selected="isSelected('unstaged', file.path)"
+          :tab-stop="tabStop === sequencer.conflicts.length + index"
           :aria-disabled="changes.busy !== null || undefined"
           data-list="unstaged"
           :data-path="file.path"
@@ -272,8 +376,8 @@ defineExpose({ focus: navigation.focus, moveFile });
           :removed="file.isBinary ? undefined : file.deletions"
           :generated="file.isGenerated"
           :binary="file.isBinary"
-          :selected="changes.selected?.list === 'staged' && changes.selected.path === file.path"
-          :tab-stop="tabStop === changes.unstagedCount + index"
+          :selected="isSelected('staged', file.path)"
+          :tab-stop="tabStop === sequencer.conflicts.length + changes.unstagedCount + index"
           :aria-disabled="changes.busy !== null || undefined"
           data-list="staged"
           :data-path="file.path"
@@ -314,6 +418,31 @@ defineExpose({ focus: navigation.focus, moveFile });
         destructive
         data-testid="menu-discard"
         @select="menuAction('discard')"
+      />
+    </ContextMenu>
+    <ContextMenu
+      v-if="conflictMenu"
+      :x="conflictMenu.x"
+      :y="conflictMenu.y"
+      :label="t('changes.rowMenu')"
+      @close="closeConflictMenu"
+    >
+      <ContextMenuItem
+        :label="t('sequencer.markResolved')"
+        :icon="Check"
+        :keys="resolveHint"
+        data-testid="menu-resolve"
+        @select="conflictAction('resolve')"
+      />
+      <ContextMenuItem
+        :label="t('palette.commandsById.open-editor')"
+        :icon="Code"
+        @select="conflictAction('editor')"
+      />
+      <ContextMenuItem
+        :label="t('palette.commandsById.open-terminal')"
+        :icon="Terminal"
+        @select="conflictAction('terminal')"
       />
     </ContextMenu>
   </section>

@@ -199,6 +199,11 @@ describe("GraphPanel hover card and context menu", () => {
       "Diff from here",
       "Compare with…",
       "Select as range end",
+      "Create branch here…",
+      "Tag…",
+      "Cherry-pick",
+      "Revert",
+      "Reset main to here…",
       "Open in terminal",
       "Open in editor",
     ]);

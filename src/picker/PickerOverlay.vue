@@ -56,11 +56,24 @@ const trap = useFocusTrap(dialog);
 const title = computed(() => {
   const mode = picker.mode;
   if (!mode) return "";
-  return mode.kind === "diff-from"
-    ? t("picker.diffFrom")
-    : t("picker.compareWith", { subject: mode.other.label });
+  if (mode.kind === "diff-from") return t("picker.diffFrom");
+  if (mode.kind === "branch-action") {
+    const branch = repo.currentBranch?.name ?? "HEAD";
+    switch (mode.action) {
+      case "checkout":
+        return t("picker.checkout");
+      case "merge":
+        return t("picker.mergeInto", { branch });
+      case "rebase":
+        return t("picker.rebaseOnto", { branch });
+      case "create":
+        return t("picker.createFrom");
+    }
+  }
+  return t("picker.compareWith", { subject: mode.other.label });
 });
-const compareMode = computed(() => picker.mode?.kind === "compare");
+/** Ranges make no sense for a comparison side or a branch action: refs and commits only. */
+const compareMode = computed(() => picker.mode?.kind !== "diff-from");
 
 function ago(seconds: number): string {
   const rel = relativeDate(seconds, now.value);

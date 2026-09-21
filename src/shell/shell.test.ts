@@ -97,6 +97,8 @@ function backend(
     failWatch?: boolean;
     /** The index lists nothing. */
     emptyIndex?: boolean;
+    /** A merge stopped on this conflicted path. */
+    conflict?: string;
   } = {},
 ) {
   const calls: string[] = [];
@@ -310,9 +312,16 @@ function backend(
           template: null,
           headMessage: "feat: change 0",
           unborn: false,
-          operation: "none",
-          preparedMessage: null,
+          operation: options.conflict ? "merge" : "none",
+          preparedMessage: options.conflict ? "Merge branch 'develop'" : null,
         };
+      case "operation_state":
+        return options.conflict ? "merge" : "none";
+      case "conflicts":
+        return options.conflict ? [{ path: options.conflict, kind: "both-modified" }] : [];
+      case "mark_resolved":
+      case "switch":
+        return null;
       case "list_worktrees":
         return [
           {
@@ -661,6 +670,41 @@ describe("AppShell", () => {
     wrapper.unmount();
   });
 
+  it("shows the operation banner and the conflicts list while a merge is stopped", async () => {
+    backend({ conflict: "src/app.ts" });
+    const shell = useShellStore();
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    shell.setWindowWidth(1440);
+    await useRepoStore().open("/r");
+    await settle();
+    const banner = wrapper.get('[data-testid="operation-banner"]');
+    // The banner loads the commit context itself: the merge names its source on any screen.
+    expect(banner.get('[data-testid="operation-title"]').text()).toBe(
+      "Merging develop into main · 1 conflict",
+    );
+    await banner.get('[data-testid="operation-resolve"]').trigger("click");
+    await settle();
+    expect(shell.layoutMode).toBe("changes");
+    const conflicts = wrapper.get('[data-testid="conflicts-list"]');
+    const row = conflicts.get('[data-testid="tree-row"]');
+    expect(row.text()).toContain("src/app.ts");
+    expect(row.text()).toContain("both modified");
+    expect(row.find('[data-status="unmerged"]').text()).toBe("U");
+    expect(wrapper.get('[data-testid="status-stopped"]').text()).toBe(
+      "Merge in progress · 1 conflict",
+    );
+    expect(wrapper.get('[data-testid="status-hints"]').text()).toContain("mark resolved");
+    // The viewer offers "Mark resolved" on the conflicted file.
+    await row.trigger("click");
+    await settle();
+    expect(wrapper.find('[data-testid="mark-resolved"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="file-action"]').exists()).toBe(false);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "r" }));
+    await settle();
+    expect(wrapper.find('[data-testid="operation-continue"]').attributes("disabled")).toBeDefined();
+    wrapper.unmount();
+  });
+
   it("moves through the detail tree with j and opens review on the chosen file with Enter", async () => {
     backend();
     const shell = useShellStore();
@@ -862,6 +906,36 @@ describe("Sidebar", () => {
     await again[2]!.trigger("keydown", { key: "Enter" });
     await settle();
     expect(useRepoStore().repo?.root).toBe("/other");
+    wrapper.unmount();
+  });
+
+  it("opens a branch row's menu and checks the branch out from it, or with Enter", async () => {
+    const wrapper = await openShell();
+    const rows = wrapper.get('[data-testid="branch-list"]').findAll('[data-testid="list-row"]');
+    await rows[1]!.trigger("contextmenu");
+    await settle();
+    const menu = wrapper.get('[role="menu"]');
+    const labels = menu.findAll('[role="menuitem"]').map((item) => item.text());
+    expect(labels[0]).toContain("Checkout");
+    expect(labels).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Create branch here…"),
+        expect.stringContaining("Merge into main"),
+        expect.stringContaining("Rebase main onto this"),
+        expect.stringContaining("Compare with…"),
+      ]),
+    );
+    // origin/main is a remote branch: no rename, upstream, push or delete.
+    expect(menu.find('[data-testid="menu-rename"]').exists()).toBe(false);
+    await menu.get('[data-testid="menu-checkout"]').trigger("click");
+    await settle();
+    expect(wrapper.find('[role="menu"]').exists()).toBe(false);
+    expect(useToastsStore().toasts.at(-1)?.key).toBe("branches.switched");
+    // Enter on the current branch does nothing; the toast count stays.
+    (rows[0]?.element as HTMLElement).focus();
+    await rows[0]!.trigger("keydown", { key: "Enter" });
+    await settle();
+    expect(useToastsStore().toasts).toHaveLength(1);
     wrapper.unmount();
   });
 

@@ -6,7 +6,7 @@
 // which turn into "… lines" once lines are picked. The picked lines live here, keyed
 // `hunk:line`, and clear when the file changes or a write starts.
 
-import { Columns2, Minus, Plus, Rows3, Undo2, WrapText } from "@lucide/vue";
+import { Check, Columns2, Minus, Plus, Rows3, Undo2, WrapText } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -25,6 +25,7 @@ import { errorText } from "@/shell/errorMessage";
 import { lineKey, useChangesStore, type ChangeList } from "@/stores/changes";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore, type ReviewTarget } from "@/stores/review";
+import { useSequencerStore } from "@/stores/sequencer";
 
 import type { DiscardRequest } from "./discard";
 
@@ -34,6 +35,7 @@ const { t, n } = useI18n();
 const changes = useChangesStore();
 const repo = useRepoStore();
 const review = useReviewStore();
+const sequencer = useSequencerStore();
 
 const root = computed(() => repo.repo?.root ?? null);
 const list = computed<ChangeList | null>(() => changes.selected?.list ?? null);
@@ -70,6 +72,10 @@ const partialDiscard = computed(
     file.value.status !== "deleted",
 );
 const busy = computed(() => changes.busy !== null);
+/** The open file is one of the operation's conflicts: "Mark resolved" in the header. */
+const conflicted = computed(
+  () => file.value !== null && sequencer.conflicts.some((entry) => entry.path === file.value?.path),
+);
 const selectedCount = computed(() => selected.value.size);
 
 /** The keys of every changed line of a hunk. */
@@ -225,6 +231,17 @@ defineExpose({ actOnSelection, selectedCount });
           @click="() => void review.setWrap(!review.wrap)"
         />
         <Button
+          v-if="conflicted"
+          variant="ghost"
+          :icon="Check"
+          :disabled="sequencer.busy"
+          data-testid="mark-resolved"
+          @click="() => file && void sequencer.markResolved([file.path])"
+        >
+          {{ t("sequencer.markResolved") }}
+        </Button>
+        <Button
+          v-if="!conflicted"
           variant="ghost"
           :icon="list === 'unstaged' ? Undo2 : Minus"
           :disabled="busy"

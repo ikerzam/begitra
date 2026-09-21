@@ -11,6 +11,7 @@ import { useIndexStore } from "@/stores/index";
 import { useOperationsStore } from "@/stores/operations";
 import { useRepoStore } from "@/stores/repo";
 import { useChangesStore } from "@/stores/changes";
+import { useSequencerStore } from "@/stores/sequencer";
 import { useCompareStore } from "@/stores/compare";
 import { targetLabel, useReviewStore } from "@/stores/review";
 import { useShellStore } from "@/stores/shell";
@@ -27,6 +28,7 @@ const operations = useOperationsStore();
 const review = useReviewStore();
 const compare = useCompareStore();
 const changes = useChangesStore();
+const sequencer = useSequencerStore();
 const home = useHomeDir();
 
 /** The open repository, or the folder being opened or that failed to open. */
@@ -67,14 +69,27 @@ const operationText = computed(() => {
   const current = operations.current;
   if (!current) return "";
   const target = review.target;
-  return t(current.label, {
+  const text = t(current.label, {
     name: repoName.value,
     hash: repo.detail ? shortHash(repo.detail.hash) : "",
     folder: scanFolder.value,
     target: target ? targetLabel(target) || t(`review.target.${target.kind}`) : "",
     a: compare.endpoints?.a.label ?? "",
     b: compare.endpoints?.b.label ?? "",
+    ...current.params,
   }).trim();
+  // A network command's latest progress line follows its label.
+  return current.detail ? `${text} · ${current.detail}` : text;
+});
+
+/** The operation stopped on conflicts, for the changes screen's slot. */
+const stoppedText = computed(() => {
+  if (!sequencer.inProgress || shell.layoutMode !== "changes") return "";
+  const operation = t(`sequencer.operations.${sequencer.operation}`);
+  const n = sequencer.conflictCount;
+  return n > 0
+    ? t("statusBar.operationInProgress", { operation, n }, n)
+    : t("statusBar.operationClean", { operation });
 });
 
 /** Review focus's error state: the diff of the target failed, in `--danger`. */
@@ -127,6 +142,10 @@ const indexText = computed(() =>
 
 const hints = computed(() => {
   const registry = shortcutRegistry();
+  // While a network command runs, the bar keeps only its cancel and the palette.
+  if (operations.current?.cancellable) {
+    return [{ keys: registry.hint("palette"), label: t("statusBar.commands") }];
+  }
   if (repo.state.kind !== "ready") {
     return [
       { keys: "↵", label: t("statusBar.open") },
@@ -162,6 +181,13 @@ const hints = computed(() => {
     ];
   }
   if (shell.layoutMode === "changes") {
+    if (sequencer.inProgress) {
+      return [
+        { keys: "j/k", label: t("statusBar.files") },
+        { keys: registry.hint("mark-resolved"), label: t("statusBar.markResolved") },
+        { keys: registry.hint("palette"), label: t("statusBar.commands") },
+      ];
+    }
     // A clean tree (or one still loading) has nothing to stage: the way back to the graph
     // and the palette instead.
     if (
@@ -188,6 +214,21 @@ const hints = computed(() => {
     { keys: "↵", label: t("statusBar.review") },
     { keys: registry.hint("palette"), label: t("statusBar.commands") },
   ];
+});
+
+/** While a network command runs, Escape cancels it; the hint says so. */
+const cancelHint = computed(() => {
+  const current = operations.current;
+  if (!current?.cancellable) return null;
+  const what = current.label.includes("push")
+    ? "push"
+    : current.label.includes("pull")
+      ? "pull"
+      : "fetch";
+  return {
+    keys: "esc",
+    label: t("statusBar.cancelOperation", { what: t(`statusBar.network.${what}`) }),
+  };
 });
 </script>
 
@@ -218,8 +259,11 @@ const hints = computed(() => {
         {{ path }}
       </span>
     </template>
+    <span v-if="stoppedText" class="text-fg-muted" data-testid="status-stopped">
+      {{ stoppedText }}
+    </span>
     <span
-      v-if="changesText.text"
+      v-else-if="changesText.text"
       :class="changesText.failed ? 'text-danger' : 'text-fg-muted'"
       data-testid="status-changes"
     >
@@ -244,9 +288,18 @@ const hints = computed(() => {
       data-testid="status-operation"
     >
       {{ operationText }}
-      <Progress class="status-progress" indeterminate :label="operationText" />
+      <Progress
+        class="status-progress"
+        :indeterminate="operations.currentFraction === undefined"
+        :value="(operations.currentFraction ?? 0) * 100"
+        :label="operationText"
+      />
     </span>
     <span class="ml-auto flex items-center gap-4 text-fg-muted" data-testid="status-hints">
+      <span v-if="cancelHint" class="flex items-center gap-2" data-testid="status-cancel">
+        <Kbd :keys="cancelHint.keys" />
+        {{ cancelHint.label }}
+      </span>
       <span v-for="hint in hints" :key="hint.label" class="flex items-center gap-2">
         <Kbd :keys="hint.keys" />
         {{ hint.label }}

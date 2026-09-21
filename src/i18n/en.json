@@ -35,9 +35,11 @@
       "modified": "Modified",
       "deleted": "Deleted",
       "renamed": "Renamed",
-      "untracked": "Untracked"
+      "untracked": "Untracked",
+      "unmerged": "Conflicted"
     },
-    "untracked": "?"
+    "untracked": "?",
+    "unmerged": "U"
   },
   "toast": {
     "showGitOutput": "Show git output",
@@ -53,6 +55,9 @@
   "dialog": {
     "cancel": "Cancel",
     "confirm": "Confirm"
+  },
+  "sheet": {
+    "close": "Close"
   },
   "worktreeRow": {
     "main": "main worktree",
@@ -147,7 +152,16 @@
       "discard": "Discard"
     },
     "graph": "graph",
-    "changesFailed": "Couldn't read the working tree"
+    "changesFailed": "Couldn't read the working tree",
+    "operationInProgress": "{operation} in progress · {n} conflict | {operation} in progress · {n} conflicts",
+    "operationClean": "{operation} in progress",
+    "cancelOperation": "cancel {what}",
+    "markResolved": "mark resolved",
+    "network": {
+      "fetch": "fetch",
+      "pull": "pull",
+      "push": "push"
+    }
   },
   "operations": {
     "opening": "Opening {name}",
@@ -162,7 +176,34 @@
     "staging": "Staging",
     "unstaging": "Unstaging",
     "discarding": "Discarding",
-    "committing": "Committing"
+    "committing": "Committing",
+    "switching": "Switching branch",
+    "stashing": "Stashing",
+    "creatingBranch": "Creating branch",
+    "renamingBranch": "Renaming branch",
+    "deletingBranch": "Deleting branch",
+    "merging": "Merging",
+    "rebasing": "Rebasing",
+    "resetting": "Resetting",
+    "cherryPicking": "Cherry-picking",
+    "reverting": "Reverting",
+    "tagging": "Tagging",
+    "deletingTag": "Deleting tag",
+    "settingUpstream": "Setting upstream",
+    "continuing": "Continuing",
+    "skipping": "Skipping",
+    "aborting": "Aborting",
+    "markingResolved": "Marking resolved",
+    "addingRemote": "Adding remote",
+    "removingRemote": "Removing remote",
+    "fetching": "Fetching {remote}",
+    "fetchingPrune": "Fetching and pruning {remote}",
+    "pulling": "Pulling {branch} from {remote}",
+    "pullingRebase": "Pulling {branch} from {remote} with rebase",
+    "pushing": "Pushing {branch} to {remote}",
+    "applyingStash": "Applying stash",
+    "poppingStash": "Popping stash",
+    "droppingStash": "Dropping stash"
   },
   "home": {
     "title": "Repositories",
@@ -427,7 +468,19 @@
       "stage-all": "Stage all",
       "unstage-all": "Unstage all",
       "discard-all": "Discard all…",
-      "commit": "Commit"
+      "commit": "Commit",
+      "checkout": "Checkout…",
+      "create-branch": "Create branch…",
+      "merge-into": "Merge into current branch…",
+      "rebase-onto": "Rebase current branch onto…",
+      "push": "Push…",
+      "pull": "Pull…",
+      "fetch-all": "Fetch all remotes",
+      "remotes": "Remotes…",
+      "stashes": "Stashes…",
+      "stash-changes": "Stash changes…",
+      "continue-operation": "Continue the operation",
+      "abort-operation": "Abort the operation…"
     },
     "repos": "Repos"
   },
@@ -488,7 +541,11 @@
     "refsFailed": "Couldn't list refs. {message} Type a commit hash to continue, or open a terminal to check the repository.",
     "choose": "choose",
     "switchDots": "switch A..B / A...B",
-    "closeHint": "close"
+    "closeHint": "close",
+    "checkout": "Checkout",
+    "mergeInto": "Merge into {branch}",
+    "rebaseOnto": "Rebase {branch} onto",
+    "createFrom": "Create a branch from"
   },
   "compare": {
     "title": "Compare",
@@ -628,6 +685,185 @@
       "bodyUntrackedClause": ", and {names} is deleted: it is not tracked yet. | , and {names} are deleted: they are not tracked yet."
     }
   },
+  "branches": {
+    "menu": "Branch actions",
+    "checkout": "Checkout",
+    "createHere": "Create branch here…",
+    "mergeInto": "Merge into {branch}",
+    "rebaseOnto": "Rebase {branch} onto this",
+    "compareWith": "Compare with…",
+    "rename": "Rename…",
+    "setUpstream": "Set upstream…",
+    "push": "Push",
+    "delete": "Delete…",
+    "deleteTag": "Delete tag…",
+    "tagHere": "Tag…",
+    "cherryPick": "Cherry-pick",
+    "revert": "Revert",
+    "resetHere": "Reset {branch} to here…",
+    "failed": "git refused. {message}",
+    "switched": "Switched to {name}",
+    "created": "Created {name}",
+    "deleted": "Deleted {name}",
+    "merged": "Merged {rev} into {into}",
+    "rebased": "Rebased {branch} onto {onto}",
+    "upToDate": "Already up to date",
+    "resetDone": "Reset {mode} to {rev}",
+    "cherryPicked": "Cherry-picked {n} commit | Cherry-picked {n} commits",
+    "reverted": "Reverted {n} commit | Reverted {n} commits",
+    "tagged": "Tagged {name}",
+    "dialogs": {
+      "createTitle": "Create branch",
+      "createBody": "From {start}. The branch is checked out unless you untick it.",
+      "name": "Name",
+      "namePlaceholder": "branch name",
+      "invalidName": "Not a valid branch name.",
+      "checkout": "Checkout the new branch",
+      "create": "Create",
+      "renameTitle": "Rename {name}",
+      "rename": "Rename",
+      "deleteTitle": "Delete {name}?",
+      "deleteBody": "The branch is deleted; its commits stay in the graph as long as another ref or the reflog reaches them.",
+      "deleteAnywayTitle": "Delete {name} anyway?",
+      "deleteAnywayBody": "git refused: the branch is not fully merged. Its commits stay reachable through the reflog for 90 days (git reflog, then git branch).",
+      "delete": "Delete",
+      "deleteAnyway": "Delete anyway",
+      "upstreamTitle": "Set upstream of {branch}",
+      "upstreamBody": "The remote branch the branch pulls from and pushes to; none clears it.",
+      "upstream": "Upstream",
+      "noUpstream": "None",
+      "setUpstream": "Set upstream",
+      "tagTitle": "Tag {label}",
+      "tagBody": "A lightweight tag, or an annotated one with a message.",
+      "tagName": "Tag name",
+      "tagMessage": "Message (optional, makes it annotated)",
+      "tag": "Create tag",
+      "resetTitle": "Reset {branch} to {rev}?",
+      "resetBody": "{branch} moves to {rev}. A hard reset also drops the uncommitted changes in the working tree. The reflog keeps the previous HEAD for 90 days (git reflog, then git reset).",
+      "resetBodyChanges": "{branch} moves to {rev}. A hard reset also drops the {n} uncommitted change in the working tree. The reflog keeps the previous HEAD for 90 days (git reflog, then git reset). | {branch} moves to {rev}. A hard reset also drops the {n} uncommitted changes in the working tree. The reflog keeps the previous HEAD for 90 days (git reflog, then git reset).",
+      "resetModes": "Reset mode",
+      "soft": "Soft",
+      "softHint": "keeps the index and the working tree",
+      "mixed": "Mixed",
+      "mixedHint": "keeps the working tree, unstages everything",
+      "hard": "Hard",
+      "hardHint": "drops the index and the working tree changes",
+      "reset": "Reset {mode}",
+      "dirtySwitchTitle": "Local changes would be overwritten",
+      "dirtySwitchBody": "git refused to switch to {name}: your local changes would be overwritten. Stash them (untracked files included), switch, then pop the stash when you are back.",
+      "stashAndSwitch": "Stash and switch"
+    }
+  },
+  "sequencer": {
+    "operations": {
+      "merge": "Merge",
+      "rebase": "Rebase",
+      "cherry-pick": "Cherry-pick",
+      "revert": "Revert",
+      "none": "Operation"
+    },
+    "banner": {
+      "merge": "Merging {source} into {branch}",
+      "mergeUnknown": "Merging into {branch}",
+      "rebase": "Rebasing {branch}",
+      "cherry-pick": "Cherry-picking onto {branch}",
+      "revert": "Reverting on {branch}",
+      "none": "Conflicts on {branch}",
+      "conflicts": "{n} conflict | {n} conflicts",
+      "hint": "Resolve the files, mark them, then continue.",
+      "hintClean": "Every conflict is marked resolved; continue or abort.",
+      "resolve": "Resolve…",
+      "continue": "Continue",
+      "skip": "Skip",
+      "abort": "Abort {operation}…",
+      "abortTitle": "Abort the {operation}?",
+      "abortBody": "The operation's changes are dropped and the working tree returns to where it was before it started.",
+      "abortConfirm": "Abort {operation}",
+      "failed": "git refused. {message}"
+    },
+    "conflicts": "Conflicts",
+    "markResolved": "Mark resolved",
+    "markAllResolved": "Mark all resolved",
+    "kinds": {
+      "both-modified": "both modified",
+      "both-added": "both added",
+      "both-deleted": "both deleted",
+      "deleted-by-us": "deleted by us",
+      "deleted-by-them": "deleted by them",
+      "added-by-us": "added by us",
+      "added-by-them": "added by them"
+    }
+  },
+  "remotes": {
+    "title": "Remotes",
+    "fetchAll": "Fetch all",
+    "addRemote": "Add remote",
+    "name": "Name",
+    "namePlaceholder": "remote name",
+    "url": "URL",
+    "urlPlaceholder": "git{'@'}github.com:you/repo.git",
+    "add": "Add",
+    "cancel": "Cancel",
+    "fetch": "Fetch",
+    "fetchPrune": "Fetch and prune",
+    "remove": "Remove remote",
+    "empty": "No remotes. Add one to fetch, pull and push.",
+    "footer": "Fetch updates the remote branches; prune also drops the ones deleted on the remote.",
+    "close": "Close",
+    "removeTitle": "Remove {name}?",
+    "removeBody": "The remote and its remote-tracking branches are removed from this repository; nothing changes on {name} itself.",
+    "removeConfirm": "Remove",
+    "failed": "git refused. {message}",
+    "loadFailed": "Couldn't list the remotes. {message}",
+    "tryAgain": "Try again",
+    "networkFailed": "{message}",
+    "fetched": "Fetched {remote}",
+    "fetchedAll": "Fetched every remote",
+    "pulled": "Pulled {branch}",
+    "pullUpToDate": "{branch} is up to date",
+    "pushed": "Pushed {branch} to {remote}",
+    "pushDialog": {
+      "title": "Push {branch}",
+      "body": "{n} commit ahead of {upstream}. git's credential helpers answer any prompt; the progress shows in the status bar. | {n} commits ahead of {upstream}. git's credential helpers answer any prompt; the progress shows in the status bar.",
+      "bodyNoUpstream": "No upstream yet: the branch is pushed to the remote you pick, and set as its upstream if you tick it. git's credential helpers answer any prompt; the progress shows in the status bar.",
+      "remote": "Remote",
+      "branch": "Branch",
+      "setUpstream": "Set upstream",
+      "setUpstreamAlready": "Set upstream ({upstream} already is)",
+      "forceWithLease": "Force with lease: overwrite the remote only if it is where {upstream} says",
+      "forceWithLeaseNoUpstream": "Force with lease: overwrite the remote only if it is where the tracking ref says",
+      "confirm": "Push"
+    },
+    "pullDialog": {
+      "title": "Pull {branch}",
+      "body": "{n} commit behind {upstream}. A pull that stops on conflicts opens the changes screen. | {n} commits behind {upstream}. A pull that stops on conflicts opens the changes screen.",
+      "bodyNoUpstream": "No upstream yet: pick the remote and the branch to pull from.",
+      "rebase": "Rebase the local commits on top instead of merging",
+      "confirm": "Pull"
+    }
+  },
+  "stash": {
+    "title": "Stashes",
+    "messagePlaceholder": "Stash message (optional)",
+    "includeUntracked": "Include untracked",
+    "stashChanges": "Stash {n} change | Stash {n} changes",
+    "stashNow": "Stash",
+    "apply": "Apply",
+    "pop": "Pop",
+    "drop": "Drop stash",
+    "empty": "No stashes. Stash the working tree to set it aside and come back to it later.",
+    "footer": "Apply keeps the stash; pop drops it once applied. A pop that conflicts keeps it.",
+    "close": "Close",
+    "dropTitle": "Drop {name}?",
+    "dropBody": "The stash is dropped. git prints its commit hash, which can bring it back until git gc runs.",
+    "dropConfirm": "Drop",
+    "failed": "git refused. {message}",
+    "pushed": "Stashed the working tree",
+    "nothing": "Nothing to stash",
+    "applied": "Stash applied",
+    "popped": "Stash popped",
+    "dropped": "Stash dropped"
+  },
   "settings": {
     "title": "Settings",
     "subtitle": "Changes apply immediately and are stored on this machine.",
@@ -699,7 +935,9 @@
         "settings": "Settings",
         "stageUnstageFile": "Stage / unstage file or lines",
         "discardFile": "Discard file or lines",
-        "commit": "Commit"
+        "commit": "Commit",
+        "push": "Push",
+        "markResolved": "Mark resolved"
       }
     }
   }

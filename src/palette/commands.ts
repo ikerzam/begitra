@@ -57,6 +57,16 @@ export interface PaletteActions {
   inChanges: () => boolean;
   /** "Stage all", "Unstage all" and "Discard all…" of the changes screen. */
   changesAll: (action: "stage" | "unstage" | "discard") => void;
+  /** Opens the picker for a branch action on the chosen ref. */
+  branchAction: (action: "checkout" | "merge" | "rebase" | "create") => void;
+  /** "Push…" and "Pull…" for the current branch. */
+  network: (action: "push" | "pull") => void;
+  fetchAll: () => Promise<void>;
+  openRemotes: () => Promise<void>;
+  openStashes: () => void;
+  /** Whether an operation stopped on conflicts is in progress. */
+  inOperation: () => boolean;
+  sequencer: (action: "continue" | "abort") => void;
   openSettings: () => Promise<void>;
   addWorktree: () => void;
   /** Whether some worktree entry can be pruned (its folder is gone). */
@@ -262,6 +272,79 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       enabled: () => withRepo() && actions.inChanges(),
       run: () => actions.changesAll(action),
     })),
+    {
+      id: "checkout",
+      labelKey: "palette.commandsById.checkout",
+      enabled: withRepo,
+      run: () => actions.branchAction("checkout"),
+    },
+    {
+      id: "create-branch",
+      labelKey: "palette.commandsById.create-branch",
+      enabled: withRepo,
+      run: () => actions.branchAction("create"),
+    },
+    {
+      id: "merge-into",
+      labelKey: "palette.commandsById.merge-into",
+      enabled: withRepo,
+      run: () => actions.branchAction("merge"),
+    },
+    {
+      id: "rebase-onto",
+      labelKey: "palette.commandsById.rebase-onto",
+      enabled: withRepo,
+      run: () => actions.branchAction("rebase"),
+    },
+    {
+      id: "push",
+      labelKey: "palette.commandsById.push",
+      shortcutId: "push",
+      enabled: withRepo,
+      run: () => actions.network("push"),
+    },
+    {
+      id: "pull",
+      labelKey: "palette.commandsById.pull",
+      enabled: withRepo,
+      run: () => actions.network("pull"),
+    },
+    {
+      id: "fetch-all",
+      labelKey: "palette.commandsById.fetch-all",
+      enabled: withRepo,
+      run: actions.fetchAll,
+    },
+    {
+      id: "remotes",
+      labelKey: "palette.commandsById.remotes",
+      enabled: withRepo,
+      run: actions.openRemotes,
+    },
+    {
+      id: "stashes",
+      labelKey: "palette.commandsById.stashes",
+      enabled: withRepo,
+      run: actions.openStashes,
+    },
+    {
+      id: "stash-changes",
+      labelKey: "palette.commandsById.stash-changes",
+      enabled: withRepo,
+      run: actions.openStashes,
+    },
+    {
+      id: "continue-operation",
+      labelKey: "palette.commandsById.continue-operation",
+      enabled: () => withRepo() && actions.inOperation(),
+      run: () => actions.sequencer("continue"),
+    },
+    {
+      id: "abort-operation",
+      labelKey: "palette.commandsById.abort-operation",
+      enabled: () => withRepo() && actions.inOperation(),
+      run: () => actions.sequencer("abort"),
+    },
     {
       id: "toggle-overview",
       labelKey: "palette.commandsById.toggle-overview",

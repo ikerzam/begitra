@@ -8,11 +8,22 @@ export interface Operation {
   opId: string;
   /** i18n key of the label, e.g. `operations.loadingHistory`. */
   label: string;
+  /** Params of the label (`{ branch, remote }` for "Pushing {branch} to {remote}"). */
+  params?: Record<string, string>;
+  /** A line after the label, such as git's own progress ("Writing objects: 45% (12/27)"). */
+  detail?: string;
+  /** The operation can be cancelled from the status bar (Escape). */
+  cancellable?: boolean;
   /** Units done so far, when known. */
   done?: number;
   /** Units expected, when known. */
   total?: number;
   startedAt: number;
+}
+
+export interface OperationExtra {
+  params?: Record<string, string>;
+  cancellable?: boolean;
 }
 
 export const useOperationsStore = defineStore("operations", () => {
@@ -28,12 +39,25 @@ export const useOperationsStore = defineStore("operations", () => {
     return Math.min(op.done / op.total, 1);
   });
 
-  function start(opId: string, label: string, total?: number): void {
+  function start(opId: string, label: string, total?: number, extra: OperationExtra = {}): void {
     finish(opId);
     operations.value = [
       ...operations.value,
-      { opId, label, total, done: total === undefined ? undefined : 0, startedAt: Date.now() },
+      {
+        opId,
+        label,
+        params: extra.params,
+        cancellable: extra.cancellable,
+        total,
+        done: total === undefined ? undefined : 0,
+        startedAt: Date.now(),
+      },
     ];
+  }
+
+  /** Replaces the detail line of an operation (the latest progress line). */
+  function setDetail(opId: string, detail: string): void {
+    operations.value = operations.value.map((op) => (op.opId === opId ? { ...op, detail } : op));
   }
 
   function progress(opId: string, done: number, total?: number): void {
@@ -46,5 +70,5 @@ export const useOperationsStore = defineStore("operations", () => {
     operations.value = operations.value.filter((op) => op.opId !== opId);
   }
 
-  return { operations, current, isBusy, currentFraction, start, progress, finish };
+  return { operations, current, isBusy, currentFraction, start, setDetail, progress, finish };
 });

@@ -10,13 +10,18 @@ import type {
   AnnotationWrite,
   CommitContext,
   CommitNode,
+  Conflict,
   DiffLine,
   DiffTarget,
   FileChange,
   Hunk,
   IndexEntry,
   MergePreview,
+  OperationState,
+  Outcome,
   PatchSelection,
+  Ref,
+  Remote,
   RepoSummary,
   SelectionTarget,
   WalkFilter,
@@ -80,7 +85,32 @@ export interface FakeBackendOptions {
   commitContext?: Partial<CommitContext>;
   /** Every diff answers after this many milliseconds (the loading states, by eye). */
   diffDelayMs?: number;
+  /** The network commands end after this many milliseconds (the progress, by eye). */
+  networkDelayMs?: number;
+  /** The refs `list_refs` answers; the two local branches by default. */
+  refs?: Ref[];
+  /** The remotes `remotes` answers; `remote_add` and `remote_remove` change the list. */
+  remotes?: Remote[];
+  /** What the operations that may stop on conflicts answer; done on a new commit by default. */
+  outcome?: Outcome;
+  /** What `operation_state` and `conflicts` answer. */
+  operation?: OperationState;
+  conflicts?: Conflict[];
+  /** `switch` rejects with git's "would be overwritten" message. */
+  dirtySwitch?: boolean;
+  /** `branch_delete` without force rejects with "not fully merged". */
+  unmergedBranch?: boolean;
+  /** The network commands stream these lines, then fail with a rejected push. */
+  failNetwork?: boolean;
+  /** `stash_push` answers false (nothing to save). */
+  stashNothing?: boolean;
 }
+
+/** The hash the operations that move HEAD answer. */
+export const FAKE_OUTCOME_HASH = "beef00".padEnd(40, "0");
+
+/** The progress lines every network command streams before its result. */
+export const FAKE_PROGRESS = ["Enumerating objects: 12, done.", "Writing objects: 100% (12/12)"];
 
 /** The hash `commit` answers. */
 export const FAKE_COMMIT_HASH = "c0ffee".padEnd(40, "0");
@@ -229,6 +259,7 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
   const all = Array.from({ length: total }, (_, i) => fakeCommit(i));
   const annotations: Record<string, Annotation[]> = options.annotations ?? {};
   let worktrees: Worktree[] = (options.worktrees ?? []).map((worktree) => ({ ...worktree }));
+  let remotes: Remote[] = (options.remotes ?? []).map((remote) => ({ ...remote }));
   let unstaged: FileChange[] = [...(options.changes?.unstaged ?? [])];
   let staged: FileChange[] = [...(options.changes?.staged ?? [])];
   const stagingFailure = () =>
@@ -298,6 +329,7 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
           isLinkedWorktree: false,
         };
       case "list_refs":
+        if (options.refs) return options.refs.map((entry) => ({ ...entry }));
         return [
           {
             name: "main",
@@ -637,6 +669,114 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
         staged = [];
         return { hash: FAKE_COMMIT_HASH };
       }
+      case "branch_create":
+      case "branch_rename":
+      case "tag_create":
+      case "tag_delete":
+      case "set_upstream":
+      case "reset":
+      case "mark_resolved":
+        return null;
+      case "switch":
+        if (options.dirtySwitch) {
+          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+          return Promise.reject({
+            code: "git.cli_failed",
+            message: "git switch failed",
+            detail:
+              "error: Your local changes to the following files would be overwritten by checkout:\n\tsrc/a.ts\nPlease commit your changes or stash them before you switch branches.\nAborting",
+          });
+        }
+        return null;
+      case "branch_delete":
+        if (options.unmergedBranch && !args["force"]) {
+          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+          return Promise.reject({
+            code: "git.cli_failed",
+            message: "git branch -d failed",
+            detail: `error: the branch '${args["name"] as string}' is not fully merged`,
+          });
+        }
+        return null;
+      case "merge":
+      case "rebase":
+      case "cherry_pick":
+      case "revert":
+      case "sequencer":
+      case "stash_apply":
+      case "stash_pop":
+        return (
+          options.outcome ?? { kind: "done", hash: FAKE_OUTCOME_HASH, conflicts: [] as Conflict[] }
+        );
+      case "operation_state":
+        return options.operation ?? "none";
+      case "conflicts":
+        return options.conflicts ?? [];
+      case "remotes":
+        return remotes.map((remote) => ({ ...remote }));
+      case "remote_add":
+        remotes = [
+          ...remotes,
+          {
+            name: args["name"] as string,
+            fetchUrl: args["url"] as string,
+            pushUrl: args["url"] as string,
+          },
+        ];
+        return null;
+      case "remote_remove":
+        remotes = remotes.filter((remote) => remote.name !== args["name"]);
+        return null;
+      case "fetch":
+      case "pull":
+      case "push": {
+        const messages: unknown[] = FAKE_PROGRESS.map((line, seq) => ({
+          kind: "page",
+          seq,
+          data: { kind: "progress", line },
+        }));
+        if (options.failNetwork) {
+          messages.push({
+            kind: "error",
+            error: {
+              code: "git.cli_failed",
+              message: "git push failed",
+              detail:
+                " ! [rejected]        main -> main (fetch first)\nerror: failed to push some refs",
+            },
+          });
+        } else {
+          const data =
+            cmd === "pull"
+              ? {
+                  kind: "outcome",
+                  outcome: options.outcome ?? {
+                    kind: "fast-forward",
+                    hash: FAKE_OUTCOME_HASH,
+                    conflicts: [],
+                  },
+                }
+              : { kind: "result", summary: ["   0000000..beef000  main -> main"] };
+          messages.push({ kind: "page", seq: FAKE_PROGRESS.length, data }, { kind: "done" });
+        }
+        if (options.networkDelayMs) {
+          // The progress lines arrive at once; the result waits, as a slow link would.
+          const progress = messages.slice(0, FAKE_PROGRESS.length);
+          send(args["onPage"] as Channel<unknown>, progress);
+          send(
+            args["onPage"] as Channel<unknown>,
+            messages.slice(FAKE_PROGRESS.length),
+            options.networkDelayMs,
+          );
+          return null;
+        }
+        send(args["onPage"] as Channel<unknown>, messages);
+        return null;
+      }
+      case "stash_push":
+        return !options.stashNothing;
+      case "stash_drop":
+        return null;
       case "commit_context":
         return {
           author: "Iker Z. <iker@x>",

@@ -35,9 +35,11 @@
       "modified": "Modificado",
       "deleted": "Borrado",
       "renamed": "Renombrado",
-      "untracked": "Sin seguimiento"
+      "untracked": "Sin seguimiento",
+      "unmerged": "En conflicto"
     },
-    "untracked": "?"
+    "untracked": "?",
+    "unmerged": "U"
   },
   "toast": {
     "showGitOutput": "Ver la salida de git",
@@ -53,6 +55,9 @@
   "dialog": {
     "cancel": "Cancelar",
     "confirm": "Confirmar"
+  },
+  "sheet": {
+    "close": "Cerrar"
   },
   "worktreeRow": {
     "main": "worktree principal",
@@ -147,7 +152,16 @@
       "discard": "Descartar"
     },
     "graph": "grafo",
-    "changesFailed": "No se pudo leer el árbol de trabajo"
+    "changesFailed": "No se pudo leer el árbol de trabajo",
+    "operationInProgress": "{operation} en curso · {n} conflicto | {operation} en curso · {n} conflictos",
+    "operationClean": "{operation} en curso",
+    "cancelOperation": "cancelar {what}",
+    "markResolved": "marcar resuelto",
+    "network": {
+      "fetch": "el fetch",
+      "pull": "el pull",
+      "push": "el push"
+    }
   },
   "operations": {
     "opening": "Abriendo {name}",
@@ -162,7 +176,34 @@
     "staging": "Preparando",
     "unstaging": "Quitando de preparados",
     "discarding": "Descartando",
-    "committing": "Creando el commit"
+    "committing": "Creando el commit",
+    "switching": "Cambiando de rama",
+    "stashing": "Guardando en el stash",
+    "creatingBranch": "Creando la rama",
+    "renamingBranch": "Renombrando la rama",
+    "deletingBranch": "Borrando la rama",
+    "merging": "Fusionando",
+    "rebasing": "Rebasando",
+    "resetting": "Reseteando",
+    "cherryPicking": "Aplicando cherry-pick",
+    "reverting": "Revirtiendo",
+    "tagging": "Etiquetando",
+    "deletingTag": "Borrando la etiqueta",
+    "settingUpstream": "Ajustando el upstream",
+    "continuing": "Continuando",
+    "skipping": "Saltando",
+    "aborting": "Abortando",
+    "markingResolved": "Marcando como resuelto",
+    "addingRemote": "Añadiendo el remoto",
+    "removingRemote": "Eliminando el remoto",
+    "fetching": "Trayendo {remote}",
+    "fetchingPrune": "Trayendo y podando {remote}",
+    "pulling": "Trayendo {branch} de {remote}",
+    "pullingRebase": "Trayendo {branch} de {remote} con rebase",
+    "pushing": "Subiendo {branch} a {remote}",
+    "applyingStash": "Aplicando el stash",
+    "poppingStash": "Sacando el stash",
+    "droppingStash": "Borrando el stash"
   },
   "home": {
     "title": "Repositorios",
@@ -427,7 +468,19 @@
       "stage-all": "Preparar todo",
       "unstage-all": "Quitar todo de preparados",
       "discard-all": "Descartar todo…",
-      "commit": "Commit"
+      "commit": "Commit",
+      "checkout": "Cambiar de rama…",
+      "create-branch": "Crear rama…",
+      "merge-into": "Fusionar en la rama actual…",
+      "rebase-onto": "Rebasar la rama actual sobre…",
+      "push": "Push…",
+      "pull": "Pull…",
+      "fetch-all": "Traer de todos los remotos",
+      "remotes": "Remotos…",
+      "stashes": "Stashes…",
+      "stash-changes": "Guardar los cambios en el stash…",
+      "continue-operation": "Continuar la operación",
+      "abort-operation": "Abortar la operación…"
     },
     "repos": "Repos"
   },
@@ -488,7 +541,11 @@
     "refsFailed": "No se pudieron listar las refs. {message} Escribe un hash de commit para seguir, o abre un terminal para revisar el repositorio.",
     "choose": "elegir",
     "switchDots": "cambiar A..B / A...B",
-    "closeHint": "cerrar"
+    "closeHint": "cerrar",
+    "checkout": "Cambiar a",
+    "mergeInto": "Fusionar en {branch}",
+    "rebaseOnto": "Rebasar {branch} sobre",
+    "createFrom": "Crear una rama desde"
   },
   "compare": {
     "title": "Comparar",
@@ -628,6 +685,185 @@
       "bodyUntrackedClause": ", y {names} se borra: aún no está en seguimiento. | , y {names} se borran: aún no están en seguimiento."
     }
   },
+  "branches": {
+    "menu": "Acciones de la rama",
+    "checkout": "Cambiar a esta rama",
+    "createHere": "Crear rama aquí…",
+    "mergeInto": "Fusionar en {branch}",
+    "rebaseOnto": "Rebasar {branch} sobre esta",
+    "compareWith": "Comparar con…",
+    "rename": "Renombrar…",
+    "setUpstream": "Ajustar el upstream…",
+    "push": "Push",
+    "delete": "Borrar…",
+    "deleteTag": "Borrar la etiqueta…",
+    "tagHere": "Etiquetar…",
+    "cherryPick": "Cherry-pick",
+    "revert": "Revertir",
+    "resetHere": "Resetear {branch} aquí…",
+    "failed": "git lo rechazó. {message}",
+    "switched": "Cambiado a {name}",
+    "created": "Creada {name}",
+    "deleted": "Borrada {name}",
+    "merged": "Fusionada {rev} en {into}",
+    "rebased": "Rebasada {branch} sobre {onto}",
+    "upToDate": "Ya está al día",
+    "resetDone": "Reset {mode} a {rev}",
+    "cherryPicked": "Cherry-pick de {n} commit | Cherry-pick de {n} commits",
+    "reverted": "Revertido {n} commit | Revertidos {n} commits",
+    "tagged": "Etiquetado {name}",
+    "dialogs": {
+      "createTitle": "Crear rama",
+      "createBody": "Desde {start}. La rama se saca al crearla salvo que lo desmarques.",
+      "name": "Nombre",
+      "namePlaceholder": "nombre de la rama",
+      "invalidName": "No es un nombre de rama válido.",
+      "checkout": "Cambiar a la rama nueva",
+      "create": "Crear",
+      "renameTitle": "Renombrar {name}",
+      "rename": "Renombrar",
+      "deleteTitle": "¿Borrar {name}?",
+      "deleteBody": "La rama se borra; sus commits siguen en el grafo mientras otra referencia o el reflog lleguen a ellos.",
+      "deleteAnywayTitle": "¿Borrar {name} de todos modos?",
+      "deleteAnywayBody": "git lo rechazó: la rama no está fusionada del todo. Sus commits siguen accesibles por el reflog durante 90 días (git reflog, luego git branch).",
+      "delete": "Borrar",
+      "deleteAnyway": "Borrar de todos modos",
+      "upstreamTitle": "Upstream de {branch}",
+      "upstreamBody": "La rama remota de la que hace pull y a la que hace push; ninguna lo quita.",
+      "upstream": "Upstream",
+      "noUpstream": "Ninguno",
+      "setUpstream": "Ajustar el upstream",
+      "tagTitle": "Etiquetar {label}",
+      "tagBody": "Una etiqueta ligera, o anotada si lleva mensaje.",
+      "tagName": "Nombre de la etiqueta",
+      "tagMessage": "Mensaje (opcional, la hace anotada)",
+      "tag": "Crear la etiqueta",
+      "resetTitle": "¿Resetear {branch} a {rev}?",
+      "resetBody": "{branch} pasa a {rev}. Un reset hard descarta además los cambios sin commitear del árbol de trabajo. El reflog guarda el HEAD anterior 90 días (git reflog, luego git reset).",
+      "resetBodyChanges": "{branch} pasa a {rev}. Un reset hard descarta además el cambio sin commitear del árbol de trabajo. El reflog guarda el HEAD anterior 90 días (git reflog, luego git reset). | {branch} pasa a {rev}. Un reset hard descarta además los {n} cambios sin commitear del árbol de trabajo. El reflog guarda el HEAD anterior 90 días (git reflog, luego git reset).",
+      "resetModes": "Modo del reset",
+      "soft": "Soft",
+      "softHint": "mantiene el índice y el árbol de trabajo",
+      "mixed": "Mixed",
+      "mixedHint": "mantiene el árbol de trabajo, quita todo del índice",
+      "hard": "Hard",
+      "hardHint": "descarta los cambios del índice y del árbol de trabajo",
+      "reset": "Reset {mode}",
+      "dirtySwitchTitle": "Se sobrescribirían cambios locales",
+      "dirtySwitchBody": "git se negó a cambiar a {name}: se sobrescribirían tus cambios locales. Guárdalos en el stash (ficheros sin seguimiento incluidos), cambia de rama y saca el stash al volver.",
+      "stashAndSwitch": "Guardar en el stash y cambiar"
+    }
+  },
+  "sequencer": {
+    "operations": {
+      "merge": "Merge",
+      "rebase": "Rebase",
+      "cherry-pick": "Cherry-pick",
+      "revert": "Revert",
+      "none": "Operación"
+    },
+    "banner": {
+      "merge": "Fusionando {source} en {branch}",
+      "mergeUnknown": "Fusionando en {branch}",
+      "rebase": "Rebasando {branch}",
+      "cherry-pick": "Cherry-pick sobre {branch}",
+      "revert": "Revirtiendo en {branch}",
+      "none": "Conflictos en {branch}",
+      "conflicts": "{n} conflicto | {n} conflictos",
+      "hint": "Resuelve los ficheros, márcalos y continúa.",
+      "hintClean": "Todos los conflictos están marcados como resueltos; continúa o aborta.",
+      "resolve": "Resolver…",
+      "continue": "Continuar",
+      "skip": "Saltar",
+      "abort": "Abortar el {operation}…",
+      "abortTitle": "¿Abortar el {operation}?",
+      "abortBody": "Los cambios de la operación se descartan y el árbol de trabajo vuelve a donde estaba antes de empezarla.",
+      "abortConfirm": "Abortar el {operation}",
+      "failed": "git lo rechazó. {message}"
+    },
+    "conflicts": "Conflictos",
+    "markResolved": "Marcar como resuelto",
+    "markAllResolved": "Marcar todo como resuelto",
+    "kinds": {
+      "both-modified": "modificado por ambos",
+      "both-added": "añadido por ambos",
+      "both-deleted": "borrado por ambos",
+      "deleted-by-us": "borrado por nosotros",
+      "deleted-by-them": "borrado por ellos",
+      "added-by-us": "añadido por nosotros",
+      "added-by-them": "añadido por ellos"
+    }
+  },
+  "remotes": {
+    "title": "Remotos",
+    "fetchAll": "Traer de todos",
+    "addRemote": "Añadir remoto",
+    "name": "Nombre",
+    "namePlaceholder": "nombre del remoto",
+    "url": "URL",
+    "urlPlaceholder": "git{'@'}github.com:tu/repo.git",
+    "add": "Añadir",
+    "cancel": "Cancelar",
+    "fetch": "Fetch",
+    "fetchPrune": "Fetch y podar",
+    "remove": "Eliminar el remoto",
+    "empty": "Sin remotos. Añade uno para hacer fetch, pull y push.",
+    "footer": "Fetch actualiza las ramas remotas; podar borra además las eliminadas en el remoto.",
+    "close": "Cerrar",
+    "removeTitle": "¿Eliminar {name}?",
+    "removeBody": "El remoto y sus ramas de seguimiento se eliminan de este repositorio; en {name} no cambia nada.",
+    "removeConfirm": "Eliminar",
+    "failed": "git lo rechazó. {message}",
+    "loadFailed": "No se pudieron listar los remotos. {message}",
+    "tryAgain": "Reintentar",
+    "networkFailed": "{message}",
+    "fetched": "Traído {remote}",
+    "fetchedAll": "Traído de todos los remotos",
+    "pulled": "Pull de {branch} hecho",
+    "pullUpToDate": "{branch} está al día",
+    "pushed": "Subida {branch} a {remote}",
+    "pushDialog": {
+      "title": "Push de {branch}",
+      "body": "{n} commit por delante de {upstream}. Los credential helpers de git responden a cualquier pregunta; el progreso se ve en la barra de estado. | {n} commits por delante de {upstream}. Los credential helpers de git responden a cualquier pregunta; el progreso se ve en la barra de estado.",
+      "bodyNoUpstream": "Aún sin upstream: la rama se sube al remoto que elijas y queda como upstream si lo marcas. Los credential helpers de git responden a cualquier pregunta; el progreso se ve en la barra de estado.",
+      "remote": "Remoto",
+      "branch": "Rama",
+      "setUpstream": "Ajustar el upstream",
+      "setUpstreamAlready": "Ajustar el upstream ({upstream} ya lo es)",
+      "forceWithLease": "Forzar con lease: sobrescribe el remoto solo si está donde dice {upstream}",
+      "forceWithLeaseNoUpstream": "Forzar con lease: sobrescribe el remoto solo si está donde dice la rama de seguimiento",
+      "confirm": "Push"
+    },
+    "pullDialog": {
+      "title": "Pull de {branch}",
+      "body": "{n} commit por detrás de {upstream}. Un pull que se detiene en conflictos abre la pantalla de cambios. | {n} commits por detrás de {upstream}. Un pull que se detiene en conflictos abre la pantalla de cambios.",
+      "bodyNoUpstream": "Aún sin upstream: elige el remoto y la rama de la que traer.",
+      "rebase": "Rebasar los commits locales encima en vez de fusionar",
+      "confirm": "Pull"
+    }
+  },
+  "stash": {
+    "title": "Stashes",
+    "messagePlaceholder": "Mensaje del stash (opcional)",
+    "includeUntracked": "Incluir los sin seguimiento",
+    "stashChanges": "Guardar {n} cambio | Guardar {n} cambios",
+    "stashNow": "Guardar",
+    "apply": "Aplicar",
+    "pop": "Sacar",
+    "drop": "Borrar el stash",
+    "empty": "Sin stashes. Guarda el árbol de trabajo para apartarlo y volver más tarde.",
+    "footer": "Aplicar conserva el stash; sacar lo borra al aplicarlo. Si al sacarlo hay conflictos, se conserva.",
+    "close": "Cerrar",
+    "dropTitle": "¿Borrar {name}?",
+    "dropBody": "El stash se borra. git imprime el hash de su commit, que lo recupera hasta que pase git gc.",
+    "dropConfirm": "Borrar",
+    "failed": "git lo rechazó. {message}",
+    "pushed": "Árbol de trabajo guardado en el stash",
+    "nothing": "Nada que guardar",
+    "applied": "Stash aplicado",
+    "popped": "Stash sacado",
+    "dropped": "Stash borrado"
+  },
   "settings": {
     "title": "Ajustes",
     "subtitle": "Los cambios se aplican al momento y se guardan en este equipo.",
@@ -699,7 +935,9 @@
         "settings": "Ajustes",
         "stageUnstageFile": "Preparar / quitar de preparados el fichero o las líneas",
         "discardFile": "Descartar el fichero o las líneas",
-        "commit": "Commit"
+        "commit": "Commit",
+        "push": "Push",
+        "markResolved": "Marcar como resuelto"
       }
     }
   }

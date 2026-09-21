@@ -5,7 +5,7 @@ import { useI18n } from "vue-i18n";
 
 import IconButton from "@/components/IconButton.vue";
 import Toast from "@/components/Toast.vue";
-import { useToastsStore } from "@/stores/toasts";
+import { useToastsStore, type ToastEntry } from "@/stores/toasts";
 
 const { t } = useI18n();
 const toasts = useToastsStore();
@@ -16,6 +16,24 @@ function toggle(id: number): void {
   if (next.has(id)) next.delete(id);
   else next.add(id);
   expanded.value = next;
+}
+
+/** The action: the toast's own, which dismisses it, or the output toggle. */
+function onAction(toast: ToastEntry): void {
+  if (toast.onAction) {
+    toasts.dismiss(toast.id);
+    toast.onAction();
+  } else {
+    toggle(toast.id);
+  }
+}
+
+function messageOf(toast: ToastEntry): string {
+  return toast.key ? t(toast.key, toast.params ?? {}) : toast.message;
+}
+
+function actionOf(toast: ToastEntry): string {
+  return toast.actionKey ? t(toast.actionKey) : (toast.action ?? "");
 }
 </script>
 
@@ -32,15 +50,16 @@ function toggle(id: number): void {
       <div class="flex items-center gap-1">
         <Toast
           :kind="toast.kind"
-          :message="toast.message"
-          :action="toast.action"
+          :message="messageOf(toast)"
+          :action="actionOf(toast)"
           :output="toast.output"
-          @action="toggle(toast.id)"
+          @action="onAction(toast)"
         />
         <IconButton :label="t('toast.dismiss')" :icon="X" @click="toasts.dismiss(toast.id)" />
       </div>
+      <!-- A toast whose action does something else shows its output at once. -->
       <pre
-        v-if="expanded.has(toast.id) && toast.output"
+        v-if="(expanded.has(toast.id) || toast.onAction) && toast.output"
         class="toast-output max-w-full overflow-auto rounded-md border border-line bg-raised p-3 font-mono text-mono-sm whitespace-pre-wrap text-fg-secondary"
         data-testid="toast-output"
         >{{ toast.output }}</pre>

@@ -17,6 +17,7 @@ import { useRepoStore } from "@/stores/repo";
 import { useChangesStore } from "@/stores/changes";
 import { useCompareStore } from "@/stores/compare";
 import { useReviewStore } from "@/stores/review";
+import { useSequencerStore } from "@/stores/sequencer";
 import { useToastsStore } from "@/stores/toasts";
 import { useWorktreesStore } from "@/stores/worktrees";
 
@@ -31,6 +32,7 @@ export function useRepoWatcher(): void {
   const compare = useCompareStore();
   const worktrees = useWorktreesStore();
   const changes = useChangesStore();
+  const sequencer = useSequencerStore();
   let unlisten: UnlistenFn | undefined;
   let disposed = false;
 
@@ -54,6 +56,7 @@ export function useRepoWatcher(): void {
     compare.onRepoChanged(change.kinds);
     worktrees.onRepoChanged(change.kinds);
     changes.onRepoChanged(change.kinds);
+    sequencer.onRepoChanged(change.kinds);
     void index.refresh(root);
   }
 

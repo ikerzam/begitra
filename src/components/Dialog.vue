@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, useId, useTemplateRef } from "vue";
+import { onBeforeUnmount, onMounted, useId, useTemplateRef, type Component } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Button from "./Button.vue";
@@ -14,8 +14,17 @@ const props = withDefaults(
     cancelLabel?: string;
     variant?: "default" | "destructive";
     confirmDisabled?: boolean;
+    /** Icon before the confirm label (the push dialog's upload arrow). */
+    confirmIcon?: Component;
   }>(),
-  { body: "", confirmLabel: "", cancelLabel: "", variant: "default", confirmDisabled: false },
+  {
+    body: "",
+    confirmLabel: "",
+    cancelLabel: "",
+    variant: "default",
+    confirmDisabled: false,
+    confirmIcon: undefined,
+  },
 );
 
 const emit = defineEmits<{ confirm: []; cancel: [] }>();
@@ -29,23 +38,23 @@ const trap = useFocusTrap(panel);
 
 let previouslyFocused: Element | null = null;
 
-/* Escape cancels; Tab cycles inside the panel so focus never lands behind the scrim. */
+/*
+ * Escape cancels; Tab cycles inside the panel so focus never lands behind the scrim. Both
+ * stop here: a dialog inside a sheet (a confirmation) must not close the sheet with it.
+ */
 function onKeydown(event: KeyboardEvent): void {
   if (event.key === "Escape") {
     event.preventDefault();
+    event.stopPropagation();
     emit("cancel");
     return;
   }
-  trap.onKeydown(event);
+  if (trap.onKeydown(event)) event.stopPropagation();
 }
 
 onMounted(() => {
   previouslyFocused = document.activeElement;
-  const target =
-    panel.value?.querySelector<HTMLElement>("[data-autofocus]") ??
-    trap.focusables()[0] ??
-    panel.value;
-  target?.focus();
+  trap.autofocusTarget()?.focus();
 });
 
 onBeforeUnmount(() => {
@@ -81,6 +90,7 @@ onBeforeUnmount(() => {
           size="lg"
           :variant="props.variant === 'destructive' ? 'destructive' : 'primary'"
           :disabled="props.confirmDisabled"
+          :icon="props.confirmIcon"
           data-testid="dialog-confirm"
           @click="emit('confirm')"
         >

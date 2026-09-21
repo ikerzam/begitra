@@ -7,6 +7,7 @@ import { ref } from "vue";
 
 import { shortHash } from "@/shell/format";
 
+import { useBranchesStore } from "./branches";
 import { useCompareStore, type CompareSide } from "./compare";
 import { useRepoStore } from "./repo";
 import { useReviewStore, type ReviewTarget } from "./review";
@@ -15,6 +16,8 @@ import { useShellStore } from "./shell";
 
 export type PickerMode =
   | { kind: "diff-from" }
+  /** A branch action on the chosen ref: checkout, merge into HEAD, rebase HEAD onto, create from. */
+  | { kind: "branch-action"; action: "checkout" | "merge" | "rebase" | "create" }
   | {
       kind: "compare";
       /** The side being picked. */
@@ -41,6 +44,7 @@ export const usePickerStore = defineStore("picker", () => {
   const shell = useShellStore();
   const repo = useRepoStore();
   const compare = useCompareStore();
+  const branches = useBranchesStore();
 
   const mode = ref<PickerMode | null>(null);
 
@@ -58,6 +62,10 @@ export const usePickerStore = defineStore("picker", () => {
     const current = mode.value;
     close();
     if (!current) return;
+    if (current.kind === "branch-action") {
+      await runBranchAction(current.action, choice);
+      return;
+    }
     if (current.kind === "diff-from") {
       let target: ReviewTarget;
       switch (choice.kind) {
@@ -87,6 +95,35 @@ export const usePickerStore = defineStore("picker", () => {
     const a = current.side === "a" ? chosen : current.other;
     const b = current.side === "b" ? chosen : current.other;
     await compare.open(a, b);
+  }
+
+  /** A branch action on the chosen ref: a local branch is checked out by name, the rest detached. */
+  async function runBranchAction(
+    action: "checkout" | "merge" | "rebase" | "create",
+    choice: PickerChoice,
+  ): Promise<void> {
+    const endpoint = endpointOf(choice);
+    if (!endpoint) return;
+    const rev = endpoint.rev;
+    const local = repo.refs.find(
+      (entry) => entry.kind === "local-branch" && (entry.name === rev || entry.fullName === rev),
+    );
+    switch (action) {
+      case "checkout":
+        await branches.checkout(
+          local ? { kind: "branch", name: local.name } : { kind: "detached", rev },
+        );
+        break;
+      case "merge":
+        await branches.merge(rev, "default");
+        break;
+      case "rebase":
+        await branches.rebase(rev);
+        break;
+      case "create":
+        branches.ask({ kind: "create", start: rev, startLabel: endpoint.label });
+        break;
+    }
   }
 
   /** The endpoint a choice names; a range names none (compare mode lists no Range group). */

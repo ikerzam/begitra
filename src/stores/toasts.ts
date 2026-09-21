@@ -9,12 +9,19 @@ import type { ToastKind } from "@/components/types";
 export interface ToastEntry {
   id: number;
   kind: ToastKind;
-  /** Translated message. */
+  /** Translated message; empty when `key` names it (the host translates keys). */
   message: string;
+  /** i18n key of the message, for stores that hold no translator, with its params. */
+  key?: string;
+  params?: Record<string, unknown>;
   /** Label of the action button; defaults to "Show git output" when `output` is set. */
   action?: string;
-  /** Raw output shown when the action is pressed. */
+  /** i18n key of the action label, as `key` for the message. */
+  actionKey?: string;
+  /** Raw output shown when the action is pressed (or under the toast when `onAction` runs). */
   output?: string;
+  /** What the action does instead of showing the output; the toast goes once it ran. */
+  onAction?: () => void;
 }
 
 export const AUTO_DISMISS_MS = 6_000;

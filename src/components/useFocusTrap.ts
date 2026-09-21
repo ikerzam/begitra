@@ -57,5 +57,20 @@ export function useFocusTrap(panel: Ref<HTMLElement | null>) {
     return true;
   }
 
-  return { focusables, onKeydown };
+  /**
+   * The element a panel focuses when it opens: the one marked `data-autofocus` (or, when
+   * the mark sits on a wrapper such as a `Select`'s, its first focusable descendant), else
+   * the first focusable, else the panel itself.
+   */
+  function autofocusTarget(): HTMLElement | null {
+    const marked = panel.value?.querySelector<HTMLElement>("[data-autofocus]") ?? null;
+    if (marked) {
+      if (marked.matches(FOCUSABLE)) return marked;
+      const inside = marked.querySelector<HTMLElement>(FOCUSABLE);
+      if (inside) return inside;
+    }
+    return focusables()[0] ?? panel.value ?? null;
+  }
+
+  return { focusables, onKeydown, autofocusTarget };
 }

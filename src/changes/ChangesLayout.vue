@@ -16,6 +16,7 @@ import { baseName } from "@/shell/format";
 import PaneResizer from "@/shell/PaneResizer.vue";
 import { useShortcut } from "@/shortcuts/useShortcut";
 import { useChangesStore } from "@/stores/changes";
+import { useSequencerStore } from "@/stores/sequencer";
 import { paneLimits, useShellStore } from "@/stores/shell";
 
 import ChangeLists from "./ChangeLists.vue";
@@ -26,6 +27,7 @@ import type { DiscardRequest } from "./discard";
 const { t, n } = useI18n();
 const shell = useShellStore();
 const changes = useChangesStore();
+const sequencer = useSequencerStore();
 const lists = ref<{ focus(): void; moveFile(step: 1 | -1): void } | null>(null);
 const viewer = ref<{ actOnSelection(action: "stage" | "unstage" | "discard"): boolean } | null>(
   null,
@@ -134,6 +136,13 @@ useShortcut("stage-file", () => actOnSelected("stage"));
 useShortcut("unstage-file", () => actOnSelected("unstage"));
 useShortcut("discard-file", () => actOnSelected("discard"));
 useShortcut("commit", () => void changes.commit());
+// r marks the selected file resolved while it is one of the operation's conflicts.
+useShortcut("mark-resolved", () => {
+  const path = changes.selected?.path;
+  if (path && sequencer.conflicts.some((entry) => entry.path === path)) {
+    void sequencer.markResolved([path]);
+  }
+});
 // No key of its own: the palette's "Discard all…" runs it through the registry.
 useShortcut("discard-all", () => askDiscard({ kind: "files", files: changes.unstaged.files }));
 
