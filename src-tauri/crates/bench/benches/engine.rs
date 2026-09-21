@@ -770,6 +770,7 @@ fn apply_selection_5k(c: &mut Criterion) {
         let selection = PatchSelection {
             path: file.clone(),
             status: change.status,
+            lossy: change.is_lossy,
             hunks: change
                 .hunks
                 .iter()

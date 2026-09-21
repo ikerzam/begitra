@@ -11,9 +11,9 @@ use git_core::types::{
     BaseCommit, BlobAt, BlobContent, ChangeKind, ChangeSet, CommitContext, CommitCount, CommitNode,
     CommitRequest, Comparison, ComparisonRelation, DiffLine, DiffOptions, DiffTarget, Edge,
     Endpoint, FileChange, GitDetection, Hunk, LineKind, MergePreview, MergePreviewKind,
-    PatchSelection, Ref, RefKind, Repo, SelectedHunk, SelectedLine, Signature, Span, StatusEntry,
-    StatusOptions, WalkFilter, WalkOptions, WalkOrder, WalkScope, WorkingTreeBase, Worktree,
-    WorktreeAdd, WorktreeBranch,
+    OperationState, PatchSelection, Ref, RefKind, Repo, SelectedHunk, SelectedLine, Signature,
+    Span, StatusEntry, StatusOptions, WalkFilter, WalkOptions, WalkOrder, WalkScope,
+    WorkingTreeBase, Worktree, WorktreeAdd, WorktreeBranch,
 };
 use serde::Serialize;
 use syntax::{Highlight, Symbol, SymbolKind, Token, TokenClass};
@@ -275,6 +275,7 @@ fn change_set() -> ChangeSet {
                 is_large: false,
                 is_generated: false,
                 is_test: false,
+                is_lossy: false,
             },
             FileChange {
                 status: ChangeKind::Added,
@@ -288,6 +289,7 @@ fn change_set() -> ChangeSet {
                 is_large: false,
                 is_generated: false,
                 is_test: false,
+                is_lossy: false,
             },
             FileChange {
                 status: ChangeKind::Modified,
@@ -301,6 +303,7 @@ fn change_set() -> ChangeSet {
                 is_large: true,
                 is_generated: true,
                 is_test: false,
+                is_lossy: false,
             },
             FileChange {
                 status: ChangeKind::Deleted,
@@ -314,6 +317,7 @@ fn change_set() -> ChangeSet {
                 is_large: false,
                 is_generated: false,
                 is_test: true,
+                is_lossy: false,
             },
         ],
         additions: 6_002,
@@ -396,11 +400,13 @@ fn selections() -> Vec<PatchSelection> {
         PatchSelection {
             path: "src/main.rs".to_owned(),
             status: ChangeKind::Modified,
+            lossy: false,
             hunks: vec![hunk.clone()],
         },
         PatchSelection {
             path: "dir with space/ünïcödé.txt".to_owned(),
             status: ChangeKind::Added,
+            lossy: true,
             hunks: vec![hunk],
         },
     ]
@@ -601,12 +607,26 @@ fn write_fixtures() {
                 template: Some("# subject\n\n# body\n".to_owned()),
                 head_message: Some("feat(auth): refresh tokens\n\nThe body.".to_owned()),
                 unborn: false,
+                operation: OperationState::None,
+                prepared_message: None,
             },
             CommitContext {
                 author: "Iker Z. <iker@example.com>".to_owned(),
                 template: None,
                 head_message: None,
                 unborn: true,
+                operation: OperationState::None,
+                prepared_message: None,
+            },
+            CommitContext {
+                author: "Iker Z. <iker@example.com>".to_owned(),
+                template: None,
+                head_message: Some("main readme".to_owned()),
+                unborn: false,
+                operation: OperationState::Merge,
+                prepared_message: Some(
+                    "Merge branch 'other'\n\n# Conflicts:\n#\tREADME.md".to_owned(),
+                ),
             },
         ],
     );

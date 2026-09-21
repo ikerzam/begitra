@@ -593,6 +593,9 @@ pub struct FileChange {
     pub is_generated: bool,
     /// A test file by path convention.
     pub is_test: bool,
+    /// A line of the file holds bytes that are not UTF-8: the text shows replacement
+    /// characters, and only the whole file can be staged, unstaged or discarded.
+    pub is_lossy: bool,
 }
 
 /// A hunk of a text diff.
@@ -738,6 +741,8 @@ pub struct PatchSelection {
     /// How the file changed in that diff; an added or deleted file selected whole is
     /// created or deleted, a partial selection edits the file in place.
     pub status: ChangeKind,
+    /// The file's `is_lossy`: its text is not its bytes, so a partial selection is refused.
+    pub lossy: bool,
     /// The hunks, in the diff's order; a hunk without a selected line is left out.
     pub hunks: Vec<SelectedHunk>,
 }
@@ -766,6 +771,11 @@ pub struct CommitContext {
     pub head_message: Option<String>,
     /// HEAD names no commit yet.
     pub unborn: bool,
+    /// The operation the commit would conclude (a merge, a cherry-pick, a revert); `none`
+    /// otherwise.
+    pub operation: OperationState,
+    /// The message git prepared for that operation (`MERGE_MSG`, `SQUASH_MSG`), when any.
+    pub prepared_message: Option<String>,
 }
 
 /// What `switch` checks out.

@@ -259,6 +259,7 @@ export const FileChangeSchema = v.object({
   isLarge: v.boolean(),
   isGenerated: v.boolean(),
   isTest: v.boolean(),
+  isLossy: v.boolean(),
 });
 export type FileChange = v.InferOutput<typeof FileChangeSchema>;
 
@@ -438,6 +439,7 @@ export type SelectedHunk = v.InferOutput<typeof SelectedHunkSchema>;
 export const PatchSelectionSchema = v.object({
   path: v.string(),
   status: ChangeKindSchema,
+  lossy: v.boolean(),
   hunks: v.array(SelectedHunkSchema),
 });
 export type PatchSelection = v.InferOutput<typeof PatchSelectionSchema>;
@@ -452,11 +454,23 @@ export type CommitRequest = v.InferOutput<typeof CommitRequestSchema>;
 export const CommitResultSchema = v.object({ hash: v.string() });
 export type CommitResult = v.InferOutput<typeof CommitResultSchema>;
 
+/** The operation a repository is in the middle of. */
+export const OperationStateSchema = v.picklist([
+  "none",
+  "merge",
+  "rebase",
+  "cherry-pick",
+  "revert",
+]);
+export type OperationState = v.InferOutput<typeof OperationStateSchema>;
+
 export const CommitContextSchema = v.object({
   author: v.string(),
   template: v.nullable(v.string()),
   headMessage: v.nullable(v.string()),
   unborn: v.boolean(),
+  operation: OperationStateSchema,
+  preparedMessage: v.nullable(v.string()),
 });
 export type CommitContext = v.InferOutput<typeof CommitContextSchema>;
 
@@ -571,10 +585,7 @@ const repoPaths = v.pipe(v.array(repoPath), v.minLength(1), v.maxLength(10_000))
 const commitMessage = v.pipe(
   v.string(),
   v.maxLength(100_000),
-  v.check(
-    (m) => m.split("\n").some((line) => line.trim() !== "" && !line.trim().startsWith("#")),
-    "no subject",
-  ),
+  v.check((m) => m.split("\n").some((line) => line.trim() !== ""), "no subject"),
 );
 /** A lock reason: at most 200 characters, never shaped like an option. */
 const lockReason = v.pipe(

@@ -18,7 +18,9 @@
 
 use std::fmt::Write;
 
-use crate::types::{ChangeKind, LineKind, PatchSelection, SelectedHunk, SelectedLine};
+use crate::types::{
+    ChangeKind, LineKind, PatchSelection, SelectedHunk, SelectedLine, SelectionTarget,
+};
 
 /// Whether a hunk takes part: at least one changed line selected.
 fn takes_part(hunk: &SelectedHunk) -> bool {
@@ -48,10 +50,96 @@ fn marker(line: &SelectedLine, reverse: bool) -> Option<char> {
     }
 }
 
-/// Why `selection` cannot be written as a patch, if it cannot: a `no_newline` line that
-/// would not be the last of its side (git would join it with the line after it).
-pub fn problem(selection: &PatchSelection, reverse: bool) -> Option<String> {
-    let hunks: Vec<&SelectedHunk> = selection.hunks.iter().filter(|h| takes_part(h)).collect();
+/// Whether `target` reads the patch backwards (the file matches the new side).
+pub(crate) fn is_reverse(target: SelectionTarget) -> bool {
+    target != SelectionTarget::Stage
+}
+
+/// Whether a partial selection has a file on the side the patch is applied to; without one
+/// (part of an untracked file into the index, part of a staged deletion back into it) the
+/// patch creates the file with the selected lines.
+pub(crate) fn creates(selection: &PatchSelection, target: SelectionTarget) -> bool {
+    matches!(
+        (selection.status, target),
+        (ChangeKind::Added, SelectionTarget::Stage)
+            | (ChangeKind::Deleted, SelectionTarget::Unstage)
+    )
+}
+
+/// The hunks that take part, in the order of the side the file matches; git anchors each
+/// hunk on its start and would find repeated context in the wrong place otherwise.
+fn ordered(selection: &PatchSelection, reverse: bool) -> Vec<&SelectedHunk> {
+    let mut hunks: Vec<&SelectedHunk> = selection.hunks.iter().filter(|h| takes_part(h)).collect();
+    hunks.sort_by_key(|hunk| {
+        if reverse {
+            (hunk.new_start, hunk.old_start)
+        } else {
+            (hunk.old_start, hunk.new_start)
+        }
+    });
+    hunks
+}
+
+/// Why `selection` cannot be applied as `target`, if it cannot: the file's text is not its
+/// bytes; a partial selection of an untracked or deleted file has nothing to edit in the
+/// working tree; two hunks start at the same line; or a `no_newline` line would not be the
+/// last of its side (git would join it with the line after it).
+pub fn problem(selection: &PatchSelection, target: SelectionTarget) -> Option<String> {
+    let whole = is_whole(selection);
+    if selection.lossy && !whole {
+        return Some(format!(
+            "{} holds bytes that are not UTF-8; stage, unstage or discard it whole",
+            selection.path
+        ));
+    }
+    if !whole
+        && target == SelectionTarget::Discard
+        && matches!(selection.status, ChangeKind::Added | ChangeKind::Deleted)
+    {
+        return Some(format!(
+            "{} is {} in the working tree; discard it whole",
+            selection.path,
+            if selection.status == ChangeKind::Added {
+                "untracked"
+            } else {
+                "deleted"
+            }
+        ));
+    }
+    let reverse = is_reverse(target);
+    let hunks = ordered(selection, reverse);
+    let starts_twice = hunks.windows(2).any(|pair| {
+        if reverse {
+            pair[0].new_start == pair[1].new_start
+        } else {
+            pair[0].old_start == pair[1].old_start
+        }
+    });
+    if starts_twice {
+        return Some(format!(
+            "two hunks of {} start at the same line",
+            selection.path
+        ));
+    }
+    if creates(selection, target) && !whole {
+        // Every selected line becomes a `+` line of a new file: only the last may lack its
+        // newline.
+        let selected: Vec<&SelectedLine> = hunks
+            .iter()
+            .flat_map(|hunk| hunk.lines.iter())
+            .filter(|line| line.selected && line.kind != LineKind::Context)
+            .collect();
+        let joins = selected
+            .iter()
+            .enumerate()
+            .any(|(index, line)| line.no_newline && index + 1 < selected.len());
+        return joins.then(|| {
+            format!(
+                "the end of {} changes without a newline; select the last line together with the rest",
+                selection.path
+            )
+        });
+    }
     for (index, hunk) in hunks.iter().enumerate() {
         let last_hunk = index + 1 == hunks.len();
         let written: Vec<(char, bool)> = hunk
@@ -80,14 +168,19 @@ pub fn problem(selection: &PatchSelection, reverse: bool) -> Option<String> {
     None
 }
 
-/// The unified diff of `selection`: `Ok(None)` when no line is selected, `Err` with the
-/// reason when it cannot be written (see [`problem`]).
-pub(crate) fn build(selection: &PatchSelection, reverse: bool) -> Result<Option<String>, String> {
-    let hunks: Vec<&SelectedHunk> = selection.hunks.iter().filter(|h| takes_part(h)).collect();
+/// The unified diff of `selection` for `target`: `Ok(None)` when no line is selected,
+/// `Err` with the reason when it cannot be written (see [`problem`]). A partial selection
+/// that [`creates`] is written as a new file of the selected lines, applied forward.
+pub(crate) fn build(
+    selection: &PatchSelection,
+    target: SelectionTarget,
+) -> Result<Option<String>, String> {
+    let reverse = is_reverse(target);
+    let hunks = ordered(selection, reverse);
     if hunks.is_empty() {
         return Ok(None);
     }
-    if let Some(reason) = problem(selection, reverse) {
+    if let Some(reason) = problem(selection, target) {
         return Err(reason);
     }
     let whole = hunks.len() == selection.hunks.len() && is_whole(selection);
@@ -96,6 +189,26 @@ pub(crate) fn build(selection: &PatchSelection, reverse: bool) -> Result<Option<
     let b = quote(&format!("b/{}", selection.path));
     let mut out = String::new();
     let _ = writeln!(out, "diff --git {a} {b}");
+    if creates(selection, target) && !whole {
+        let selected: Vec<&SelectedLine> = hunks
+            .iter()
+            .flat_map(|hunk| hunk.lines.iter())
+            .filter(|line| line.selected && line.kind != LineKind::Context)
+            .collect();
+        let _ = writeln!(out, "new file mode 100644");
+        let _ = writeln!(out, "--- /dev/null");
+        let _ = writeln!(out, "+++ {b}");
+        let _ = writeln!(out, "@@ -0,0 +{} @@", range(1, selected.len() as u32));
+        for line in selected {
+            out.push('+');
+            out.push_str(&line.text);
+            out.push('\n');
+            if line.no_newline {
+                out.push_str("\\ No newline at end of file\n");
+            }
+        }
+        return Ok(Some(out));
+    }
     match selection.status {
         ChangeKind::Added if whole => {
             let _ = writeln!(out, "new file mode 100644");
@@ -230,6 +343,7 @@ mod tests {
         PatchSelection {
             path: "src/lib.rs".to_owned(),
             status,
+            lossy: false,
             hunks,
         }
     }
@@ -251,7 +365,7 @@ mod tests {
                     ],
                 )],
             ),
-            false,
+            SelectionTarget::Stage,
         )
         .expect("valid")
         .expect("selected");
@@ -277,7 +391,7 @@ mod tests {
                     ],
                 )],
             ),
-            false,
+            SelectionTarget::Stage,
         )
         .expect("valid")
         .expect("selected");
@@ -300,7 +414,7 @@ mod tests {
                     ],
                 )],
             ),
-            true,
+            SelectionTarget::Unstage,
         )
         .expect("valid")
         .expect("selected");
@@ -340,7 +454,7 @@ mod tests {
                     ),
                 ],
             ),
-            false,
+            SelectionTarget::Stage,
         )
         .expect("valid")
         .expect("selected");
@@ -357,7 +471,7 @@ mod tests {
                     ChangeKind::Modified,
                     vec![hunk(1, 1, vec![line(LineKind::Added, "a", false)])]
                 ),
-                false
+                SelectionTarget::Stage
             ),
             Ok(None)
         );
@@ -378,17 +492,19 @@ mod tests {
         ];
         // Only `+c` selected, forward: `-b\` folds into context before `+c`.
         let only_c = selection(ChangeKind::Modified, vec![hunk(1, 1, lines.clone())]);
-        let refused = build(&only_c, false).expect_err("refused");
+        let refused = build(&only_c, SelectionTarget::Stage).expect_err("refused");
         assert!(refused.contains("select the last line"), "{refused}");
-        assert!(problem(&only_c, false).is_some());
+        assert!(problem(&only_c, SelectionTarget::Stage).is_some());
         // The pair selected and `+c` not: `-b\` is the last of the old side.
         let mut pair = lines.clone();
         pair[1].selected = true;
         pair[2].selected = true;
         pair[3].selected = false;
         let with_pair = selection(ChangeKind::Modified, vec![hunk(1, 1, pair)]);
-        assert!(problem(&with_pair, false).is_none());
-        let patch = build(&with_pair, false).expect("valid").expect("selected");
+        assert!(problem(&with_pair, SelectionTarget::Stage).is_none());
+        let patch = build(&with_pair, SelectionTarget::Stage)
+            .expect("valid")
+            .expect("selected");
         assert!(
             patch.ends_with(" a\n-b\n\\ No newline at end of file\n+b\n"),
             "{patch}"
@@ -399,12 +515,15 @@ mod tests {
             l.selected = true;
         }
         let whole = selection(ChangeKind::Modified, vec![hunk(1, 1, all)]);
-        assert!(problem(&whole, false).is_none() && problem(&whole, true).is_none());
+        assert!(
+            problem(&whole, SelectionTarget::Stage).is_none()
+                && problem(&whole, SelectionTarget::Unstage).is_none()
+        );
         // Reverse: the pair selected, `+c\` unselected becomes context after `-b\`.
         let mut reverse_pair = whole.hunks[0].lines.clone();
         reverse_pair[3].selected = false;
         let reverse = selection(ChangeKind::Modified, vec![hunk(1, 1, reverse_pair)]);
-        assert!(problem(&reverse, true).is_some());
+        assert!(problem(&reverse, SelectionTarget::Unstage).is_some());
     }
 
     #[test]
@@ -415,7 +534,7 @@ mod tests {
         ];
         let whole = build(
             &selection(ChangeKind::Added, vec![hunk(0, 1, lines.clone())]),
-            false,
+            SelectionTarget::Stage,
         )
         .expect("valid")
         .expect("selected");
@@ -429,7 +548,7 @@ mod tests {
         partial[0].selected = false;
         let edit = build(
             &selection(ChangeKind::Added, vec![hunk(0, 1, partial)]),
-            true,
+            SelectionTarget::Unstage,
         )
         .expect("valid")
         .expect("selected");
@@ -456,7 +575,7 @@ mod tests {
                     ],
                 )],
             ),
-            false,
+            SelectionTarget::Stage,
         )
         .expect("valid")
         .expect("selected");
@@ -464,6 +583,96 @@ mod tests {
             patch.ends_with(" c\n-old\n+end\n\\ No newline at end of file\n"),
             "{patch}"
         );
+    }
+
+    #[test]
+    fn hunks_are_written_in_the_order_of_the_matching_side() {
+        let first = hunk(
+            5,
+            5,
+            vec![
+                line(LineKind::Removed, "y", true),
+                line(LineKind::Added, "Y2", true),
+            ],
+        );
+        let second = hunk(
+            23,
+            23,
+            vec![
+                line(LineKind::Removed, "y", true),
+                line(LineKind::Added, "Y8", true),
+            ],
+        );
+        let reversed = selection(ChangeKind::Modified, vec![second, first]);
+        let patch = build(&reversed, SelectionTarget::Stage)
+            .expect("valid")
+            .expect("selected");
+        let five = patch.find("@@ -5 +5 @@").expect("first hunk");
+        let twenty_three = patch.find("@@ -23 +23 @@").expect("second hunk");
+        assert!(five < twenty_three, "{patch}");
+        let twice = selection(
+            ChangeKind::Modified,
+            vec![
+                hunk(5, 5, vec![line(LineKind::Added, "a", true)]),
+                hunk(5, 5, vec![line(LineKind::Added, "b", true)]),
+            ],
+        );
+        assert!(problem(&twice, SelectionTarget::Stage).is_some());
+    }
+
+    #[test]
+    fn lossy_files_and_partial_discards_of_untracked_or_deleted_files_are_refused() {
+        let mut lossy = selection(
+            ChangeKind::Modified,
+            vec![hunk(
+                1,
+                1,
+                vec![
+                    line(LineKind::Added, "a", true),
+                    line(LineKind::Added, "b", false),
+                ],
+            )],
+        );
+        lossy.lossy = true;
+        assert!(problem(&lossy, SelectionTarget::Stage)
+            .unwrap_or_default()
+            .contains("UTF-8"));
+        let untracked = selection(
+            ChangeKind::Added,
+            vec![hunk(
+                0,
+                1,
+                vec![
+                    line(LineKind::Added, "a", true),
+                    line(LineKind::Added, "b", false),
+                ],
+            )],
+        );
+        assert!(problem(&untracked, SelectionTarget::Discard).is_some());
+        // Half of an untracked file into the index: a new file of the selected lines.
+        let patch = build(&untracked, SelectionTarget::Stage)
+            .expect("valid")
+            .expect("selected");
+        assert!(
+            patch.contains("--- /dev/null\n+++ b/src/lib.rs\n@@ -0,0 +1 @@\n+a\n"),
+            "{patch}"
+        );
+        let deleted = selection(
+            ChangeKind::Deleted,
+            vec![hunk(
+                1,
+                0,
+                vec![
+                    line(LineKind::Removed, "a", false),
+                    line(LineKind::Removed, "b", true),
+                ],
+            )],
+        );
+        assert!(problem(&deleted, SelectionTarget::Discard).is_some());
+        let patch = build(&deleted, SelectionTarget::Unstage)
+            .expect("valid")
+            .expect("selected");
+        assert!(patch.contains("@@ -0,0 +1 @@\n+b\n"), "{patch}");
     }
 
     #[test]

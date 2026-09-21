@@ -107,6 +107,7 @@ fn selection(
     PatchSelection {
         path: path.to_owned(),
         status: file.status,
+        lossy: file.is_lossy,
         hunks,
     }
 }
@@ -513,16 +514,15 @@ fn a_linked_worktree_stages_into_its_own_index() {
 }
 
 #[test]
-fn comment_lines_of_a_message_are_stripped_as_an_editor_session_would() {
+fn comment_lines_are_kept_as_git_commit_m_keeps_them() {
     let f = Fixture::basic();
     f.write("a.txt", "a\n");
     f.git(&["add", "a.txt"]);
     engine(&f)
         .commit(
             &CommitRequest {
-                message:
-                    "# Please enter the subject\n\nreal subject\n\n# a comment\nbody line\n\n\n"
-                        .to_owned(),
+                message: "#123 fix the thing\n\n# a heading in the body\nbody line\n\n\n"
+                    .to_owned(),
                 amend: false,
                 signoff: false,
             },
@@ -531,8 +531,136 @@ fn comment_lines_of_a_message_are_stripped_as_an_editor_session_would() {
         .expect("commit");
     assert_eq!(
         f.git(&["log", "-1", "--format=%B"]),
-        "real subject\n\nbody line"
+        "#123 fix the thing\n\n# a heading in the body\nbody line"
     );
+}
+
+#[test]
+fn a_file_with_bytes_that_are_not_utf8_is_flagged_and_only_staged_whole() {
+    let mut f = Fixture::basic();
+    fs::write(f.root.join("latin.txt"), b"hello\nend\n").expect("write");
+    f.commit("latin");
+    fs::write(f.root.join("latin.txt"), b"hello\nend\nna\xefve\nmore\n").expect("write");
+    let e = engine(&f);
+    let chosen = selection(&e, &UNSTAGED, "latin.txt", |_, i| i == 0);
+    assert!(chosen.lossy, "the diff flags the file");
+    let error = e
+        .apply_selection(&chosen, SelectionTarget::Stage, &Cancel::never())
+        .expect_err("a partial selection would write replacement characters");
+    assert!(error.to_string().contains("UTF-8"), "{error}");
+    assert_eq!(f.git(&["diff", "--cached", "--stat"]), "");
+    // Whole: the path operation keeps the bytes.
+    let whole = selection(&e, &UNSTAGED, "latin.txt", |_, _| true);
+    e.apply_selection(&whole, SelectionTarget::Stage, &Cancel::never())
+        .expect("whole file through git add");
+    let blob = f.git(&["rev-parse", ":latin.txt"]);
+    let shown = std::process::Command::new("git")
+        .args([
+            "-C",
+            f.root.to_str().expect("utf-8"),
+            "cat-file",
+            "-p",
+            &blob,
+        ])
+        .output()
+        .expect("cat-file");
+    assert_eq!(shown.stdout, b"hello\nend\nna\xefve\nmore\n");
+    assert_eq!(status(&f), ["M. latin.txt"]);
+}
+
+#[test]
+fn hunks_sent_out_of_order_still_apply_where_they_belong() {
+    let mut f = Fixture::basic();
+    let block: String = "x\ny\nz\n".repeat(10);
+    f.write("amb.txt", &block);
+    f.commit("ambiguous");
+    let mut lines: Vec<String> = block.lines().map(str::to_owned).collect();
+    lines[4] = "Y2".to_owned();
+    lines[22] = "Y8".to_owned();
+    lines.insert(23, "added 1".to_owned());
+    lines.insert(24, "added 2".to_owned());
+    let edited = lines.join("\n") + "\n";
+    f.write("amb.txt", &edited);
+    let e = engine(&f);
+    let mut chosen = selection(&e, &UNSTAGED, "amb.txt", |_, _| true);
+    assert_eq!(chosen.hunks.len(), 2);
+    chosen.hunks.reverse();
+    e.apply_selection(&chosen, SelectionTarget::Stage, &Cancel::never())
+        .expect("stage");
+    assert_eq!(index_content(&f, "amb.txt"), edited.trim_end());
+    assert_eq!(status(&f), ["M. amb.txt"]);
+}
+
+#[test]
+fn an_empty_index_is_refused_with_git_s_own_words() {
+    let f = Fixture::basic();
+    let error = engine(&f)
+        .commit(
+            &CommitRequest {
+                message: "nothing".to_owned(),
+                amend: false,
+                signoff: false,
+            },
+            &Cancel::never(),
+        )
+        .expect_err("nothing to commit");
+    assert!(error.to_string().contains("nothing to commit"), "{error}");
+}
+
+#[test]
+fn partial_selections_create_the_file_where_the_target_side_has_none() {
+    let mut f = Fixture::basic();
+    // Part of an untracked file into the index.
+    f.write("fresh.txt", "a\nb\nc\n");
+    let e = engine(&f);
+    let chosen = selection(&e, &UNSTAGED, "fresh.txt", |_, i| i != 1);
+    assert_eq!(chosen.status, ChangeKind::Added);
+    e.apply_selection(&chosen, SelectionTarget::Stage, &Cancel::never())
+        .expect("stage two lines of an untracked file");
+    assert_eq!(index_content(&f, "fresh.txt"), "a\nc");
+    assert_eq!(status(&f), ["AM fresh.txt"]);
+    // Part of a staged deletion back into the index.
+    f.git(&["reset", "-q", "fresh.txt"]);
+    f.git(&["add", "fresh.txt"]);
+    f.commit("fresh");
+    f.git(&["rm", "-q", "fresh.txt"]);
+    let staged = selection(&e, &STAGED, "fresh.txt", |_, i| i == 2);
+    assert_eq!(staged.status, ChangeKind::Deleted);
+    e.apply_selection(&staged, SelectionTarget::Unstage, &Cancel::never())
+        .expect("unstage one line of a staged deletion");
+    assert_eq!(index_content(&f, "fresh.txt"), "c");
+    assert_eq!(status(&f), ["MD fresh.txt"]);
+    // A partial discard of a deleted or untracked file is refused.
+    f.write("loose.txt", "a\nb\n");
+    let loose = selection(&e, &UNSTAGED, "loose.txt", |_, i| i == 0);
+    let error = e
+        .apply_selection(&loose, SelectionTarget::Discard, &Cancel::never())
+        .expect_err("discard whole");
+    assert!(error.to_string().contains("discard it whole"), "{error}");
+    assert!(f.root.join("loose.txt").exists());
+}
+
+#[test]
+fn the_context_names_the_merge_in_progress_and_its_prepared_message() {
+    let mut f = Fixture::basic();
+    f.git(&["switch", "-q", "-c", "other", "main"]);
+    f.write("README.md", "# Other\n");
+    f.commit("other readme");
+    f.git(&["switch", "-q", "main"]);
+    f.write("README.md", "# Main\n");
+    f.commit("main readme");
+    let (ok, _, _) = f.try_git(&["merge", "other"]);
+    assert!(!ok, "the merge stops on the conflict");
+    let e = engine(&f);
+    let context = e.commit_context(&Cancel::never()).expect("context");
+    assert_eq!(context.operation, git_core::types::OperationState::Merge);
+    let prepared = context.prepared_message.expect("MERGE_MSG");
+    assert!(prepared.starts_with("Merge branch 'other'"), "{prepared}");
+    assert!(prepared.contains("README.md"), "{prepared}");
+    f.git(&["merge", "--abort"]);
+    let context = e.commit_context(&Cancel::never()).expect("context");
+    assert_eq!(context.operation, git_core::types::OperationState::None);
+    assert_eq!(context.prepared_message, None);
 }
 
 #[test]

@@ -168,6 +168,7 @@ function mockBackend(options: BackendOptions = {}): Call[] {
                     isLarge: false,
                     isGenerated: false,
                     isTest: false,
+                    isLossy: false,
                   },
                 ],
               },

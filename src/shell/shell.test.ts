@@ -231,6 +231,7 @@ function backend(
                   isLarge: false,
                   isGenerated: false,
                   isTest: false,
+                  isLossy: false,
                 },
                 {
                   status: "added",
@@ -244,6 +245,7 @@ function backend(
                   isLarge: false,
                   isGenerated: true,
                   isTest: false,
+                  isLossy: false,
                 },
               ],
             },

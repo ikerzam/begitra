@@ -23,15 +23,21 @@ fn root(engine: &Git2Engine) -> &Path {
     &GitEngine::repo(engine).root
 }
 
-/// Turns a non-zero status into [`GitError::Cli`].
+/// Turns a non-zero status into [`GitError::Cli`]; git says some refusals on stdout
+/// ("nothing to commit, working tree clean"), which then stands in for an empty stderr.
 fn judged(args: &[&str], exit: CliExit) -> GitResult<CliExit> {
     if exit.status == Some(0) {
         Ok(exit)
     } else {
+        let stderr = if exit.stderr.trim().is_empty() {
+            String::from_utf8_lossy(&exit.stdout).into_owned()
+        } else {
+            exit.stderr
+        };
         Err(GitError::Cli {
             command: args.join(" "),
             status: exit.status,
-            stderr: exit.stderr,
+            stderr,
         })
     }
 }
@@ -154,8 +160,11 @@ pub(super) fn apply_selection(
     target: SelectionTarget,
     cancel: &Cancel,
 ) -> GitResult<()> {
-    let reverse = target != SelectionTarget::Stage;
-    let whole_file = matches!(selection.status, ChangeKind::Added | ChangeKind::Deleted)
+    let reverse = patch::is_reverse(target);
+    // A whole added or deleted file, or a whole file whose text is not its bytes, is the
+    // path operation: git reads the file itself.
+    let whole_file = (matches!(selection.status, ChangeKind::Added | ChangeKind::Deleted)
+        || selection.lossy)
         && patch::is_whole(selection);
     if whole_file {
         let path = std::slice::from_ref(&selection.path);
@@ -168,7 +177,7 @@ pub(super) fn apply_selection(
             (SelectionTarget::Discard, _) => discard_paths(engine, path, &[], cancel),
         };
     }
-    let patch = match patch::build(selection, reverse) {
+    let patch = match patch::build(selection, target) {
         Ok(Some(patch)) => patch,
         Ok(None) => return Ok(()),
         Err(reason) => return Err(GitError::Git(reason)),
@@ -177,7 +186,8 @@ pub(super) fn apply_selection(
     if target != SelectionTarget::Discard {
         args.push("--cached");
     }
-    if reverse {
+    // A patch that creates the file with the selected lines is applied forward.
+    if reverse && !patch::creates(selection, target) {
         args.push("--reverse");
     }
     args.push("-");
@@ -185,16 +195,16 @@ pub(super) fn apply_selection(
     judged(&args, exit).map(|_| ())
 }
 
-/// See [`GitEngine::commit`]. `--cleanup=strip` drops comment lines (`core.commentChar`)
-/// and trailing blanks as an editor session would, so a prefilled template's comments never
-/// land in the message.
+/// See [`GitEngine::commit`]. `--cleanup=whitespace`, git's own default for a message on
+/// stdin: blank lines at the ends and trailing whitespace go, comment lines stay (a subject
+/// `#123 fix` is a subject); the commit box strips a template's comments before it sends.
 #[tracing::instrument(level = "debug", skip_all, fields(amend = request.amend, signoff = request.signoff))]
 pub(super) fn commit(
     engine: &Git2Engine,
     request: &CommitRequest,
     cancel: &Cancel,
 ) -> GitResult<String> {
-    let mut args = vec!["commit", "-q", "--cleanup=strip", "-F", "-"];
+    let mut args = vec!["commit", "-q", "--cleanup=whitespace", "-F", "-"];
     if request.amend {
         args.push("--amend");
     }
@@ -240,11 +250,31 @@ pub(super) fn commit_context(engine: &Git2Engine, cancel: &Cancel) -> GitResult<
         Some(String::from_utf8_lossy(&log.stdout).trim_end().to_owned())
     };
     let template = template_text(cwd, cancel)?;
+    let operation = super::sequencer::operation_state(engine)?;
+    let prepared_message = prepared_message(engine);
     Ok(CommitContext {
         author,
         template,
         head_message,
         unborn,
+        operation,
+        prepared_message,
+    })
+}
+
+/// The message git prepared for the operation in progress: `MERGE_MSG` (a merge, a
+/// cherry-pick or a revert that stopped) or `SQUASH_MSG`.
+fn prepared_message(engine: &Git2Engine) -> Option<String> {
+    let git_dir = engine
+        .with_repo(|repo| Ok(repo.path().to_path_buf()))
+        .ok()?;
+    ["MERGE_MSG", "SQUASH_MSG"].iter().find_map(|name| {
+        let bytes = std::fs::read(git_dir.join(name)).ok()?;
+        if bytes.len() > MAX_TEMPLATE_BYTES {
+            return None;
+        }
+        let text = String::from_utf8_lossy(&bytes).trim_end().to_owned();
+        (!text.is_empty()).then_some(text)
     })
 }
 

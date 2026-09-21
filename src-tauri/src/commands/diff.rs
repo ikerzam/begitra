@@ -109,6 +109,7 @@ mod tests {
             is_large: false,
             is_generated: false,
             is_test: false,
+            is_lossy: false,
         }
     }
 

@@ -577,7 +577,7 @@ pub(super) fn collect_range(
             Some(mut patch) => file_change(repo, &mut patch, status, options, generated, cancel)?,
             None => {
                 let meta = FileMeta::of(&delta, status);
-                assemble(repo, status, meta, None, 0, 0, Vec::new(), generated)
+                assemble(repo, status, meta, None, 0, 0, Vec::new(), generated, false)
             }
         };
         // A modified delta without hunks is a file `git diff` would not list: a working tree
@@ -621,6 +621,9 @@ fn file_change(
     let mut hunks = Vec::with_capacity(hunk_count);
     let mut additions: u32 = 0;
     let mut deletions: u32 = 0;
+    // A line that is not UTF-8 reaches the interface with replacement characters; the
+    // file is flagged so that only whole-file writes are offered for it.
+    let mut lossy = false;
     for hunk_index in 0..hunk_count {
         cancel.check()?;
         let (hunk, line_count) = patch.hunk(hunk_index)?;
@@ -652,6 +655,7 @@ fn file_change(
                     continue;
                 }
             };
+            lossy |= std::str::from_utf8(line.content()).is_err();
             lines.push(DiffLine {
                 kind,
                 old_number: line.old_lineno(),
@@ -682,6 +686,7 @@ fn file_change(
         deletions,
         hunks,
         generated_attributes,
+        lossy,
     ))
 }
 
@@ -728,6 +733,7 @@ fn assemble(
     deletions: u32,
     hunks: Vec<Hunk>,
     generated_attributes: bool,
+    is_lossy: bool,
 ) -> FileChange {
     let is_large = flags::is_large(
         additions.saturating_add(deletions),
@@ -751,6 +757,7 @@ fn assemble(
         is_large,
         is_generated,
         is_test,
+        is_lossy,
     }
 }
 

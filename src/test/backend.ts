@@ -135,6 +135,7 @@ export function fakeFiles(target: DiffTarget): FileChange[] {
     isLarge: false,
     isGenerated: false,
     isTest: false,
+    isLossy: false,
   };
   return [
     {

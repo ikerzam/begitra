@@ -111,7 +111,7 @@ fn validate_selection(target: SelectionTarget, selection: &PatchSelection) -> Re
     if !selected {
         return Err(AppError::invalid_argument("hunks", "no selected line"));
     }
-    if let Some(reason) = patch::problem(selection, target != SelectionTarget::Stage) {
+    if let Some(reason) = patch::problem(selection, target) {
         return Err(AppError::invalid_argument("hunks", reason));
     }
     Ok(())
@@ -124,11 +124,9 @@ fn validate_message(message: &str) -> Result<(), AppError> {
             format!("longer than {MAX_MESSAGE_CHARS} characters"),
         ));
     }
-    let subject = message
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty() && !line.starts_with('#'));
-    if subject.is_none() {
+    // git keeps comment lines in a message given on stdin (`--cleanup=whitespace`), so a
+    // line is a subject whatever it starts with.
+    if !message.lines().any(|line| !line.trim().is_empty()) {
         return Err(AppError::invalid_argument("message", "no subject"));
     }
     Ok(())
@@ -300,6 +298,7 @@ mod tests {
         let request = |lines: Vec<SelectedLine>| PatchSelection {
             path: "a.txt".to_owned(),
             status: ChangeKind::Modified,
+            lossy: false,
             hunks: vec![SelectedHunk {
                 old_start: 1,
                 old_lines: 0,
@@ -340,10 +339,7 @@ mod tests {
         assert!(validate_message("\n\n  subject after blanks").is_ok());
         assert_eq!(code(validate_message("")), "ipc.invalid_argument");
         assert_eq!(code(validate_message("  \n\n \n")), "ipc.invalid_argument");
-        assert_eq!(
-            code(validate_message("# only a comment\n")),
-            "ipc.invalid_argument"
-        );
+        assert!(validate_message("#123 fix the thing\n").is_ok());
         assert_eq!(
             code(validate_message(&"x".repeat(MAX_MESSAGE_CHARS + 1))),
             "ipc.invalid_argument"

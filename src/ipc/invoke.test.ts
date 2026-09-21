@@ -72,7 +72,7 @@ describe("checkArgs", () => {
       refused(() =>
         checkArgs("commit", {
           repo: "/r",
-          request: { message: "  \n# comment\n", amend: false, signoff: false },
+          request: { message: "  \n\t\n", amend: false, signoff: false },
           opId: "op",
         }),
       ),
@@ -85,6 +85,7 @@ describe("checkArgs", () => {
           selection: {
             path: "a.txt",
             status: "modified",
+            lossy: false,
             hunks: [
               {
                 oldStart: 1,
