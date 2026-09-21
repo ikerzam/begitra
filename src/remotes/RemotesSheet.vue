@@ -19,6 +19,8 @@ import Sheet from "@/components/Sheet.vue";
 import SkeletonRow from "@/components/SkeletonRow.vue";
 import { onRowActionsKeydown } from "@/components/useRowActions";
 import { errorText } from "@/shell/errorMessage";
+import { relativeDate } from "@/shell/format";
+import { useNow } from "@/shell/useNow";
 import { useListNavigation } from "@/shortcuts/useListNavigation";
 import { useRemotesStore } from "@/stores/remotes";
 
@@ -26,6 +28,7 @@ import { validName } from "@/branches/names";
 
 const { t } = useI18n();
 const remotes = useRemotesStore();
+const now = useNow();
 
 const adding = ref(false);
 const name = ref("");
@@ -72,6 +75,14 @@ function onGridKeydown(event: KeyboardEvent): void {
     event.target instanceof HTMLElement &&
     !event.target.matches('[role="row"]');
   if (!onButton) navigation.onKeydown(event);
+}
+
+/** "fetched 4 min ago" from FETCH_HEAD's time, or "never fetched". */
+function fetchedLine(at: number | null): string {
+  if (at === null) return t("remotes.neverFetched");
+  const rel = relativeDate(at, now.value);
+  const ago = rel.unit === "now" ? t("date.now") : t(`date.${rel.unit}`, { n: rel.n });
+  return t("remotes.fetchedAgo", { ago });
 }
 
 async function add(): Promise<void> {
@@ -192,6 +203,13 @@ function confirmRemove(): void {
               {{ remote.fetchUrl }}
             </span>
           </span>
+        </span>
+        <span
+          role="gridcell"
+          class="shrink-0 text-sm text-fg-muted whitespace-nowrap"
+          data-testid="remote-row-fetched"
+        >
+          {{ fetchedLine(remote.fetchedAt) }}
         </span>
         <span role="gridcell" class="flex shrink-0 items-center gap-1">
           <Button

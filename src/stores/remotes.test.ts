@@ -23,11 +23,13 @@ const remotes: Remote[] = [
   {
     name: "origin",
     fetchUrl: "git@github.com:ikerzam/geoportal.git",
+    fetchedAt: 1_758_499_000,
     pushUrl: "git@github.com:ikerzam/geoportal.git",
   },
   {
     name: "upstream",
     fetchUrl: "https://example.com/geoportal.git",
+    fetchedAt: null,
     pushUrl: "https://example.com/geoportal.git",
   },
 ];

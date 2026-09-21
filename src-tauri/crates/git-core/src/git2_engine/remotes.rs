@@ -4,7 +4,7 @@
 //! instead of waiting for a terminal that is not there (a helper with a window of its own
 //! still opens it; the caller's timeout bounds that).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::{sequencer, Git2Engine};
 use crate::cli::{run_git_env, run_git_streaming, CliExit, WRITE_ENV};
@@ -20,7 +20,9 @@ fn failed(args: &[&str], exit: CliExit) -> GitError {
     exit.into_failure(args)
 }
 
-/// See [`GitEngine::remotes`]: `git remote -v`, one line per URL and direction.
+/// See [`GitEngine::remotes`]: `git remote -v`, one line per URL and direction, and the time
+/// of the last fetch for the remotes `FETCH_HEAD` names (its mtime; the file holds one
+/// `… of <url>` per fetched ref, so a fetch of one remote dates that remote only).
 #[tracing::instrument(level = "debug", skip_all)]
 pub(super) fn remotes(engine: &Git2Engine, cancel: &Cancel) -> GitResult<Vec<Remote>> {
     let args = ["remote", "-v"];
@@ -28,7 +30,54 @@ pub(super) fn remotes(engine: &Git2Engine, cancel: &Cancel) -> GitResult<Vec<Rem
     if exit.status != Some(0) {
         return Err(failed(&args, exit));
     }
-    Ok(parse_remotes(&String::from_utf8_lossy(&exit.stdout)))
+    let mut remotes = parse_remotes(&String::from_utf8_lossy(&exit.stdout));
+    let fetch_head: PathBuf = engine.with_repo(|repo| Ok(repo.path().join("FETCH_HEAD")))?;
+    if let Some((at, content)) = last_fetch(&fetch_head) {
+        for remote in &mut remotes {
+            if fetch_head_names(&content, &remote.fetch_url) {
+                remote.fetched_at = Some(at);
+            }
+        }
+    }
+    Ok(remotes)
+}
+
+/// A URL as `FETCH_HEAD` writes it after ` of `: credentials dropped, trailing slashes and a
+/// `.git` suffix stripped (`transport_anonymize_url` and `store_updated_refs` in git).
+fn fetch_head_form(url: &str) -> String {
+    let mut url = url.trim_end_matches('/');
+    if let Some(stripped) = url.strip_suffix(".git") {
+        url = stripped;
+    }
+    match url.split_once("://") {
+        Some((scheme, rest)) => match rest.split_once('@') {
+            Some((credentials, host)) if !credentials.contains('/') => {
+                format!("{scheme}://{host}")
+            }
+            _ => url.to_owned(),
+        },
+        None => url.to_owned(),
+    }
+}
+
+/// Whether a line of `FETCH_HEAD` names `url` as what it fetched from.
+pub(super) fn fetch_head_names(content: &str, url: &str) -> bool {
+    let wanted = fetch_head_form(url);
+    content.lines().any(|line| {
+        line.rsplit_once(" of ")
+            .is_some_and(|(_, named)| named.trim_end_matches('/') == wanted)
+    })
+}
+
+/// `FETCH_HEAD`'s modification time (Unix seconds) and content, when the file exists.
+fn last_fetch(path: &Path) -> Option<(i64, String)> {
+    let modified = std::fs::metadata(path).ok()?.modified().ok()?;
+    let at = modified
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|elapsed| i64::try_from(elapsed.as_secs()).ok())?;
+    let content = std::fs::read_to_string(path).ok()?;
+    Some((at, content))
 }
 
 /// `name<TAB>url (fetch|push)` lines into remotes, in the order git lists them.
@@ -49,6 +98,7 @@ pub(super) fn parse_remotes(output: &str) -> Vec<Remote> {
                     name: name.to_owned(),
                     fetch_url: String::new(),
                     push_url: String::new(),
+                    fetched_at: None,
                 });
                 remotes.len() - 1
             }
@@ -392,6 +442,28 @@ mod tests {
         assert_eq!(parsed[0].push_url, "git@example.com:a.git");
         assert_eq!(parsed[1].push_url, "/tmp/m.git");
         assert!(parse_remotes("").is_empty());
+    }
+
+    #[test]
+    fn fetch_head_lines_name_the_remote_without_its_suffix_or_credentials() {
+        let content = "abc\t\tbranch 'main' of https://github.com/ikerzam/begira\ndef\tnot-for-merge\tbranch 'x' of C:\\Users\\iker\\origin\n";
+        assert!(fetch_head_names(
+            content,
+            "https://github.com/ikerzam/begira.git"
+        ));
+        assert!(fetch_head_names(
+            content,
+            "https://iker:secret@github.com/ikerzam/begira.git/"
+        ));
+        assert!(fetch_head_names(content, r"C:\Users\iker\origin.git"));
+        assert!(!fetch_head_names(
+            content,
+            "https://github.com/ikerzam/other.git"
+        ));
+        assert!(!fetch_head_names(
+            "",
+            "https://github.com/ikerzam/begira.git"
+        ));
     }
 
     #[test]

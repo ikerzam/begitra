@@ -914,6 +914,10 @@ pub struct Remote {
     pub fetch_url: String,
     /// URL pushed to (the fetch URL unless configured apart).
     pub push_url: String,
+    /// Unix seconds of the last fetch that wrote `FETCH_HEAD` naming this remote's URL;
+    /// `None` when the file is missing or names other remotes only (git keeps no other record).
+    #[serde(default)]
+    pub fetched_at: Option<i64>,
 }
 
 /// A pull request: `git pull [--rebase] [remote [branch]]`.

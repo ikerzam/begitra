@@ -580,11 +580,13 @@ fn write_phase7() {
                 name: "origin".to_owned(),
                 fetch_url: "git@github.com:ikerzam/geoportal.git".to_owned(),
                 push_url: "git@github.com:ikerzam/geoportal.git".to_owned(),
+                fetched_at: Some(1_758_499_200),
             },
             Remote {
                 name: "upstream".to_owned(),
                 fetch_url: "https://github.com/geoportal/geoportal.git".to_owned(),
                 push_url: "https://github.com/geoportal/geoportal.git".to_owned(),
+                fetched_at: None,
             },
         ],
     );

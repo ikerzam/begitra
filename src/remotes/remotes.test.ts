@@ -24,11 +24,13 @@ const remotes: Remote[] = [
   {
     name: "origin",
     fetchUrl: "git@github.com:ikerzam/geoportal.git",
+    fetchedAt: 1_758_499_000,
     pushUrl: "git@github.com:ikerzam/geoportal.git",
   },
   {
     name: "upstream",
     fetchUrl: "https://example.com/geoportal.git",
+    fetchedAt: null,
     pushUrl: "https://example.com/geoportal.git",
   },
 ];
@@ -107,6 +109,9 @@ describe("RemotesSheet", () => {
     expect(rows[0]?.get('[data-testid="remote-row-url"]').text()).toBe(
       "git@github.com:ikerzam/geoportal.git",
     );
+    // FETCH_HEAD's time dates the remote it named; the other one was never fetched.
+    expect(rows[0]?.get('[data-testid="remote-row-fetched"]').text()).toMatch(/^fetched /);
+    expect(rows[1]?.get('[data-testid="remote-row-fetched"]').text()).toBe("never fetched");
     await rows[1]!.get('[data-testid="remote-fetch-prune"]').trigger("click");
     await settled();
     expect(of(calls, "fetch")[0]?.args).toMatchObject({ remote: "upstream", prune: true });

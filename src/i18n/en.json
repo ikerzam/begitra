@@ -810,6 +810,8 @@
     "remove": "Remove remote",
     "empty": "No remotes. Add one to fetch, pull and push.",
     "footer": "Fetch updates the remote branches; prune also drops the ones deleted on the remote.",
+    "fetchedAgo": "fetched {ago}",
+    "neverFetched": "never fetched",
     "close": "Close",
     "removeTitle": "Remove {name}?",
     "removeBody": "The remote and its remote-tracking branches are removed from this repository; nothing changes on {name} itself.",

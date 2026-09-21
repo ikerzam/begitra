@@ -720,6 +720,7 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
           {
             name: args["name"] as string,
             fetchUrl: args["url"] as string,
+            fetchedAt: null,
             pushUrl: args["url"] as string,
           },
         ];

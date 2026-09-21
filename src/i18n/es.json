@@ -810,6 +810,8 @@
     "remove": "Eliminar el remoto",
     "empty": "Sin remotos. Añade uno para hacer fetch, pull y push.",
     "footer": "Fetch actualiza las ramas remotas; podar borra además las eliminadas en el remoto.",
+    "fetchedAgo": "traído {ago}",
+    "neverFetched": "nunca traído",
     "close": "Cerrar",
     "removeTitle": "¿Eliminar {name}?",
     "removeBody": "El remoto y sus ramas de seguimiento se eliminan de este repositorio; en {name} no cambia nada.",

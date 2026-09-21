@@ -526,6 +526,8 @@ export const RemoteSchema = v.object({
   name: v.string(),
   fetchUrl: v.string(),
   pushUrl: v.string(),
+  /** Unix seconds of the last fetch that named this remote; null when never or unknown. */
+  fetchedAt: v.nullable(v.number()),
 });
 export type Remote = v.InferOutput<typeof RemoteSchema>;
 

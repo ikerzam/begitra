@@ -47,6 +47,8 @@ fn lists_adds_and_removes_remotes() {
         remotes[0].fetch_url
     );
     assert_eq!(remotes[0].fetch_url, remotes[0].push_url);
+    // The fixture pushed to origin but never fetched: no fetch time yet.
+    assert_eq!(remotes[0].fetched_at, None);
     let second = f.sibling("second.git");
     f.git(&["init", "-q", "--bare", second.to_str().expect("utf-8")]);
     e.remote_add("second", second.to_str().expect("utf-8"), &never())
@@ -56,6 +58,17 @@ fn lists_adds_and_removes_remotes() {
         remotes.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
         ["origin", "second"]
     );
+    // A fetch of origin dates origin (FETCH_HEAD's time) and leaves second undated.
+    e.fetch(Some("origin"), false, &mut |_| {}, &never())
+        .expect("fetch");
+    let remotes = e.remotes(&never()).expect("remotes");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| i64::try_from(d.as_secs()).unwrap_or(0))
+        .unwrap_or(0);
+    let fetched = remotes[0].fetched_at.expect("origin was fetched");
+    assert!((now - fetched).abs() < 120, "{fetched} vs {now}");
+    assert_eq!(remotes[1].fetched_at, None);
     e.remote_remove("second", &never()).expect("remove");
     assert_eq!(e.remotes(&never()).expect("remotes").len(), 1);
     let error = e
