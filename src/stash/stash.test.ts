@@ -8,6 +8,7 @@ import type { Ref } from "@/ipc/schemas";
 import { useRepoStore } from "@/stores/repo";
 import { memoryStorage, useSettingsStore } from "@/stores/settings";
 import { useStashStore } from "@/stores/stash";
+import { useToastsStore } from "@/stores/toasts";
 import {
   fakeBackend,
   fakeCommit,
@@ -109,6 +110,11 @@ describe("StashSheet", () => {
     await dialog.get('[data-testid="dialog-confirm"]').trigger("click");
     await settled();
     expect(of(calls, "stash_drop")[0]?.args["index"]).toBe(0);
+    // The way back stays in the toast: the dropped stash's hash and the command.
+    const toast = useToastsStore().toasts.at(-1);
+    expect(toast?.key).toBe("stash.dropped");
+    expect(toast?.params).toEqual({ hash: fakeCommit(3).hash.slice(0, 7) });
+    expect(toast?.output).toBe(`git stash apply ${fakeCommit(3).hash}`);
     expect(wrapper.text()).toContain("Apply keeps the stash; pop drops it once applied.");
     wrapper.unmount();
   });

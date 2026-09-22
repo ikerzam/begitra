@@ -833,8 +833,7 @@
       "branch": "Rama",
       "setUpstream": "Ajustar el upstream",
       "setUpstreamAlready": "Ajustar el upstream ({upstream} ya lo es)",
-      "forceWithLease": "Forzar con lease: sobrescribe el remoto solo si está donde dice {upstream}",
-      "forceWithLeaseNoUpstream": "Forzar con lease: sobrescribe el remoto solo si está donde dice la rama de seguimiento",
+      "forceWithLease": "Forzar con lease: sobrescribe el remoto solo si está donde dice {tracking}",
       "confirm": "Push"
     },
     "pullDialog": {
@@ -858,14 +857,14 @@
     "footer": "Aplicar conserva el stash; sacar lo borra al aplicarlo. Si al sacarlo hay conflictos, se conserva.",
     "close": "Cerrar",
     "dropTitle": "¿Borrar {name}?",
-    "dropBody": "El stash se borra. git imprime el hash de su commit, que lo recupera hasta que pase git gc.",
+    "dropBody": "El stash se borra. El hash de su commit queda en el aviso y lo recupera con git stash apply hasta que pase git gc.",
     "dropConfirm": "Borrar",
     "failed": "git lo rechazó. {message}",
     "pushed": "Árbol de trabajo guardado en el stash",
     "nothing": "Nada que guardar",
     "applied": "Stash aplicado",
     "popped": "Stash sacado",
-    "dropped": "Stash borrado"
+    "dropped": "Stash borrado · {hash} lo recupera hasta que pase git gc"
   },
   "settings": {
     "title": "Ajustes",

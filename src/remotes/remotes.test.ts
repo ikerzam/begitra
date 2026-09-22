@@ -29,7 +29,7 @@ const remotes: Remote[] = [
   },
   {
     name: "upstream",
-    fetchUrl: "https://example.com/geoportal.git",
+    fetchUrl: "https://iker:ghp_secret@example.com/geoportal.git",
     fetchedAt: null,
     pushUrl: "https://example.com/geoportal.git",
   },
@@ -112,6 +112,10 @@ describe("RemotesSheet", () => {
     // FETCH_HEAD's time dates the remote it named; the other one was never fetched.
     expect(rows[0]?.get('[data-testid="remote-row-fetched"]').text()).toMatch(/^fetched /);
     expect(rows[1]?.get('[data-testid="remote-row-fetched"]').text()).toBe("never fetched");
+    // Credentials in a URL never show.
+    expect(rows[1]?.get('[data-testid="remote-row-url"]').text()).toBe(
+      "https://***@example.com/geoportal.git",
+    );
     await rows[1]!.get('[data-testid="remote-fetch-prune"]').trigger("click");
     await settled();
     expect(of(calls, "fetch")[0]?.args).toMatchObject({ remote: "upstream", prune: true });

@@ -141,11 +141,7 @@ function confirm(): void {
         <Checkbox
           v-model="forceWithLease"
           class="col-start-2"
-          :label="
-            upstreamIs
-              ? t('remotes.pushDialog.forceWithLease', { upstream: upstreamIs })
-              : t('remotes.pushDialog.forceWithLeaseNoUpstream')
-          "
+          :label="t('remotes.pushDialog.forceWithLease', { tracking: `${remote}/${props.branch}` })"
           data-testid="network-force"
         />
       </template>

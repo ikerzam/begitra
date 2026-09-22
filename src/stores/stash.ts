@@ -10,6 +10,7 @@ import * as ipc from "@/ipc/commands";
 import { toAppError } from "@/ipc/errors";
 import { newOpId } from "@/ipc/invoke";
 import type { Outcome } from "@/ipc/schemas";
+import { shortHash } from "@/shell/format";
 
 import { useChangesStore } from "./changes";
 import { useOperationsStore } from "./operations";
@@ -147,13 +148,23 @@ export const useStashStore = defineStore("stash", () => {
     dropPrompt.value = null;
   }
 
+  /** Drops a stash; the toast keeps its commit hash, which brings it back until `git gc`. */
   async function drop(index: number): Promise<boolean> {
     dropPrompt.value = null;
+    const hash = stashes.value.find((row) => row.index === index)?.hash ?? "";
     const done = await write("operations.droppingStash", async (root, opId) => {
       await ipc.stashDrop(root, index, opId);
       return true;
     });
-    if (done) toasts.push({ kind: "success", message: "", key: "stash.dropped" });
+    if (done) {
+      toasts.push({
+        kind: "success",
+        message: "",
+        key: "stash.dropped",
+        params: { hash: shortHash(hash) },
+        output: hash ? `git stash apply ${hash}` : "",
+      });
+    }
     return done === true;
   }
 

@@ -833,8 +833,7 @@
       "branch": "Branch",
       "setUpstream": "Set upstream",
       "setUpstreamAlready": "Set upstream ({upstream} already is)",
-      "forceWithLease": "Force with lease: overwrite the remote only if it is where {upstream} says",
-      "forceWithLeaseNoUpstream": "Force with lease: overwrite the remote only if it is where the tracking ref says",
+      "forceWithLease": "Force with lease: overwrite the remote only if it is where {tracking} says",
       "confirm": "Push"
     },
     "pullDialog": {
@@ -858,14 +857,14 @@
     "footer": "Apply keeps the stash; pop drops it once applied. A pop that conflicts keeps it.",
     "close": "Close",
     "dropTitle": "Drop {name}?",
-    "dropBody": "The stash is dropped. git prints its commit hash, which can bring it back until git gc runs.",
+    "dropBody": "The stash is dropped. Its commit hash stays in the toast and brings it back with git stash apply until git gc runs.",
     "dropConfirm": "Drop",
     "failed": "git refused. {message}",
     "pushed": "Stashed the working tree",
     "nothing": "Nothing to stash",
     "applied": "Stash applied",
     "popped": "Stash popped",
-    "dropped": "Stash dropped"
+    "dropped": "Stash dropped · {hash} brings it back until git gc runs"
   },
   "settings": {
     "title": "Settings",

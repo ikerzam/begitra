@@ -77,6 +77,16 @@ function onGridKeydown(event: KeyboardEvent): void {
   if (!onButton) navigation.onKeydown(event);
 }
 
+/** A URL with its credentials hidden (`https://user:token@host/…` shows `https://***@host/…`). */
+function maskedUrl(url: string): string {
+  const at = url.indexOf("://");
+  if (at < 0) return url;
+  const rest = url.slice(at + 3);
+  const auth = rest.indexOf("@");
+  if (auth <= 0 || rest.slice(0, auth).includes("/")) return url;
+  return `${url.slice(0, at + 3)}***@${rest.slice(auth + 1)}`;
+}
+
 /** "fetched 4 min ago" from FETCH_HEAD's time, or "never fetched". */
 function fetchedLine(at: number | null): string {
   if (at === null) return t("remotes.neverFetched");
@@ -200,7 +210,7 @@ function confirmRemove(): void {
               class="truncate font-mono text-mono-sm text-fg-secondary"
               data-testid="remote-row-url"
             >
-              {{ remote.fetchUrl }}
+              {{ maskedUrl(remote.fetchUrl) }}
             </span>
           </span>
         </span>
