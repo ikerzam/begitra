@@ -107,8 +107,9 @@ pub async fn stash_pop(
     .await
 }
 
-/// Drops `stash@{index}` after the confirmation (a dropped stash is only in the reflog of
-/// nothing: git prints its hash, which the frontend shows once).
+/// Drops `stash@{index}` after the confirmation (a dropped stash is in no reflog: the
+/// frontend keeps the row's commit hash in its toast, which `git stash apply <hash>` brings
+/// back until `git gc` runs).
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state))]
 pub async fn stash_drop(

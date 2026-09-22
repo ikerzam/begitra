@@ -90,7 +90,22 @@ fn probe_git_within(candidate: &Path, cancel: &Cancel, deadline: Duration) -> Gi
     let joined = format!("{text} --version");
     let mut command = Command::new(candidate);
     command.arg("--version");
-    let exit = run_polled(command, joined.clone(), cancel, Some(deadline), None)?;
+    // A candidate that gives no answer within the deadline (or whose run breaks) is one
+    // that could not be started, as far as the probe is concerned.
+    let exit =
+        run_polled(command, joined.clone(), cancel, Some(deadline), None).map_err(|error| {
+            match error {
+                GitError::Cli {
+                    command,
+                    status: None,
+                    stderr,
+                } => GitError::GitNotStarted {
+                    command,
+                    reason: stderr,
+                },
+                other => other,
+            }
+        })?;
     if exit.status != Some(0) {
         return Err(GitError::Cli {
             command: joined,
@@ -313,11 +328,45 @@ fn stop_tree(mut child: Child) {
 /// Runs `git <args>` in `cwd` and returns its output, or [`GitError::Cli`] when the process
 /// could not be started or exited with a non-zero status.
 ///
+/// An argument with the credentials of a URL hidden (`https://user:token@host/…` becomes
+/// `https://***@host/…`): what the spans record and what an error names as its command,
+/// since both reach the log file and the toasts a user copies.
+pub fn redact(arg: &str) -> String {
+    let Some((scheme, rest)) = arg.split_once("://") else {
+        return arg.to_owned();
+    };
+    match rest.split_once('@') {
+        Some((credentials, host)) if !credentials.contains('/') && !credentials.is_empty() => {
+            format!("{scheme}://***@{host}")
+        }
+        _ => arg.to_owned(),
+    }
+}
+
+/// Arguments joined by spaces, credentials hidden.
+pub fn joined(args: &[&str]) -> String {
+    args.iter()
+        .map(|arg| redact(arg))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The arguments as a span records them: credentials hidden.
+struct Redacted<'a>(&'a [&'a str]);
+
+impl std::fmt::Debug for Redacted<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list()
+            .entries(self.0.iter().map(|arg| redact(arg)))
+            .finish()
+    }
+}
+
 /// The user's global and system configuration stay in effect, as they would on the command
 /// line; callers that need isolation pass `-c` overrides.
-#[tracing::instrument(level = "debug", skip_all, fields(cwd = %cwd.display(), args = ?args))]
+#[tracing::instrument(level = "debug", skip_all, fields(cwd = %cwd.display(), args = ?Redacted(args)))]
 pub fn run_git(cwd: &Path, args: &[&str]) -> GitResult<CliOutput> {
-    let joined = args.join(" ");
+    let joined = joined(args);
     let output = command(cwd, args)
         .output()
         .map_err(|error| GitError::GitNotStarted {
@@ -359,7 +408,7 @@ impl CliExit {
             self.stderr
         };
         GitError::Cli {
-            command: args.join(" "),
+            command: joined(args),
             status: self.status,
             stderr,
         }
@@ -373,24 +422,28 @@ impl CliExit {
 /// callers that give a meaning to a non-zero status (`merge-tree` exits 1 on conflicts) read
 /// it here. Only a git that could not be started is [`GitError::GitNotStarted`]; any later
 /// failure of the run is [`GitError::Cli`] with `status: None`.
-#[tracing::instrument(level = "debug", skip_all, fields(cwd = %cwd.display(), args = ?args))]
+#[tracing::instrument(level = "debug", skip_all, fields(cwd = %cwd.display(), args = ?Redacted(args)))]
 pub fn run_git_cancellable(cwd: &Path, args: &[&str], cancel: &Cancel) -> GitResult<CliExit> {
-    run_polled(command(cwd, args), args.join(" "), cancel, None, None)
+    run_polled(command(cwd, args), joined(args), cancel, None, None)
 }
 
 /// The environment of a write that must never wait for a terminal or an editor: git's own
 /// credential prompt fails at once with its message (a helper with a window of its own, such
 /// as Git Credential Manager, still opens it, and the caller's timeout bounds that), and a
 /// merge, revert or `--continue` that would open an editor takes the prepared message. `:`
-/// is the editor git knows not to launch, where `true` would spawn a shell for it.
-pub const WRITE_ENV: [(&str, &str); 3] = [
+/// is the editor git knows not to launch, where `true` would spawn a shell for it. `LC_ALL=C`
+/// keeps git's words in English, so a refusal the app reads ("would be overwritten", "not
+/// fully merged") is the same under every locale; the app's own sentences are translated,
+/// git's output is the terminal's lingua franca.
+pub const WRITE_ENV: [(&str, &str); 4] = [
     ("GIT_TERMINAL_PROMPT", "0"),
     ("GIT_EDITOR", ":"),
     ("GIT_SEQUENCE_EDITOR", ":"),
+    ("LC_ALL", "C"),
 ];
 
 /// [`run_git_cancellable`] with extra environment variables (see [`WRITE_ENV`]).
-#[tracing::instrument(level = "debug", skip_all, fields(cwd = %cwd.display(), args = ?args))]
+#[tracing::instrument(level = "debug", skip_all, fields(cwd = %cwd.display(), args = ?Redacted(args)))]
 pub fn run_git_env(
     cwd: &Path,
     args: &[&str],
@@ -399,13 +452,29 @@ pub fn run_git_env(
 ) -> GitResult<CliExit> {
     let mut command = command(cwd, args);
     command.envs(env.iter().copied());
-    run_polled(command, args.join(" "), cancel, None, None)
+    run_polled(command, joined(args), cancel, None, None)
+}
+
+/// [`run_git_env`] that also stops git past `limit` (the tree is killed and the run is
+/// [`GitError::Cli`] with no status): for a write that ignores the user's cancel on purpose
+/// but must not run forever.
+#[tracing::instrument(level = "debug", skip_all, fields(cwd = %cwd.display(), args = ?Redacted(args), limit = ?limit))]
+pub fn run_git_env_within(
+    cwd: &Path,
+    args: &[&str],
+    env: &[(&str, &str)],
+    cancel: &Cancel,
+    limit: Duration,
+) -> GitResult<CliExit> {
+    let mut command = command(cwd, args);
+    command.envs(env.iter().copied());
+    run_polled(command, joined(args), cancel, Some(limit), None)
 }
 
 /// [`run_git_env`] with git's stderr handed to `on_line` line by line as it arrives: the
 /// progress of a fetch or a push (`--progress` writes `\r`-separated updates, so `\r` ends
 /// a line as `\n` does). The whole stderr is still in the exit for the error message.
-#[tracing::instrument(level = "debug", skip_all, fields(cwd = %cwd.display(), args = ?args))]
+#[tracing::instrument(level = "debug", skip_all, fields(cwd = %cwd.display(), args = ?Redacted(args)))]
 pub fn run_git_streaming(
     cwd: &Path,
     args: &[&str],
@@ -415,32 +484,31 @@ pub fn run_git_streaming(
 ) -> GitResult<CliExit> {
     let mut command = command(cwd, args);
     command.envs(env.iter().copied());
-    run_polled_streaming(command, args.join(" "), cancel, on_line)
+    run_polled_streaming(command, joined(args), cancel, on_line)
 }
 
 /// [`run_git_cancellable`] with `input` on git's stdin (a pathspec list, a commit message,
 /// a patch), written from its own thread so that neither side blocks on a full pipe.
-#[tracing::instrument(level = "debug", skip_all, fields(cwd = %cwd.display(), args = ?args, input_bytes = input.len()))]
+#[tracing::instrument(level = "debug", skip_all, fields(cwd = %cwd.display(), args = ?Redacted(args), input_bytes = input.len()))]
 pub fn run_git_with_input(
     cwd: &Path,
     args: &[&str],
     input: Vec<u8>,
     cancel: &Cancel,
 ) -> GitResult<CliExit> {
-    run_polled(
-        command(cwd, args),
-        args.join(" "),
-        cancel,
-        None,
-        Some(input),
-    )
+    run_polled(command(cwd, args), joined(args), cancel, None, Some(input))
 }
 
 /// A pipe reader's result: the bytes, or the read error.
 type Piped = thread::JoinHandle<std::io::Result<Vec<u8>>>;
 
-/// Reads a pipe in chunks and sends every line (ended by `\r` or `\n`) as it completes,
-/// then the whole content; used for git's progress on stderr.
+/// Longest line the streaming reader hands over; the rest of a longer one is dropped (a
+/// hostile remote could otherwise grow a line without bound).
+const MAX_STREAMED_LINE: usize = 4096;
+
+/// Reads a pipe in chunks and sends every line (ended by `\r` or `\n`) as it completes;
+/// used for git's progress on stderr. Nothing is kept whole: the caller decides what of the
+/// stream it remembers, so a chatty remote cannot fill memory.
 fn read_pipe_lines<R: Read + Send + 'static>(
     name: &str,
     pipe: Option<R>,
@@ -449,9 +517,8 @@ fn read_pipe_lines<R: Read + Send + 'static>(
     thread::Builder::new()
         .name(format!("begira-git-{name}"))
         .spawn(move || {
-            let mut all = Vec::new();
             let Some(mut pipe) = pipe else {
-                return Ok(all);
+                return Ok(Vec::new());
             };
             let mut chunk = [0_u8; 4096];
             let mut pending = Vec::new();
@@ -460,7 +527,6 @@ fn read_pipe_lines<R: Read + Send + 'static>(
                 if read == 0 {
                     break;
                 }
-                all.extend_from_slice(&chunk[..read]);
                 for &byte in &chunk[..read] {
                     if byte == b'\n' || byte == b'\r' {
                         if !pending.is_empty() {
@@ -469,7 +535,7 @@ fn read_pipe_lines<R: Read + Send + 'static>(
                             let _ = lines.send(line);
                             pending.clear();
                         }
-                    } else {
+                    } else if pending.len() < MAX_STREAMED_LINE {
                         pending.push(byte);
                     }
                 }
@@ -477,7 +543,7 @@ fn read_pipe_lines<R: Read + Send + 'static>(
             if !pending.is_empty() {
                 let _ = lines.send(String::from_utf8_lossy(&pending).into_owned());
             }
-            Ok(all)
+            Ok(Vec::new())
         })
 }
 
@@ -654,10 +720,10 @@ fn run_polled(
                 }
                 if deadline.is_some_and(|limit| started.elapsed() > limit) {
                     abort(child);
-                    return Err(GitError::GitNotStarted {
-                        command: joined,
-                        reason: format!("no answer within {:?}", deadline.unwrap_or_default()),
-                    });
+                    return Err(run_failed(format!(
+                        "no answer within {:?}: git was stopped",
+                        deadline.unwrap_or_default()
+                    )));
                 }
                 thread::sleep(CANCEL_POLL);
             }
@@ -869,9 +935,9 @@ mod tests {
     }
 
     #[test]
-    fn streaming_hands_over_stderr_lines_as_they_come_and_keeps_the_whole_output() {
+    fn streaming_hands_over_stderr_lines_as_they_come_and_keeps_nothing_whole() {
         // `git -c alias.x='!...'` writes to stderr through a shell; `\r` and `\n` both end
-        // a line, as git's progress meter writes them.
+        // a line, as git's progress meter writes them; the exit keeps no copy of the stream.
         let mut seen = Vec::new();
         let exit = run_git_streaming(
             Path::new("."),
@@ -887,14 +953,70 @@ mod tests {
         .expect("runs");
         assert_eq!(exit.status, Some(0), "{}", exit.stderr);
         assert_eq!(seen, ["first", "second", "third"]);
-        assert_eq!(exit.stderr, "first\rsecond\nthird");
+        assert_eq!(exit.stderr, "");
         assert_eq!(String::from_utf8_lossy(&exit.stdout).trim(), "out");
+        // A line past 4 KiB is cut, not kept growing.
+        let mut long = Vec::new();
+        run_git_streaming(
+            Path::new("."),
+            &[
+                "-c",
+                "alias.y=!head -c 10000 /dev/zero | tr '\\0' 'x' >&2",
+                "y",
+            ],
+            &WRITE_ENV,
+            &mut |line| long.push(line.len()),
+            &Cancel::never(),
+        )
+        .expect("runs");
+        assert_eq!(long, [MAX_STREAMED_LINE]);
         let cancel = Cancel::new();
         cancel.cancel();
         let cancelled =
             run_git_streaming(Path::new("."), &["--version"], &[], &mut |_| {}, &cancel)
                 .expect_err("cancelled before starting");
         assert_eq!(cancelled.code(), "op.cancelled");
+    }
+
+    #[test]
+    fn credentials_are_hidden_from_spans_and_commands() {
+        assert_eq!(
+            redact("https://iker:ghp_secret@github.com/ikerzam/begira.git"),
+            "https://***@github.com/ikerzam/begira.git"
+        );
+        assert_eq!(
+            redact("https://github.com/x.git"),
+            "https://github.com/x.git"
+        );
+        assert_eq!(redact("git@github.com:x.git"), "git@github.com:x.git");
+        assert_eq!(redact("ssh://git@host/x.git"), "ssh://***@host/x.git");
+        assert_eq!(redact("-m"), "-m");
+        assert_eq!(
+            joined(&["remote", "add", "--", "o", "https://u:p@h/r.git"]),
+            "remote add -- o https://***@h/r.git"
+        );
+        assert_eq!(
+            format!("{:?}", Redacted(&["push", "https://u:p@h/r"])),
+            "[\"push\", \"https://***@h/r\"]"
+        );
+    }
+
+    #[test]
+    fn a_bounded_run_is_stopped_past_its_limit() {
+        let started = std::time::Instant::now();
+        let error = run_git_env_within(
+            Path::new("."),
+            &["-c", "alias.w=!sleep 8", "w"],
+            &WRITE_ENV,
+            &Cancel::never(),
+            Duration::from_millis(400),
+        )
+        .expect_err("stopped");
+        assert!(
+            matches!(error, GitError::Cli { status: None, .. }),
+            "{error:?}"
+        );
+        assert!(started.elapsed() < Duration::from_secs(4));
     }
 
     #[test]

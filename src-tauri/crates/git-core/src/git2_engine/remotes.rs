@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use super::{sequencer, Git2Engine};
-use crate::cli::{run_git_env, run_git_streaming, CliExit, WRITE_ENV};
+use crate::cli::{run_git_env, run_git_env_within, run_git_streaming, CliExit, WRITE_ENV};
 use crate::engine::{Cancel, GitEngine};
 use crate::error::{GitError, GitResult};
 use crate::types::{NetworkResult, Outcome, OutcomeKind, PullRequest, PushRequest, Remote};
@@ -241,20 +241,27 @@ fn plain_refspec(branch: Option<&str>) -> GitResult<()> {
 }
 
 /// The environment of the merge or rebase half of a pull: the reflog names the pull.
-const PULL_ENV: [(&str, &str); 4] = [
+const PULL_ENV: [(&str, &str); 5] = [
     WRITE_ENV[0],
     WRITE_ENV[1],
     WRITE_ENV[2],
+    WRITE_ENV[3],
     ("GIT_REFLOG_ACTION", "pull"),
 ];
 
+/// How long the merge or rebase half of a pull may run: it ignores the user's cancel on
+/// purpose (a killed merge leaves half an operation), so this is what stops a hook or a
+/// merge driver that never returns; the bridge's write timeout is the same ten minutes.
+const FINISH_LIMIT: std::time::Duration = std::time::Duration::from_secs(600);
+
 /// See [`GitEngine::pull`]: the fetch, streamed and cancellable, then the merge or the
 /// rebase of what it brought, which no cancel interrupts (a killed merge or rebase leaves
-/// half an operation behind, the reason every other write is not cancellable). `git pull`
-/// does both in one process that a cancel would kill at any point, so the two halves run
-/// here as `git-pull.sh` ran them: `git merge FETCH_HEAD` with `pull.ff`, or `git rebase
-/// --onto FETCH_HEAD <fork point>` with the fork point `git pull --rebase` computes from
-/// the tracking branch's reflog.
+/// half an operation behind, the reason every other write is not cancellable) but
+/// [`FINISH_LIMIT`] does stop. `git pull` does both in one process that a cancel would kill
+/// at any point, so the two halves run here as `git-pull.sh` ran them: `git merge
+/// FETCH_HEAD` with `pull.ff`, or `git rebase --onto FETCH_HEAD <fork point>` with the fork
+/// point `git pull --rebase` computes from the tracking branch's reflog. A fetch that
+/// brought nothing to merge (no upstream) is refused, as `git pull` refuses it.
 #[tracing::instrument(level = "debug", skip_all, fields(remote = ?request.remote, branch = ?request.branch, rebase = request.rebase))]
 pub(super) fn pull(
     engine: &Git2Engine,
@@ -279,6 +286,12 @@ pub(super) fn pull(
     // The last moment a cancel is honoured: the fetch is done and nothing else has changed.
     cancel.check()?;
     let fetched = fetch_head(engine)?;
+    if fetched.is_empty() {
+        // `git pull` refuses before fetching; here the fetch happened and nothing else did.
+        return Err(GitError::Git(
+            "the fetch brought nothing to merge: the branch has no upstream".to_owned(),
+        ));
+    }
     let root = &GitEngine::repo(engine).root;
     let never = Cancel::never();
     if request.rebase {
@@ -295,7 +308,7 @@ pub(super) fn pull(
         let fork = fork_point(engine, request, &never)?;
         let upstream = fork.as_deref().unwrap_or(onto);
         let args = ["rebase", "--onto", onto, upstream];
-        let exit = run_git_env(root, &args, &PULL_ENV, &never)?;
+        let exit = run_git_env_within(root, &args, &PULL_ENV, &never, FINISH_LIMIT)?;
         let outcome = sequencer::outcome(engine, &args, exit, OutcomeKind::Done, None, &never)?;
         let outcome = sequencer::after_autostash(engine, outcome, &never)?;
         if outcome.kind == OutcomeKind::Done && outcome.hash == before {
@@ -314,7 +327,7 @@ pub(super) fn pull(
         None => {}
     }
     args.push("FETCH_HEAD");
-    let exit = run_git_env(root, &args, &PULL_ENV, &never)?;
+    let exit = run_git_env_within(root, &args, &PULL_ENV, &never, FINISH_LIMIT)?;
     let outcome = sequencer::outcome(engine, &args, exit, OutcomeKind::Merged, None, &never)?;
     let outcome = sequencer::after_autostash(engine, outcome, &never)?;
     if outcome.kind != OutcomeKind::Merged {
@@ -388,7 +401,13 @@ fn fork_point(
         return Ok(None);
     };
     let args = ["merge-base", "--fork-point", tracking.as_str(), "HEAD"];
-    let exit = run_git_env(&GitEngine::repo(engine).root, &args, &WRITE_ENV, cancel)?;
+    let exit = run_git_env_within(
+        &GitEngine::repo(engine).root,
+        &args,
+        &WRITE_ENV,
+        cancel,
+        FINISH_LIMIT,
+    )?;
     if exit.status != Some(0) {
         return Ok(None);
     }
