@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -54,6 +55,23 @@ describe("tailwind theme", () => {
     expect(css).not.toMatch(/--text-sm:var\(--text-sm\)/);
     expect(css).not.toMatch(/--font-mono:ui-monospace/);
     expect(css).not.toMatch(/--radius-md:0\.\d+rem/);
+  });
+
+  it("is what the generator writes from design/tokens.json", () => {
+    // A token added to tokens.json without regenerating the theme would otherwise reach the
+    // app as a utility that does not exist. The script runs as a process (Vite gives its
+    // module no file URL to resolve the root from), so a mismatch also leaves the file
+    // regenerated, ready to commit.
+    const file = resolve(stylesDir, "tailwind-theme.css");
+    const before = readFileSync(file, "utf8");
+    execFileSync(
+      process.execPath,
+      [resolve(stylesDir, "../../scripts/generate-tailwind-theme.mjs")],
+      {
+        stdio: "ignore",
+      },
+    );
+    expect(readFileSync(file, "utf8")).toBe(before);
   });
 
   it("rejects spacing steps outside the design scale", async () => {

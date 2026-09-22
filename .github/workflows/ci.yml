@@ -49,16 +49,13 @@ jobs:
       - name: Type check (vue-tsc)
         run: pnpm typecheck
 
+      # `tests/tailwind-theme.test.ts` keeps the generated theme equal to what
+      # `design/tokens.json` produces, so no separate drift step is needed here.
       - name: Frontend tests (Vitest)
         run: pnpm test:run
 
       - name: Frontend build (Vite)
         run: pnpm build
-
-      - name: The Tailwind theme is generated from the tokens
-        run: |
-          node scripts/generate-tailwind-theme.mjs
-          git diff --exit-code -- src/styles/tailwind-theme.css
 
   rust:
     name: rust (${{ matrix.os }})

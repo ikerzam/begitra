@@ -50,6 +50,11 @@ describe("design tokens", () => {
       const actual = light.get(name) ?? dark.get(name);
       expect(actual, name).toBe(expected);
     }
+    // And nothing else lives in the light block: a size or a stray property there would
+    // apply to one theme only.
+    for (const name of light.keys()) {
+      expect(tokensJson.colors, name).toHaveProperty(name);
+    }
   });
 
   it("declares sizes in pixels, ratios unitless and fonts by family name", () => {
