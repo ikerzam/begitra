@@ -9,7 +9,7 @@ import { computed, ref } from "vue";
 import * as ipc from "@/ipc/commands";
 import { toAppError, type AppError } from "@/ipc/errors";
 import type { AppInfo } from "@/ipc/schemas";
-import { detectPlatform, type Platform } from "@/shortcuts/platform";
+import type { Platform } from "@/shortcuts/platform";
 import { shortcutRegistry, type ShortcutBinding } from "@/shortcuts/registry";
 
 import { useSettingsStore } from "./settings";
@@ -158,8 +158,8 @@ export const useSettingsScreenStore = defineStore("settingsScreen", () => {
     }
   }
 
-  /** "Open logs folder": the platform's file manager on the folder. */
-  async function openLogsFolder(platform: Platform = detectPlatform()): Promise<boolean> {
+  /** "Open logs folder": the file manager of the platform the settings store knows. */
+  async function openLogsFolder(platform: Platform = settings.platform): Promise<boolean> {
     const dir = appInfo.value?.logDir;
     if (!dir) return false;
     try {

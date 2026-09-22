@@ -1,8 +1,8 @@
 [
   {
     "version": "0.1.0",
-    "logFile": "C:\\Users\\iker\\AppData\\Local\\dev.begira.app\\logs\\begira-2026-09-22.log",
-    "logDir": "C:\\Users\\iker\\AppData\\Local\\dev.begira.app\\logs"
+    "logFile": "/home/iker/.local/share/dev.begira.app/logs/begira-2026-09-22.log",
+    "logDir": "/home/iker/.local/share/dev.begira.app/logs"
   },
   {
     "version": "0.1.0",

@@ -836,8 +836,10 @@ fn write_fixtures() {
     write(
         "app-info",
         &[
+            // A POSIX path: `Path::parent` splits on `\` only on Windows, so a Windows path
+            // here would make the fixture different on every other platform.
             app_info_from(Some(PathBuf::from(
-                r"C:\Users\iker\AppData\Local\dev.begira.app\logs\begira-2026-09-22.log",
+                "/home/iker/.local/share/dev.begira.app/logs/begira-2026-09-22.log",
             ))),
             app_info_from(None),
         ],

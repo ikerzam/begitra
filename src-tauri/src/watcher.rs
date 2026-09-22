@@ -426,9 +426,11 @@ mod tests {
             b"abc",
         )
         .expect("ref");
+        // The bound is the platform watcher's, not the debounce's: FSEvents on a loaded CI
+        // runner has taken over three seconds to deliver the first batch.
         let payload = rx
-            .recv_timeout(Duration::from_secs(3))
-            .expect("one event within three seconds");
+            .recv_timeout(Duration::from_secs(15))
+            .expect("one event within fifteen seconds");
         assert!(payload.kinds.contains(&RepoChangeKind::Status));
         assert!(payload.kinds.contains(&RepoChangeKind::Refs));
         assert!(payload.paths.iter().any(|p| p == "file-0.txt"));

@@ -60,10 +60,16 @@ fn validate_filter(options: &WalkOptions) -> Result<(), AppError> {
         ));
     }
     for path in &filter.paths {
+        // `Component::Prefix` exists on Windows only, so `C:/x` is an ordinary relative path
+        // to a Unix build: the drive letter is refused by hand, as the staging paths refuse it.
+        let drive_relative = path.len() >= 2
+            && path.as_bytes()[1] == b':'
+            && path.as_bytes()[0].is_ascii_alphabetic();
         let escapes = path.is_empty()
             || path.starts_with('/')
             || path.starts_with('\\')
             || path.starts_with('-')
+            || drive_relative
             || std::path::Path::new(path).components().any(|c| {
                 matches!(
                     c,

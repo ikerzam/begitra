@@ -61,15 +61,13 @@ fn a_linked_worktree_names_its_repository() {
     let wt = f.worktree_path();
     let summary = describe(&wt, &Cancel::never()).expect("summary");
     assert!(summary.is_linked_worktree);
+    // Canonical on both sides: git reports the long path, while the fixture's temporary
+    // folder can be the 8.3 short form (`C:\Users\RUNNER~1\…` on the CI runner).
     assert_eq!(
-        summary.main_root.as_deref().map(normalise),
-        Some(normalise(&f.root))
+        summary.main_root.as_deref().map(support::canonical),
+        Some(support::canonical(&f.root))
     );
     assert_eq!(summary.current_branch.as_deref(), Some("feature/wt"));
-}
-
-fn normalise(path: &Path) -> std::path::PathBuf {
-    path.components().collect()
 }
 
 #[test]
