@@ -1,9 +1,19 @@
 name: CI
 
+# The checks of every push and pull request, and the gate of a release (`release.yml` calls
+# this workflow and waits for it). The frontend runs once on Ubuntu: it is jsdom with the
+# platform faked, so a second and a third run buy nothing and cost the most expensive
+# minutes. The engine spawns git and touches the filesystem, so it runs on the three.
+
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_call:
+
+# Nothing here writes; the release workflow that calls it grants the write to its own job.
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -14,21 +24,11 @@ env:
   CARGO_MANIFEST: src-tauri/Cargo.toml
 
 jobs:
-  check:
-    name: ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+  web:
+    name: web (ubuntu-latest)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Install the Linux packages Tauri needs (webkit2gtk and friends)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 
@@ -36,16 +36,6 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable, 2026-09
-        with:
-          # Pinned to a commit, the action no longer reads the toolchain from its ref.
-          toolchain: stable
-          components: clippy, rustfmt
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-        with:
-          workspaces: src-tauri
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
@@ -64,6 +54,37 @@ jobs:
 
       - name: Frontend build (Vite)
         run: pnpm build
+
+      - name: The Tailwind theme is generated from the tokens
+        run: |
+          node scripts/generate-tailwind-theme.mjs
+          git diff --exit-code -- src/styles/tailwind-theme.css
+
+  rust:
+    name: rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install the Linux packages Tauri needs (webkit2gtk and friends)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable, 2026-09
+        with:
+          # Pinned to a commit, the action no longer reads the toolchain from its ref.
+          toolchain: stable
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: src-tauri
 
       - name: Rust format check
         run: cargo fmt --all --manifest-path ${{ env.CARGO_MANIFEST }} --check

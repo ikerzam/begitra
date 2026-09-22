@@ -1,34 +1,45 @@
 name: Release
 
-# A tag `v*` builds the packages on the three platforms, signs the updater artifacts with the
-# repository's secrets and uploads everything, with `latest.json`, to a draft release. See
-# below for the keys and the steps.
+# A tag `v*` runs the repository's checks, then builds the packages on the three platforms,
+# signs the updater artifacts with the repository's secrets and uploads everything, with
+# `latest.json`, to a draft release. Started by hand it builds the same bundles and keeps
+# them as artifacts of the run, releasing nothing: the way to exercise the packaging before
+# a tag exists.
 
 on:
   push:
     tags: ["v*"]
-
-permissions:
-  contents: write
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+
   build:
-    name: ${{ matrix.os }} ${{ matrix.args }}
+    name: ${{ matrix.label }}
+    needs: checks
+    # Only this job writes: it creates the draft release and uploads the bundles.
+    permissions:
+      contents: write
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
+            label: linux
             args: ""
           - os: windows-latest
+            label: windows
             args: ""
           - os: macos-latest
+            label: macos-arm64
             args: "--target aarch64-apple-darwin"
           - os: macos-latest
+            label: macos-x64
             args: "--target x86_64-apple-darwin"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -59,6 +70,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Refuse to release with the updater's placeholder key
+        if: github.event_name == 'push'
         shell: bash
         run: |
           if grep -q "REPLACE_WITH" src-tauri/tauri.conf.json; then
@@ -74,8 +86,9 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Begira ${{ github.ref_name }}"
+          # No tag name on a manual run: the action builds and releases nothing.
+          tagName: ${{ github.event_name == 'push' && github.ref_name || '' }}
+          releaseName: ${{ github.event_name == 'push' && format('Begira {0}', github.ref_name) || '' }}
           releaseBody: "See the assets for the installers. The updater reads latest.json."
           releaseDraft: true
           prerelease: false
@@ -84,3 +97,16 @@ jobs:
           projectPath: .
           tauriScript: pnpm tauri
           args: ${{ matrix.args }}
+
+      # The bundle folder of both layouts: `target/release/bundle` without a target triple,
+      # `target/<triple>/release/bundle` with one (the two macOS builds).
+      - name: Keep the bundles of a manual build
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: bundles-${{ matrix.label }}
+          path: |
+            src-tauri/target/release/bundle/**/*
+            src-tauri/target/*/release/bundle/**/*
+          if-no-files-found: error
+          retention-days: 7
