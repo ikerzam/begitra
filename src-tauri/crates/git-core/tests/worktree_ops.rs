@@ -41,7 +41,16 @@ fn porcelain(f: &Fixture) -> Vec<(String, String, Option<String>)> {
 }
 
 fn same_path(a: &Path, b: &Path) -> bool {
-    let canonical = |p: &Path| fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    // A pruned worktree's folder is gone, so only its parent can be canonicalised;
+    // without that, the runner's short 8.3 temporary path and git's long form differ.
+    let canonical = |p: &Path| {
+        fs::canonicalize(p).unwrap_or_else(|_| match (p.parent(), p.file_name()) {
+            (Some(parent), Some(name)) => fs::canonicalize(parent)
+                .map(|base| base.join(name))
+                .unwrap_or_else(|_| p.to_path_buf()),
+            _ => p.to_path_buf(),
+        })
+    };
     canonical(a) == canonical(b)
 }
 
@@ -187,7 +196,14 @@ fn a_failing_post_checkout_hook_fails_the_add_but_keeps_the_worktree() {
     let f = Fixture::basic();
     let hooks = f.git_dir().join("hooks");
     fs::create_dir_all(&hooks).expect("hooks dir");
-    fs::write(hooks.join("post-checkout"), "#!/bin/sh\nexit 3\n").expect("hook");
+    let hook = hooks.join("post-checkout");
+    fs::write(&hook, "#!/bin/sh\nexit 3\n").expect("hook");
+    // Without the executable bit git skips the hook on Unix and the add succeeds.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).expect("hook is runnable");
+    }
     let engine = engine(&f);
     let path = f.sibling("wt-hooked");
     let failed = engine

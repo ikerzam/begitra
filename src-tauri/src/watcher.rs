@@ -30,6 +30,32 @@ pub struct WatchBases {
     /// The shared git directory (refs, packed-refs, objects); equals `gitdir` for a main
     /// repository.
     pub commondir: PathBuf,
+    /// The three above with their symlinks resolved, because the platform watcher reports
+    /// the real path of a change (`/private/var/…` for a folder opened as `/var/…` on
+    /// macOS) while the app keeps the path the user opened, which is what it reports back.
+    /// A path that cannot be resolved (it is gone, or the platform does not do this) keeps
+    /// its given form, and the given form is always tried first.
+    real: Real,
+}
+
+/// The bases as the platform names them; see [`WatchBases::real`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Real {
+    root: PathBuf,
+    gitdir: PathBuf,
+    commondir: PathBuf,
+}
+
+impl Real {
+    fn of(root: &Path, gitdir: &Path, commondir: &Path) -> Self {
+        let resolve =
+            |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        Self {
+            root: resolve(root),
+            gitdir: resolve(gitdir),
+            commondir: resolve(commondir),
+        }
+    }
 }
 
 /// The watch bases of an open engine.
@@ -41,23 +67,26 @@ pub trait WatchBasesExt {
 impl WatchBasesExt for git_core::git2_engine::Git2Engine {
     fn watch_bases(&self) -> WatchBases {
         let (gitdir, commondir) = self.git_dirs();
-        WatchBases {
-            root: self.repo().root.clone(),
-            gitdir,
-            commondir,
-        }
+        WatchBases::new(self.repo().root.clone(), gitdir, commondir)
     }
 }
 
 impl WatchBases {
+    /// The bases of a repository, with the real forms resolved once.
+    pub fn new(root: PathBuf, gitdir: PathBuf, commondir: PathBuf) -> Self {
+        let real = Real::of(&root, &gitdir, &commondir);
+        Self {
+            root,
+            gitdir,
+            commondir,
+            real,
+        }
+    }
+
     /// Bases of a main repository at `root`.
     pub fn main(root: &Path) -> Self {
         let gitdir = root.join(".git");
-        Self {
-            root: root.to_path_buf(),
-            commondir: gitdir.clone(),
-            gitdir,
-        }
+        Self::new(root.to_path_buf(), gitdir.clone(), gitdir)
     }
 
     fn is_linked(&self) -> bool {
@@ -275,10 +304,13 @@ const NOISY: [&str; 6] = [
 /// (objects, hooks) are ignored. Under the working tree: a repository-relative path, except
 /// noisy folders and lock files.
 fn classify(bases: &WatchBases, path: &Path) -> Option<Classified> {
-    if let Some(inside) = strip(path, &bases.gitdir).or_else(|| strip(path, &bases.commondir)) {
+    let under = |base: &Path, real: &Path| strip(path, base).or_else(|| strip(path, real));
+    if let Some(inside) = under(&bases.gitdir, &bases.real.gitdir)
+        .or_else(|| under(&bases.commondir, &bases.real.commondir))
+    {
         return classify_git(&inside);
     }
-    let inside = strip(path, &bases.root)?;
+    let inside = under(&bases.root, &bases.real.root)?;
     if inside.first().is_some_and(|first| first == ".git") {
         return classify_git(&inside[1..]);
     }
@@ -369,11 +401,11 @@ mod tests {
 
     #[test]
     fn a_linked_worktree_reads_its_own_gitdir_and_the_shared_refs() {
-        let bases = WatchBases {
-            root: PathBuf::from("/wt/feature"),
-            gitdir: PathBuf::from("/main/.git/worktrees/feature"),
-            commondir: PathBuf::from("/main/.git"),
-        };
+        let bases = WatchBases::new(
+            PathBuf::from("/wt/feature"),
+            PathBuf::from("/main/.git/worktrees/feature"),
+            PathBuf::from("/main/.git"),
+        );
         let mut batch = Batch::default();
         batch.add(&bases, Path::new("/main/.git/worktrees/feature/HEAD"));
         batch.add(&bases, Path::new("/main/.git/worktrees/feature/index"));
