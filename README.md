@@ -29,7 +29,13 @@ standard Git repositories. It is built with Tauri 2, Rust (`git2`, `rusqlite`) a
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on every push to `main` and on every pull request, in two jobs:
+`.github/workflows/ci.yml` runs when you start it (Actions › CI › "Run workflow") and when
+`release.yml` calls it on a tag — never by itself. A private repository is billed 1× for
+Linux, 2× for Windows and 10× for macOS, so one three-platform run costs about 90 of the
+2,000 included minutes a month: on every push it spent 1,776 of them in three weeks, for
+checks the `pre-push` hook had already run on your machine. What it adds is the other two
+platforms, which is worth a button before a release or after a change that touches paths,
+processes or the filesystem. It has two jobs:
 
 1. **web** (Ubuntu): `pnpm lint`, `pnpm format:check`, `pnpm typecheck`, `pnpm test:run`,
    `pnpm build`, and the Tailwind theme regenerated from `design/tokens.json` with no diff. The
@@ -48,9 +54,10 @@ change.
 Two more workflows: `release.yml` builds the installers on a `v*` tag (running the checks above
 first) or, started by hand from the Actions tab, builds them without releasing and keeps them as
 artifacts of the run; `audit.yml` checks the
-production npm dependencies and `src-tauri/Cargo.lock` against their advisories every Monday, on
-demand and whenever a lockfile changes. Dependabot opens the weekly dependency updates, including
-the actions themselves, which are pinned by commit.
+production npm dependencies and `src-tauri/Cargo.lock` against their advisories every Monday and
+on demand (one Ubuntu job of about a minute). Dependabot opens the monthly dependency updates,
+including the actions themselves, which are pinned by commit; its pull requests run no checks
+unless you start one.
 
 ## Git workflow
 

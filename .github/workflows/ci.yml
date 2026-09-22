@@ -1,14 +1,17 @@
 name: CI
 
-# The checks of every push and pull request, and the gate of a release (`release.yml` calls
-# this workflow and waits for it). The frontend runs once on Ubuntu: it is jsdom with the
-# platform faked, so a second and a third run buy nothing and cost the most expensive
-# minutes. The engine spawns git and touches the filesystem, so it runs on the three.
+# The checks, run on demand and before a release; nothing here starts by itself.
+#
+# A private repository is billed 1x for Linux, 2x for Windows and 10x for macOS, so the
+# three-platform matrix costs about 90 minutes of the 2,000 included ones per run: running
+# it on every push spent 1,776 of them in three weeks (2026-09-22), for checks the lefthook
+# pre-push hook had already run on this machine. What CI adds is the other two platforms,
+# which is worth having before a release and when a change touches paths, processes or the
+# filesystem — so it is a button now: Actions -> CI -> "Run workflow", and `release.yml`
+# calls it on a tag.
 
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
   workflow_call:
 
 # Nothing here writes; the release workflow that calls it grants the write to its own job.
