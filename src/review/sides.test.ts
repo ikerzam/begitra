@@ -43,6 +43,18 @@ describe("fileSides", () => {
     });
   });
 
+  it("leaves the index out for a conflicted path, which has no staged version", () => {
+    const conflicted = changedFile("assets/logo.png", { status: "unmerged" });
+    expect(sides({ kind: "worktree" }, conflicted)).toEqual({
+      old: null,
+      new: { kind: "working-tree" },
+    });
+    expect(sides({ kind: "index" }, conflicted)).toEqual({
+      old: { kind: "revision", rev: "HEAD" },
+      new: null,
+    });
+  });
+
   it("has no old side for an added file and no new side for a deleted one", () => {
     const added = changedFile("src/new.ts", { status: "added" });
     const deleted = changedFile("src/gone.ts", { status: "deleted" });

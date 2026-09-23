@@ -42,6 +42,11 @@ export function fileSides(target: ReviewTarget, file: FileChange): FileSides {
       current = worktree;
       break;
   }
+  // A conflicted path has no staged version: the index is no side of it.
+  if (file.status === "unmerged") {
+    if (old?.kind === "index") old = null;
+    if (current?.kind === "index") current = null;
+  }
   if (file.status === "added") old = null;
   if (file.status === "deleted") current = null;
   return {
