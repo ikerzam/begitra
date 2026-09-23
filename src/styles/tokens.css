@@ -42,6 +42,12 @@
   --diff-del-bg: #f851492e;
   --diff-del-fg: #f85149;
   --diff-del-emphasis: #f8514966;
+  --syntax-keyword: #d2a8ff;
+  --syntax-function: #79c0ff;
+  --syntax-type: #56d4dd;
+  --syntax-string: #e6c07b;
+  --syntax-number: #ffa657;
+  --syntax-comment: #9198a1;
   --warn: #d29922;
   --danger: #f85149;
   --ok: #3fb950;
@@ -134,6 +140,12 @@
 
   --diff-add-fg: #1a7f37;
   --diff-del-fg: #cf222e;
+  --syntax-keyword: #6639ba;
+  --syntax-function: #0550ae;
+  --syntax-type: #0a5a69;
+  --syntax-string: #7d4e00;
+  --syntax-number: #953800;
+  --syntax-comment: #525a65;
   --warn: #9a6700;
   --danger: #cf222e;
   --ok: #1a7f37;

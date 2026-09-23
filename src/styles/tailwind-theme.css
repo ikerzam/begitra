@@ -28,6 +28,12 @@
   --color-del-bg: var(--diff-del-bg);
   --color-del: var(--diff-del-fg);
   --color-del-emphasis: var(--diff-del-emphasis);
+  --color-syntax-keyword: var(--syntax-keyword);
+  --color-syntax-function: var(--syntax-function);
+  --color-syntax-type: var(--syntax-type);
+  --color-syntax-string: var(--syntax-string);
+  --color-syntax-number: var(--syntax-number);
+  --color-syntax-comment: var(--syntax-comment);
   --color-warn: var(--warn);
   --color-danger: var(--danger);
   --color-ok: var(--ok);
