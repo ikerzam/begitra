@@ -41,11 +41,11 @@ const review = entry("review-2.4", {
   pinned: true,
   summary: { ...geoportal.summary, currentBranch: "release/2.4" },
 });
-const begira = entry("begira", { lastOpenedAt: 10 });
-const begiraWt = entry("begira-wt", {
-  path: "/wt/begira-wt",
+const begitra = entry("begitra", { lastOpenedAt: 10 });
+const begitraWt = entry("begitra-wt", {
+  path: "/wt/begitra-wt",
   kind: "worktree",
-  parentPath: "/code/begira",
+  parentPath: "/code/begitra",
   summary: { ...geoportal.summary, currentBranch: "develop" },
 });
 const tiles = entry("tiles-spike");
@@ -57,12 +57,12 @@ const orphan = entry("orphan", {
   summary: { ...geoportal.summary, currentBranch: null, detached: true },
 });
 
-const worktrees = [claudeAuth, review, begiraWt, orphan];
+const worktrees = [claudeAuth, review, begitraWt, orphan];
 
 function source(all: IndexEntry[]) {
   return {
     pinned: [geoportal, orphan, review],
-    recent: [begira],
+    recent: [begitra],
     all,
     worktreesOf: (path: string) =>
       worktrees.filter((w) => w.parentPath === path).sort((a, b) => a.name.localeCompare(b.name)),
@@ -71,7 +71,7 @@ function source(all: IndexEntry[]) {
 
 describe("tableSections", () => {
   it("nests worktrees under their repository, lists every entry once and counts the mains of All", () => {
-    const sections = tableSections(source([begira, geoportal, tiles]));
+    const sections = tableSections(source([begitra, geoportal, tiles]));
     expect(sections.map((s) => s.id)).toEqual(["pinned", "recent", "all"]);
     const [pinned, recent, all] = sections;
     expect(pinned?.rows.map((r) => [r.entry.name, r.nested])).toEqual([
@@ -81,8 +81,8 @@ describe("tableSections", () => {
       ["orphan", false],
     ]);
     expect(recent?.rows.map((r) => [r.entry.name, r.nested])).toEqual([
-      ["begira", false],
-      ["begira-wt", true],
+      ["begitra", false],
+      ["begitra-wt", true],
     ]);
     expect(all?.rows.map((r) => r.entry.name)).toEqual(["tiles-spike"]);
     expect(all?.count).toBe(1);
@@ -105,7 +105,7 @@ describe("tableSections", () => {
 
 describe("branchLanes", () => {
   it("gives every branch name one lane by first appearance and none to detached entries", () => {
-    const rows = tableSections(source([begira, geoportal, tiles])).flatMap((s) => s.rows);
+    const rows = tableSections(source([begitra, geoportal, tiles])).flatMap((s) => s.rows);
     const lanes = branchLanes(rows);
     expect(lanes.get("main")).toBe(1);
     expect(lanes.get("claude/fix-auth")).toBe(2);

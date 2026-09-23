@@ -7,17 +7,17 @@ use crate::Error;
 /// Clone URL of the large real repository.
 pub const REAL_URL: &str = "https://github.com/torvalds/linux.git";
 
-/// The folder holding every benchmark repository: `BEGIRA_BENCH_REPOS` when set, otherwise
-/// `begira-bench-repos` beside the repository root. Outside the project on purpose: inside
+/// The folder holding every benchmark repository: `BEGITRA_BENCH_REPOS` when set, otherwise
+/// `begitra-bench-repos` beside the repository root. Outside the project on purpose: inside
 /// it, the dev server's dependency scanner and Tailwind's class scanner walked the kernel
 /// clone and the synthetic tree (millions of files) at every start and the window stayed
 /// blank for a minute.
 pub fn repos_dir() -> PathBuf {
-    if let Some(dir) = std::env::var_os("BEGIRA_BENCH_REPOS") {
+    if let Some(dir) = std::env::var_os("BEGITRA_BENCH_REPOS") {
         return PathBuf::from(dir);
     }
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../begira-bench-repos")
+        .join("../../../../begitra-bench-repos")
         .components()
         .collect()
 }
@@ -52,7 +52,7 @@ pub fn is_repository(path: &Path) -> bool {
 
 /// Branch with one commit on top of HEAD that rewrites a large text file, created on demand
 /// by [`ensure_large_file_branch`] for the large-file diff benchmark. The benchmark
-/// repositories are the project's own fixtures (`begira-bench-repos` beside the repository, or `BEGIRA_BENCH_REPOS`), so
+/// repositories are the project's own fixtures (`begitra-bench-repos` beside the repository, or `BEGITRA_BENCH_REPOS`), so
 /// the bench may add a ref to them; nothing points it at a user repository.
 pub const LARGE_FILE_BRANCH: &str = "bench/large-file";
 
@@ -123,10 +123,10 @@ pub fn ensure_large_file_branch(
     let tree = git(path, &["write-tree"], &index_env)?;
     let identity = [
         ("GIT_AUTHOR_NAME", "bench".to_owned()),
-        ("GIT_AUTHOR_EMAIL", "bench@begira.local".to_owned()),
+        ("GIT_AUTHOR_EMAIL", "bench@begitra.local".to_owned()),
         ("GIT_AUTHOR_DATE", "2026-01-01T00:00:00Z".to_owned()),
         ("GIT_COMMITTER_NAME", "bench".to_owned()),
-        ("GIT_COMMITTER_EMAIL", "bench@begira.local".to_owned()),
+        ("GIT_COMMITTER_EMAIL", "bench@begitra.local".to_owned()),
         ("GIT_COMMITTER_DATE", "2026-01-01T00:00:00Z".to_owned()),
     ];
     let message = format!("bench: rewrite every third line of {file}");
@@ -144,7 +144,7 @@ struct TempDir(PathBuf);
 
 impl TempDir {
     fn new() -> Result<Self, Error> {
-        let path = std::env::temp_dir().join(format!("begira-bench-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("begitra-bench-{}", std::process::id()));
         std::fs::create_dir_all(&path).map_err(|source| Error::Io {
             context: format!("create {}", path.display()),
             source,

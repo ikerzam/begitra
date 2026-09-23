@@ -86,8 +86,8 @@ describe("settings store", () => {
     const store = useSettingsStore();
     const storage = memoryStorage();
     await store.init(storage, "windows");
-    await persisted(store.update("lastRepository", "C:\code\begira"));
-    expect(storage.data.get("lastRepository")).toBe("C:\code\begira");
+    await persisted(store.update("lastRepository", "C:\code\begitra"));
+    expect(storage.data.get("lastRepository")).toBe("C:\code\begitra");
     await persisted(store.update("lastRepository", null));
     expect(storage.data.get("lastRepository")).toBeNull();
   });

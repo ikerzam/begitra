@@ -1,7 +1,7 @@
 //! Writes one JSON fixture per IPC type into `src/ipc/fixtures/`, where the Vitest contract
 //! test (`src/ipc/contract.test.ts`) validates each one against the frontend schema.
 //!
-//! `cargo test -p begira` regenerates the files; commit them. CI fails when they differ from
+//! `cargo test -p begitra` regenerates the files; commit them. CI fails when they differ from
 //! the committed ones, so a Rust type cannot change without the frontend noticing.
 
 use std::fs;
@@ -97,8 +97,8 @@ fn commit(n: u8, parents: &[u8], lane: u32) -> CommitNode {
 
 fn repo() -> Repo {
     Repo {
-        root: PathBuf::from("/home/iker/code/begira"),
-        common_dir: PathBuf::from("/home/iker/code/begira/.git"),
+        root: PathBuf::from("/home/iker/code/begitra"),
+        common_dir: PathBuf::from("/home/iker/code/begitra/.git"),
         current_branch: Some("main".to_owned()),
         detached: false,
         is_linked_worktree: false,
@@ -115,7 +115,7 @@ fn refs() -> Vec<Ref> {
         upstream: Some("origin/main".to_owned()),
         ahead: Some(2),
         behind: Some(3),
-        worktree: Some(PathBuf::from("/home/iker/code/begira")),
+        worktree: Some(PathBuf::from("/home/iker/code/begitra")),
         message: None,
     };
     vec![
@@ -339,7 +339,7 @@ fn change_set() -> ChangeSet {
 fn worktrees() -> Vec<Worktree> {
     vec![
         Worktree {
-            path: PathBuf::from("/home/iker/code/begira"),
+            path: PathBuf::from("/home/iker/code/begitra"),
             name: None,
             head: Some(hash(1)),
             branch: Some("main".to_owned()),
@@ -834,7 +834,7 @@ fn write_fixtures() {
     write(
         "repo-changed",
         &RepoChanged {
-            repo: PathBuf::from("/home/iker/code/begira"),
+            repo: PathBuf::from("/home/iker/code/begitra"),
             kinds: vec![RepoChangeKind::Refs, RepoChangeKind::Status],
             paths: vec!["src/main.rs".to_owned()],
         },
@@ -846,7 +846,7 @@ fn write_fixtures() {
             // A POSIX path: `Path::parent` splits on `\` only on Windows, so a Windows path
             // here would make the fixture different on every other platform.
             app_info_from(Some(PathBuf::from(
-                "/home/iker/.local/share/dev.begira.app/logs/begira-2026-09-22.log",
+                "/home/iker/.local/share/dev.begitra.app/logs/begitra-2026-09-22.log",
             ))),
             app_info_from(None),
         ],

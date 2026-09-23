@@ -1,4 +1,4 @@
-//! Headless Git engine for Begira.
+//! Headless Git engine for Begitra.
 //!
 //! Everything the UI can do with a repository goes through the [`engine::GitEngine`] trait so
 //! that a CLI or an agent can drive the same operations. The crate has no Tauri dependency,

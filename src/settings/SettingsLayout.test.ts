@@ -58,7 +58,7 @@ describe("SettingsLayout", () => {
       "Shortcuts",
     ]);
     expect(wrapper.get('[data-testid="scan-folders-empty"]').text()).toBe(
-      "No folders yet. Begira scans these for repositories and worktrees.",
+      "No folders yet. Begitra scans these for repositories and worktrees.",
     );
     expect(input(wrapper, "skip-folders").element.value).toBe(defaultSkipFolders.join(", "));
     expect(input(wrapper, "max-depth").element.value).toBe("6");
@@ -139,7 +139,7 @@ describe("SettingsLayout", () => {
     await nextTick();
     expect(field.attributes("aria-invalid")).toBe("true");
     expect(wrapper.text()).toContain(
-      "Not a git executable. Begira needs git 2.30 or newer; the path above does not run.",
+      "Not a git executable. Begitra needs git 2.30 or newer; the path above does not run.",
     );
     expect(useSettingsScreenStore().gitState).toBe("error");
   });
@@ -245,16 +245,16 @@ describe("SettingsLayout", () => {
     const wrapper = mountWithI18n(SettingsLayout, { attachTo: document.body });
     await flushPromises();
     await nextTick();
-    expect(wrapper.get('[data-testid="about-version"]').text()).toBe("Begira 0.1.0");
+    expect(wrapper.get('[data-testid="about-version"]').text()).toBe("Begitra 0.1.0");
     expect(wrapper.get('[data-testid="about-log-file"]').text()).toBe(
-      "/home/iker/.local/share/dev.begira.app/logs/begira-2026-09-22.log",
+      "/home/iker/.local/share/dev.begitra.app/logs/begitra-2026-09-22.log",
     );
     await wrapper.get('[data-testid="about-open-logs"]').trigger("click");
     await flushPromises();
     const opened = calls.find((call) => call.cmd === "open_external");
     expect(opened?.args).toEqual({
       templates: ["explorer {path}"],
-      path: "/home/iker/.local/share/dev.begira.app/logs",
+      path: "/home/iker/.local/share/dev.begitra.app/logs",
     });
   });
 
@@ -282,7 +282,7 @@ describe("SettingsLayout", () => {
     expect(wrapper.get('[data-testid="update-status"]').text()).toBe("Checking…");
     resolveCheck(null);
     await flushPromises();
-    expect(wrapper.get('[data-testid="update-status"]').text()).toBe("Begira is up to date.");
+    expect(wrapper.get('[data-testid="update-status"]').text()).toBe("Begitra is up to date.");
     expect(document.activeElement).toBe(control.element);
     updaterPlugin.check.mockResolvedValueOnce({
       version: "0.2.0",

@@ -1,6 +1,6 @@
 [package]
 name = "bench"
-description = "Benchmark repositories (synthetic generator, real repository fetch) and criterion benches for Begira"
+description = "Benchmark repositories (synthetic generator, real repository fetch) and criterion benches for Begitra"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

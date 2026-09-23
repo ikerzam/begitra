@@ -279,7 +279,7 @@ pub(crate) fn abort(child: Child) {
     let slot = Arc::new(Mutex::new(Some(child)));
     let worker = Arc::clone(&slot);
     let spawned = thread::Builder::new()
-        .name("begira-git-abort".to_owned())
+        .name("begitra-git-abort".to_owned())
         .spawn(move || {
             if let Some(child) = take_child(&worker) {
                 stop_tree(child);
@@ -515,7 +515,7 @@ fn read_pipe_lines<R: Read + Send + 'static>(
     lines: mpsc::Sender<String>,
 ) -> std::io::Result<Piped> {
     thread::Builder::new()
-        .name(format!("begira-git-{name}"))
+        .name(format!("begitra-git-{name}"))
         .spawn(move || {
             let Some(mut pipe) = pipe else {
                 return Ok(Vec::new());
@@ -635,7 +635,7 @@ fn run_polled_streaming(
 
 fn read_pipe<R: Read + Send + 'static>(name: &str, pipe: Option<R>) -> std::io::Result<Piped> {
     thread::Builder::new()
-        .name(format!("begira-git-{name}"))
+        .name(format!("begitra-git-{name}"))
         .spawn(move || {
             let mut bytes = Vec::new();
             if let Some(mut pipe) = pipe {
@@ -680,7 +680,7 @@ fn run_polled(
         // The writer ends when the bytes are written or the child stops reading (a broken
         // pipe is not an error of the run: git's status and stderr say what happened).
         let writer = thread::Builder::new()
-            .name("begira-git-in".to_owned())
+            .name("begitra-git-in".to_owned())
             .spawn(move || {
                 use std::io::Write;
                 let _ = stdin.write_all(&bytes);
@@ -986,8 +986,8 @@ mod tests {
     #[test]
     fn credentials_are_hidden_from_spans_and_commands() {
         assert_eq!(
-            redact("https://iker:ghp_secret@github.com/ikerzam/begira.git"),
-            "https://***@github.com/ikerzam/begira.git"
+            redact("https://iker:ghp_secret@github.com/ikerzam/begitra.git"),
+            "https://***@github.com/ikerzam/begitra.git"
         );
         assert_eq!(
             redact("https://github.com/x.git"),

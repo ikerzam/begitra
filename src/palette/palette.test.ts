@@ -345,7 +345,7 @@ describe("usePalette", () => {
     });
     const { palette, onClose } = setup({}, [
       repo("geoportal", true),
-      repo("begira", false),
+      repo("begitra", false),
       repo("geoportal-infra", false),
     ]);
     const repoRows = () => palette.rows.value.filter((r) => r.section === "repos");
@@ -355,11 +355,11 @@ describe("usePalette", () => {
     palette.query.value = "geo";
     expect(repoRows().map((r) => r.label)).toEqual(["geoportal", "geoportal-infra"]);
     palette.query.value = "code/beg";
-    expect(repoRows().map((r) => r.label)).toEqual(["begira"]);
+    expect(repoRows().map((r) => r.label)).toEqual(["begitra"]);
     expect(palette.rows.value.every((r) => r.section === "repos")).toBe(true);
     palette.onKeydown(key("Enter"));
     await Promise.resolve();
-    expect(opened).toEqual(["begira"]);
+    expect(opened).toEqual(["begitra"]);
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(palette.recents.value).toEqual([]);
     expect(palette.rows.value.filter((r) => r.section === "recent")).toEqual([]);

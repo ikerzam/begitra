@@ -199,14 +199,14 @@ mod tests {
     fn a_missing_executable_maps_to_spawn_failed_with_the_argv_in_detail() {
         let cwd = std::env::temp_dir();
         let templates = vec![
-            "begira-no-such-terminal-1 {path}".to_owned(),
-            "begira-no-such-terminal-2 --cwd {path}".to_owned(),
+            "begitra-no-such-terminal-1 {path}".to_owned(),
+            "begitra-no-such-terminal-2 --cwd {path}".to_owned(),
         ];
         let error = open_with(&templates, &cwd).expect_err("must fail");
         assert_eq!(error.code, codes::EXTERNAL_SPAWN_FAILED);
         let detail = error.detail.expect("detail");
-        assert!(detail.contains("begira-no-such-terminal-1"));
-        assert!(detail.contains("begira-no-such-terminal-2 --cwd"));
+        assert!(detail.contains("begitra-no-such-terminal-1"));
+        assert!(detail.contains("begitra-no-such-terminal-2 --cwd"));
     }
 
     #[test]
@@ -216,7 +216,7 @@ mod tests {
         let ok = "cmd /C exit 0";
         #[cfg(not(windows))]
         let ok = "true";
-        let templates = vec!["begira-no-such-terminal {path}".to_owned(), ok.to_owned()];
+        let templates = vec!["begitra-no-such-terminal {path}".to_owned(), ok.to_owned()];
         let argv = open_with(&templates, &cwd).expect("second template spawns");
         assert_eq!(argv[0], ok.split(' ').next().expect("program"));
     }

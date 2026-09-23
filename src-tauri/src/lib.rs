@@ -1,4 +1,4 @@
-//! Begira desktop application: the Tauri layer that exposes `git-core` to the Vue frontend
+//! Begitra desktop application: the Tauri layer that exposes `git-core` to the Vue frontend
 //! through typed commands, streamed Channels, cancellable operations and one `AppError`.
 
 pub mod channels;
@@ -180,7 +180,7 @@ pub fn run() {
         .run(tauri::generate_context!());
 
     if let Err(error) = result {
-        eprintln!("begira: failed to start the application runtime: {error}");
+        eprintln!("begitra: failed to start the application runtime: {error}");
         std::process::exit(1);
     }
 }

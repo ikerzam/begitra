@@ -51,10 +51,10 @@ const FAN_OUT: u32 = 10;
 const SKIP_EVERY: u32 = 97;
 
 /// Builds the tree at `config.out`. An existing tree is kept unless `force` is set; the
-/// marker file `.begira-bench-tree` guards against deleting a folder the bench did not make.
+/// marker file `.begitra-bench-tree` guards against deleting a folder the bench did not make.
 pub fn run(config: &Config) -> Result<Summary> {
     let out = &config.out;
-    let marker = out.join(".begira-bench-tree");
+    let marker = out.join(".begitra-bench-tree");
     if out.exists() {
         if !config.force {
             return Err(Error::Usage(format!(
@@ -135,7 +135,7 @@ fn init_repo(path: &Path) -> Result<()> {
     let repo = Repository::init(path)?;
     let signature = Signature::new(
         "bench",
-        "bench@begira.local",
+        "bench@begitra.local",
         &git2::Time::new(1_700_000_000, 0),
     )?;
     let tree_id = repo.index()?.write_tree()?;

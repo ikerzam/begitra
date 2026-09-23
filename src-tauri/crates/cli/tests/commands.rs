@@ -1,10 +1,10 @@
-//! `begira-cli` against a fixture repository: every command's JSON equals what the engine
+//! `begitra-cli` against a fixture repository: every command's JSON equals what the engine
 //! answers for the same operation, and the streams end with their done line.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use begira_cli::main_with;
+use begitra_cli::main_with;
 use git_core::engine::{Cancel, GitEngine};
 use git_core::git2_engine::Git2Engine;
 use git_core::types::{BlobAt, DiffOptions, DiffTarget, StatusOptions, WalkScope, WorkingTreeBase};
@@ -22,7 +22,7 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let dir = tempfile::Builder::new()
-            .prefix("begira-cli-")
+            .prefix("begitra-cli-")
             .tempdir()
             .expect("temp dir");
         let root = dir.path().join("repo");

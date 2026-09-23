@@ -264,8 +264,8 @@ mod tests {
     #[test]
     fn urls_are_bounded_and_never_options() {
         for good in [
-            "https://github.com/ikerzam/begira",
-            "git@github.com:ikerzam/begira.git",
+            "https://github.com/ikerzam/begitra",
+            "git@github.com:ikerzam/begitra.git",
             "C:\\repos\\bare.git",
             "../bare.git",
         ] {

@@ -1,4 +1,4 @@
-//! SQLite-backed index for Begira: discovered repositories and worktrees, review state and
+//! SQLite-backed index for Begitra: discovered repositories and worktrees, review state and
 //! caches, plus the scanner that finds repositories under the configured folders.
 //!
 //! The crate knows nothing of git objects: the scanner only looks for `.git` entries on disk,

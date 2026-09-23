@@ -1,7 +1,7 @@
 // Valibot schemas mirroring the Rust types that cross the IPC boundary (git-core `types.rs`,
 // the app's `error.rs`, `channels.rs`, `events.rs` and the command payloads). Every result is
 // validated with these at the boundary, and the contract test checks them against the JSON
-// fixtures that `cargo test -p begira` writes into `src/ipc/fixtures/`.
+// fixtures that `cargo test -p begitra` writes into `src/ipc/fixtures/`.
 
 import * as v from "valibot";
 

@@ -154,7 +154,7 @@ fn start_worker(gitdir: &std::path::Path) -> GitResult<Sender<Job>> {
     let (jobs, inbox) = mpsc::channel::<Job>();
     let gitdir = gitdir.to_path_buf();
     thread::Builder::new()
-        .name("begira-diff".to_owned())
+        .name("begitra-diff".to_owned())
         .spawn(move || serve(&gitdir, &inbox))
         .map_err(|error| GitError::Git(format!("could not start the diff thread: {error}")))?;
     Ok(jobs)

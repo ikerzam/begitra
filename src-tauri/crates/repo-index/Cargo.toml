@@ -1,6 +1,6 @@
 [package]
 name = "repo-index"
-description = "Repository discovery index, review-state store and caches for Begira, on SQLite"
+description = "Repository discovery index, review-state store and caches for Begitra, on SQLite"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -114,7 +114,7 @@ pub(super) fn start(
         revisions.push('\n');
     }
     let writer = std::thread::Builder::new()
-        .name("begira-rev-list-in".to_owned())
+        .name("begitra-rev-list-in".to_owned())
         .spawn(move || {
             let mut stdin = stdin;
             // A closed pipe (git exited early) is reported through the exit status.
@@ -122,7 +122,7 @@ pub(super) fn start(
         })
         .map_err(|error| cli_error(format!("could not start the writer thread: {error}")))?;
     let drain = std::thread::Builder::new()
-        .name("begira-rev-list-err".to_owned())
+        .name("begitra-rev-list-err".to_owned())
         .spawn(move || {
             let mut text = Vec::new();
             let _ = stderr.take(STDERR_CAP as u64).read_to_end(&mut text);
@@ -131,7 +131,7 @@ pub(super) fn start(
         .map_err(|error| cli_error(format!("could not start the stderr thread: {error}")))?;
     let (sender, lines) = mpsc::sync_channel::<io::Result<String>>(LINE_BUFFER);
     let reader = std::thread::Builder::new()
-        .name("begira-rev-list".to_owned())
+        .name("begitra-rev-list".to_owned())
         .spawn(move || {
             for line in BufReader::new(stdout).lines() {
                 if sender.send(line).is_err() {

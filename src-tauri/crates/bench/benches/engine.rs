@@ -1,7 +1,7 @@
 //! Criterion benches of the engine operations on the two benchmark repositories.
 //!
 //! Each group runs on every repository that exists under `bench/repos` (or
-//! `BEGIRA_BENCH_REPOS`); a missing repository is skipped with the command that creates it.
+//! `BEGITRA_BENCH_REPOS`); a missing repository is skipped with the command that creates it.
 //! Results are read by `cargo run -p bench -- report` and pasted into a results table.
 
 use std::path::{Path, PathBuf};
@@ -650,7 +650,7 @@ fn worktree_add_remove(c: &mut Criterion) {
     group.sample_size(10);
     for target in present() {
         let engine = engine(&target.path);
-        let folder = std::env::temp_dir().join(format!("begira-bench-wt-{}", target.name));
+        let folder = std::env::temp_dir().join(format!("begitra-bench-wt-{}", target.name));
         let folder_text = folder.to_string_lossy().into_owned();
         // A killed run leaves the entry locked "initializing": unlock and force it away.
         let _ = run_git(&target.path, &["worktree", "unlock", "--", &folder_text]);
@@ -667,13 +667,13 @@ fn worktree_add_remove(c: &mut Criterion) {
         );
         let _ = std::fs::remove_dir_all(&folder);
         let _ = run_git(&target.path, &["worktree", "prune"]);
-        let _ = run_git(&target.path, &["branch", "-D", "begira-bench-wt"]);
+        let _ = run_git(&target.path, &["branch", "-D", "begitra-bench-wt"]);
         group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
             b.iter(|| {
                 let request = WorktreeAdd {
                     path: folder.clone(),
                     branch: WorktreeBranch::New {
-                        name: "begira-bench-wt".to_owned(),
+                        name: "begitra-bench-wt".to_owned(),
                         start: "HEAD".to_owned(),
                     },
                 };
@@ -687,7 +687,7 @@ fn worktree_add_remove(c: &mut Criterion) {
                         .expect("forced remove"),
                     Err(error) => panic!("remove failed: {error}"),
                 }
-                run_git(&target.path, &["branch", "-D", "begira-bench-wt"]).expect("branch");
+                run_git(&target.path, &["branch", "-D", "begitra-bench-wt"]).expect("branch");
             });
         });
         let _ = std::fs::remove_dir_all(&folder);

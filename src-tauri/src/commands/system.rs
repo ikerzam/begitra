@@ -94,7 +94,7 @@ pub fn debug_emit_repo_changed(app: AppHandle, payload: RepoChanged) -> Result<(
 mod tests {
     #[test]
     fn app_info_names_the_folder_of_the_file_and_stays_bare_without_one() {
-        let info = app_info_from(Some(PathBuf::from("/logs/begira-2026-09-22.log")));
+        let info = app_info_from(Some(PathBuf::from("/logs/begitra-2026-09-22.log")));
         assert_eq!(info.version, env!("CARGO_PKG_VERSION"));
         assert_eq!(info.log_dir, Some(PathBuf::from("/logs")));
         let bare = app_info_from(None);

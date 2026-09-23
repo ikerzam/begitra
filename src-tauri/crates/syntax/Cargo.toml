@@ -1,6 +1,6 @@
 [package]
 name = "syntax"
-description = "Token classes and declarations of source files for Begira's diff viewer (syntect, tree-sitter)"
+description = "Token classes and declarations of source files for Begitra's diff viewer (syntect, tree-sitter)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

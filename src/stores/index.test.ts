@@ -60,7 +60,7 @@ function fixture(): IndexEntry[] {
       lastOpenedAt: 1_704_070_000,
       summary: summary({ ahead: 2, dirty: true, lastCommitAt: 1_704_060_000 }),
     }),
-    entry("begira", { lastOpenedAt: 1_704_080_000, summary: summary({ currentBranch: "dev" }) }),
+    entry("begitra", { lastOpenedAt: 1_704_080_000, summary: summary({ currentBranch: "dev" }) }),
     entry("tiles-spike", { summary: summary({ lastCommitAt: 1_704_090_000 }) }),
     worktree("claude-auth", `${CODE}/geoportal`, {
       summary: summary({ currentBranch: "claude/fix-auth", ahead: 5, behind: 1 }),
@@ -219,12 +219,12 @@ describe("index store", () => {
     expect(store.loadError).toBeNull();
     expect(store.entries).toHaveLength(4);
     // Pinned first, then by name.
-    expect(names(store.mains)).toEqual(["geoportal", "begira", "tiles-spike"]);
+    expect(names(store.mains)).toEqual(["geoportal", "begitra", "tiles-spike"]);
     expect(names(store.worktreesOf(`${CODE}/geoportal`))).toEqual(["claude-auth"]);
-    expect(store.worktreesOf(`${CODE}/begira`)).toEqual([]);
+    expect(store.worktreesOf(`${CODE}/begitra`)).toEqual([]);
     expect(names(store.pinned)).toEqual(["geoportal"]);
     // Recent excludes the pinned one and orders by last open, newest first.
-    expect(names(store.recent)).toEqual(["begira"]);
+    expect(names(store.recent)).toEqual(["begitra"]);
     expect(store.counts).toEqual({ repositories: 3, worktrees: 1, folders: 2 });
     expect(store.folderCounts(CODE)).toEqual({ repositories: 3, worktrees: 0 });
     expect(store.folderCounts(WT)).toEqual({ repositories: 0, worktrees: 1 });
@@ -246,17 +246,17 @@ describe("index store", () => {
     const store = useIndexStore();
     await store.load();
     expect(store.sort).toEqual({ column: "name", direction: "asc" });
-    expect(names(store.all)).toEqual(["begira", "geoportal", "tiles-spike"]);
+    expect(names(store.all)).toEqual(["begitra", "geoportal", "tiles-spike"]);
     store.setSort("name");
     expect(store.sort.direction).toBe("desc");
-    expect(names(store.all)).toEqual(["tiles-spike", "geoportal", "begira"]);
+    expect(names(store.all)).toEqual(["tiles-spike", "geoportal", "begitra"]);
     store.setSort("branch");
     expect(store.sort).toEqual({ column: "branch", direction: "asc" });
-    expect(names(store.all)).toEqual(["begira", "geoportal", "tiles-spike"]);
+    expect(names(store.all)).toEqual(["begitra", "geoportal", "tiles-spike"]);
     // Last commit starts with the newest first.
     store.setSort("lastCommit");
     expect(store.sort).toEqual({ column: "lastCommit", direction: "desc" });
-    expect(names(store.all)).toEqual(["tiles-spike", "geoportal", "begira"]);
+    expect(names(store.all)).toEqual(["tiles-spike", "geoportal", "begitra"]);
   });
 
   it("scans the folders: found then updated upsert by path, counts and folder states flow, done stamps the scan", async () => {
@@ -428,18 +428,18 @@ describe("index store", () => {
     const backend = mockBackend();
     const store = useIndexStore();
     await store.load();
-    const pinning = store.pin(`${CODE}/begira`, true);
-    expect(names(store.pinned)).toEqual(["begira", "geoportal"]);
+    const pinning = store.pin(`${CODE}/begitra`, true);
+    expect(names(store.pinned)).toEqual(["begitra", "geoportal"]);
     await pinning;
-    expect(backend.current().find((e) => e.name === "begira")?.pinned).toBe(true);
+    expect(backend.current().find((e) => e.name === "begitra")?.pinned).toBe(true);
     await store.pin(`${CODE}/geoportal`, false);
-    expect(names(store.pinned)).toEqual(["begira"]);
+    expect(names(store.pinned)).toEqual(["begitra"]);
     expect(names(store.recent)).toEqual(["geoportal"]);
 
     clearMocks();
     mockBackend({ pinFails: true });
     await store.pin(`${CODE}/tiles-spike`, true);
-    expect(names(store.pinned)).toEqual(["begira"]);
+    expect(names(store.pinned)).toEqual(["begitra"]);
     expect(useToastsStore().toasts).toHaveLength(1);
     expect(useToastsStore().toasts[0]?.message).toContain("database is locked");
   });
@@ -449,7 +449,7 @@ describe("index store", () => {
     const store = useIndexStore();
     await store.load();
     await store.forget(`${CODE}/geoportal`);
-    expect(names(store.entries)).toEqual(["begira", "tiles-spike"]);
+    expect(names(store.entries)).toEqual(["begitra", "tiles-spike"]);
     expect(calls.find((c) => c.cmd === "forget_repository")?.args).toEqual({
       path: `${CODE}/geoportal`,
     });
@@ -470,7 +470,7 @@ describe("index store", () => {
     expect(store.entries.find((e) => e.name === "tiles-spike")?.lastOpenedAt).toBeGreaterThan(
       1_704_100_000,
     );
-    expect(names(store.recent)).toEqual(["tiles-spike", "begira"]);
+    expect(names(store.recent)).toEqual(["tiles-spike", "begitra"]);
   });
 
   it("open asks for the entry of a folder outside the index and reloads the listing back home", async () => {
@@ -495,9 +495,9 @@ describe("index store", () => {
     const store = useIndexStore();
     const repo = useRepoStore();
     await store.load();
-    await store.open(`${CODE}/begira`);
+    await store.open(`${CODE}/begitra`);
     expect(repo.state.kind).toBe("error");
-    expect(store.entries.find((e) => e.name === "begira")?.missing).toBe(true);
+    expect(store.entries.find((e) => e.name === "begitra")?.missing).toBe(true);
   });
 
   it("restore reopens the last repository and, when it is gone, returns the error and goes home flagged", async () => {
@@ -510,18 +510,18 @@ describe("index store", () => {
 
     clearMocks();
     mockBackend({ openFails: true });
-    const failed = await store.restore(`${CODE}/begira`);
+    const failed = await store.restore(`${CODE}/begitra`);
     expect(failed?.code).toBe("repo.not_found");
     expect(repo.state.kind).toBe("empty");
-    expect(store.entries.find((e) => e.name === "begira")?.missing).toBe(true);
+    expect(store.entries.find((e) => e.name === "begitra")?.missing).toBe(true);
   });
 
   it("refresh upserts the entry and flags a vanished one", async () => {
     mockBackend();
     const store = useIndexStore();
     await store.load();
-    await store.refresh(`${CODE}/begira`);
-    expect(store.entries.find((e) => e.name === "begira")?.summary.ahead).toBe(9);
+    await store.refresh(`${CODE}/begitra`);
+    expect(store.entries.find((e) => e.name === "begitra")?.summary.ahead).toBe(9);
     await store.refresh(`${CODE}/nowhere`);
     expect(store.entries.some((e) => e.name === "nowhere")).toBe(false);
     store.entries = [...store.entries, entry("gone", { missing: true })];
@@ -537,14 +537,14 @@ describe("index store", () => {
     await store.removeRoot(WT);
     expect(settings.values.scanRoots).toEqual([CODE]);
     expect(calls.find((c) => c.cmd === "remove_scan_root")?.args).toEqual({ root: WT });
-    expect(names(store.entries)).toEqual(["geoportal", "begira", "tiles-spike"]);
+    expect(names(store.entries)).toEqual(["geoportal", "begitra", "tiles-spike"]);
     expect(store.counts.folders).toBe(1);
     // A flagged folder loses its flag with its entry.
     store.folderErrors = { [CODE]: { reason: "gone" } };
     await store.removeRoot(CODE);
     expect(store.folderErrors).toEqual({});
     // Pinned and opened entries survive without a scan folder.
-    expect(names(store.entries)).toEqual(["geoportal", "begira"]);
+    expect(names(store.entries)).toEqual(["geoportal", "begitra"]);
   });
 
   it("addRoot appends the folder once and scans it", async () => {

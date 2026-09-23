@@ -120,7 +120,7 @@ pub fn run_scan<S: Sink<ScanMessage>>(
         let result_tx = result_tx.clone();
         let cancel = cancel.clone();
         let worker = thread::Builder::new()
-            .name(format!("begira-summary-{n}"))
+            .name(format!("begitra-summary-{n}"))
             .spawn(move || loop {
                 let next = work_rx.lock().ok().and_then(|rx| rx.recv().ok());
                 let Some(path) = next else { break };

@@ -1,6 +1,6 @@
 [package]
-name = "begira-cli"
-description = "Headless JSON CLI over Begira's git engine, for scripts and agents"
+name = "begitra-cli"
+description = "Headless JSON CLI over Begitra's git engine, for scripts and agents"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -16,9 +16,9 @@ serde_json.workspace = true
 tempfile.workspace = true
 
 [lib]
-name = "begira_cli"
+name = "begitra_cli"
 path = "src/lib.rs"
 
 [[bin]]
-name = "begira-cli"
+name = "begitra-cli"
 path = "src/main.rs"

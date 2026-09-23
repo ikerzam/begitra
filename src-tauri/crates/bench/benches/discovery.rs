@@ -11,7 +11,7 @@ use repo_index::{Cancel, ScanEvent, ScanOptions};
 
 fn tree_present() -> Option<std::path::PathBuf> {
     let path = repos::discovery();
-    if path.join(".begira-bench-tree").exists() {
+    if path.join(".begitra-bench-tree").exists() {
         Some(path)
     } else {
         eprintln!(

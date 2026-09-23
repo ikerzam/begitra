@@ -55,7 +55,7 @@ describe("PaletteOverlay", () => {
     const index = useIndexStore();
     index.entries = [
       entry("geoportal", { pinned: true }),
-      entry("begira"),
+      entry("begitra"),
       entry("geoportal-infra"),
     ];
     index.loaded = true;

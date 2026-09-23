@@ -37,7 +37,7 @@ function entry(name: string, over: Partial<IndexEntry> = {}): IndexEntry {
 
 const entries = [
   entry("geoportal", { pinned: true }),
-  entry("begira", { lastOpenedAt: 30 }),
+  entry("begitra", { lastOpenedAt: 30 }),
   entry("tiles-spike", { lastOpenedAt: 20 }),
   entry("alpha", { lastOpenedAt: 6 }),
   entry("beta", { lastOpenedAt: 5 }),
@@ -85,7 +85,7 @@ function backend() {
   return calls;
 }
 
-function mountSwitcher(root: string | null = "/code/begira") {
+function mountSwitcher(root: string | null = "/code/begitra") {
   return mountWithI18n(RepoSwitcher, {
     props: { repositoryName: root ? root.split("/").pop()! : null, repositoryRoot: root },
     attachTo: document.body,
@@ -109,7 +109,7 @@ describe("RepoSwitcher", () => {
   it("opens a menu with the pinned and the five most recent repositories, the current one marked", async () => {
     const wrapper = mountSwitcher();
     const button = wrapper.get('[data-testid="repo-switcher"]');
-    expect(button.text()).toBe("begira");
+    expect(button.text()).toBe("begitra");
     expect(button.attributes("aria-expanded")).toBe("false");
     expect(wrapper.find('[data-testid="repo-switcher-menu"]').exists()).toBe(false);
     await button.trigger("click");
@@ -118,7 +118,7 @@ describe("RepoSwitcher", () => {
     const items = menu.findAll("[role='menuitem']");
     expect(items.map((item) => item.text())).toEqual([
       "geoportal/code/geoportal",
-      "begira/code/begira",
+      "begitra/code/begitra",
       "tiles-spike/code/tiles-spike",
       "alpha/code/alpha",
       "beta/code/beta",
@@ -150,7 +150,7 @@ describe("RepoSwitcher", () => {
 
   it("goes home, opens a folder, and closes with escape", async () => {
     const repo = useRepoStore();
-    await repo.open("/code/begira");
+    await repo.open("/code/begitra");
     await flushPromises();
     const wrapper = mountSwitcher();
     await wrapper.get('[data-testid="repo-switcher"]').trigger("keydown", { key: "ArrowDown" });

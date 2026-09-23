@@ -30,9 +30,9 @@ describe("other helpers", () => {
   it("formats absolute dates, hashes, names and counts", () => {
     expect(absoluteDate(Math.floor(now / 1000), "en")).toMatch(/2026/);
     expect(shortHash("a1b2c3d4e5f6")).toBe("a1b2c3d");
-    expect(baseName("C:\\Code\\begira")).toBe("begira");
-    expect(baseName("/home/iker/code/begira/")).toBe("begira");
-    expect(baseName("begira")).toBe("begira");
+    expect(baseName("C:\\Code\\begitra")).toBe("begitra");
+    expect(baseName("/home/iker/code/begitra/")).toBe("begitra");
+    expect(baseName("begitra")).toBe("begitra");
     expect(formatCount(48210, "en")).toBe("48,210");
   });
 });

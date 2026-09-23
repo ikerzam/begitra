@@ -27,7 +27,7 @@ fn hermetic() {
         std::env::set_var("GIT_CONFIG_NOSYSTEM", "1");
         std::env::set_var(
             "GIT_CONFIG_GLOBAL",
-            std::env::temp_dir().join("begira-no-global-config"),
+            std::env::temp_dir().join("begitra-no-global-config"),
         );
         std::env::set_var("LC_ALL", "C");
     });
@@ -60,7 +60,7 @@ impl Fixture {
     fn init_at(folder: &str) -> Self {
         hermetic();
         let dir = tempfile::Builder::new()
-            .prefix("begira-fixture-")
+            .prefix("begitra-fixture-")
             .tempdir()
             .expect("create temp dir");
         let root = dir.path().join(folder);

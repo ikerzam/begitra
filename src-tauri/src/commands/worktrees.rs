@@ -262,7 +262,7 @@ mod tests {
     #[test]
     fn add_requests_are_validated() {
         let temp = std::env::temp_dir();
-        let free = temp.join("begira-no-such-folder-for-tests");
+        let free = temp.join("begitra-no-such-folder-for-tests");
         let ok = WorktreeAdd {
             path: free.clone(),
             branch: WorktreeBranch::New {

@@ -1,7 +1,7 @@
-//! Benchmark tooling for Begira: the synthetic agent repository generator, the fetch of the
+//! Benchmark tooling for Begitra: the synthetic agent repository generator, the fetch of the
 //! large real repository, and the report that turns criterion results into budget rows.
 //!
-//! The repositories live in `begira-bench-repos` beside the repository root (or `BEGIRA_BENCH_REPOS`)
+//! The repositories live in `begitra-bench-repos` beside the repository root (or `BEGITRA_BENCH_REPOS`)
 //! and are never committed.
 
 pub mod fetch;

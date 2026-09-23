@@ -129,7 +129,7 @@ impl RepoWatcher {
             }
         }
         let thread = thread::Builder::new()
-            .name("begira-watcher".to_owned())
+            .name("begitra-watcher".to_owned())
             .spawn(move || debounce_loop(&bases, &raw_rx, emit))
             .map_err(notify::Error::io)?;
         Ok(Self {
@@ -377,7 +377,7 @@ mod tests {
         batch.add(&bases, Path::new("/r/Cargo.lock"));
         batch.add(&bases, Path::new("/r/index.lock"));
         batch.add(&bases, Path::new("/r/.git/index.lock"));
-        batch.add(&bases, Path::new("/r/target/debug/begira.exe"));
+        batch.add(&bases, Path::new("/r/target/debug/begitra.exe"));
         batch.add(&bases, Path::new("/elsewhere/file"));
         let payload = batch.take(&root).expect("payload");
         assert_eq!(

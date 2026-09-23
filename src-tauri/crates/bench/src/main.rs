@@ -1,4 +1,4 @@
-//! Benchmark tooling for Begira.
+//! Benchmark tooling for Begitra.
 //!
 //! ```text
 //! bench generate  [--out DIR] [--worktrees-dir DIR] [--commits N] [--branches N]

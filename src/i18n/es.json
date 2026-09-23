@@ -206,7 +206,7 @@
     "applyingStash": "Aplicando el stash",
     "poppingStash": "Sacando el stash",
     "droppingStash": "Borrando el stash",
-    "downloadingUpdate": "Descargando Begira {version}"
+    "downloadingUpdate": "Descargando Begitra {version}"
   },
   "home": {
     "title": "Repositorios",
@@ -889,7 +889,7 @@
     "discovery": {
       "title": "Descubrimiento",
       "scanFolders": "Carpetas a escanear",
-      "noFolders": "Aún no hay carpetas. Begira busca en ellas repositorios y worktrees.",
+      "noFolders": "Aún no hay carpetas. Begitra busca en ellas repositorios y worktrees.",
       "addFolder": "Añadir carpeta",
       "skipFolders": "Carpetas omitidas",
       "skipFoldersHint": "Separadas por comas. Se omiten a cualquier profundidad.",
@@ -904,7 +904,7 @@
       "detecting": "Detectando…",
       "looking": "Buscando git en el PATH y en las ubicaciones habituales",
       "hint": "Vacío significa el git del PATH.",
-      "notGit": "No es un ejecutable de git. Begira necesita git 2.30 o más nuevo; la ruta de arriba no se ejecuta."
+      "notGit": "No es un ejecutable de git. Begitra necesita git 2.30 o más nuevo; la ruta de arriba no se ejecuta."
     },
     "commands": {
       "title": "Terminal y editor",
@@ -962,7 +962,7 @@
     "about": {
       "title": "Acerca de",
       "version": "Versión",
-      "versionLine": "Begira {version}",
+      "versionLine": "Begitra {version}",
       "logs": "Registros",
       "logsHint": "Un archivo por día, se conservan los siete más recientes. Un cierre inesperado conserva cada línea escrita antes.",
       "noLogFile": "El registro se queda en la consola: no se pudo abrir ninguna carpeta de registros.",
@@ -971,7 +971,7 @@
       "updates": "Actualizaciones",
       "check": "Buscar actualizaciones",
       "checking": "Buscando…",
-      "upToDate": "Begira está al día.",
+      "upToDate": "Begitra está al día.",
       "available": "La versión {version} está disponible.",
       "downloadInstall": "Descargar e instalar",
       "downloading": "Descargando {version}…",

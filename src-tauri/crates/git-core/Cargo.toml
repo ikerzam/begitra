@@ -1,6 +1,6 @@
 [package]
 name = "git-core"
-description = "Headless Git engine for Begira: repositories, refs, paged commit walks with lane layout, status, diffs, merge base and worktrees"
+description = "Headless Git engine for Begitra: repositories, refs, paged commit walks with lane layout, status, diffs, merge base and worktrees"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

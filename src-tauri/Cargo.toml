@@ -6,7 +6,7 @@ resolver = "2"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/ikerzam/begira"
+repository = "https://github.com/ikerzam/begitra"
 
 [workspace.dependencies]
 git-core = { path = "crates/git-core" }
@@ -40,7 +40,7 @@ tree-sitter-java = "0.23"
 tree-sitter-c-sharp = "0.23"
 
 [package]
-name = "begira"
+name = "begitra"
 description = "Desktop Git client for reading and reviewing large volumes of AI-generated code on standard Git"
 version.workspace = true
 edition.workspace = true
@@ -49,7 +49,7 @@ repository.workspace = true
 
 [lib]
 # The `_lib` suffix keeps the library name distinct from the binary name (a Windows linker issue).
-name = "begira_lib"
+name = "begitra_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

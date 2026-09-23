@@ -206,7 +206,7 @@
     "applyingStash": "Applying stash",
     "poppingStash": "Popping stash",
     "droppingStash": "Dropping stash",
-    "downloadingUpdate": "Downloading Begira {version}"
+    "downloadingUpdate": "Downloading Begitra {version}"
   },
   "home": {
     "title": "Repositories",
@@ -889,7 +889,7 @@
     "discovery": {
       "title": "Discovery",
       "scanFolders": "Scan folders",
-      "noFolders": "No folders yet. Begira scans these for repositories and worktrees.",
+      "noFolders": "No folders yet. Begitra scans these for repositories and worktrees.",
       "addFolder": "Add folder",
       "skipFolders": "Skip folders",
       "skipFoldersHint": "Comma separated. Matched at any depth.",
@@ -904,7 +904,7 @@
       "detecting": "Detecting…",
       "looking": "Looking for git on PATH and in common locations",
       "hint": "Empty means the git on PATH.",
-      "notGit": "Not a git executable. Begira needs git 2.30 or newer; the path above does not run."
+      "notGit": "Not a git executable. Begitra needs git 2.30 or newer; the path above does not run."
     },
     "commands": {
       "title": "Terminal and editor",
@@ -962,7 +962,7 @@
     "about": {
       "title": "About",
       "version": "Version",
-      "versionLine": "Begira {version}",
+      "versionLine": "Begitra {version}",
       "logs": "Logs",
       "logsHint": "One file per day, the seven newest kept. A crash keeps every line written before it.",
       "noLogFile": "The log stays on the console: no log folder could be opened.",
@@ -971,7 +971,7 @@
       "updates": "Updates",
       "check": "Check for updates",
       "checking": "Checking…",
-      "upToDate": "Begira is up to date.",
+      "upToDate": "Begitra is up to date.",
       "available": "Version {version} is available.",
       "downloadInstall": "Download and install",
       "downloading": "Downloading {version}…",

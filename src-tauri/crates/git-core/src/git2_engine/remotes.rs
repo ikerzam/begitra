@@ -465,14 +465,14 @@ mod tests {
 
     #[test]
     fn fetch_head_lines_name_the_remote_without_its_suffix_or_credentials() {
-        let content = "abc\t\tbranch 'main' of https://github.com/ikerzam/begira\ndef\tnot-for-merge\tbranch 'x' of C:\\Users\\iker\\origin\n";
+        let content = "abc\t\tbranch 'main' of https://github.com/ikerzam/begitra\ndef\tnot-for-merge\tbranch 'x' of C:\\Users\\iker\\origin\n";
         assert!(fetch_head_names(
             content,
-            "https://github.com/ikerzam/begira.git"
+            "https://github.com/ikerzam/begitra.git"
         ));
         assert!(fetch_head_names(
             content,
-            "https://iker:secret@github.com/ikerzam/begira.git/"
+            "https://iker:secret@github.com/ikerzam/begitra.git/"
         ));
         assert!(fetch_head_names(content, r"C:\Users\iker\origin.git"));
         assert!(!fetch_head_names(
@@ -481,7 +481,7 @@ mod tests {
         ));
         assert!(!fetch_head_names(
             "",
-            "https://github.com/ikerzam/begira.git"
+            "https://github.com/ikerzam/begitra.git"
         ));
     }
 

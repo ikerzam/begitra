@@ -1,4 +1,4 @@
-// Contract test: every JSON fixture written by `cargo test -p begira` (src-tauri/src/fixtures.rs)
+// Contract test: every JSON fixture written by `cargo test -p begitra` (src-tauri/src/fixtures.rs)
 // must parse with the schema of its type. A Rust field renamed without updating the schema
 // fails here; a fixture without a schema, or a schema without a fixture, fails too.
 

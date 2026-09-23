@@ -1,6 +1,6 @@
-# Begira
+# Begitra
 
-Begira is a desktop Git client for reading and reviewing large volumes of AI-generated code on
+Begitra is a desktop Git client for reading and reviewing large volumes of AI-generated code on
 standard Git repositories. It is built with Tauri 2, Rust (`git2`, `rusqlite`) and Vue 3.
 
 
@@ -25,7 +25,7 @@ standard Git repositories. It is built with Tauri 2, Rust (`git2`, `rusqlite`) a
 | Rust format | `cargo fmt --all --manifest-path src-tauri/Cargo.toml` |
 | Benchmarks | `cargo bench -p bench --manifest-path src-tauri/Cargo.toml` |
 | Regenerate the Tailwind theme | `node scripts/generate-tailwind-theme.mjs` (after editing `design/tokens.json`) |
-| The engine as JSON, without the window | `cargo build -p begira-cli --release`, then `target/release/begira-cli --help` |
+| The engine as JSON, without the window | `cargo build -p begitra-cli --release`, then `target/release/begitra-cli --help` |
 
 ## Continuous integration
 

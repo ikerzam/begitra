@@ -811,8 +811,8 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
       case "app_info":
         return {
           version: "0.1.0",
-          logFile: "/home/iker/.local/share/dev.begira.app/logs/begira-2026-09-22.log",
-          logDir: "/home/iker/.local/share/dev.begira.app/logs",
+          logFile: "/home/iker/.local/share/dev.begitra.app/logs/begitra-2026-09-22.log",
+          logDir: "/home/iker/.local/share/dev.begitra.app/logs",
         };
       case "close_repository":
       case "close_walk":

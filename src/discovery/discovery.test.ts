@@ -71,7 +71,7 @@ const fixture: IndexEntry[] = [
     },
   }),
   entry("tiles-spike", { lastOpenedAt: NOW - 7 * 86_400 }),
-  entry("begira", { summary: { ...entry("x").summary, lastCommitAt: NOW - 3600 } }),
+  entry("begitra", { summary: { ...entry("x").summary, lastCommitAt: NOW - 3600 } }),
   entry("map-core-bench", {
     summary: { ...entry("x").summary, currentBranch: "develop", lastCommitAt: NOW - 4 * 86_400 },
   }),
@@ -152,7 +152,7 @@ describe("HomeScreen", () => {
       "geoportal",
       "claude-auth",
       "tiles-spike",
-      "begira",
+      "begitra",
       "map-core-bench",
     ]);
     // The worktree hangs under its repository with the connector and its own branch colour.
@@ -175,9 +175,9 @@ describe("HomeScreen", () => {
         .map((row) => row.get('[data-testid="repo-row-name"]').text());
     await wrapper.get('[data-testid="sort-lastCommit"]').trigger("click");
     expect(index.sort).toEqual({ column: "lastCommit", direction: "desc" });
-    expect(names().slice(3)).toEqual(["begira", "map-core-bench"]);
+    expect(names().slice(3)).toEqual(["begitra", "map-core-bench"]);
     await wrapper.get('[data-testid="sort-lastCommit"]').trigger("click");
-    expect(names().slice(3)).toEqual(["map-core-bench", "begira"]);
+    expect(names().slice(3)).toEqual(["map-core-bench", "begitra"]);
     expect(wrapper.get('[data-testid="sort-lastCommit"]').attributes("aria-sort")).toBe(
       "ascending",
     );

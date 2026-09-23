@@ -4,7 +4,7 @@ import prettier from "eslint-config-prettier";
 
 export default defineConfigWithVueTs(
   {
-    name: "begira/ignores",
+    name: "begitra/ignores",
     ignores: [
       "dist/**",
       "node_modules/**",
@@ -17,7 +17,7 @@ export default defineConfigWithVueTs(
   pluginVue.configs["flat/recommended"],
   vueTsConfigs.recommendedTypeChecked,
   {
-    name: "begira/rules",
+    name: "begitra/rules",
     files: ["**/*.{ts,vue,js,mjs}"],
     languageOptions: {
       parserOptions: { tsconfigRootDir: import.meta.dirname },
@@ -33,7 +33,7 @@ export default defineConfigWithVueTs(
     },
   },
   {
-    name: "begira/scripts",
+    name: "begitra/scripts",
     files: ["scripts/**/*.mjs", "*.config.js", "*.config.ts"],
     extends: [vueTsConfigs.disableTypeChecked],
   },

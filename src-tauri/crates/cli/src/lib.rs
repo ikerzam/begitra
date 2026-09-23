@@ -24,9 +24,9 @@ use serde::Serialize;
 
 /// The usage, printed by `--help` (stdout, status 0) and on a usage error (stderr, status 2).
 pub const USAGE: &str = "\
-begira-cli: Begira's git engine as JSON, for scripts and agents. Read-only.
+begitra-cli: Begitra's git engine as JSON, for scripts and agents. Read-only.
 
-Usage: begira-cli <command> <repo> [options]
+Usage: begitra-cli <command> <repo> [options]
 
 Commands:
   open <repo>                          the repository as the app opens it
@@ -49,7 +49,7 @@ Options:
   --version, -V   the version
 
 Environment:
-  BEGIRA_GIT      the git executable to run instead of the one on PATH
+  BEGITRA_GIT      the git executable to run instead of the one on PATH
 ";
 
 /// Commits per `log` page, and files per `diff` page.
@@ -141,7 +141,7 @@ impl From<serde_json::Error> for Failure {
 }
 
 impl Failure {
-    /// Whether the consumer went away (`begira-cli log repo | head`): nothing to report.
+    /// Whether the consumer went away (`begitra-cli log repo | head`): nothing to report.
     fn is_broken_pipe(&self) -> bool {
         self.code == "internal"
             && self.message.contains("could not write the output")
@@ -425,10 +425,10 @@ fn done(out: &mut dyn Write) -> Result<(), Failure> {
     Ok(())
 }
 
-/// Points the engine's CLI at `BEGIRA_GIT` when set to something; a program that is not git
+/// Points the engine's CLI at `BEGITRA_GIT` when set to something; a program that is not git
 /// is the failure.
 fn choose_git() -> Result<(), Failure> {
-    let Some(path) = std::env::var_os("BEGIRA_GIT") else {
+    let Some(path) = std::env::var_os("BEGITRA_GIT") else {
         return Ok(());
     };
     if path.is_empty() {
@@ -511,7 +511,7 @@ pub fn main_with(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i
             0
         }
         Ok(Parsed::Version) => {
-            let _ = writeln!(out, "begira-cli {}", env!("CARGO_PKG_VERSION"));
+            let _ = writeln!(out, "begitra-cli {}", env!("CARGO_PKG_VERSION"));
             0
         }
         Ok(Parsed::Run(invocation)) => match run(&invocation, out) {
@@ -530,7 +530,7 @@ pub fn main_with(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i
 
 /// Reports a usage problem before the usage on `err`; the exit status is 2.
 pub fn usage_error(problem: &str, err: &mut dyn Write) -> i32 {
-    let _ = writeln!(err, "begira-cli: {problem}\n");
+    let _ = writeln!(err, "begitra-cli: {problem}\n");
     let _ = err.write_all(USAGE.as_bytes());
     2
 }
@@ -662,10 +662,10 @@ mod tests {
         let mut out = Vec::new();
         let mut err = Vec::new();
         assert_eq!(main_with(&args(&["refs"]), &mut out, &mut err), 2);
-        assert!(String::from_utf8_lossy(&err).contains("Usage: begira-cli"));
+        assert!(String::from_utf8_lossy(&err).contains("Usage: begitra-cli"));
         assert!(out.is_empty());
         assert_eq!(main_with(&args(&["--help"]), &mut out, &mut err), 0);
-        assert!(String::from_utf8_lossy(&out).starts_with("begira-cli:"));
+        assert!(String::from_utf8_lossy(&out).starts_with("begitra-cli:"));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-//! The log file: `tracing` records go to `<log dir>/begira-<date>.log`,
+//! The log file: `tracing` records go to `<log dir>/begitra-<date>.log`,
 //! one file per launch named by its UTC day (a launch that crosses midnight keeps its file;
 //! the time is on every line), one line per record, written through to the file as each
 //! arrives (a `Mutex<File>` is the subscriber's writer: the OS has every line before the
@@ -20,16 +20,16 @@ use tracing_subscriber::{reload, EnvFilter, Registry};
 /// Day files kept in the log folder; the newest by name, since the date is the name.
 pub const KEEP_FILES: usize = 7;
 
-/// The filter when neither `BEGIRA_LOG` nor `RUST_LOG` sets one: the app, the engine, the
+/// The filter when neither `BEGITRA_LOG` nor `RUST_LOG` sets one: the app, the engine, the
 /// index, the updater plugin (its failures go through `log`) and Tauri's warnings.
 pub const DEFAULT_FILTER: &str =
-    "begira_lib=info,git_core=info,repo_index=info,tauri_plugin_updater=info,tauri=warn";
+    "begitra_lib=info,git_core=info,repo_index=info,tauri_plugin_updater=info,tauri=warn";
 
 /// The panic hook's target; its directive is added to every filter so the line survives a
-/// narrow `BEGIRA_LOG` (a targeted directive wins over a bare one).
-const PANIC_TARGET: &str = "begira_lib::panic";
+/// narrow `BEGITRA_LOG` (a targeted directive wins over a bare one).
+const PANIC_TARGET: &str = "begitra_lib::panic";
 
-const PREFIX: &str = "begira-";
+const PREFIX: &str = "begitra-";
 const SUFFIX: &str = ".log";
 
 /// The file layer's type: the format is fixed so the reload slot can hold `None` first.
@@ -69,7 +69,7 @@ fn now() -> i64 {
         .unwrap_or(0)
 }
 
-/// Whether a file name is a day file's (`begira-YYYY-MM-DD.log`), so that nothing else in
+/// Whether a file name is a day file's (`begitra-YYYY-MM-DD.log`), so that nothing else in
 /// the folder takes one of the kept slots.
 fn is_day_file(name: &str) -> bool {
     let Some(date) = name
@@ -118,16 +118,16 @@ pub fn open_day_file(dir: &Path, unix_seconds: i64) -> std::io::Result<(PathBuf,
     Ok((path, file))
 }
 
-/// The filter: `BEGIRA_LOG`, then `RUST_LOG`, then [`DEFAULT_FILTER`], always with the
+/// The filter: `BEGITRA_LOG`, then `RUST_LOG`, then [`DEFAULT_FILTER`], always with the
 /// panic hook's directive; a variable that does not parse is said on stderr and skipped.
 pub fn filter() -> EnvFilter {
-    let base = ["BEGIRA_LOG", "RUST_LOG"]
+    let base = ["BEGITRA_LOG", "RUST_LOG"]
         .into_iter()
         .filter_map(|variable| std::env::var(variable).ok().map(|spec| (variable, spec)))
         .find_map(|(variable, spec)| match EnvFilter::try_new(&spec) {
             Ok(filter) => Some(filter),
             Err(error) => {
-                eprintln!("begira: {variable}={spec:?} is not a filter ({error}); ignored");
+                eprintln!("begitra: {variable}={spec:?} is not a filter ({error}); ignored");
                 None
             }
         })
@@ -175,7 +175,7 @@ pub fn install() -> Option<LogSlot> {
     match subscriber.try_init() {
         Ok(()) => Some(slot),
         Err(error) => {
-            eprintln!("begira: the log subscriber was not installed ({error})");
+            eprintln!("begitra: the log subscriber was not installed ({error})");
             None
         }
     }
@@ -208,7 +208,7 @@ pub fn install_panic_hook() {
             .location()
             .map(|at| format!("{}:{}", at.file(), at.line()))
             .unwrap_or_default();
-        tracing::error!(target: "begira_lib::panic", location, "{message}");
+        tracing::error!(target: "begitra_lib::panic", location, "{message}");
         previous(info);
     }));
 }
@@ -234,7 +234,7 @@ mod tests {
         assert_eq!(day(1_704_067_200), "2024-01-01");
         assert_eq!(day(1_758_499_200), "2025-09-22");
         assert_eq!(day(-1), "1969-12-31");
-        assert_eq!(file_name(1_704_067_200), "begira-2024-01-01.log");
+        assert_eq!(file_name(1_704_067_200), "begitra-2024-01-01.log");
     }
 
     #[test]
@@ -243,7 +243,7 @@ mod tests {
         let (path, file) = open_day_file(&dir.path().join("logs"), 1_704_067_200).expect("open");
         assert_eq!(
             path.file_name().and_then(|n| n.to_str()),
-            Some("begira-2024-01-01.log")
+            Some("begitra-2024-01-01.log")
         );
         tracing::subscriber::with_default(file_subscriber(file), || {
             tracing::info!(repo = "/r", "opened the repository");
@@ -258,24 +258,28 @@ mod tests {
     fn retention_keeps_the_newest_day_files_and_nothing_else_is_touched() {
         let dir = tempfile::tempdir().expect("temp dir");
         for day in 1..=9 {
-            fs::write(dir.path().join(format!("begira-2024-01-{day:02}.log")), "x").expect("write");
+            fs::write(
+                dir.path().join(format!("begitra-2024-01-{day:02}.log")),
+                "x",
+            )
+            .expect("write");
         }
         fs::write(dir.path().join("notes.txt"), "keep").expect("write");
         // A file with the prefix but not a day's name never takes a slot.
-        fs::write(dir.path().join("begira-crash.log"), "keep").expect("write");
+        fs::write(dir.path().join("begitra-crash.log"), "keep").expect("write");
         let removed = prune(dir.path(), KEEP_FILES).expect("prune");
         let names: Vec<_> = removed
             .iter()
             .filter_map(|p| p.file_name().and_then(|n| n.to_str()).map(str::to_owned))
             .collect();
-        assert_eq!(names, ["begira-2024-01-01.log", "begira-2024-01-02.log"]);
-        assert!(dir.path().join("begira-2024-01-03.log").exists());
-        assert!(dir.path().join("begira-2024-01-09.log").exists());
+        assert_eq!(names, ["begitra-2024-01-01.log", "begitra-2024-01-02.log"]);
+        assert!(dir.path().join("begitra-2024-01-03.log").exists());
+        assert!(dir.path().join("begitra-2024-01-09.log").exists());
         assert!(dir.path().join("notes.txt").exists());
-        assert!(dir.path().join("begira-crash.log").exists());
+        assert!(dir.path().join("begitra-crash.log").exists());
         // Opening a day file prunes too, and appends to an existing day.
         let (path, _) = open_day_file(dir.path(), 1_704_758_400).expect("open");
-        assert!(path.ends_with("begira-2024-01-09.log"));
+        assert!(path.ends_with("begitra-2024-01-09.log"));
         assert_eq!(fs::read_to_string(&path).expect("read"), "x");
     }
 
@@ -288,10 +292,10 @@ mod tests {
         let path = dir.path().join("logs");
         tracing::subscriber::with_default(subscriber, || {
             // Nothing is attached yet: the record goes nowhere and nothing panics.
-            tracing::info!(target: "begira_lib::early", "before the file");
+            tracing::info!(target: "begitra_lib::early", "before the file");
             let file = slot.attach(&path).expect("attach");
             assert!(file.exists());
-            tracing::info!(target: "begira_lib::commands", repo = "/r", "after the file");
+            tracing::info!(target: "begitra_lib::commands", repo = "/r", "after the file");
             // Outside the default filter: dropped by the outer EnvFilter.
             tracing::error!(target: "git2::odb", "libgit2 chatter");
             // The panic hook's line lands whatever the target filter says.
@@ -313,13 +317,13 @@ mod tests {
     #[test]
     fn the_filter_prefers_the_app_variable_and_falls_back_to_the_default() {
         // The variables are process-wide: the test restores them.
-        let saved: Vec<_> = ["BEGIRA_LOG", "RUST_LOG"]
+        let saved: Vec<_> = ["BEGITRA_LOG", "RUST_LOG"]
             .iter()
             .map(|v| (v, std::env::var(v).ok()))
             .collect();
-        std::env::set_var("BEGIRA_LOG", "git_core=trace");
+        std::env::set_var("BEGITRA_LOG", "git_core=trace");
         assert!(filter().to_string().contains("git_core=trace"));
-        std::env::remove_var("BEGIRA_LOG");
+        std::env::remove_var("BEGITRA_LOG");
         std::env::set_var("RUST_LOG", "warn");
         assert!(filter().to_string().contains("warn"));
         std::env::remove_var("RUST_LOG");
@@ -330,9 +334,9 @@ mod tests {
         printed.sort();
         expected.sort();
         assert_eq!(printed, expected);
-        std::env::set_var("BEGIRA_LOG", "git_core=trace");
-        assert!(filter().to_string().contains("begira_lib::panic=error"));
-        std::env::remove_var("BEGIRA_LOG");
+        std::env::set_var("BEGITRA_LOG", "git_core=trace");
+        assert!(filter().to_string().contains("begitra_lib::panic=error"));
+        std::env::remove_var("BEGITRA_LOG");
         for (variable, value) in saved {
             match value {
                 Some(value) => std::env::set_var(variable, value),
