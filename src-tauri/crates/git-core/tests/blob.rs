@@ -161,3 +161,79 @@ fn binary_detection_agrees_on_both_sides_and_text_decodes_lossily() {
     assert_eq!(latin.text.as_deref(), Some("caf\u{FFFD}\n"));
     assert_eq!(latin.size, 5);
 }
+
+#[test]
+fn the_index_is_read_as_staged() {
+    let f = Fixture::basic();
+    f.write("src/lib.rs", "pub fn one() -> u32 {\n    2\n}\n");
+    f.git(&["add", "src/lib.rs"]);
+    f.write("src/lib.rs", "pub fn one() -> u32 {\n    3\n}\n");
+    let engine = engine(&f);
+
+    let staged = engine
+        .read_blob(&BlobAt::Index, "src/lib.rs")
+        .expect("staged");
+    let shown = f.git(&["show", ":src/lib.rs"]) + "\n";
+    assert_eq!(staged.text.as_deref(), Some(shown.as_str()));
+    assert_eq!(
+        staged.text.as_deref(),
+        Some("pub fn one() -> u32 {\n    2\n}\n")
+    );
+
+    // A later `git add` from the user's own terminal is what the next read sees.
+    f.git(&["add", "src/lib.rs"]);
+    let restaged = engine
+        .read_blob(&BlobAt::Index, "src/lib.rs")
+        .expect("restaged");
+    assert_eq!(
+        restaged.text.as_deref(),
+        Some("pub fn one() -> u32 {\n    3\n}\n")
+    );
+
+    let absent = engine
+        .read_blob(&BlobAt::Index, "src/nothing.rs")
+        .expect_err("not in the index");
+    assert_eq!(absent.code(), "refs.not_found");
+}
+
+#[test]
+fn the_merge_base_of_two_revisions_is_read_as_the_old_side_of_three_dots() {
+    let mut f = Fixture::basic();
+    f.git(&["checkout", "-q", "-b", "side", "v1"]);
+    f.write("src/lib.rs", "pub fn one() -> u32 {\n    4\n}\n");
+    f.commit("s1: side change");
+    f.git(&["checkout", "-q", "main"]);
+    let engine = engine(&f);
+
+    let base = BlobAt::MergeBase {
+        a: "main".to_owned(),
+        b: "side".to_owned(),
+    };
+    let text = engine.read_blob(&base, "src/lib.rs").expect("at the base");
+    let shown = f.git(&["show", "v1:src/lib.rs"]) + "\n";
+    assert_eq!(text.text.as_deref(), Some(shown.as_str()));
+
+    f.git(&["checkout", "-q", "--orphan", "island"]);
+    f.write("island.txt", "alone\n");
+    f.commit("i1: unrelated");
+    let unrelated = engine
+        .read_blob(
+            &BlobAt::MergeBase {
+                a: "main".to_owned(),
+                b: "island".to_owned(),
+            },
+            "island.txt",
+        )
+        .expect_err("no merge base");
+    assert_eq!(unrelated.code(), "refs.unrelated_histories");
+    let unknown = engine
+        .read_blob(
+            &BlobAt::MergeBase {
+                a: "main".to_owned(),
+                b: "no-such-rev".to_owned(),
+            },
+            "src/lib.rs",
+        )
+        .expect_err("rev");
+    assert_eq!(unknown.code(), "refs.not_found");
+}

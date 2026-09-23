@@ -1,12 +1,13 @@
-//! Reading one file whole, at a revision or in the working tree, for the image diff and
-//! "Show new file": bounded by [`BLOB_LIMIT`], text or bytes by git's binary heuristic (a
-//! NUL in the first 8,000 bytes), the same on both sides.
+//! Reading one file whole, at a revision, in the index, at the merge base of two revisions
+//! or in the working tree, for the image diff, "Show new file" and the highlighting of both
+//! sides of a diff: bounded by [`BLOB_LIMIT`], text or bytes by git's binary heuristic (a NUL
+//! in the first 8,000 bytes), the same on every side.
 
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
-use git2::{ObjectType, Repository};
+use git2::{ObjectType, Oid, Repository};
 
 use super::Git2Engine;
 use crate::engine::GitEngine;
@@ -34,7 +35,28 @@ pub(super) fn read(engine: &Git2Engine, at: &BlobAt, path: &str) -> GitResult<Bl
         BlobAt::Revision { rev } => engine
             .with_repo(|repo| bytes_at(repo, rev, path))
             .map(content),
+        BlobAt::Index => engine
+            .with_repo(|repo| bytes_in_index(repo, path))
+            .map(content),
+        BlobAt::MergeBase { a, b } => engine
+            .with_repo(|repo| {
+                let base = super::refs::merge_base_in(repo, a, b)?;
+                bytes_at(repo, &base.to_string(), path)
+            })
+            .map(content),
     }
+}
+
+/// The raw bytes of `path` as staged, bounded by [`BLOB_LIMIT`]. The index is read again
+/// when it changed on disk, since the user's git writes it; a path without a stage-0 entry
+/// (absent, or conflicted) is unknown.
+fn bytes_in_index(repo: &Repository, path: &str) -> GitResult<Vec<u8>> {
+    let mut index = repo.index()?;
+    index.read(false)?;
+    let entry = index
+        .get_path(Path::new(path), 0)
+        .ok_or_else(|| GitError::RefNotFound(format!("index:{path}")))?;
+    blob_bytes(repo, entry.id)
 }
 
 /// The raw bytes of `path` at `rev`, bounded by [`BLOB_LIMIT`].
@@ -53,12 +75,17 @@ fn bytes_at(repo: &Repository, rev: &str, path: &str) -> GitResult<Vec<u8>> {
     if entry.kind() != Some(ObjectType::Blob) {
         return Err(GitError::RefNotFound(spec));
     }
+    blob_bytes(repo, entry.id())
+}
+
+/// The bytes of one blob, bounded by [`BLOB_LIMIT`].
+fn blob_bytes(repo: &Repository, id: Oid) -> GitResult<Vec<u8>> {
     // The header tells the size without inflating the object, so a huge blob is refused
     // before it is read.
     let (size, _) = repo
         .odb()
-        .and_then(|odb| odb.read_header(entry.id()))
-        .map_err(|error| GitError::object(&entry.id().to_string(), error))?;
+        .and_then(|odb| odb.read_header(id))
+        .map_err(|error| GitError::object(&id.to_string(), error))?;
     let size = size as u64;
     if size > BLOB_LIMIT {
         return Err(GitError::BlobTooLarge {
@@ -67,8 +94,8 @@ fn bytes_at(repo: &Repository, rev: &str, path: &str) -> GitResult<Vec<u8>> {
         });
     }
     let blob = repo
-        .find_blob(entry.id())
-        .map_err(|error| GitError::object(&entry.id().to_string(), error))?;
+        .find_blob(id)
+        .map_err(|error| GitError::object(&id.to_string(), error))?;
     Ok(blob.content().to_vec())
 }
 

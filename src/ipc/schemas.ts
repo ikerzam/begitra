@@ -311,6 +311,10 @@ export type DiffOptions = v.InferOutput<typeof DiffOptionsSchema>;
 export const BlobAtSchema = v.variant("kind", [
   v.object({ kind: v.literal("working-tree") }),
   v.object({ kind: v.literal("revision"), rev: v.string() }),
+  /** The staged version: the index entry at stage 0. */
+  v.object({ kind: v.literal("index") }),
+  /** The merge base of two revisions: the old side of `a...b`. */
+  v.object({ kind: v.literal("merge-base"), a: v.string(), b: v.string() }),
 ]);
 export type BlobAt = v.InferOutput<typeof BlobAtSchema>;
 

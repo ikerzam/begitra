@@ -988,6 +988,11 @@ fn write_fixtures() {
             BlobAt::Revision {
                 rev: "HEAD".to_owned(),
             },
+            BlobAt::Index,
+            BlobAt::MergeBase {
+                a: "main".to_owned(),
+                b: "feature/tiles".to_owned(),
+            },
         ],
     );
     write(

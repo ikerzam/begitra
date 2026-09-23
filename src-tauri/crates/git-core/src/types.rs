@@ -508,6 +508,15 @@ pub enum BlobAt {
         /// Revision holding the file.
         rev: String,
     },
+    /// The file as staged: the index entry at stage 0, which a conflicted path lacks.
+    Index,
+    /// The file at the merge base of two revisions: the old side of `a...b`.
+    MergeBase {
+        /// One end of the three-dot range.
+        a: String,
+        /// The other end.
+        b: String,
+    },
 }
 
 /// One file read whole: text (lossy UTF-8) or bytes (base64) by libgit2's binary heuristic.
