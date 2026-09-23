@@ -15,6 +15,7 @@ function line(kind: DiffLine["kind"], n: number, text: string): DiffLine {
 }
 
 export function changedFile(path: string, extra: Partial<FileChange> = {}): FileChange {
+  const status = extra.status ?? "modified";
   return {
     status: "modified",
     path,
@@ -42,8 +43,9 @@ export function changedFile(path: string, extra: Partial<FileChange> = {}): File
     isGenerated: false,
     isTest: false,
     isLossy: false,
-    oldId: null,
-    newId: null,
+    // Ids as the engine gives them, none for a side the file does not have.
+    oldId: status === "added" ? null : `old:${path}`,
+    newId: status === "deleted" ? null : `new:${path}`,
     ...extra,
   };
 }
