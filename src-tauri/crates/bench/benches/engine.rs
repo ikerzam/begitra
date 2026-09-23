@@ -721,6 +721,41 @@ fn touch_files(root: &Path, files: &[String]) {
     }
 }
 
+/// The first page of 200 files of the working tree against the index with 1,000 files
+/// modified: what the changes screen waits for, every working-tree side hashed from disk for
+/// the review marks. Restores the tree afterwards.
+fn diff_working_tree_first_page(c: &mut Criterion) {
+    let mut group = c.benchmark_group("diff_working_tree_first_page");
+    group.sample_size(10);
+    for target in present() {
+        let engine = engine(&target.path);
+        let files = tracked_files(&target.path, 1_000);
+        if files.len() < 1_000 {
+            eprintln!(
+                "skipping diff_working_tree_first_page on {}: fewer than 1,000 tracked files",
+                target.name
+            );
+            continue;
+        }
+        touch_files(&target.path, &files);
+        let unstaged = DiffTarget::WorkingTree {
+            base: WorkingTreeBase::Index,
+        };
+        group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+            b.iter(|| {
+                let mut walk = e
+                    .diff_pages(&unstaged, &DiffOptions::default(), 200, &Cancel::never())
+                    .expect("diff");
+                walk.next_page(&Cancel::never()).expect("page")
+            });
+        });
+        engine
+            .discard_paths(&files, &[], &Cancel::never())
+            .expect("restore the tree");
+    }
+    group.finish();
+}
+
 /// Staging and unstaging ten thousand modified files: the pathspec list travels on stdin,
 /// git hashes every file on the add. Restores the tree afterwards. No budget.
 fn stage_unstage_10k(c: &mut Criterion) {
@@ -933,6 +968,7 @@ criterion_group!(
     worktrees,
     worktree_dashboard,
     worktree_add_remove,
+    diff_working_tree_first_page,
     stage_unstage_10k,
     apply_selection_5k,
     fetch_push_bare
