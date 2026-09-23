@@ -396,6 +396,8 @@
     "saveNote": "Save",
     "editNote": "Edit note",
     "deleteNote": "Delete note",
+    "copyNotes": "Copy as Markdown",
+    "notesCopied": "Review notes copied as Markdown",
     "target": {
       "worktree": "Working tree",
       "index": "Staged changes",
@@ -442,6 +444,7 @@
       "diff-from": "Diff from…",
       "review-worktree": "Review working tree changes",
       "review-index": "Review staged changes",
+      "copy-review-notes": "Copy review notes as Markdown",
       "review-selected-commit": "Review selected commit",
       "toggle-layout": "Toggle side by side",
       "toggle-wrap": "Toggle word wrap",

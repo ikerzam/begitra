@@ -38,6 +38,9 @@ export interface PaletteActions {
   reviewIndex: () => Promise<void>;
   reviewSelectedCommit: () => Promise<void>;
   hasSelectedCommit: () => boolean;
+  /** Copies the review notes of the current target as Markdown. */
+  copyReviewNotes: () => Promise<void>;
+  hasReviewNotes: () => boolean;
   inReview: () => boolean;
   toggleLayout: () => Promise<void>;
   toggleWrap: () => Promise<void>;
@@ -180,6 +183,12 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       labelKey: "palette.commandsById.review-selected-commit",
       enabled: () => withRepo() && actions.hasSelectedCommit(),
       run: actions.reviewSelectedCommit,
+    },
+    {
+      id: "copy-review-notes",
+      labelKey: "palette.commandsById.copy-review-notes",
+      enabled: () => withRepo() && actions.hasReviewNotes(),
+      run: actions.copyReviewNotes,
     },
     {
       id: "toggle-layout",

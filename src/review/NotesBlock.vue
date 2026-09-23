@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // The Notes block of the review rail: one note per file of the target (path in mono, the
-// text), "Add note" for the open file, and an inline editor to write, change or delete one.
+// text), "Add note" for the open file, "Copy as Markdown" for them all, and an inline editor
+// to write, change or delete one.
 
-import { Pencil, Plus, Trash2 } from "@lucide/vue";
+import { Copy, Pencil, Plus, Trash2 } from "@lucide/vue";
 import { computed, nextTick, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -11,8 +12,11 @@ import IconButton from "@/components/IconButton.vue";
 import Textarea from "@/components/Textarea.vue";
 import { useReviewStore } from "@/stores/review";
 
+import { useNotesExport } from "./useNotesExport";
+
 const { t } = useI18n();
 const review = useReviewStore();
+const { canCopy, copyNotes } = useNotesExport();
 
 const editing = ref<string | null>(null);
 const draft = ref("");
@@ -66,15 +70,24 @@ function onKeydown(event: KeyboardEvent): void {
   <div class="flex flex-col gap-2 border-t border-line px-3 pt-3" data-testid="notes-block">
     <div class="flex items-center justify-between">
       <h3 class="text-lg font-semibold text-fg">{{ t("review.notes") }}</h3>
-      <Button
-        variant="ghost"
-        :icon="Plus"
-        :disabled="!canAdd"
-        data-testid="add-note"
-        @click="openPath && edit(openPath)"
-      >
-        {{ t("review.addNote") }}
-      </Button>
+      <div class="flex items-center gap-1">
+        <IconButton
+          :icon="Copy"
+          :label="t('review.copyNotes')"
+          :disabled="!canCopy"
+          data-testid="copy-notes"
+          @click="copyNotes()"
+        />
+        <Button
+          variant="ghost"
+          :icon="Plus"
+          :disabled="!canAdd"
+          data-testid="add-note"
+          @click="openPath && edit(openPath)"
+        >
+          {{ t("review.addNote") }}
+        </Button>
+      </div>
     </div>
     <div v-if="editing !== null" class="flex flex-col gap-2" data-testid="note-editor">
       <span class="truncate font-mono text-mono-sm text-fg-secondary">{{ editing }}</span>

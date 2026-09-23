@@ -8,6 +8,7 @@ import { useAddScanFolder } from "@/discovery/useAddScanFolder";
 import { useDiscoveryFormat } from "@/discovery/useDiscoveryFormat";
 import { setLocale } from "@/i18n";
 import type { IndexEntry } from "@/ipc/schemas";
+import { useNotesExport } from "@/review/useNotesExport";
 import { useExternal } from "@/shell/useExternal";
 import { useOpenFolder } from "@/shell/useOpenFolder";
 import { useIndexStore } from "@/stores/index";
@@ -36,6 +37,7 @@ export function usePaletteActions(): PaletteActions {
   const { addScanFolder } = useAddScanFolder();
   const external = useExternal();
   const review = useReviewStore();
+  const notesExport = useNotesExport();
   const picker = usePickerStore();
   const compare = useCompareStore();
   const worktrees = useWorktreesStore();
@@ -91,6 +93,8 @@ export function usePaletteActions(): PaletteActions {
       await shell.setLayoutMode("review");
     },
     hasSelectedCommit: () => repo.selectedCommit !== undefined,
+    copyReviewNotes: notesExport.copyNotes,
+    hasReviewNotes: () => notesExport.canCopy.value,
     inReview: () => shell.layoutMode === "review",
     toggleLayout: () => review.setLayout(review.layout === "unified" ? "side-by-side" : "unified"),
     toggleWrap: () => review.setWrap(!review.wrap),

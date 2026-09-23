@@ -60,6 +60,7 @@ interface ActionOptions {
   hasRepository?: boolean;
   pinned?: boolean | null;
   hasScanFolders?: boolean;
+  hasReviewNotes?: boolean;
 }
 
 function actions(options: ActionOptions | boolean = {}): PaletteActions & { calls: string[] } {
@@ -67,6 +68,7 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
     hasRepository = true,
     pinned = false,
     hasScanFolders = true,
+    hasReviewNotes = false,
   } = typeof options === "boolean" ? { hasRepository: options } : options;
   const calls: string[] = [];
   const record = (name: string) => () => {
@@ -123,6 +125,11 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
       return Promise.resolve();
     },
     hasSelectedCommit: () => hasRepository,
+    copyReviewNotes: () => {
+      calls.push("copyReviewNotes");
+      return Promise.resolve();
+    },
+    hasReviewNotes: () => hasReviewNotes,
     inReview: () => false,
     toggleLayout: () => {
       calls.push("toggleLayout");
@@ -271,6 +278,15 @@ describe("usePalette", () => {
     palette.query.value = "rev focus";
     expect(palette.rows.value.map((r) => r.label)).toEqual(["Switch to review focus"]);
     expect(palette.isEmpty.value).toBe(false);
+  });
+
+  it("offers to copy the review notes only when the target has some, and runs it", async () => {
+    expect(setup().palette.rows.value.map((r) => r.command.id)).not.toContain("copy-review-notes");
+    const { palette, acts } = setup({ hasReviewNotes: true });
+    const row = palette.rows.value.find((r) => r.command.id === "copy-review-notes");
+    expect(row).toBeDefined();
+    await row!.command.run();
+    expect(acts.calls).toContain("copyReviewNotes");
   });
 
   it("hides repository commands without a repository, and Scan folders without folders", () => {

@@ -5,24 +5,13 @@
 import { useI18n } from "vue-i18n";
 
 import type { CommitNode } from "@/ipc/schemas";
+import { copyText } from "@/shell/clipboard";
 import { shortHash } from "@/shell/format";
 import { useExternal } from "@/shell/useExternal";
 import { useBranchesStore } from "@/stores/branches";
 import { useGraphStore } from "@/stores/graph";
 import { usePickerStore } from "@/stores/picker";
 import { useToastsStore } from "@/stores/toasts";
-
-/** Writes `text` to the clipboard; false when the webview offers none. */
-export async function copyText(text: string): Promise<boolean> {
-  const clipboard = typeof navigator === "undefined" ? undefined : navigator.clipboard;
-  if (!clipboard?.writeText) return false;
-  try {
-    await clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 export function useCommitActions() {
   const { t } = useI18n();

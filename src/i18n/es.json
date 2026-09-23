@@ -396,6 +396,8 @@
     "saveNote": "Guardar",
     "editNote": "Editar nota",
     "deleteNote": "Borrar nota",
+    "copyNotes": "Copiar como Markdown",
+    "notesCopied": "Notas de la revisión copiadas como Markdown",
     "target": {
       "worktree": "Árbol de trabajo",
       "index": "Cambios preparados",
@@ -442,6 +444,7 @@
       "diff-from": "Diff desde…",
       "review-worktree": "Revisar cambios del árbol de trabajo",
       "review-index": "Revisar cambios preparados",
+      "copy-review-notes": "Copiar las notas de la revisión como Markdown",
       "review-selected-commit": "Revisar el commit seleccionado",
       "toggle-layout": "Alternar lado a lado",
       "toggle-wrap": "Alternar ajuste de líneas",
