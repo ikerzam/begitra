@@ -184,11 +184,13 @@ impl Git2Engine {
     }
 
     /// The merge base of two commits through `repo`, remembered for the last pair: the
-    /// comparison and every file of it read at its merge base ask for the same one, and the
-    /// walk costs seconds between distant commits of a large history. Commits never change,
-    /// so the entry cannot go stale; a branch name is resolved to its commit before this.
+    /// comparison, its three-dot diff and every file of it read at its merge base ask for
+    /// the same one, and the walk costs seconds between distant commits of a large history.
+    /// Commits never change, so the entry cannot go stale; a branch name is resolved to its
+    /// commit before this. The pair is kept in order: when two merge bases tie, libgit2's
+    /// pick depends on it, and a swapped comparison must get its own.
     fn merge_base_of(&self, repo: &Repository, one: Oid, two: Oid) -> Result<Oid, git2::Error> {
-        let key = if one <= two { (one, two) } else { (two, one) };
+        let key = (one, two);
         let remembered = |cache: &Option<((Oid, Oid), Oid)>| {
             cache.and_then(|(pair, base)| (pair == key).then_some(base))
         };

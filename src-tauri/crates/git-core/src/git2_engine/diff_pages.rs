@@ -88,7 +88,7 @@ pub(super) fn start(
     let (gitdir, target): (PathBuf, DiffTarget) = engine.with_repo(|repo| {
         Ok((
             repo.path().to_path_buf(),
-            diff::resolve_target(repo, target)?,
+            diff::resolve_target(engine, repo, target)?,
         ))
     })?;
     let generated_attributes = engine.generated_attributes_present();
@@ -308,6 +308,7 @@ mod tests {
                 Ok((
                     repo.path().to_path_buf(),
                     diff::resolve_target(
+                        &engine,
                         repo,
                         &DiffTarget::Commits {
                             from: from.to_string(),

@@ -282,3 +282,78 @@ fn the_merge_base_of_two_revisions_is_read_as_the_old_side_of_three_dots() {
         .expect_err("rev");
     assert_eq!(unknown.code(), "refs.not_found");
 }
+
+#[test]
+fn the_index_side_of_a_path_is_its_own_entry_under_core_ignorecase() {
+    let f = Fixture::basic();
+    // Two entries that differ only by case, as a repository made on Linux holds them (the
+    // kernel has xt_connmark.h and xt_CONNMARK.h); ignorecase is what Windows and macOS set.
+    f.git(&["config", "core.ignorecase", "true"]);
+    for (name, text) in [("Case.txt", "UPPER\n"), ("case.txt", "lower\n")] {
+        f.write("blob.tmp", text);
+        let id = f.git(&["hash-object", "-w", "blob.tmp"]);
+        f.git(&[
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            &format!("100644,{id},{name}"),
+        ]);
+    }
+    f.remove("blob.tmp");
+    let engine = engine(&f);
+    for (name, text) in [("Case.txt", "UPPER\n"), ("case.txt", "lower\n")] {
+        assert_eq!(f.git(&["show", &format!(":{name}")]) + "\n", text);
+        let staged = engine.read_blob(&BlobAt::Index, name).expect(name);
+        assert_eq!(staged.text.as_deref(), Some(text), "{name}");
+    }
+    // A path the index holds under another case is not staged, for git.
+    for name in ["CASE.TXT", "readme.md"] {
+        assert!(!f.try_git(&["show", &format!(":{name}")]).0, "{name}");
+        let error = engine.read_blob(&BlobAt::Index, name).expect_err(name);
+        assert_eq!(error.code(), "refs.not_found", "{name}");
+    }
+}
+
+#[test]
+fn a_deleted_index_file_holds_nothing() {
+    let f = Fixture::basic();
+    f.write("src/lib.rs", "staged\n");
+    f.git(&["add", "src/lib.rs"]);
+    let engine = engine(&f);
+    let staged = engine
+        .read_blob(&BlobAt::Index, "src/lib.rs")
+        .expect("staged");
+    assert_eq!(staged.text.as_deref(), Some("staged\n"));
+    fs::remove_file(f.git_dir().join("index")).expect("remove index");
+    assert!(
+        !f.try_git(&["show", ":src/lib.rs"]).0,
+        "git: not in the index"
+    );
+    let error = engine
+        .read_blob(&BlobAt::Index, "src/lib.rs")
+        .expect_err("no index file");
+    assert_eq!(error.code(), "refs.not_found");
+}
+
+#[test]
+fn a_split_or_sparse_index_is_refused_with_a_readable_error() {
+    // libgit2 cannot read the mandatory `link` and `sdir` extensions that git writes for
+    // these settings; the answer is pinned until a fallback through git exists (the working
+    // tree diffs fail the same way).
+    for setting in [["core.splitIndex", "true"], ["index.sparse", "true"]] {
+        let f = Fixture::basic();
+        f.git(&["config", setting[0], setting[1]]);
+        if setting[0] == "index.sparse" {
+            f.git(&["sparse-checkout", "set", "--cone", "src"]);
+        }
+        f.write("src/lib.rs", "staged\n");
+        f.git(&["add", "src/lib.rs"]);
+        assert_eq!(f.git(&["show", ":src/lib.rs"]), "staged");
+        let engine = engine(&f);
+        let error = engine
+            .read_blob(&BlobAt::Index, "src/lib.rs")
+            .expect_err("unsupported index extension");
+        assert_eq!(error.code(), "internal", "{setting:?}");
+        assert!(error.to_string().contains("extension"), "{error}");
+    }
+}

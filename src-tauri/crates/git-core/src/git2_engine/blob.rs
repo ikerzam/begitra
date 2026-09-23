@@ -58,12 +58,29 @@ fn bytes_in_index(repo: &Repository, path: &str) -> GitResult<Vec<u8>> {
     let unknown = || GitError::RefNotFound(format!("index:{path}"));
     let lookup = super::index_path(path).ok_or_else(unknown)?;
     let mut index = repo.index()?;
-    index.read(false)?;
+    // Without the file libgit2 keeps what it read last unless forced, where git has nothing.
+    let deleted = !repo.path().join("index").exists();
+    index.read(deleted)?;
     let entry = index.get_path(lookup, 0).ok_or_else(unknown)?;
+    // Under `core.ignorecase` (Windows and macOS) the lookup also finds a path that differs
+    // only in case, which git does not stage as this one.
+    let entry = if entry.path == path.as_bytes() {
+        entry
+    } else {
+        index
+            .iter()
+            .find(|other| other.path == path.as_bytes() && stage(other) == 0)
+            .ok_or_else(unknown)?
+    };
     if entry.mode & 0o170000 == GITLINK {
         return Err(unknown());
     }
     blob_bytes(repo, entry.id)
+}
+
+/// The merge stage of an index entry: 0 when staged, 1 to 3 while it conflicts.
+fn stage(entry: &git2::IndexEntry) -> u16 {
+    (entry.flags >> 12) & 0x3
 }
 
 /// The raw bytes of `path` at `rev`, bounded by [`BLOB_LIMIT`].

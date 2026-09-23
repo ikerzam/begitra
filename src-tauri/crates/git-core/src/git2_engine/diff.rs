@@ -165,7 +165,11 @@ pub(super) fn attribute_sources(repo: &Repository) -> Vec<std::path::PathBuf> {
 /// to parse and no merge base to walk (a merge base on a cold handle costs two hundred
 /// milliseconds on the kernel; on the engine's warm handle, a tenth of that). Unknown
 /// revisions and unrelated histories fail here, before any thread starts.
-pub(super) fn resolve_target(repo: &Repository, target: &DiffTarget) -> GitResult<DiffTarget> {
+pub(super) fn resolve_target(
+    engine: &super::Git2Engine,
+    repo: &Repository,
+    target: &DiffTarget,
+) -> GitResult<DiffTarget> {
     let hash = |rev: &str| super::resolve_commit(repo, rev).map(|oid| oid.to_string());
     Ok(match target {
         DiffTarget::Commit { hash: rev } => DiffTarget::Commit { hash: hash(rev)? },
@@ -185,15 +189,13 @@ pub(super) fn resolve_target(repo: &Repository, target: &DiffTarget) -> GitResul
         } => {
             let from_commit = super::resolve_commit(repo, from)?;
             let to_commit = super::resolve_commit(repo, to)?;
-            let base =
-                repo.merge_base(from_commit, to_commit)
-                    .map_err(|error| match error.code() {
-                        ErrorCode::NotFound => GitError::UnrelatedHistories {
-                            a: from.clone(),
-                            b: to.clone(),
-                        },
-                        _ => GitError::from(error),
-                    })?;
+            // The engine's merge base, so the comparison, this diff and the files read at the
+            // base agree even when two bases tie.
+            let base = super::refs::unrelated_as_error(
+                engine.merge_base_of(repo, from_commit, to_commit),
+                from,
+                to,
+            )?;
             DiffTarget::Commits {
                 from: base.to_string(),
                 to: to_commit.to_string(),
