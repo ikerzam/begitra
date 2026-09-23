@@ -332,6 +332,171 @@ fn every_file_carries_the_ids_of_its_blobs() {
     assert_eq!(staged.new_id, id(":src/lib.rs"));
 }
 
+/// A submodule's working side is the commit checked out in it, which `git diff` prints as
+/// `+Subproject commit <new>`: hashing the folder gives no id, and every state of the
+/// submodule would share one, keeping a mark it was not given for.
+#[test]
+fn a_submodules_working_side_is_its_checked_out_commit() {
+    let mut f = Fixture::basic();
+    let source = f.sibling("subsrc");
+    let source_path = source.to_str().expect("utf-8 temp path").to_owned();
+    f.git(&["init", "-q", "-b", "main", &source_path]);
+    for i in 1..=3 {
+        fs::write(source.join("s.txt"), format!("s{i}\n")).expect("write");
+        f.git_in(&source, &["add", "s.txt"]);
+        f.git_in(&source, &["commit", "-q", "-m", &format!("s{i}")]);
+    }
+    f.git(&[
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "add",
+        "-q",
+        &source_path,
+        "sub",
+    ]);
+    f.commit("add submodule");
+    let sub = f.root.join("sub");
+    let mut seen = Vec::new();
+    for _ in 0..2 {
+        f.git_in(&sub, &["checkout", "-q", "HEAD~1"]);
+        let checked_out = f.git_in(&sub, &["rev-parse", "HEAD"]);
+        for base in [
+            WorkingTreeBase::Index,
+            WorkingTreeBase::Head,
+            WorkingTreeBase::Revision {
+                rev: "HEAD".to_owned(),
+            },
+        ] {
+            let set = diff(&f, &DiffTarget::WorkingTree { base: base.clone() });
+            let entry = file(&set, "sub");
+            let old = if base == WorkingTreeBase::Index {
+                ":sub"
+            } else {
+                "HEAD:sub"
+            };
+            assert_eq!(entry.old_id, Some(f.rev(old)), "{base:?}");
+            assert_eq!(
+                entry.new_id.as_deref(),
+                Some(checked_out.as_str()),
+                "{base:?}"
+            );
+        }
+        seen.push(checked_out);
+    }
+    assert_ne!(seen[0], seen[1]);
+}
+
+/// An intent-to-add file is an addition for `git diff` (`index 0000000..`): the index's
+/// empty blob is a placeholder, not an old side, so `git add -N` keeps the file's ids.
+#[test]
+fn an_intent_to_add_file_has_no_old_blob() {
+    let f = Fixture::basic();
+    f.write("ita.txt", "new\n");
+    let target = DiffTarget::WorkingTree {
+        base: WorkingTreeBase::Index,
+    };
+    let untracked = diff(&f, &target);
+    f.git(&["add", "-N", "ita.txt"]);
+    let intent = diff(&f, &target);
+    let added = file(&intent, "ita.txt");
+    assert_eq!(added.status, ChangeKind::Added);
+    assert_eq!(added.old_id, None);
+    assert_eq!(
+        added.new_id,
+        Some(f.git(&["hash-object", "--no-filters", "ita.txt"]))
+    );
+    let before = file(&untracked, "ita.txt");
+    assert_eq!(
+        (&added.old_id, &added.new_id),
+        (&before.old_id, &before.new_id)
+    );
+}
+
+/// Under `core.autocrlf` the working side is the id of the bytes on disk, not the blob git
+/// would store: git2 offers no filtered hash that writes nothing. A rewrite of line endings
+/// alone then asks for a new review, which is the safe side of the choice.
+#[test]
+fn the_working_side_under_autocrlf_is_the_unfiltered_bytes() {
+    let mut f = Fixture::basic();
+    f.git(&["config", "core.autocrlf", "true"]);
+    f.write("crlf.txt", "one\r\ntwo\r\n");
+    f.commit("crlf");
+    f.write("crlf.txt", "one\r\nTWO\r\n");
+    let set = diff(
+        &f,
+        &DiffTarget::WorkingTree {
+            base: WorkingTreeBase::Index,
+        },
+    );
+    let changed = file(&set, "crlf.txt");
+    let unfiltered = f.git(&["hash-object", "--no-filters", "crlf.txt"]);
+    assert_eq!(changed.new_id.as_deref(), Some(unfiltered.as_str()));
+    assert_ne!(unfiltered, f.git(&["hash-object", "crlf.txt"]));
+}
+
+/// A symbolic link's working side is the blob of its link text, as git stores it, not the
+/// file it points to (which can change while the link does not, and the other way round).
+#[cfg(unix)]
+#[test]
+fn a_working_tree_symlink_is_hashed_as_its_link_text() {
+    use std::os::unix::fs::symlink;
+    let mut f = Fixture::basic();
+    f.git(&["config", "core.symlinks", "true"]);
+    f.write("a.txt", "same\n");
+    f.write("b.txt", "same\n");
+    symlink("a.txt", f.root.join("link")).expect("symlink");
+    f.commit("link");
+    let blob_of = |text: &str| {
+        let probe = f.sibling("blob-probe");
+        fs::write(&probe, text).expect("probe");
+        Some(f.git(&[
+            "hash-object",
+            "--no-filters",
+            probe.to_str().expect("utf-8 temp path"),
+        ]))
+    };
+    let target = DiffTarget::WorkingTree {
+        base: WorkingTreeBase::Index,
+    };
+    for text in ["b.txt", "missing", "src"] {
+        fs::remove_file(f.root.join("link")).expect("remove link");
+        symlink(text, f.root.join("link")).expect("symlink");
+        let set = diff(&f, &target);
+        let changed = file(&set, "link");
+        assert_eq!(changed.old_id, blob_of("a.txt"), "-> {text}");
+        assert_eq!(changed.new_id, blob_of(text), "-> {text}");
+    }
+}
+
+/// A working file whose name is not UTF-8 is hashed from its own name, not from the lossy
+/// path the change set shows, which names no file.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_working_file_with_a_non_utf8_name_is_hashed() {
+    use std::os::unix::ffi::OsStrExt;
+    let mut f = Fixture::basic();
+    let name = std::ffi::OsStr::from_bytes(b"caf\xe9.txt");
+    fs::write(f.root.join(name), "one\n").expect("write");
+    f.commit("latin-1 name");
+    let target = DiffTarget::WorkingTree {
+        base: WorkingTreeBase::Index,
+    };
+    for content in ["two\n", "three\n"] {
+        fs::write(f.root.join(name), content).expect("write");
+        let set = diff(&f, &target);
+        assert_eq!(set.files.len(), 1);
+        let probe = f.sibling("blob-probe");
+        fs::write(&probe, content).expect("probe");
+        let expected = f.git(&[
+            "hash-object",
+            "--no-filters",
+            probe.to_str().expect("utf-8 temp path"),
+        ]);
+        assert_eq!(set.files[0].new_id.as_deref(), Some(expected.as_str()));
+    }
+}
+
 #[test]
 fn working_tree_and_index_diffs_match_git() {
     let f = Fixture::basic().with_mixed_status();

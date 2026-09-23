@@ -549,6 +549,7 @@ pub(super) fn collect_range(
         let Some(mut status) = change_kind(delta.status()) else {
             continue;
         };
+        let mut intent_to_add = false;
         if let Some(index_file) = index_file {
             let path = delta
                 .old_file()
@@ -564,6 +565,7 @@ pub(super) fn collect_range(
                 && super::index_flag(index_file, &path, IndexEntryExtendedFlag::INTENT_TO_ADD)
             {
                 status = ChangeKind::Added;
+                intent_to_add = true;
             }
         }
         let patch = Patch::from_diff(diff, index).map_err(|error| {
@@ -595,7 +597,11 @@ pub(super) fn collect_range(
         // The working tree's side is always hashed from disk, so one content has one id
         // whether or not libgit2 hashed the file (its hash goes through the filters).
         if working_tree && status != ChangeKind::Deleted {
-            file.new_id = disk_id(repo, &file.path);
+            file.new_id = working_id(repo, &delta.new_file());
+        }
+        // The index's empty blob of `git add -N` is a placeholder, not an old side.
+        if intent_to_add {
+            file.old_id = None;
         }
         additions = additions.saturating_add(file.additions);
         deletions = deletions.saturating_add(file.deletions);
@@ -715,14 +721,41 @@ fn known_id(file: &git2::DiffFile<'_>) -> Option<String> {
     (file.exists() && file.is_valid_id() && !id.is_zero()).then(|| id.to_string())
 }
 
-/// The id of a working tree file's bytes as they are on disk, without git's clean filters and
-/// without writing an object: it changes exactly when the file does, which is what a review
-/// mark compares. `None` when the file cannot be read (a folder, a dangling link).
-fn disk_id(repo: &Repository, path: &str) -> Option<String> {
-    let root = repo.workdir()?;
-    git2::Oid::hash_file(git2::ObjectType::Blob, root.join(path))
-        .ok()
-        .map(|id| id.to_string())
+/// The id of a working tree side, which changes exactly when that side does (what a review
+/// mark compares): the commit checked out in a submodule, the blob of a symbolic link's
+/// text, and otherwise the blob of the file's bytes as they are on disk, without git's clean
+/// filters and without writing an object. The file is named by the delta's own path, not the
+/// lossy one the change set shows. `None` when the side cannot be read.
+fn working_id(repo: &Repository, file: &git2::DiffFile<'_>) -> Option<String> {
+    let id = file.id();
+    if file.mode() == git2::FileMode::Commit {
+        // libgit2 reads the submodule's HEAD without marking the id valid.
+        return (!id.is_zero()).then(|| id.to_string());
+    }
+    let path = repo.workdir()?.join(file.path()?);
+    let hashed = if file.mode() == git2::FileMode::Link {
+        match std::fs::read_link(&path) {
+            Ok(target) => git2::Oid::hash_object(git2::ObjectType::Blob, &link_text(&target)),
+            // Without `core.symlinks` the link is checked out as a file holding its text.
+            Err(_) => git2::Oid::hash_file(git2::ObjectType::Blob, &path),
+        }
+    } else {
+        git2::Oid::hash_file(git2::ObjectType::Blob, &path)
+    };
+    hashed.ok().map(|id| id.to_string())
+}
+
+/// A link's target as git stores it: its bytes, with `/` separators.
+#[cfg(unix)]
+fn link_text(target: &std::path::Path) -> Vec<u8> {
+    use std::os::unix::ffi::OsStrExt;
+    target.as_os_str().as_bytes().to_vec()
+}
+
+/// A link's target as git stores it: its bytes, with `/` separators.
+#[cfg(not(unix))]
+fn link_text(target: &std::path::Path) -> Vec<u8> {
+    target.to_string_lossy().replace('\\', "/").into_bytes()
 }
 
 impl FileMeta {
