@@ -83,7 +83,8 @@ onMounted(() => {
   <SettingsSection :title="t('settings.about.title')">
     <SettingsField :label="t('settings.about.version')">
       <div class="flex items-center gap-2">
-        <BrandMark class="size-5" />
+        <!-- Taller than the line: the negative margin keeps the text on its label's line. -->
+        <BrandMark class="-my-1 size-5" />
         <p class="text-md text-fg" data-testid="about-version">{{ version }}</p>
       </div>
     </SettingsField>

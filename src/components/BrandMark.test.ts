@@ -9,8 +9,8 @@ describe("BrandMark", () => {
     expect(svg.attributes("aria-hidden")).toBe("true");
     const branches = svg.findAll("path").map((path) => path.classes());
     expect(branches).toEqual([["stroke-lane-3"], ["stroke-lane-2"]]);
-    const commits = svg.findAll("circle");
-    expect(commits).toHaveLength(3);
-    expect(commits.every((commit) => commit.classes().includes("fill-fg"))).toBe(true);
+    // Rings of the page background under the two end commits, then the commits and the pupil.
+    const circles = svg.findAll("circle").map((circle) => circle.classes().join(" "));
+    expect(circles).toEqual(["fill-app", "fill-app", "fill-fg", "fill-fg", "fill-fg"]);
   });
 });
