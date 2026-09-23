@@ -7,7 +7,7 @@ use std::sync::OnceLock;
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
-use syntect::parsing::{ParseState, Scope, ScopeStack, ScopeStackOp, SyntaxReference, SyntaxSet};
+use syntect::parsing::{ParseState, ScopeStack, ScopeStackOp, SyntaxReference, SyntaxSet};
 
 use crate::{within_caps, Cancelled, CANCEL_EVERY, TIME_BUDGET};
 
@@ -17,11 +17,11 @@ use crate::{within_caps, Cancelled, CANCEL_EVERY, TIME_BUDGET};
 pub enum TokenClass {
     /// Anything not listed below; never reported, since a line's gaps are plain.
     Plain,
-    /// A comment, painted muted by the viewer.
+    /// A comment, with its delimiters.
     Comment,
-    /// A string literal, painted secondary by the viewer.
+    /// A string literal, with its quotes.
     String,
-    /// A keyword or storage modifier.
+    /// A keyword, a storage modifier, a language constant or an escape.
     Keyword,
     /// A numeric literal.
     Number,
@@ -92,18 +92,23 @@ fn syntax_for<'s>(set: &'s SyntaxSet, path: &str, text: &str) -> Option<&'s Synt
     })
 }
 
-/// The class of a scope stack: the innermost scope that names a class wins.
-fn class_of(stack: &ScopeStack) -> TokenClass {
+/// The class of a scope stack (the innermost scope that names a class wins) and whether
+/// that scope is an operator's, whose class also depends on its text (see [`worded`]).
+fn class_of(stack: &ScopeStack) -> (TokenClass, bool) {
     for scope in stack.as_slice().iter().rev() {
-        if let Some(class) = class_of_scope(*scope) {
-            return class;
+        let text = scope.build_string();
+        if let Some(class) = class_named(&text) {
+            // JavaScript scopes `=>` as the storage of a function, the others their
+            // operators as `keyword.operator`.
+            let operator =
+                text.starts_with("keyword.operator") || text.starts_with("storage.type.function");
+            return (class, operator);
         }
     }
-    TokenClass::Plain
+    (TokenClass::Plain, false)
 }
 
-fn class_of_scope(scope: Scope) -> Option<TokenClass> {
-    let text = scope.build_string();
+fn class_named(text: &str) -> Option<TokenClass> {
     let first = text.split('.').next().unwrap_or("");
     match first {
         "comment" => Some(TokenClass::Comment),
@@ -209,9 +214,11 @@ fn classify_line(line: &str, ops: &[(usize, ScopeStackOp)], stack: &mut ScopeSta
     let length = line.trim_end_matches(['\n', '\r']).len();
     let mut at = 0usize;
     let mut class = class_of(stack);
-    let class_at = |class: TokenClass, from: usize, to: usize| {
-        line.get(from..to).map_or(class, |text| worded(class, text))
-    };
+    let class_at =
+        |(class, operator): (TokenClass, bool), from: usize, to: usize| match line.get(from..to) {
+            Some(text) if operator => worded(class, text),
+            _ => class,
+        };
     for (offset, op) in ops {
         let offset = (*offset).min(length);
         if offset > at {
@@ -227,9 +234,10 @@ fn classify_line(line: &str, ops: &[(usize, ScopeStackOp)], stack: &mut ScopeSta
     tokens
 }
 
-/// A keyword is a word: what a grammar scopes as a keyword without a letter in it (`=`, `&&`,
-/// `=>`, `?`) is punctuation, so the keyword colour marks `const`, `new` and `and` rather
-/// than every assignment and arrow.
+/// An operator is a keyword only when it is a word: without a letter (`=`, `&&`, `=>`, `?`)
+/// it is punctuation, so the keyword colour marks `const`, `new` and `and` rather than every
+/// assignment and arrow. Only operators are judged this way: an escape (`\\`), a CSS at-rule
+/// (`@media`) or a C# directive (`#region`) keeps the class its scope gives it.
 fn worded(class: TokenClass, text: &str) -> TokenClass {
     if class == TokenClass::Keyword && !text.chars().any(char::is_alphabetic) {
         TokenClass::Punctuation
@@ -347,6 +355,34 @@ mod tests {
         let tokens = classes(&python.lines[0], "x = a and b");
         assert!(
             tokens.contains(&(TokenClass::Keyword, "and".to_owned())),
+            "{tokens:?}"
+        );
+    }
+
+    #[test]
+    fn only_operators_lose_the_keyword_class() {
+        // Escapes are constants, and a word that starts with a symbol stays whole.
+        let line = r#"const s = "a\\b\"c";"#;
+        let result = highlight("a.js", &format!("{line}\n"), &never).expect("ok");
+        let tokens = classes(&result.lines[0], line);
+        for escape in [r"\\", r#"\""#] {
+            assert!(
+                tokens.contains(&(TokenClass::Keyword, escape.to_owned())),
+                "{escape}: {tokens:?}"
+            );
+        }
+        let css = highlight("a.css", "@media screen { a { color: red; } }\n", &never).expect("ok");
+        let tokens = classes(&css.lines[0], "@media screen { a { color: red; } }");
+        assert!(
+            tokens.contains(&(TokenClass::Keyword, "@media".to_owned())),
+            "{tokens:?}"
+        );
+        let csharp = highlight("A.cs", "#region Tiles\n", &never).expect("ok");
+        let tokens = classes(&csharp.lines[0], "#region Tiles");
+        assert!(
+            !tokens
+                .iter()
+                .any(|(class, s)| *class == TokenClass::Punctuation && s == "#"),
             "{tokens:?}"
         );
     }
