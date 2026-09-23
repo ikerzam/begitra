@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// The settings' About section: the version, the log file with "Open logs folder",
+// The settings' About section: the mark with the version, the log file with "Open logs folder",
 // and the update check: nothing runs until the control is pressed; the version found offers
 // "Download and install" (the progress in the status bar), then "Restart". One button
 // element carries every state, so the focus stays on it while the check or the download runs
@@ -9,6 +9,7 @@ import { FolderOpen, RefreshCw } from "@lucide/vue";
 import { computed, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
 
+import BrandMark from "@/components/BrandMark.vue";
 import Button from "@/components/Button.vue";
 import ErrorBanner from "@/components/ErrorBanner.vue";
 import { useSettingsScreenStore } from "@/stores/settingsScreen";
@@ -81,7 +82,10 @@ onMounted(() => {
 <template>
   <SettingsSection :title="t('settings.about.title')">
     <SettingsField :label="t('settings.about.version')">
-      <p class="text-md text-fg" data-testid="about-version">{{ version }}</p>
+      <div class="flex items-center gap-2">
+        <BrandMark class="size-5" />
+        <p class="text-md text-fg" data-testid="about-version">{{ version }}</p>
+      </div>
     </SettingsField>
     <SettingsField :label="t('settings.about.logs')" :hint="t('settings.about.logsHint')" wide>
       <div class="flex items-center gap-3">

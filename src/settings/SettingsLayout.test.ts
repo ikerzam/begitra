@@ -245,7 +245,10 @@ describe("SettingsLayout", () => {
     const wrapper = mountWithI18n(SettingsLayout, { attachTo: document.body });
     await flushPromises();
     await nextTick();
-    expect(wrapper.get('[data-testid="about-version"]').text()).toBe("Begitra 0.1.0");
+    const version = wrapper.get('[data-testid="about-version"]');
+    expect(version.text()).toBe("Begitra 0.1.0");
+    // The mark sits before the version line, in the same row.
+    expect(version.element.previousElementSibling?.getAttribute("data-testid")).toBe("brand-mark");
     expect(wrapper.get('[data-testid="about-log-file"]').text()).toBe(
       "/home/iker/.local/share/dev.begitra.app/logs/begitra-2026-09-22.log",
     );

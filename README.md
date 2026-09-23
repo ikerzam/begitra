@@ -1,7 +1,10 @@
+<img src="design/brand/begitra-icon.svg" alt="" width="96">
+
 # Begitra
 
 Begitra is a desktop Git client for reading and reviewing large volumes of AI-generated code on
-standard Git repositories. It is built with Tauri 2, Rust (`git2`, `rusqlite`) and Vue 3.
+standard Git repositories. It is built with Tauri 2, Rust (`git2`, `rusqlite`) and Vue 3. The name
+is "begira", Basque for "look!", with git inside it.
 
 
 ## Prerequisites
