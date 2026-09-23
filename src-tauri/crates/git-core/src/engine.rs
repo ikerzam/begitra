@@ -163,8 +163,11 @@ pub trait GitEngine: Send + Sync {
     /// objects). Cancellation stops the child process and what it started.
     fn merge_preview(&self, a: &str, b: &str, cancel: &Cancel) -> GitResult<MergePreview>;
 
-    /// Reads one file whole at a revision or in the working tree, at most 20 MB
-    /// ([`GitError::BlobTooLarge`]); an unknown path is [`GitError::RefNotFound`].
+    /// Reads one file whole at a revision, in the index, at the merge base of two revisions
+    /// or in the working tree, at most 20 MB ([`GitError::BlobTooLarge`]). An unknown path is
+    /// [`GitError::RefNotFound`], and so are a path with no staged version (a conflicted one)
+    /// and a submodule in the index; two revisions without a merge base are
+    /// [`GitError::UnrelatedHistories`].
     fn read_blob(&self, at: &BlobAt, path: &str) -> GitResult<BlobContent>;
 
     /// Lists the main worktree and every linked worktree.

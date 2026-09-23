@@ -26,7 +26,7 @@ fn looks_binary(bytes: &[u8]) -> bool {
 }
 
 /// Reads `path` at `at`; see [`crate::engine::GitEngine::read_blob`].
-#[tracing::instrument(level = "debug", skip_all, fields(path))]
+#[tracing::instrument(level = "debug", skip_all, fields(path = %path, at = ?at))]
 pub(super) fn read(engine: &Git2Engine, at: &BlobAt, path: &str) -> GitResult<BlobContent> {
     match at {
         BlobAt::WorkingTree => read_working_tree(&engine.repo().root, path),
@@ -47,15 +47,22 @@ pub(super) fn read(engine: &Git2Engine, at: &BlobAt, path: &str) -> GitResult<Bl
     }
 }
 
+/// Mode bits of a submodule (gitlink) entry: its id is a commit of another repository.
+const GITLINK: u32 = 0o160000;
+
 /// The raw bytes of `path` as staged, bounded by [`BLOB_LIMIT`]. The index is read again
-/// when it changed on disk, since the user's git writes it; a path without a stage-0 entry
-/// (absent, or conflicted) is unknown.
+/// when it changed on disk, since the user's git writes it. A path without a stage-0 entry
+/// (absent, or conflicted), a submodule and a path that is not a plain relative one are
+/// unknown, as they are at a revision.
 fn bytes_in_index(repo: &Repository, path: &str) -> GitResult<Vec<u8>> {
+    let unknown = || GitError::RefNotFound(format!("index:{path}"));
+    let lookup = super::index_path(path).ok_or_else(unknown)?;
     let mut index = repo.index()?;
     index.read(false)?;
-    let entry = index
-        .get_path(Path::new(path), 0)
-        .ok_or_else(|| GitError::RefNotFound(format!("index:{path}")))?;
+    let entry = index.get_path(lookup, 0).ok_or_else(unknown)?;
+    if entry.mode & 0o170000 == GITLINK {
+        return Err(unknown());
+    }
     blob_bytes(repo, entry.id)
 }
 

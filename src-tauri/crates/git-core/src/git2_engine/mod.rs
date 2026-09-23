@@ -510,11 +510,24 @@ pub(super) fn index_flag(
     path: &str,
     flag: git2::IndexEntryExtendedFlag,
 ) -> bool {
-    index
-        .get_path(std::path::Path::new(path), 0)
-        .is_some_and(|entry| {
-            git2::IndexEntryExtendedFlag::from_bits_truncate(entry.flags_extended).contains(flag)
-        })
+    let Some(path) = index_path(path) else {
+        return false;
+    };
+    index.get_path(path, 0).is_some_and(|entry| {
+        git2::IndexEntryExtendedFlag::from_bits_truncate(entry.flags_extended).contains(flag)
+    })
+}
+
+/// `path` as `git2::Index::get_path` takes it, or `None` for what that method panics on (it
+/// unwraps its path conversion): an empty path, one that does not start with a plain name
+/// (`.`, `..`, a root or a drive) and one holding a NUL byte.
+pub(super) fn index_path(path: &str) -> Option<&Path> {
+    let candidate = Path::new(path);
+    let plain = matches!(
+        candidate.components().next(),
+        Some(std::path::Component::Normal(_))
+    );
+    (plain && !path.contains('\0')).then_some(candidate)
 }
 
 /// Resolves `revision` as `git rev-parse` would and peels it to a commit id.

@@ -197,6 +197,51 @@ fn the_index_is_read_as_staged() {
 }
 
 #[test]
+fn the_index_refuses_what_it_does_not_hold_as_a_blob_without_panicking() {
+    let mut f = Fixture::basic();
+    // A submodule is a commit of another repository, not a file of this one.
+    f.git(&[
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        "160000,0123456789abcdef0123456789abcdef01234567,vendor/sub",
+    ]);
+    // A conflicted path has stages 1 to 3 and no staged version.
+    f.git(&["checkout", "-q", "-b", "left"]);
+    f.write("README.md", "# Left\n");
+    f.commit("l1: left");
+    f.git(&["checkout", "-q", "-b", "right", "main"]);
+    f.write("README.md", "# Right\n");
+    f.commit("r1: right");
+    let (merged, _, _) = f.try_git(&["merge", "-q", "left"]);
+    assert!(!merged, "the merge conflicts");
+    let engine = engine(&f);
+
+    for path in ["vendor/sub", "README.md"] {
+        let refused = engine
+            .read_blob(&BlobAt::Index, path)
+            .expect_err("no staged blob");
+        assert_eq!(refused.code(), "refs.not_found", "{path}");
+    }
+    // Paths libgit2's index lookup would panic on are unknown paths, as at a revision.
+    for path in [
+        "",
+        ".",
+        "./src/lib.rs",
+        "../x",
+        "/x",
+        "\\x",
+        "C:\\x",
+        "src/\0lib.rs",
+    ] {
+        let refused = engine
+            .read_blob(&BlobAt::Index, path)
+            .expect_err("not a plain path");
+        assert_eq!(refused.code(), "refs.not_found", "{path:?}");
+    }
+}
+
+#[test]
 fn the_merge_base_of_two_revisions_is_read_as_the_old_side_of_three_dots() {
     let mut f = Fixture::basic();
     f.git(&["checkout", "-q", "-b", "side", "v1"]);
