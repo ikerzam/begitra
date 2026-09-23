@@ -140,6 +140,31 @@ fn lists_the_main_and_the_linked_worktree_like_the_cli() {
     assert!(!linked.detached && !linked.locked && !linked.prunable);
 }
 
+/// A worktree whose `gitdir` file names a folder that is not UTF-8 (written on Linux) leaves
+/// the listing working: git2 panics on such a path on Windows, where the worktree is skipped.
+#[test]
+fn a_worktree_folder_that_is_not_utf8_leaves_the_listing_working() {
+    let f = Fixture::basic().with_linked_worktree();
+    let gitdir = f
+        .root
+        .join(".git")
+        .join("worktrees")
+        .join("wt-feature")
+        .join("gitdir");
+    std::fs::write(&gitdir, b"/home/caf\xe9/wt-feature/.git\n").expect("gitdir");
+    let ours = worktrees_at(&f.root);
+    assert!(ours[0].is_main, "{ours:#?}");
+    let linked: Vec<&Worktree> = ours
+        .iter()
+        .filter(|w| w.name.as_deref() == Some("wt-feature"))
+        .collect();
+    if cfg!(windows) {
+        assert!(linked.is_empty(), "{ours:#?}");
+    } else {
+        assert!(linked.iter().all(|w| w.prunable), "{ours:#?}");
+    }
+}
+
 #[test]
 fn marks_a_missing_folder_prunable_and_a_locked_one_locked() {
     let f = Fixture::basic()

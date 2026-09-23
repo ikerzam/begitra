@@ -152,13 +152,15 @@ pub(super) fn attribute_sources(repo: &Repository) -> Vec<std::path::PathBuf> {
         repo.path().join("index"),
         repo.path().join("info").join("attributes"),
     ];
-    if let Some(configured) = repo
-        .config()
-        .ok()
-        .and_then(|config| config.get_path("core.attributesfile").ok())
-    {
-        files.push(configured);
-    }
+    let configured = repo.config().ok().and_then(|config| {
+        // git2's `get_path` panics on a value that is not UTF-8 on Windows, where `get_string`
+        // refuses it with an error.
+        if cfg!(windows) && config.get_string("core.attributesfile").is_err() {
+            return None;
+        }
+        config.get_path("core.attributesfile").ok()
+    });
+    files.extend(configured);
     files
 }
 

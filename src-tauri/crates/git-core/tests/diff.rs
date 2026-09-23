@@ -457,6 +457,25 @@ fn a_working_file_the_patch_does_not_read_is_hashed_from_disk() {
     }
 }
 
+/// A `core.attributesfile` that is not UTF-8 (a configuration saved in another code page)
+/// leaves the diff working: git2 panics on such a path on Windows, where it is left out.
+#[test]
+fn an_attributes_file_setting_that_is_not_utf8_leaves_the_diff_working() {
+    let f = Fixture::basic();
+    f.write("src/lib.rs", "changed\n");
+    let config = f.root.join(".git").join("config");
+    let mut bytes = fs::read(&config).expect("config");
+    bytes.extend_from_slice(b"[core]\n\tattributesfile = C:/Users/Jos\xe9/attributes\n");
+    fs::write(&config, bytes).expect("config");
+    let set = diff(
+        &f,
+        &DiffTarget::WorkingTree {
+            base: WorkingTreeBase::Index,
+        },
+    );
+    assert_eq!(paths(&set), ["src/lib.rs"]);
+}
+
 /// An index entry whose name is not UTF-8 (an index written on Linux) is listed under its
 /// lossy name: git2's `path()` panics on it on Windows, where no file can carry the name.
 #[test]

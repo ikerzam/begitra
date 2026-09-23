@@ -79,8 +79,18 @@ fn main_worktree(repo: &Repository, common_dir: &Path) -> GitResult<Worktree> {
 /// prunable; an unlocked one is prunable when its `.git` link is gone or libgit2 says so.
 fn linked_worktree(repo: &Repository, common_dir: &Path, name: &str) -> GitResult<Worktree> {
     let worktree = repo.find_worktree(name)?;
-    let path = normalize(worktree.path());
     let private_dir = common_dir.join("worktrees").join(name);
+    // git2's `path()` panics on a folder whose name is not UTF-8 on Windows; libgit2 reads it
+    // from the `gitdir` file, so that file is checked first.
+    if cfg!(windows)
+        && std::fs::read(private_dir.join("gitdir"))
+            .is_ok_and(|gitdir| std::str::from_utf8(&gitdir).is_err())
+    {
+        return Err(GitError::Git(format!(
+            "the worktree {name} names a folder that is not UTF-8"
+        )));
+    }
+    let path = normalize(worktree.path());
     let lock = read_lock(&private_dir.join("locked"));
     let locked = lock.is_some();
     let prunable =
