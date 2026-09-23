@@ -85,6 +85,30 @@ describe("remotes store", () => {
     expect(store.sheetOpen).toBe(false);
   });
 
+  it("lists the remotes again on refs: at once in the open sheet, for the next dialog otherwise", async () => {
+    const calls = await open();
+    const store = useRemotesStore();
+    await store.openSheet();
+    const listings = () => of(calls, "remotes").length;
+    const before = listings();
+    // A remote added from a terminal rewrites the configuration, which the watcher reports as
+    // refs.
+    store.onRepoChanged(["status"]);
+    await settled();
+    expect(listings()).toBe(before);
+    store.onRepoChanged(["refs"]);
+    await settled();
+    expect(listings()).toBe(before + 1);
+    store.closeSheet();
+    store.onRepoChanged(["refs"]);
+    await settled();
+    expect(listings()).toBe(before + 1);
+    expect(store.loaded).toBe(false);
+    store.ask({ kind: "push", branch: "main" });
+    await settled();
+    expect(listings()).toBe(before + 2);
+  });
+
   it("pushes with the progress in the status bar, then toasts and refreshes the refs", async () => {
     const calls = await open();
     const store = useRemotesStore();

@@ -99,6 +99,16 @@ export const useRemotesStore = defineStore("remotes", () => {
     sheetOpen.value = false;
   }
 
+  /**
+   * The watcher: `refs` covers the configuration (a remote added from a terminal). The open
+   * sheet lists the remotes again; a list read for a dialog is read again by the next one.
+   */
+  function onRepoChanged(kinds: string[]): void {
+    if (!kinds.includes("refs")) return;
+    if (sheetOpen.value) void load();
+    else loaded.value = false;
+  }
+
   /** Opens a dialog; the push and pull dialogs list the remotes, so they load once. */
   function ask(next: NetworkPrompt): void {
     prompt.value = next;
@@ -294,6 +304,7 @@ export const useRemotesStore = defineStore("remotes", () => {
     load,
     openSheet,
     closeSheet,
+    onRepoChanged,
     ask,
     dismiss,
     add,

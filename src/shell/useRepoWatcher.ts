@@ -2,7 +2,8 @@
 // (a watcher that cannot start becomes a toast: the repository stays open without change
 // detection), and on `repo:changed` refreshes the refs when they changed (and lists the
 // history again when a tip moved, unless the app's own write just did), the worktree list
-// when a worktree came or went, and the index entry on any change. The backend debounces, so
+// when a worktree came or went, the remotes with the refs (the configuration counts as refs),
+// and the index entry on any change. The backend debounces, so
 // nothing is coalesced here.
 
 import type { UnlistenFn } from "@tauri-apps/api/event";
@@ -17,6 +18,7 @@ import { useIndexStore } from "@/stores/index";
 import { useRepoStore } from "@/stores/repo";
 import { useChangesStore } from "@/stores/changes";
 import { useCompareStore } from "@/stores/compare";
+import { useRemotesStore } from "@/stores/remotes";
 import { useReviewStore } from "@/stores/review";
 import { useSequencerStore } from "@/stores/sequencer";
 import { useToastsStore } from "@/stores/toasts";
@@ -34,6 +36,7 @@ export function useRepoWatcher(): void {
   const worktrees = useWorktreesStore();
   const changes = useChangesStore();
   const sequencer = useSequencerStore();
+  const remotes = useRemotesStore();
   let unlisten: UnlistenFn | undefined;
   let disposed = false;
 
@@ -66,6 +69,7 @@ export function useRepoWatcher(): void {
     worktrees.onRepoChanged(change.kinds);
     changes.onRepoChanged(change.kinds);
     sequencer.onRepoChanged(change.kinds);
+    remotes.onRepoChanged(change.kinds);
     void index.refresh(root);
   }
 
