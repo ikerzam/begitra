@@ -196,7 +196,7 @@ export function fakeFiles(target: DiffTarget): FileChange[] {
     oldId: null,
     newId: null,
   };
-  return [
+  const files: FileChange[] = [
     {
       ...base,
       status: "modified",
@@ -232,6 +232,12 @@ export function fakeFiles(target: DiffTarget): FileChange[] {
       isGenerated: true,
     },
   ];
+  // Ids as the engine gives them, none for a side the file does not have.
+  return files.map((file) => ({
+    ...file,
+    oldId: file.status === "added" ? null : `old:${tag}:${file.path}`,
+    newId: `new:${tag}:${file.path}`,
+  }));
 }
 
 const AUTHORS = ["iker", "claude", "ane"] as const;

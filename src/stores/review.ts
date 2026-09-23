@@ -114,8 +114,14 @@ export function positionKey(hunk: Hunk): string {
   return `${hunk.oldStart},${hunk.newStart}:${hunk.header}`;
 }
 
-/** The content a file mark holds: the ids of the file's two blobs. */
-export function contentOf(file: FileChange): string {
+/**
+ * The content a file mark holds: the ids of the file's two sides. Null when the new side
+ * came without an id (a working tree file that could not be read), which no mark can hold; a
+ * conflict's sides are index stages, which have none.
+ */
+export function contentOf(file: FileChange): string | null {
+  const hasNewSide = file.status !== "deleted" && file.status !== "unmerged";
+  if (hasNewSide && file.newId === null) return null;
   return `${file.oldId ?? "-"}:${file.newId ?? "-"}`;
 }
 
@@ -228,7 +234,8 @@ export const useReviewStore = defineStore("review", () => {
   function fileMark(file: FileChange): "reviewed" | "changed" | "none" {
     const value = marks.value.get(file.path)?.get("");
     if (value === undefined) return "none";
-    if (value === contentOf(file)) return "reviewed";
+    const content = contentOf(file);
+    if (content !== null && value === content) return "reviewed";
     if (value === NO_CONTENT) return fixedContent.value ? "reviewed" : "none";
     return "changed";
   }
@@ -505,6 +512,8 @@ export const useReviewStore = defineStore("review", () => {
     const on = file ? fileMark(file) !== "reviewed" : !set.has("");
     if (on) {
       const content = file ? contentOf(file) : NO_CONTENT;
+      // Content that is not known cannot be marked; the reload after the change brings it.
+      if (content === null) return;
       set.set("", content);
       replaceMarks(path, set);
       persistMark(path, "", true, () => replaceMarks(path, before), content);
@@ -528,8 +537,8 @@ export const useReviewStore = defineStore("review", () => {
       set.set(hunkId, NO_CONTENT);
       // The last hunk marked makes it a file mark too, holding the content, so the file shows
       // "changed since review" when that content moves on.
-      if (file && file.hunks.every((other) => set.has(hunkKey(other)))) {
-        const content = contentOf(file);
+      const content = file ? contentOf(file) : null;
+      if (file && content !== null && file.hunks.every((other) => set.has(hunkKey(other)))) {
         set.set("", content);
         persistMark(path, "", true, () => {}, content);
       }

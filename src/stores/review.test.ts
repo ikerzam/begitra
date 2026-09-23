@@ -209,6 +209,38 @@ describe("marks held by content", () => {
     expect(review.isHunkReviewed("src/cache.ts", hunkAt(30, "x", "y"))).toBe(true);
     expect(review.isHunkReviewed("src/cache.ts", hunkAt(3, "x", "z"))).toBe(false);
   });
+
+  it("holds no file mark for a new side that came without an id", async () => {
+    // A working file gone between the listing and its id: "a1:-" would also be what the
+    // deletion shows after the reload, so no mark may hold it.
+    const unread = file("src/cache.ts", { oldId: "a1", newId: null, hunks: [hunkAt(3, "x", "y")] });
+    expect(contentOf(unread)).toBeNull();
+    expect(contentOf(file("src/gone.ts", { status: "deleted", oldId: "a1" }))).toBe("a1:-");
+    expect(contentOf(file("src/both.ts", { status: "unmerged" }))).toBe("-:-");
+    const calls = fakeBackend({
+      changes: { unstaged: [unread], staged: [] },
+      annotations: {
+        worktree: [
+          { path: "src/cache.ts", hunk: "", kind: "reviewed", value: "a1:-", updatedAt: 1 },
+        ],
+      },
+    });
+    await openRepository();
+    const review = useReviewStore();
+    review.setTarget({ kind: "worktree" });
+    await settled();
+    expect(review.isReviewed("src/cache.ts")).toBe(false);
+    expect(review.isChanged("src/cache.ts")).toBe(true);
+    review.toggleReviewed("src/cache.ts");
+    expect(review.isReviewed("src/cache.ts")).toBe(false);
+    // Its lines can still be marked: a hunk mark holds them, and no file mark follows.
+    review.toggleHunkReviewed("src/cache.ts", unread.hunks[0]!);
+    await settled();
+    const written = calls
+      .filter((c) => c.cmd === "set_annotation")
+      .map((c) => (c.args as { annotation: { hunk: string } }).annotation.hunk);
+    expect(written).toEqual([hunkKey(unread.hunks[0]!)]);
+  });
 });
 
 describe("review store", () => {
