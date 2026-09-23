@@ -40,8 +40,8 @@ pub(super) fn read(engine: &Git2Engine, at: &BlobAt, path: &str) -> GitResult<Bl
             .map(content),
         BlobAt::MergeBase { a, b } => engine
             .with_repo(|repo| {
-                let base = super::refs::merge_base_in(repo, a, b)?;
-                bytes_at(repo, &base.to_string(), path)
+                let base = super::refs::merge_base_in(engine, repo, a, b)?;
+                bytes_in_commit(repo, base, &format!("{a}...{b}"), path)
             })
             .map(content),
     }
@@ -68,8 +68,14 @@ fn bytes_in_index(repo: &Repository, path: &str) -> GitResult<Vec<u8>> {
 
 /// The raw bytes of `path` at `rev`, bounded by [`BLOB_LIMIT`].
 fn bytes_at(repo: &Repository, rev: &str, path: &str) -> GitResult<Vec<u8>> {
-    let spec = format!("{rev}:{path}");
     let oid = super::resolve_commit(repo, rev)?;
+    bytes_in_commit(repo, oid, rev, path)
+}
+
+/// The raw bytes of `path` in the commit `oid` (`rev` names it in errors), bounded by
+/// [`BLOB_LIMIT`].
+fn bytes_in_commit(repo: &Repository, oid: Oid, rev: &str, path: &str) -> GitResult<Vec<u8>> {
+    let spec = format!("{rev}:{path}");
     let commit = repo
         .find_commit(oid)
         .map_err(|error| GitError::object(&oid.to_string(), error))?;

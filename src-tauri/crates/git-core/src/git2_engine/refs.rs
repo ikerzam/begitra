@@ -29,15 +29,29 @@ pub(super) fn list(engine: &Git2Engine, cancel: &Cancel) -> GitResult<Vec<Ref>> 
 /// Merge base of two revisions; see [`crate::engine::GitEngine::merge_base`].
 #[tracing::instrument(level = "debug", skip_all, fields(a = a, b = b))]
 pub(super) fn merge_base(engine: &Git2Engine, a: &str, b: &str) -> GitResult<String> {
-    engine.with_repo(|repo| merge_base_in(repo, a, b).map(|base| base.to_string()))
+    engine.with_repo(|repo| merge_base_in(engine, repo, a, b).map(|base| base.to_string()))
 }
 
-/// The merge base of two revisions in an open repository; [`GitError::UnrelatedHistories`]
-/// when they share no commit.
-pub(super) fn merge_base_in(repo: &Repository, a: &str, b: &str) -> GitResult<Oid> {
+/// The merge base of two revisions through `repo`, the engine's last one when the pair is
+/// the same; [`GitError::UnrelatedHistories`] when they share no commit.
+pub(super) fn merge_base_in(
+    engine: &Git2Engine,
+    repo: &Repository,
+    a: &str,
+    b: &str,
+) -> GitResult<Oid> {
     let one = commit_id(repo, a)?;
     let two = commit_id(repo, b)?;
-    match repo.merge_base(one, two) {
+    unrelated_as_error(engine.merge_base_of(repo, one, two), a, b)
+}
+
+/// A merge base lookup with libgit2's "not found" read as unrelated histories.
+pub(super) fn unrelated_as_error(
+    found: Result<Oid, git2::Error>,
+    a: &str,
+    b: &str,
+) -> GitResult<Oid> {
+    match found {
         Ok(base) => Ok(base),
         Err(error) if error.code() == ErrorCode::NotFound => Err(GitError::UnrelatedHistories {
             a: a.to_owned(),

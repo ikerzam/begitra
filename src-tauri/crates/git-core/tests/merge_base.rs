@@ -5,7 +5,39 @@ mod support;
 use git_core::engine::GitEngine;
 use git_core::error::GitError;
 use git_core::git2_engine::Git2Engine;
+use git_core::types::BlobAt;
 use support::Fixture;
+
+#[test]
+fn a_branch_that_moved_gets_its_new_merge_base() {
+    // The engine remembers the last pair's merge base by commit: the same names naming
+    // other commits must not get the remembered one.
+    let mut f = Fixture::basic();
+    f.git(&["checkout", "-q", "-b", "topic"]);
+    f.write("topic.txt", "topic\n");
+    let topic_tip = f.commit("t1: topic");
+    f.git(&["checkout", "-q", "main"]);
+    f.write("main.txt", "main\n");
+    let fork = f.rev("main");
+    f.commit("c4: main");
+    let engine = Git2Engine::open(&f.root).expect("open");
+    assert_eq!(engine.merge_base("main", "topic").expect("base"), fork);
+    let base = BlobAt::MergeBase {
+        a: "main".to_owned(),
+        b: "topic".to_owned(),
+    };
+    assert!(
+        engine.read_blob(&base, "topic.txt").is_err(),
+        "not at the fork"
+    );
+
+    f.git(&["merge", "-q", "--no-ff", "-m", "m2: merge topic", "topic"]);
+    assert_eq!(engine.merge_base("main", "topic").expect("base"), topic_tip);
+    let moved = engine
+        .read_blob(&base, "topic.txt")
+        .expect("at the new base");
+    assert_eq!(moved.text.as_deref(), Some("topic\n"));
+}
 
 #[test]
 fn matches_the_cli_for_related_revisions() {

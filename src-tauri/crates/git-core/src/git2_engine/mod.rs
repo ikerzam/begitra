@@ -55,6 +55,8 @@ pub struct Git2Engine {
     /// The handle the comparison counts walk on, opened on the first comparison and kept
     /// so its object cache stays warm (see `compare`).
     counts: Mutex<Option<Repository>>,
+    /// The merge base of the last pair of commits asked for (see [`Self::merge_base_of`]).
+    merge_base: Mutex<Option<((Oid, Oid), Oid)>>,
 }
 
 impl std::fmt::Debug for Git2Engine {
@@ -88,6 +90,7 @@ impl Git2Engine {
             generated_attributes: Mutex::new(None),
             diff_workers: diff_pages::new_pool(),
             counts: Mutex::new(None),
+            merge_base: Mutex::new(None),
         })
     }
 
@@ -169,6 +172,28 @@ impl Git2Engine {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         f(&repo)
+    }
+
+    /// The merge base of two commits through `repo`, remembered for the last pair: the
+    /// comparison and every file of it read at its merge base ask for the same one, and the
+    /// walk costs seconds between distant commits of a large history. Commits never change,
+    /// so the entry cannot go stale; a branch name is resolved to its commit before this.
+    fn merge_base_of(&self, repo: &Repository, one: Oid, two: Oid) -> Result<Oid, git2::Error> {
+        let key = if one <= two { (one, two) } else { (two, one) };
+        let remembered = |cache: &Option<((Oid, Oid), Oid)>| {
+            cache.and_then(|(pair, base)| (pair == key).then_some(base))
+        };
+        let lock = || {
+            self.merge_base
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+        };
+        if let Some(base) = remembered(&lock()) {
+            return Ok(base);
+        }
+        let base = repo.merge_base(one, two)?;
+        *lock() = Some((key, base));
+        Ok(base)
     }
 
     /// The repository's own git directory and the shared one (equal for a main repository;

@@ -6,7 +6,7 @@
 //! preview changes no ref, index or working tree; git stores the merged result as
 //! unreferenced objects that `git gc` prunes.
 
-use git2::{ErrorCode, Oid, Repository};
+use git2::{Oid, Repository};
 
 use super::Git2Engine;
 use crate::cli::run_git_cancellable;
@@ -33,8 +33,8 @@ pub(super) fn compare(
     cancel: &Cancel,
 ) -> GitResult<Comparison> {
     cancel.check()?;
-    let (pair, gitdir) =
-        engine.with_repo(|repo| Ok((resolve_pair(repo, a, b)?, repo.path().to_path_buf())))?;
+    let (pair, gitdir) = engine
+        .with_repo(|repo| Ok((resolve_pair(engine, repo, a, b)?, repo.path().to_path_buf())))?;
     cancel.check()?;
     let (only_in_a, only_in_b) = engine.with_counts_repo(&gitdir, |repo| {
         Ok(repo.graph_ahead_behind(pair.one, pair.two)?)
@@ -68,18 +68,11 @@ struct Pair {
     base_time: i64,
 }
 
-fn resolve_pair(repo: &Repository, a: &str, b: &str) -> GitResult<Pair> {
+fn resolve_pair(engine: &Git2Engine, repo: &Repository, a: &str, b: &str) -> GitResult<Pair> {
     let one = super::resolve_commit(repo, a)?;
     let two = super::resolve_commit(repo, b)?;
-    let base = repo
-        .merge_base(one, two)
-        .map_err(|error| match error.code() {
-            ErrorCode::NotFound => GitError::UnrelatedHistories {
-                a: a.to_owned(),
-                b: b.to_owned(),
-            },
-            _ => GitError::from(error),
-        })?;
+    // Remembered by the engine: the files of the comparison read at the merge base next.
+    let base = super::refs::unrelated_as_error(engine.merge_base_of(repo, one, two), a, b)?;
     let base_time = repo
         .find_commit(base)
         .map_err(|error| GitError::object(&base.to_string(), error))?
