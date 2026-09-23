@@ -1,16 +1,19 @@
-//! The four worktree writes: add, remove, prune and lock, through the git
+//! The worktree writes: add, remove, prune and lock, through the git
 //! CLI with argv, the same commands the user would type. Each runs under the operation's
 //! cancel flag (the child is killed) and maps git's failure to [`GitError::Cli`] with the
 //! stderr, except the refusal of a dirty removal, which is [`GitError::WorktreeDirty`].
 //! git runs in the main worktree, never in the folder a removal deletes (from inside it,
 //! Windows refuses the deletion halfway). An add that was cancelled mid-checkout is rolled
 //! back the way git itself rolls back a failed add (its own cleanup never runs when the
-//! process is killed). Nothing else in the engine writes to a repository.
+//! process is killed).
 
-use std::path::{Path, PathBuf};
+use std::collections::HashSet;
+use std::ffi::OsString;
+use std::path::{Component, Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use super::{normalize, worktrees, Git2Engine};
-use crate::cli::{run_git, run_git_cancellable, CliExit};
+use crate::cli::{run_git_cancellable, run_git_env_within, CliExit};
 use crate::engine::Cancel;
 use crate::error::{GitError, GitResult};
 use crate::types::{Worktree, WorktreeAdd, WorktreeBranch};
@@ -91,11 +94,13 @@ pub(super) fn add(
     let cwd = main_root(engine, cancel)?;
     let common_dir = engine.with_repo(|repo| Ok(repo.commondir().to_path_buf()))?;
     // Only what this add creates is ever rolled back: a folder that existed before is the
-    // user's, and a cancel that lands before git registered the entry created nothing.
+    // user's, an entry that existed before is another add's, and a cancel that lands before
+    // git registered the entry created nothing.
     let existed = request.path.exists();
+    let entries_before = admin_entries(&common_dir);
     if let Err(error) = git_in(&cwd, &args, cancel) {
         if matches!(error, GitError::Cancelled) && !existed {
-            roll_back_add(&cwd, &common_dir, &request.path);
+            roll_back_add(&cwd, &common_dir, &request.path, &entries_before);
         }
         return Err(error);
     }
@@ -119,53 +124,101 @@ pub(super) fn add(
 /// register the entry or write files after the first look: the rollback looks again after
 /// every pause. git's removal races the dying checkout (it unregisters the entry but leaves
 /// the files still being written), so the folder is deleted directly once git no longer
-/// claims it, and a locked entry whose folder is already gone, which `prune` skips, goes
-/// through git's removal too. Nothing is deleted unless git registered an entry for the
-/// folder: that is the proof the folder is the add's own (git registers before it creates
-/// the folder). When nothing was registered a second after the cancel, the kill came
-/// first and there is nothing to undo.
-fn roll_back_add(cwd: &Path, common_dir: &Path, path: &Path) {
+/// claims it; git's removal also unregisters a locked entry whose folder is already gone,
+/// which `prune` would skip. Nothing is deleted unless an entry that did not exist before
+/// the add records the folder: that is the proof the folder is the add's own. git creates
+/// the folder a moment before it writes the entry, so a kill between the two leaves an
+/// unproven folder, which stays. When no entry appeared a second after the cancel, the kill
+/// came first and there is nothing more to undo. The pauses and git's removals together
+/// stop at [`ROLLBACK_LIMIT`], since a file another program holds open in the partial
+/// checkout can make each removal walk it again.
+fn roll_back_add(cwd: &Path, common_dir: &Path, path: &Path, before: &HashSet<OsString>) {
+    let started = Instant::now();
     let path_text = path.to_string_lossy().into_owned();
     let mut owned = false;
     for attempt in 0..20 {
-        std::thread::sleep(std::time::Duration::from_millis(250));
-        if registered_at(common_dir, path) {
+        std::thread::sleep(Duration::from_millis(250));
+        let Some(left) = ROLLBACK_LIMIT.checked_sub(started.elapsed()) else {
+            break;
+        };
+        if registered_at(common_dir, path, before) {
             owned = true;
-            let _ = run_git(
+            let _ = run_git_env_within(
                 cwd,
                 &["worktree", "remove", "--force", "--force", "--", &path_text],
+                &[],
+                &Cancel::never(),
+                left,
             );
         }
         if owned && path.exists() {
             let _ = std::fs::remove_dir_all(path);
         }
-        let settled = !path.exists() && !registered_at(common_dir, path);
-        if settled && (owned || attempt >= 3) {
+        if !owned && attempt >= 3 {
+            break;
+        }
+        if owned && !path.exists() && !registered_at(common_dir, path, before) {
             break;
         }
     }
-    if !owned {
-        return;
-    }
-    let _ = run_git(cwd, &["worktree", "prune"]);
-    if path.exists() || registered_at(common_dir, path) {
+    if owned && (path.exists() || registered_at(common_dir, path, before)) {
         tracing::warn!(path = %path.display(), "a cancelled worktree add could not be rolled back");
     }
 }
 
-/// Whether some entry under `<common dir>/worktrees` records `path` as its folder (each
-/// `gitdir` file holds `<folder>/.git`).
-fn registered_at(common_dir: &Path, path: &Path) -> bool {
+/// Longest time a rollback's pauses and git's removals take together.
+const ROLLBACK_LIMIT: Duration = Duration::from_secs(30);
+
+/// The names of the worktree entries under `<common dir>/worktrees`.
+fn admin_entries(common_dir: &Path) -> HashSet<OsString> {
+    std::fs::read_dir(common_dir.join("worktrees"))
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .map(|entry| entry.file_name())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Whether an entry under `<common dir>/worktrees` that is not in `before` records `path`
+/// as its folder. Each `gitdir` file holds `<folder>/.git`, absolute, or relative to the
+/// entry's own folder when `worktree.useRelativePaths` is set.
+fn registered_at(common_dir: &Path, path: &Path, before: &HashSet<OsString>) -> bool {
     let Ok(entries) = std::fs::read_dir(common_dir.join("worktrees")) else {
         return false;
     };
-    entries.filter_map(Result::ok).any(|entry| {
-        std::fs::read_to_string(entry.path().join("gitdir")).is_ok_and(|gitdir| {
-            Path::new(gitdir.trim())
-                .parent()
-                .is_some_and(|folder| same_folder(folder, path))
+    entries
+        .filter_map(Result::ok)
+        .filter(|entry| !before.contains(&entry.file_name()))
+        .any(|entry| {
+            std::fs::read_to_string(entry.path().join("gitdir")).is_ok_and(|gitdir| {
+                let recorded = Path::new(gitdir.trim());
+                let recorded = if recorded.is_absolute() {
+                    recorded.to_path_buf()
+                } else {
+                    by_name(&entry.path().join(recorded))
+                };
+                recorded
+                    .parent()
+                    .is_some_and(|folder| same_folder(folder, path))
+            })
         })
-    })
+}
+
+/// `path` with `.` and `..` resolved by name, for a folder that may not exist yet.
+fn by_name(path: &Path) -> PathBuf {
+    let mut resolved = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                resolved.pop();
+            }
+            other => resolved.push(other.as_os_str()),
+        }
+    }
+    resolved
 }
 
 /// Removes a worktree; see [`crate::engine::GitEngine::worktree_remove`].
@@ -295,6 +348,46 @@ pub(super) fn unlock(engine: &Git2Engine, path: &Path, cancel: &Cancel) -> GitRe
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A common dir with one worktree entry `id` whose `gitdir` file holds `gitdir`.
+    fn entry(common: &Path, id: &str, gitdir: &str) {
+        let admin = common.join("worktrees").join(id);
+        std::fs::create_dir_all(&admin).expect("admin folder");
+        std::fs::write(admin.join("gitdir"), format!("{gitdir}\n")).expect("gitdir");
+    }
+
+    #[test]
+    fn an_entry_is_the_adds_own_only_when_new_and_absolute_or_relative() {
+        let temp = tempfile::tempdir().expect("temp");
+        let common = temp.path().join("repo").join(".git");
+        let folder = temp.path().join("wt-new");
+        let none = HashSet::new();
+        assert!(!registered_at(&common, &folder, &none), "no entries yet");
+
+        let absolute = folder.join(".git");
+        entry(&common, "wt-new", &absolute.to_string_lossy());
+        assert!(registered_at(&common, &folder, &none));
+        // The same entry listed before the add is another add's, never this one's.
+        let before: HashSet<OsString> = [OsString::from("wt-new")].into();
+        assert!(!registered_at(&common, &folder, &before));
+
+        // `worktree.useRelativePaths`: relative to `<common>/worktrees/<id>`.
+        std::fs::remove_dir_all(common.join("worktrees")).expect("clean");
+        // From `repo/.git/worktrees/wt-new` up to the folder beside `repo`.
+        entry(&common, "wt-new", "../../../../wt-new/.git");
+        assert!(registered_at(&common, &folder, &none));
+        assert!(!registered_at(
+            &common,
+            &temp.path().join("elsewhere"),
+            &none
+        ));
+    }
+
+    #[test]
+    fn by_name_resolves_dots_without_the_disk() {
+        assert_eq!(by_name(Path::new("/a/b/../c/./d")), PathBuf::from("/a/c/d"));
+        assert_eq!(by_name(Path::new("a/../../b")), PathBuf::from("b"));
+    }
 
     #[test]
     fn the_dirty_refusal_is_recognised_by_its_untranslated_token() {
