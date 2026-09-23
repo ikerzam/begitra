@@ -866,26 +866,31 @@ mod tests {
 
     #[test]
     fn a_cancelled_streaming_run_stops_git_and_what_it_started() {
-        // The streaming runner detaches its readers and returns on the cancel without
-        // waiting for the pipes; the process tree (git, sh, sleep) still ends.
+        // The streaming runner hands each line over as it comes, then detaches its readers and
+        // returns on the cancel without waiting for the pipes; the process tree (git, sh,
+        // sleep) still ends. The cancel follows the first line rather than a timer, since
+        // starting git and the alias's shell can take longer than any fixed delay on Windows.
         let cancel = Cancel::new();
         let flag = cancel.clone();
-        thread::spawn(move || {
-            thread::sleep(Duration::from_millis(300));
-            flag.cancel();
-        });
-        let started = std::time::Instant::now();
+        let mut cancelled_at = None;
         let mut lines = Vec::new();
         let result = run_git_streaming(
             Path::new("."),
             &["-c", "alias.w=!echo start >&2; sleep 8", "w"],
             &WRITE_ENV,
-            &mut |line| lines.push(line.to_owned()),
+            &mut |line| {
+                lines.push(line.to_owned());
+                flag.cancel();
+                cancelled_at.get_or_insert_with(std::time::Instant::now);
+            },
             &cancel,
         );
         assert_eq!(result.expect_err("cancelled").code(), "op.cancelled");
-        let took = started.elapsed();
-        assert!(took < Duration::from_secs(4), "returned after {took:?}");
+        let took = cancelled_at.expect("the first line arrived").elapsed();
+        assert!(
+            took < Duration::from_secs(4),
+            "returned {took:?} after the cancel"
+        );
         assert_eq!(lines, ["start"]);
     }
 
