@@ -210,19 +210,33 @@ fn classify_line(line: &str, ops: &[(usize, ScopeStackOp)], stack: &mut ScopeSta
     let length = line.trim_end_matches(['\n', '\r']).len();
     let mut at = 0usize;
     let mut class = class_of(stack);
+    let class_at = |class: TokenClass, from: usize, to: usize| {
+        line.get(from..to).map_or(class, |text| worded(class, text))
+    };
     for (offset, op) in ops {
         let offset = (*offset).min(length);
         if offset > at {
-            push(&mut tokens, at, offset, class);
+            push(&mut tokens, at, offset, class_at(class, at, offset));
             at = offset;
         }
         let _ = stack.apply(op);
         class = class_of(stack);
     }
     if length > at {
-        push(&mut tokens, at, length, class);
+        push(&mut tokens, at, length, class_at(class, at, length));
     }
     tokens
+}
+
+/// A keyword is a word: what a grammar scopes as a keyword without a letter in it (`=`, `&&`,
+/// `=>`, `?`) is punctuation, so the keyword colour marks `const`, `new` and `and` rather
+/// than every assignment and arrow.
+fn worded(class: TokenClass, text: &str) -> TokenClass {
+    if class == TokenClass::Keyword && !text.chars().any(char::is_alphabetic) {
+        TokenClass::Punctuation
+    } else {
+        class
+    }
 }
 
 fn push(tokens: &mut Vec<Token>, start: usize, end: usize, class: TokenClass) {
@@ -294,6 +308,48 @@ mod tests {
             assert!(token.start >= end && token.end <= line.len() as u32);
             end = token.end;
         }
+    }
+
+    #[test]
+    fn keywords_are_words_and_operators_punctuation() {
+        let text = "const x = new Foo() && typeof y;\nconst f = () => 1;\n";
+        let result = highlight("src/a.ts", text, &never).expect("not cancelled");
+        let tokens = classes(&result.lines[0], "const x = new Foo() && typeof y;");
+        for word in ["const", "new", "typeof"] {
+            assert!(
+                tokens.contains(&(TokenClass::Keyword, word.to_owned())),
+                "{word}: {tokens:?}"
+            );
+        }
+        for (class, text) in &tokens {
+            if *class == TokenClass::Keyword {
+                assert!(
+                    text.chars().any(char::is_alphabetic),
+                    "{text:?}: {tokens:?}"
+                );
+            }
+        }
+        for operator in ["=", "&&"] {
+            assert!(
+                tokens
+                    .iter()
+                    .any(|(class, s)| *class == TokenClass::Punctuation && s.contains(operator)),
+                "{operator}: {tokens:?}"
+            );
+        }
+        let arrow = classes(&result.lines[1], "const f = () => 1;");
+        assert!(
+            arrow
+                .iter()
+                .any(|(class, s)| *class == TokenClass::Punctuation && s.contains("=>")),
+            "{arrow:?}"
+        );
+        let python = highlight("a.py", "x = a and b\n", &never).expect("ok");
+        let tokens = classes(&python.lines[0], "x = a and b");
+        assert!(
+            tokens.contains(&(TokenClass::Keyword, "and".to_owned())),
+            "{tokens:?}"
+        );
     }
 
     #[test]
