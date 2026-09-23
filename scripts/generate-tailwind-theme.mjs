@@ -122,7 +122,7 @@ lines.push(
   "",
   "  /* Spacing and sizes: the design scale only, no 4px multiplier. Zero is on it: without it",
   "     `left-0`, `right-0` and `inset-0` generate nothing and an absolutely positioned row",
-  "     shrinks to its content (found on 2026-09-21 in the virtualised lists). */",
+  "     of a virtualised list shrinks to its content. */",
   "  --spacing: initial;",
   "  --spacing-0: 0px;",
 );
