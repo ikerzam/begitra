@@ -457,6 +457,51 @@ fn a_working_file_the_patch_does_not_read_is_hashed_from_disk() {
     }
 }
 
+/// A working file larger than libgit2 reads (512 MiB) is not read at all: it is binary and
+/// named by its size and time, which any write changes.
+#[test]
+fn a_working_file_over_libgit2s_limit_is_named_by_its_size_and_time() {
+    let f = Fixture::basic();
+    let size = 600_u64 << 20;
+    fs::File::create(f.root.join("big.bin"))
+        .and_then(|big| big.set_len(size))
+        .expect("big file");
+    let set = diff(
+        &f,
+        &DiffTarget::WorkingTree {
+            base: WorkingTreeBase::Index,
+        },
+    );
+    let big = file(&set, "big.bin");
+    assert!(big.is_binary);
+    let id = big.new_id.as_deref().expect("id");
+    assert!(id.starts_with(&format!("stat:{size}:")), "{id}");
+}
+
+/// At 4 GiB and more libgit2 keeps a working file's size in 32 bits and its patch fails: the
+/// file is listed as binary, named by its size and time, and the rest of the page stays.
+#[test]
+fn a_working_file_of_4_gib_and_more_leaves_the_page_working() {
+    let mut f = Fixture::basic();
+    f.write("grown.bin", "small\n");
+    f.commit("small file");
+    let size = (4_u64 << 30) + 16;
+    fs::OpenOptions::new()
+        .write(true)
+        .open(f.root.join("grown.bin"))
+        .and_then(|grown| grown.set_len(size))
+        .expect("grown file");
+    f.write("src/lib.rs", "changed\n");
+    for base in [WorkingTreeBase::Index, WorkingTreeBase::Head] {
+        let set = diff(&f, &DiffTarget::WorkingTree { base: base.clone() });
+        assert_eq!(paths(&set), ["grown.bin", "src/lib.rs"], "{base:?}");
+        let grown = file(&set, "grown.bin");
+        assert!(grown.is_binary, "{base:?}");
+        let id = grown.new_id.as_deref().expect("id");
+        assert!(id.starts_with(&format!("stat:{size}:")), "{base:?} {id}");
+    }
+}
+
 /// A `core.attributesfile` that is not UTF-8 (a configuration saved in another code page)
 /// leaves the diff working: git2 panics on such a path on Windows, where it is left out.
 #[test]

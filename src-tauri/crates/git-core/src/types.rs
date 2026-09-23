@@ -590,10 +590,12 @@ pub struct FileChange {
     pub old_id: Option<String>,
     /// Id of the new side, hex; `None` when the file has no new side. A working tree's side
     /// is git's id of what the patch read (the blob `git add` would write, the commit checked
-    /// out in a submodule); a file the patch does not read (binary by attribute, or over
-    /// libgit2's 512 MiB) is hashed from its bytes on disk, named `stat:<size>:<modified ns>`
-    /// above 64 MiB, and `None` when it cannot be read. It identifies the content a review
-    /// mark was given for.
+    /// out in a submodule), or the index's for a staged file clean on disk; a side the patch
+    /// does not read (binary by attribute, over libgit2's 512 MiB, a type change, a conflict,
+    /// a folder) is hashed from its bytes on disk up to 64 MiB and named
+    /// `stat:<size>:<modified ns>` above it or for a folder; `None` when the file could not be
+    /// read (changed while it was read, locked). It identifies the content a review mark was
+    /// given for.
     pub new_id: Option<String>,
     /// Similarity of a rename or copy, in percent.
     pub similarity: Option<u8>,

@@ -22,8 +22,8 @@ use std::path::Path;
 
 use git2::{
     AttrCheckFlags, AttrValue, Commit, Delta, Diff, DiffDelta, DiffFindOptions, DiffHunk,
-    DiffLine as Git2DiffLine, DiffLineType, DiffOptions as Git2DiffOptions, ErrorCode, FileMode,
-    IndexEntryExtendedFlag, ObjectType, Oid, Patch, Repository, Tree,
+    DiffLine as Git2DiffLine, DiffLineType, DiffOptions as Git2DiffOptions, ErrorClass, ErrorCode,
+    FileMode, IndexEntryExtendedFlag, ObjectType, Oid, Patch, Repository, Tree,
 };
 
 use crate::diff::{hunk_header, line_text, mark_intra_line_spans, parse_similarity};
@@ -602,14 +602,35 @@ pub(super) fn collect_range(
                 }
             }
         }
-        let patch = Patch::from_diff(diff, index).map_err(|error| {
-            blob_error(
-                repo,
-                diff.get_delta(index).into_iter(),
-                probe_new_side,
-                error,
-            )
-        })?;
+        let mut unreadable = false;
+        let patch = match Patch::from_diff(diff, index) {
+            Ok(patch) => patch,
+            // A working file the patch cannot read (changed while it was read, locked, or of
+            // 4 GiB and more, whose size libgit2 keeps in 32 bits) is listed without lines
+            // rather than failing the page, unless the old side's blob is what failed.
+            Err(error)
+                if working_tree
+                    && status != ChangeKind::Deleted
+                    && matches!(error.class(), ErrorClass::Filesystem | ErrorClass::Os) =>
+            {
+                if let Some(blob) =
+                    locate_unreadable_blob(repo, diff.get_delta(index).into_iter(), false)
+                {
+                    return Err(blob);
+                }
+                tracing::debug!(%error, "listing a working file its patch could not read");
+                unreadable = true;
+                None
+            }
+            Err(error) => {
+                return Err(blob_error(
+                    repo,
+                    diff.get_delta(index).into_iter(),
+                    probe_new_side,
+                    error,
+                ))
+            }
+        };
         let generated = prepared.generated_attributes;
         let mut file = match patch {
             Some(mut patch) => file_change(repo, &mut patch, status, options, generated, cancel)?,
@@ -623,14 +644,16 @@ pub(super) fn collect_range(
         if (working_tree || options.ignore_whitespace)
             && status == ChangeKind::Modified
             && !file.is_binary
+            && !unreadable
             && file.hunks.is_empty()
             && delta.old_file().mode() == delta.new_file().mode()
         {
             continue;
         }
-        // Read after the patch, which gave the working tree's side the id of the bytes its
-        // hunks come from when it read the file.
-        if working_tree && status != ChangeKind::Deleted {
+        if unreadable {
+            unreadable_side(repo, &delta.new_file(), &mut file);
+        } else if working_tree && status != ChangeKind::Deleted && file.new_id.is_none() {
+            // The patch gave the id of what it read; a side it does not read has none yet.
             file.new_id = working_id(repo, &delta.new_file());
         }
         // The index's empty blob of `git add -N` is a placeholder, not an old side.
@@ -775,30 +798,46 @@ fn is_empty_blob(id: Oid) -> bool {
 /// larger one is named by its size and time, so no page reads a huge file whole.
 const HASH_LIMIT: u64 = 64 << 20;
 
-/// The id of a working tree side once its patch was read, which changes exactly when that
-/// side does (what a review mark compares):
+/// The id of a working tree side libgit2 has none for once the patch was read, which changes
+/// exactly when that side does (what a review mark compares). A side the patch reads already
+/// has libgit2's: git's blob id of the bytes the hunks come from, after the clean filters.
 ///
-/// - when the patch read the side, the id libgit2 gave what it read: git's blob id of the
-///   bytes after the clean filters (the blob `git add` would write), of a symbolic link's
-///   text, or the commit checked out in a submodule. It costs nothing more and comes from
-///   the bytes the hunks come from;
-/// - for a side the patch does not read (binary by attribute, or larger than libgit2 reads),
-///   the blob of the bytes on disk up to [`HASH_LIMIT`], and above it or for a folder (an
-///   untracked nested repository) `stat:<size>:<modified, in ns>`.
-///
-/// The file is named by the delta's own path, not the lossy one the change set shows. `None`
-/// when the side cannot be read at all (gone since the listing).
+/// Here: the commit checked out in a submodule the patch did not look up, and for a side the
+/// patch does not read (binary by attribute, larger than libgit2 reads, a type change, a
+/// conflict, a folder such as an untracked nested repository) the blob of its bytes on disk
+/// up to [`HASH_LIMIT`], and above it or for a folder `stat:<size>:<modified, in ns>`. The file
+/// is named by the delta's own path, not the lossy one the change set shows. `None` when the
+/// side cannot be read at all (gone since the listing).
 fn working_id(repo: &Repository, file: &git2::DiffFile<'_>) -> Option<String> {
-    if let Some(id) = known_id(file) {
-        return Some(id);
-    }
     let id = file.id();
     if file.mode() == git2::FileMode::Commit {
         // A submodule the patch did not look up: its HEAD was read without marking the id.
         return (!id.is_zero()).then(|| id.to_string());
     }
-    let path = repo.workdir()?.join(super::os_path(file.path_bytes()?)?);
+    let path = workdir_path(repo, file)?;
     unread_id(&path, file.mode() == git2::FileMode::Link, HASH_LIMIT)
+}
+
+/// A working file whose patch failed: at 4 GiB and more (which libgit2 cannot read) a binary
+/// file named by its size and time; otherwise (changed while it was read, locked) no id, until
+/// the reload the change brings.
+fn unreadable_side(repo: &Repository, side: &git2::DiffFile<'_>, file: &mut FileChange) {
+    file.new_id = None;
+    let Some(path) = workdir_path(repo, side) else {
+        return;
+    };
+    let huge =
+        std::fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.len() > u64::from(u32::MAX));
+    if huge {
+        file.is_binary = true;
+        file.is_large = true;
+        file.new_id = unread_id(&path, false, HASH_LIMIT);
+    }
+}
+
+/// The working tree file of a delta side, named by its own bytes.
+fn workdir_path(repo: &Repository, file: &git2::DiffFile<'_>) -> Option<std::path::PathBuf> {
+    Some(repo.workdir()?.join(super::os_path(file.path_bytes()?)?))
 }
 
 /// The id of a working tree side the patch did not read, hashing at most `limit` bytes.
@@ -814,17 +853,20 @@ fn unread_id(path: &Path, link: bool, limit: u64) -> Option<String> {
     } else {
         None
     };
-    Some(hashed.map_or_else(|| stat_token(&metadata), |id| id.to_string()))
+    hashed
+        .map(|id| id.to_string())
+        .or_else(|| stat_token(&metadata))
 }
 
-/// A side's size and modification time, for one that is not hashed.
-fn stat_token(metadata: &std::fs::Metadata) -> String {
+/// A side's size and modification time, for one that is not hashed; `None` without a time,
+/// which alone would let a same-size rewrite keep the token.
+fn stat_token(metadata: &std::fs::Metadata) -> Option<String> {
     let modified = metadata
         .modified()
-        .ok()
-        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-        .map_or(0, |since| since.as_nanos());
-    format!("stat:{}:{modified}", metadata.len())
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?;
+    Some(format!("stat:{}:{}", metadata.len(), modified.as_nanos()))
 }
 
 /// A link's target as git stores it: its bytes, with `/` separators.

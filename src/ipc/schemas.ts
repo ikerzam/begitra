@@ -264,8 +264,9 @@ export const FileChangeSchema = v.object({
   /** The old side's blob id; null when the file has none. */
   oldId: v.nullable(v.string()),
   /**
-   * The new side's id: a blob id, a submodule's commit, or `stat:<size>:<ns>` for a working
-   * file too large to hash; null when the file has none or it could not be read.
+   * The new side's id: a blob id, a submodule's commit, or `stat:<size>:<ns>` for a folder
+   * and for a working file over 64 MiB that the patch does not read; null when the file has
+   * none or it could not be read.
    */
   newId: v.nullable(v.string()),
 });
