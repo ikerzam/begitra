@@ -1,5 +1,5 @@
-// Typed listeners for events pushed from Rust: `repo:changed`, for the
-// filesystem watcher to emit.
+// Typed listeners for events pushed from Rust: `repo:changed`, which the filesystem watcher
+// of the open repository emits.
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import * as v from "valibot";

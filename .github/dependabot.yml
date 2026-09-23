@@ -1,7 +1,7 @@
 # Monthly updates for the three ecosystems, minor and patch grouped into one pull request
 # each: a Tauri, Vue or libgit2 major is a decision Iker makes himself, the rest is
 # noise when split. The actions are pinned by commit, so this is what keeps them fresh.
-# Monthly, not weekly, because every pull request is a run of its own (2026-09-22).
+# Monthly, not weekly: every pull request is a run of its own.
 
 version: 2
 updates:

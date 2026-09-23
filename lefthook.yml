@@ -1,4 +1,4 @@
-# Git hooks. Install with `pnpm exec lefthook install` (done by the `prepare` script once package.json exists).
+# Git hooks. Install with `pnpm exec lefthook install` (the `prepare` script runs it on `pnpm install`).
 # Commands run only when staged files match their glob, so the hooks are safe before the scaffold exists.
 
 pre-commit:

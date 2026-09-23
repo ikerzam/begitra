@@ -47,8 +47,8 @@ const MIGRATIONS: &[&str] = &[
         created_at INTEGER NOT NULL
     );
     CREATE INDEX review_annotations_target ON review_annotations(repo_path, target);",
-    // Version 2: repositories and worktrees in one table keyed by path, with the
-    // summary the scanner refreshes; the empty tables of version 1 go.
+    // Version 2: repositories and worktrees in one table keyed by path, with the summary the
+    // scanner refreshes; the empty tables of version 1 go.
     "DROP TABLE worktrees;
     DROP TABLE repos;
     CREATE TABLE repos (
@@ -70,8 +70,8 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX repos_parent ON repos(parent_path);
     CREATE INDEX repos_root ON repos(scan_root);",
-    // Version 3: review state keyed by repository, target, path, hunk and kind, so
-    // a mark or a note is one upsert; the review table of version 1 was never written.
+    // Version 3: review state keyed by repository, target, path, hunk and kind, so a mark or
+    // a note is one upsert; the review table of version 1 never held a row.
     "DROP TABLE review_annotations;
     CREATE TABLE annotations (
         repo TEXT NOT NULL,

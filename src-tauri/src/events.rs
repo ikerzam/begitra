@@ -1,5 +1,5 @@
-//! Events pushed from Rust to the frontend: the `repo:changed`
-//! shape, for the filesystem watcher to emit.
+//! Events pushed from Rust to the frontend: the `repo:changed` shape, which the filesystem
+//! watcher of the open repository emits.
 
 use std::path::PathBuf;
 

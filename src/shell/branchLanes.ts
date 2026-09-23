@@ -1,5 +1,5 @@
-// Lane colours of the branches: by position among the refs of the same kind, since
-// rows carry no graph lane. The sidebar and the status bar read
+// Lane colours of the branches: by position among the refs of the same kind, since a branch
+// row carries no graph lane. The sidebar and the status bar read
 // the same map, so the current branch keeps one colour everywhere.
 
 import { laneIndex } from "@/components/lanes";

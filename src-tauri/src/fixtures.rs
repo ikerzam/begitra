@@ -487,8 +487,7 @@ fn scan_messages() -> Vec<ScanMessage> {
 }
 
 /// Regenerates every fixture. Deterministic, so a clean checkout produces no diff.
-/// The branch, history, network and stash types: what `switch`, the outcomes, the conflicts,
-/// the remotes, the network
+/// The branch, history, network and stash types: what `switch`, the outcomes, the conflicts, the remotes, the network
 /// requests and events, and a stash push carry.
 fn write_phase7() {
     let conflicts = vec![

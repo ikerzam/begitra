@@ -2,7 +2,7 @@
 // conflicts, or a stash apply that conflicted) and its conflicted paths, for the banner on
 // every screen and the conflicts list of the changes screen; continue, skip and abort through
 // the sequencer commands, and "mark resolved" (`git add`) per file. Reloaded after every
-// write that may have stopped, and when the watcher reports refs, status or index.
+// branch or history write that may have stopped, and when the watcher reports refs, status or index.
 
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
