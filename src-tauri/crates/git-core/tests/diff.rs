@@ -385,6 +385,24 @@ fn a_submodules_working_side_is_its_checked_out_commit() {
         seen.push(checked_out);
     }
     assert_ne!(seen[0], seen[1]);
+
+    // Back on the recorded commit with a file of its own changed: git lists the submodule as
+    // dirty, with the same commit on both sides.
+    let recorded = f.rev(":sub");
+    f.git_in(&sub, &["checkout", "-q", &recorded]);
+    fs::write(sub.join("s.txt"), "dirty\n").expect("write");
+    let set = diff(
+        &f,
+        &DiffTarget::WorkingTree {
+            base: WorkingTreeBase::Index,
+        },
+    );
+    assert_eq!(
+        engine_name_status(&set),
+        git_name_status(&f, &["diff", "--name-status"])
+    );
+    let dirty = file(&set, "sub");
+    assert_eq!(dirty.old_id, dirty.new_id);
 }
 
 /// An intent-to-add file is an addition for `git diff` (`index 0000000..`): the index's
@@ -454,6 +472,27 @@ fn a_working_file_the_patch_does_not_read_is_hashed_from_disk() {
             assert!(changed.is_binary, "{base:?}");
             assert_eq!(changed.new_id.as_deref(), Some(raw.as_str()), "{base:?}");
         }
+    }
+}
+
+/// A file the patch does not read, rewritten with the bytes of the blob it had (here only
+/// its line endings changed under `core.autocrlf`), is no change: git lists nothing.
+#[test]
+fn a_working_file_with_the_old_sides_id_is_not_listed() {
+    let mut f = Fixture::basic();
+    f.git(&["config", "core.autocrlf", "true"]);
+    f.write(".gitattributes", "*.dat -diff\n");
+    f.write("table.dat", "one\r\ntwo\r\n");
+    f.commit("table");
+    f.write("table.dat", "one\ntwo\n");
+    for base in [WorkingTreeBase::Index, WorkingTreeBase::Head] {
+        let set = diff(&f, &DiffTarget::WorkingTree { base: base.clone() });
+        assert_eq!(
+            engine_name_status(&set),
+            git_name_status(&f, &["diff", "HEAD", "--name-status"]),
+            "{base:?}"
+        );
+        assert!(set.files.is_empty(), "{base:?} {:?}", paths(&set));
     }
 }
 

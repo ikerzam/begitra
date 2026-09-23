@@ -656,6 +656,18 @@ pub(super) fn collect_range(
             // The patch gave the id of what it read; a side it does not read has none yet.
             file.new_id = working_id(repo, &delta.new_file());
         }
+        // A working file whose id ends up the old side's is no change for git either (a file
+        // the patch does not read, rewritten with the same bytes); a submodule keeps its
+        // commit when only its own files changed, which git lists as dirty.
+        if working_tree
+            && status == ChangeKind::Modified
+            && file.old_id.is_some()
+            && file.old_id == file.new_id
+            && delta.old_file().mode() == delta.new_file().mode()
+            && delta.new_file().mode() != FileMode::Commit
+        {
+            continue;
+        }
         // The index's empty blob of `git add -N` is a placeholder, not an old side.
         if intent_to_add {
             file.old_id = None;
