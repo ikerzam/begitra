@@ -477,27 +477,47 @@ fn an_attributes_file_setting_that_is_not_utf8_leaves_the_diff_working() {
 }
 
 /// An index entry whose name is not UTF-8 (an index written on Linux) is listed under its
-/// lossy name: git2's `path()` panics on it on Windows, where no file can carry the name.
+/// lossy name, and its flags are read from the bytes git stores: git2's `path()` and
+/// `get_path` cannot take such a name on Windows, where no file can carry it.
 #[test]
-fn an_index_entry_with_a_non_utf8_name_is_listed() {
+fn an_index_entry_with_a_non_utf8_name_is_listed_with_its_flags() {
     let f = Fixture::basic();
     let repo = git2::Repository::open(&f.root).expect("open");
     let mut index = repo.index().expect("index");
-    let entry = git2::IndexEntry {
-        ctime: git2::IndexTime::new(0, 0),
-        mtime: git2::IndexTime::new(0, 0),
-        dev: 0,
-        ino: 0,
-        mode: 0o100_644,
-        uid: 0,
-        gid: 0,
-        file_size: 4,
-        id: repo.blob(b"one\n").expect("blob"),
-        flags: 0,
-        flags_extended: 0,
-        path: b"caf\xe9.txt".to_vec(),
+    let mut add = |name: &[u8], content: &[u8], flags_extended: git2::IndexEntryExtendedFlag| {
+        let entry = git2::IndexEntry {
+            ctime: git2::IndexTime::new(0, 0),
+            mtime: git2::IndexTime::new(0, 0),
+            dev: 0,
+            ino: 0,
+            mode: 0o100_644,
+            uid: 0,
+            gid: 0,
+            file_size: u32::try_from(content.len()).expect("small"),
+            id: repo.blob(content).expect("blob"),
+            flags: 0,
+            flags_extended: flags_extended.bits(),
+            path: name.to_vec(),
+        };
+        index.add(&entry).expect("add");
     };
-    index.add(&entry).expect("add");
+    add(
+        b"caf\xe9.txt",
+        b"one\n",
+        git2::IndexEntryExtendedFlag::empty(),
+    );
+    // Off the disk on purpose (a sparse checkout), and recorded by `git add -N`: git lists
+    // neither against the index, nor the second as staged.
+    add(
+        b"sparse\xe9.txt",
+        b"two\n",
+        git2::IndexEntryExtendedFlag::SKIP_WORKTREE,
+    );
+    add(
+        b"intent\xe9.txt",
+        b"",
+        git2::IndexEntryExtendedFlag::INTENT_TO_ADD,
+    );
     index.write().expect("write index");
     let lossy = "caf\u{fffd}.txt";
 
@@ -507,11 +527,20 @@ fn an_index_entry_with_a_non_utf8_name_is_listed() {
             base: WorkingTreeBase::Index,
         },
     );
-    assert_eq!(paths(&working), [lossy]);
-    assert_eq!(working.files[0].status, ChangeKind::Deleted);
+    let listed: Vec<&str> = paths(&working)
+        .into_iter()
+        .filter(|path| !path.starts_with("intent"))
+        .collect();
+    assert_eq!(listed, [lossy]);
+    assert_eq!(file(&working, lossy).status, ChangeKind::Deleted);
     let staged = diff(&f, &DiffTarget::Index);
-    assert_eq!(paths(&staged), [lossy]);
-    assert_eq!(staged.files[0].status, ChangeKind::Added);
+    let staged_paths = paths(&staged);
+    assert!(staged_paths.contains(&lossy), "{staged_paths:?}");
+    assert!(
+        !staged_paths.iter().any(|path| path.starts_with("intent")),
+        "{staged_paths:?}"
+    );
+    assert_eq!(file(&staged, lossy).status, ChangeKind::Added);
     for base in [
         WorkingTreeBase::Head,
         WorkingTreeBase::Revision {

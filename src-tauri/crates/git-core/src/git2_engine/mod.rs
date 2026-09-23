@@ -538,19 +538,27 @@ fn normalize(path: &Path) -> PathBuf {
     path.components().collect()
 }
 
-/// Whether the stage-0 index entry of `path` (its name as git stores it) carries `flag`
-/// (`skip-worktree` of a sparse checkout, `intent-to-add` of `git add -N`): the flags git
-/// honours and libgit2's diff and status do not.
+/// The stage bits of an index entry's `flags`.
+const INDEX_STAGE_MASK: u16 = 0x3000;
+
+/// Whether the stage-0 index entry named `path` carries `flag` (`skip-worktree` of a sparse
+/// checkout, `intent-to-add` of `git add -N`): the flags git honours and libgit2's diff and
+/// status do not. The entry is found by the bytes git stores, so a name that is not UTF-8 is
+/// found on every platform (git2's `get_path` takes a `Path`, which cannot hold it on Windows).
 pub(super) fn index_flag(
     index: &git2::Index,
     path: &[u8],
     flag: git2::IndexEntryExtendedFlag,
 ) -> bool {
-    let Some(path) = index_path_bytes(path) else {
+    // Entries sort by name, then stage, so the first one the prefix finds is the name's own
+    // lowest stage when the name is there.
+    let Ok(position) = index.find_prefix(path) else {
         return false;
     };
-    index.get_path(path, 0).is_some_and(|entry| {
-        git2::IndexEntryExtendedFlag::from_bits_truncate(entry.flags_extended).contains(flag)
+    index.get(position).is_some_and(|entry| {
+        entry.path == path
+            && entry.flags & INDEX_STAGE_MASK == 0
+            && git2::IndexEntryExtendedFlag::from_bits_truncate(entry.flags_extended).contains(flag)
     })
 }
 
@@ -558,18 +566,12 @@ pub(super) fn index_flag(
 /// unwraps its path conversion): an empty path, one that does not start with a plain name
 /// (`.`, `..`, a root or a drive) and one holding a NUL byte.
 pub(super) fn index_path(path: &str) -> Option<&Path> {
-    index_path_bytes(path.as_bytes())
-}
-
-/// [`index_path`] for a name as git stores it, which need not be UTF-8; `None` also for a
-/// name a `Path` cannot hold.
-fn index_path_bytes(path: &[u8]) -> Option<&Path> {
-    let candidate = os_path(path)?;
+    let candidate = Path::new(path);
     let plain = matches!(
         candidate.components().next(),
         Some(std::path::Component::Normal(_))
     );
-    (plain && !path.contains(&0)).then_some(candidate)
+    (plain && !path.contains('\0')).then_some(candidate)
 }
 
 /// A path as git stores it (bytes with `/` separators) as a `Path`: any bytes on Unix, UTF-8
