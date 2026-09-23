@@ -13,6 +13,17 @@
 //!   modified file a candidate source, which cost more than the whole rest of a large diff;
 //! - working tree diffs drop files that only differ by line endings under `text=auto` (git
 //!   compares the filtered content; libgit2 reports a modified delta without hunks);
+//! - working tree renames are scored on the raw working file, where git filters it first:
+//!   under `core.autocrlf` a renamed and edited file with CRLF endings is an addition and a
+//!   deletion, every `\r` counting against the similarity;
+//! - libgit2 runs the line-ending and `ident` filters only (no external driver such as LFS,
+//!   no `working-tree-encoding`), skips the CRLF conversion when the index blob holds any CR,
+//!   and collapses only the first `$Id$`: such a working file shows its raw or partly
+//!   filtered content, and a file the patch does not read (binary by attribute) compares by
+//!   its raw bytes, so a `-diff` file with CRLF endings under `core.autocrlf` is listed;
+//! - a file flagged `assume-unchanged` or `skip-worktree` with a staged change shows its disk
+//!   content against HEAD, where git shows the index's, and a staged change to a sparse file
+//!   absent from the disk is not listed against HEAD;
 //! - `linguist-generated` is read from the index and the working copy (`.gitattributes` as
 //!   checked out), not from the compared commit, and only when some attributes file of the
 //!   repository names the attribute at all (each lookup costs a stat per directory level);
