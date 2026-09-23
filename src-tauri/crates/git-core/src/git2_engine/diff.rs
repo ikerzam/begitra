@@ -1,4 +1,4 @@
-//! Diffs with renames, hunks, intra-line spans and flags.
+//! Diffs with renames, hunks, intra-line spans, flags and the ids of both blobs.
 //!
 //! libgit2 builds the delta list and the patches; this module maps them to [`ChangeSet`] and
 //! adds the intra-line spans and the flags. Known differences from the git CLI:
