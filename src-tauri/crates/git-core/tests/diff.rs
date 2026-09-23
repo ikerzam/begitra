@@ -1434,6 +1434,58 @@ fn intent_to_add_is_an_addition_against_the_index() {
     assert!(staged.files.is_empty());
 }
 
+/// `git add -N` over a path HEAD has (after `git rm --cached`): against HEAD the file is
+/// modified, with HEAD's blob as its old side, and as staged it is deleted, since the
+/// placeholder stages nothing.
+#[test]
+fn intent_to_add_over_a_path_head_has_is_modified_against_head_and_deleted_as_staged() {
+    let f = Fixture::basic();
+    f.git(&["rm", "-q", "--cached", "src/lib.rs"]);
+    f.git(&["add", "-N", "src/lib.rs"]);
+    f.write("src/lib.rs", "pub fn one() -> u32 {\n    1\n}\n// added\n");
+    for base in [
+        WorkingTreeBase::Head,
+        WorkingTreeBase::Revision {
+            rev: "HEAD".to_owned(),
+        },
+    ] {
+        let set = diff(&f, &DiffTarget::WorkingTree { base: base.clone() });
+        assert_eq!(
+            engine_name_status(&set),
+            git_name_status(&f, &["diff", "HEAD", "--name-status"]),
+            "{base:?}"
+        );
+        let changed = file(&set, "src/lib.rs");
+        assert_eq!(changed.old_id, Some(f.rev("HEAD:src/lib.rs")), "{base:?}");
+    }
+    let staged = diff(&f, &DiffTarget::Index);
+    assert_eq!(
+        engine_name_status(&staged),
+        git_name_status(&f, &["diff", "--cached", "--name-status"])
+    );
+    let deleted = file(&staged, "src/lib.rs");
+    assert_eq!(deleted.status, ChangeKind::Deleted);
+    assert_eq!(deleted.new_id, None);
+}
+
+/// A `git add -N` placeholder is not paired with a deleted empty file as a rename: git's
+/// staged view shows the deletion alone.
+#[test]
+fn intent_to_add_is_not_a_rename_target_in_the_staged_view() {
+    let mut f = Fixture::basic();
+    f.write("empty.txt", "");
+    f.commit("empty file");
+    f.git(&["rm", "-q", "empty.txt"]);
+    f.write("new.txt", "new\n");
+    f.git(&["add", "-N", "new.txt"]);
+    let staged = diff(&f, &DiffTarget::Index);
+    assert_eq!(
+        engine_name_status(&staged),
+        git_name_status(&f, &["diff", "--cached", "-M", "--name-status"])
+    );
+    assert_eq!(paths(&staged), ["empty.txt"]);
+}
+
 #[test]
 fn rename_similarity_counts_whitespace_like_git() {
     let mut f = Fixture::basic();

@@ -43,6 +43,8 @@ pub(super) struct Prepared<'r> {
     /// Whether the new side's blobs live in the object store (not for the working tree).
     probe_new_side: bool,
     working_tree: bool,
+    /// Whether the old side is the index (the working tree against it).
+    against_index: bool,
     /// The index, for the flags git honours and libgit2 does not (working tree and staged
     /// diffs only).
     index_file: Option<git2::Index>,
@@ -68,6 +70,12 @@ pub(super) fn prepare<'r>(
     // Working tree files are not objects, so their ids never resolve in the object store.
     let probe_new_side = !matches!(target, DiffTarget::WorkingTree { .. });
     let working_tree = matches!(target, DiffTarget::WorkingTree { .. });
+    let against_index = matches!(
+        target,
+        DiffTarget::WorkingTree {
+            base: WorkingTreeBase::Index
+        }
+    );
     let mut diff = build_diff(repo, target, options)?;
     if options.renames {
         let threshold = u16::from(options.similarity.min(100));
@@ -99,8 +107,7 @@ pub(super) fn prepare<'r>(
     let mut order: Vec<usize> = (0..listed_paths.len()).collect();
     order.sort_by(|&left, &right| listed_paths.get(left).cmp(&listed_paths.get(right)));
     // The index flags git honours and libgit2 does not: a sparse checkout's absent files
-    // (`skip-worktree`) are not deletions, and `git add -N` is an addition to the working
-    // tree with nothing staged.
+    // (`skip-worktree`) are not deletions, and `git add -N` stages nothing.
     let index_file = if working_tree || matches!(target, DiffTarget::Index) {
         Some(repo.index()?)
     } else {
@@ -111,6 +118,7 @@ pub(super) fn prepare<'r>(
         order,
         probe_new_side,
         working_tree,
+        against_index,
         index_file,
         generated_attributes,
     })
@@ -553,24 +561,45 @@ pub(super) fn collect_range(
         let Some(mut status) = change_kind(delta.status()) else {
             continue;
         };
+        // The index side's placeholder of `git add -N` (always the empty blob, so only such
+        // entries are looked up): against the index the file is an addition, and in the
+        // staged view nothing of it is staged.
         let mut intent_to_add = false;
-        // The delta's path as bytes: git2's `path()` panics on a name that is not UTF-8 on
-        // Windows (an index written on Linux).
-        if let (Some(index_file), Some(path)) = (index_file, delta.old_file().path_bytes()) {
-            let flagged = |flag| super::index_flag(index_file, path, flag);
+        let mut staged_placeholder = false;
+        if let Some(index_file) = index_file {
+            // Paths as bytes: git2's `path()` panics on a name that is not UTF-8 on Windows.
+            let flagged = |file: git2::DiffFile<'_>, flag| {
+                file.path_bytes()
+                    .is_some_and(|path| super::index_flag(index_file, path, flag))
+            };
+            let placeholder = |file: git2::DiffFile<'_>| {
+                is_empty_blob(file.id()) && flagged(file, IndexEntryExtendedFlag::INTENT_TO_ADD)
+            };
             if working_tree {
-                if status == ChangeKind::Deleted && flagged(IndexEntryExtendedFlag::SKIP_WORKTREE) {
+                if status == ChangeKind::Deleted
+                    && flagged(delta.old_file(), IndexEntryExtendedFlag::SKIP_WORKTREE)
+                {
                     continue;
                 }
-                if status == ChangeKind::Modified && flagged(IndexEntryExtendedFlag::INTENT_TO_ADD)
+                // Against HEAD or a revision, libgit2's merged diff already has git's status.
+                if prepared.against_index
+                    && status == ChangeKind::Modified
+                    && placeholder(delta.old_file())
                 {
                     status = ChangeKind::Added;
                     intent_to_add = true;
                 }
-            } else if status == ChangeKind::Added && flagged(IndexEntryExtendedFlag::INTENT_TO_ADD)
-            {
-                // `git diff --cached` leaves out what `git add -N` recorded: nothing is staged.
-                continue;
+            } else if placeholder(delta.new_file()) {
+                // `git diff --cached`: a new path is not staged, a path HEAD has is a deletion,
+                // and a rename onto the placeholder (from an empty file) is its source's.
+                match status {
+                    ChangeKind::Added => continue,
+                    ChangeKind::Deleted | ChangeKind::Unmerged => {}
+                    _ => {
+                        status = ChangeKind::Deleted;
+                        staged_placeholder = true;
+                    }
+                }
             }
         }
         let patch = Patch::from_diff(diff, index).map_err(|error| {
@@ -607,6 +636,16 @@ pub(super) fn collect_range(
         // The index's empty blob of `git add -N` is a placeholder, not an old side.
         if intent_to_add {
             file.old_id = None;
+        }
+        // Nor a new one: the staged view lists the old side's path as deleted.
+        if staged_placeholder {
+            file.path = delta
+                .old_file()
+                .path_bytes()
+                .map(path_string)
+                .unwrap_or_default();
+            file.old_path = None;
+            file.new_id = None;
         }
         additions = additions.saturating_add(file.additions);
         deletions = deletions.saturating_add(file.deletions);
@@ -724,6 +763,12 @@ struct FileMeta {
 fn known_id(file: &git2::DiffFile<'_>) -> Option<String> {
     let id = file.id();
     (file.exists() && file.is_valid_id() && !id.is_zero()).then(|| id.to_string())
+}
+
+/// Whether `id` is the empty blob, the placeholder `git add -N` records in the index.
+fn is_empty_blob(id: Oid) -> bool {
+    static EMPTY: std::sync::OnceLock<Option<Oid>> = std::sync::OnceLock::new();
+    *EMPTY.get_or_init(|| Oid::hash_object(ObjectType::Blob, &[]).ok()) == Some(id)
 }
 
 /// Largest working file hashed when the patch did not read it (about 100 ms of hashing); a
