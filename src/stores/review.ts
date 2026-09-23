@@ -524,8 +524,16 @@ export const useReviewStore = defineStore("review", () => {
     const hunkId = hunkKey(hunk);
     const wholeFile = file !== undefined && fileMark(file) === "reviewed";
     const on = !(hunkMarked(path, hunk) || wholeFile);
-    if (on) set.set(hunkId, NO_CONTENT);
-    else {
+    if (on) {
+      set.set(hunkId, NO_CONTENT);
+      // The last hunk marked makes it a file mark too, holding the content, so the file shows
+      // "changed since review" when that content moves on.
+      if (file && file.hunks.every((other) => set.has(hunkKey(other)))) {
+        const content = contentOf(file);
+        set.set("", content);
+        persistMark(path, "", true, () => {}, content);
+      }
+    } else {
       set.delete(hunkId);
       // A mark from before marks held content, on a commit.
       const legacy = positionKey(hunk);

@@ -170,8 +170,36 @@ describe("marks held by content", () => {
     expect(review.changedCount).toBe(0);
   });
 
+  it("marks the file with its content once every hunk is marked, so a change shows", async () => {
+    const edited = file("src/cache.ts", {
+      oldId: "a1",
+      newId: "b2",
+      hunks: [hunkAt(3, "x", "y"), hunkAt(9, "p", "q")],
+    });
+    const calls = fakeBackend({ changes: { unstaged: [edited], staged: [] } });
+    await openRepository();
+    const review = useReviewStore();
+    review.setTarget({ kind: "worktree" });
+    await settled();
+    review.toggleHunkReviewed("src/cache.ts", edited.hunks[0]!);
+    expect(review.isReviewed("src/cache.ts")).toBe(false);
+    review.toggleHunkReviewed("src/cache.ts", edited.hunks[1]!);
+    expect(review.isReviewed("src/cache.ts")).toBe(true);
+    await settled();
+    expect(
+      calls
+        .filter((c) => c.cmd === "set_annotation")
+        .map((c) => (c.args as { annotation: { hunk: string; value: string } }).annotation),
+    ).toContainEqual(expect.objectContaining({ hunk: "", value: "a1:b2" }));
+  });
+
   it("keeps a hunk mark across a shift and drops it when its lines change", async () => {
-    const before = file("src/cache.ts", { oldId: "a1", newId: "b2", hunks: [hunkAt(3, "x", "y")] });
+    // Two hunks, one marked: the file is not reviewed whole, so only the hunk's key decides.
+    const before = file("src/cache.ts", {
+      oldId: "a1",
+      newId: "b2",
+      hunks: [hunkAt(3, "x", "y"), hunkAt(20, "m", "n")],
+    });
     fakeBackend({ changes: { unstaged: [before], staged: [] } });
     await openRepository();
     const review = useReviewStore();

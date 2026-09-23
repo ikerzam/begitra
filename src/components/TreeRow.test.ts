@@ -98,6 +98,9 @@ describe("TreeRow", () => {
     const check = wrapper.get("svg.lucide-check");
     expect(check.classes()).toContain("text-warn");
     expect(check.attributes("aria-label")).toBe("Changed since review");
+    // A word as well as the colour, and the reason on hover.
+    expect(wrapper.get("[data-testid='tree-row-changed']").text()).toBe("changed");
+    expect(check.element.parentElement?.getAttribute("title")).toBe("Changed since review");
   });
 
   it("selects on click, activates a file on Enter, and shows the selected treatment", async () => {

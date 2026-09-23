@@ -92,6 +92,11 @@ function onKeydown(event: KeyboardEvent): void {
     emit("toggle");
   }
 }
+
+/** What the check says, on hover too: reviewed, or reviewed for another content. */
+const checkLabel = computed(() =>
+  props.reviewed ? t("treeRow.reviewed") : t("treeRow.changedSinceReview"),
+);
 </script>
 
 <template>
@@ -160,15 +165,22 @@ function onKeydown(event: KeyboardEvent): void {
     >
       {{ t("treeRow.conflict") }}
     </span>
+    <span
+      v-if="props.changed && !props.reviewed && !isFolder"
+      class="shrink-0 text-sm text-warn"
+      data-testid="tree-row-changed"
+    >
+      {{ t("treeRow.changed") }}
+    </span>
     <DiffStat v-if="hasStats" :added="props.added ?? 0" :removed="props.removed ?? 0" />
-    <Check
-      v-if="props.reviewed || props.changed"
-      :size="16"
-      :stroke-width="1.5"
-      role="img"
-      :aria-label="props.reviewed ? t('treeRow.reviewed') : t('treeRow.changedSinceReview')"
-      class="shrink-0"
-      :class="props.reviewed ? 'text-reviewed' : 'text-warn'"
-    />
+    <span v-if="props.reviewed || props.changed" class="inline-flex shrink-0" :title="checkLabel">
+      <Check
+        :size="16"
+        :stroke-width="1.5"
+        role="img"
+        :aria-label="checkLabel"
+        :class="props.reviewed ? 'text-reviewed' : 'text-warn'"
+      />
+    </span>
   </div>
 </template>

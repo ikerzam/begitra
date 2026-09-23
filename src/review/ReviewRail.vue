@@ -141,10 +141,10 @@ const reviewShare = computed(() =>
         <p class="text-sm text-fg-secondary">
           {{ t("review.reviewed", { done: props.reviewedCount, total: stats.files }) }}
         </p>
-        <p v-if="props.changedCount > 0" class="text-sm text-warn" data-testid="review-changed">
-          {{ t("review.changedSince", { n: props.changedCount }) }}
-        </p>
         <Progress :value="reviewShare" variant="reviewed" :label="t('review.progress')" />
+        <p v-if="props.changedCount > 0" class="text-sm text-warn" data-testid="review-changed">
+          {{ t("review.changedSince", props.changedCount) }}
+        </p>
       </div>
 
       <NotesBlock />
