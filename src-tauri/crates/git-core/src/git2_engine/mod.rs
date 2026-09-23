@@ -538,15 +538,15 @@ fn normalize(path: &Path) -> PathBuf {
     path.components().collect()
 }
 
-/// Whether the stage-0 index entry of `path` carries `flag` (`skip-worktree` of a sparse
-/// checkout, `intent-to-add` of `git add -N`): the flags git honours and libgit2's diff and
-/// status do not.
+/// Whether the stage-0 index entry of `path` (its name as git stores it) carries `flag`
+/// (`skip-worktree` of a sparse checkout, `intent-to-add` of `git add -N`): the flags git
+/// honours and libgit2's diff and status do not.
 pub(super) fn index_flag(
     index: &git2::Index,
-    path: &str,
+    path: &[u8],
     flag: git2::IndexEntryExtendedFlag,
 ) -> bool {
-    let Some(path) = index_path(path) else {
+    let Some(path) = index_path_bytes(path) else {
         return false;
     };
     index.get_path(path, 0).is_some_and(|entry| {
@@ -558,12 +558,32 @@ pub(super) fn index_flag(
 /// unwraps its path conversion): an empty path, one that does not start with a plain name
 /// (`.`, `..`, a root or a drive) and one holding a NUL byte.
 pub(super) fn index_path(path: &str) -> Option<&Path> {
-    let candidate = Path::new(path);
+    index_path_bytes(path.as_bytes())
+}
+
+/// [`index_path`] for a name as git stores it, which need not be UTF-8; `None` also for a
+/// name a `Path` cannot hold.
+fn index_path_bytes(path: &[u8]) -> Option<&Path> {
+    let candidate = os_path(path)?;
     let plain = matches!(
         candidate.components().next(),
         Some(std::path::Component::Normal(_))
     );
-    (plain && !path.contains('\0')).then_some(candidate)
+    (plain && !path.contains(&0)).then_some(candidate)
+}
+
+/// A path as git stores it (bytes with `/` separators) as a `Path`: any bytes on Unix, UTF-8
+/// only on Windows, whose paths are UTF-16 (git2's own `path()` panics on the others there).
+pub(super) fn os_path(bytes: &[u8]) -> Option<&Path> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        Some(Path::new(std::ffi::OsStr::from_bytes(bytes)))
+    }
+    #[cfg(not(unix))]
+    {
+        std::str::from_utf8(bytes).ok().map(Path::new)
+    }
 }
 
 /// Resolves `revision` as `git rev-parse` would and peels it to a commit id.

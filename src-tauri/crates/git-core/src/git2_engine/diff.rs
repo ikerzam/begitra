@@ -43,7 +43,8 @@ pub(super) struct Prepared<'r> {
     /// Whether the new side's blobs live in the object store (not for the working tree).
     probe_new_side: bool,
     working_tree: bool,
-    /// The index, for the flags git honours and libgit2 does not (working tree diffs only).
+    /// The index, for the flags git honours and libgit2 does not (working tree and staged
+    /// diffs only).
     index_file: Option<git2::Index>,
     /// Whether any attributes file names `linguist-generated`; without one no lookup runs.
     generated_attributes: bool,
@@ -98,8 +99,9 @@ pub(super) fn prepare<'r>(
     let mut order: Vec<usize> = (0..listed_paths.len()).collect();
     order.sort_by(|&left, &right| listed_paths.get(left).cmp(&listed_paths.get(right)));
     // The index flags git honours and libgit2 does not: a sparse checkout's absent files
-    // (`skip-worktree`) are not deletions, and `git add -N` is an addition.
-    let index_file = if working_tree {
+    // (`skip-worktree`) are not deletions, and `git add -N` is an addition to the working
+    // tree with nothing staged.
+    let index_file = if working_tree || matches!(target, DiffTarget::Index) {
         Some(repo.index()?)
     } else {
         None
@@ -550,22 +552,23 @@ pub(super) fn collect_range(
             continue;
         };
         let mut intent_to_add = false;
-        if let Some(index_file) = index_file {
-            let path = delta
-                .old_file()
-                .path()
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            if status == ChangeKind::Deleted
-                && super::index_flag(index_file, &path, IndexEntryExtendedFlag::SKIP_WORKTREE)
+        // The delta's path as bytes: git2's `path()` panics on a name that is not UTF-8 on
+        // Windows (an index written on Linux).
+        if let (Some(index_file), Some(path)) = (index_file, delta.old_file().path_bytes()) {
+            let flagged = |flag| super::index_flag(index_file, path, flag);
+            if working_tree {
+                if status == ChangeKind::Deleted && flagged(IndexEntryExtendedFlag::SKIP_WORKTREE) {
+                    continue;
+                }
+                if status == ChangeKind::Modified && flagged(IndexEntryExtendedFlag::INTENT_TO_ADD)
+                {
+                    status = ChangeKind::Added;
+                    intent_to_add = true;
+                }
+            } else if status == ChangeKind::Added && flagged(IndexEntryExtendedFlag::INTENT_TO_ADD)
             {
+                // `git diff --cached` leaves out what `git add -N` recorded: nothing is staged.
                 continue;
-            }
-            if status == ChangeKind::Modified
-                && super::index_flag(index_file, &path, IndexEntryExtendedFlag::INTENT_TO_ADD)
-            {
-                status = ChangeKind::Added;
-                intent_to_add = true;
             }
         }
         let patch = Patch::from_diff(diff, index).map_err(|error| {

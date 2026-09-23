@@ -435,6 +435,52 @@ fn the_working_side_under_autocrlf_is_the_unfiltered_bytes() {
     assert_ne!(unfiltered, f.git(&["hash-object", "crlf.txt"]));
 }
 
+/// An index entry whose name is not UTF-8 (an index written on Linux) is listed under its
+/// lossy name: git2's `path()` panics on it on Windows, where no file can carry the name.
+#[test]
+fn an_index_entry_with_a_non_utf8_name_is_listed() {
+    let f = Fixture::basic();
+    let repo = git2::Repository::open(&f.root).expect("open");
+    let mut index = repo.index().expect("index");
+    let entry = git2::IndexEntry {
+        ctime: git2::IndexTime::new(0, 0),
+        mtime: git2::IndexTime::new(0, 0),
+        dev: 0,
+        ino: 0,
+        mode: 0o100_644,
+        uid: 0,
+        gid: 0,
+        file_size: 4,
+        id: repo.blob(b"one\n").expect("blob"),
+        flags: 0,
+        flags_extended: 0,
+        path: b"caf\xe9.txt".to_vec(),
+    };
+    index.add(&entry).expect("add");
+    index.write().expect("write index");
+    let lossy = "caf\u{fffd}.txt";
+
+    let working = diff(
+        &f,
+        &DiffTarget::WorkingTree {
+            base: WorkingTreeBase::Index,
+        },
+    );
+    assert_eq!(paths(&working), [lossy]);
+    assert_eq!(working.files[0].status, ChangeKind::Deleted);
+    let staged = diff(&f, &DiffTarget::Index);
+    assert_eq!(paths(&staged), [lossy]);
+    assert_eq!(staged.files[0].status, ChangeKind::Added);
+    for base in [
+        WorkingTreeBase::Head,
+        WorkingTreeBase::Revision {
+            rev: "HEAD".to_owned(),
+        },
+    ] {
+        diff(&f, &DiffTarget::WorkingTree { base });
+    }
+}
+
 /// A symbolic link's working side is the blob of its link text, as git stores it, not the
 /// file it points to (which can change while the link does not, and the other way round).
 #[cfg(unix)]
@@ -1309,6 +1355,13 @@ fn intent_to_add_is_an_addition_against_the_index() {
     let added = file(&index, "ita.txt");
     assert_eq!(added.status, ChangeKind::Added);
     assert_eq!((added.additions, added.deletions), (1, 0));
+    // Nothing of it is staged: `git diff --cached` leaves it out.
+    let staged = diff(&f, &DiffTarget::Index);
+    assert_eq!(
+        engine_name_status(&staged),
+        git_name_status(&f, &["diff", "--cached", "--name-status"])
+    );
+    assert!(staged.files.is_empty());
 }
 
 #[test]

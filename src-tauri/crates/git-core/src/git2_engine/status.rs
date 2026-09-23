@@ -169,7 +169,7 @@ pub(super) fn list_libgit2(
                 if mapped.staged == Some(ChangeKind::Added)
                     && super::index_flag(
                         &index_file,
-                        &mapped.path,
+                        mapped.path.as_bytes(),
                         git2::IndexEntryExtendedFlag::INTENT_TO_ADD,
                     )
                 {
@@ -181,7 +181,7 @@ pub(super) fn list_libgit2(
                 if mapped.unstaged == Some(ChangeKind::Deleted)
                     && super::index_flag(
                         &index_file,
-                        &mapped.path,
+                        mapped.path.as_bytes(),
                         git2::IndexEntryExtendedFlag::SKIP_WORKTREE,
                     )
                 {
