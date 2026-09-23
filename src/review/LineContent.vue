@@ -1,11 +1,11 @@
 <script setup lang="ts">
-// The text of one diff line: intra-line emphasis on the changed bytes and the two-tone token
-// treatment of the highlighter (comments muted, strings secondary; the other classes inherit
-// the text colour, since the interface keeps colour for facts).
+// The text of one diff line: intra-line emphasis on the changed bytes and the syntax colour of
+// each token class. The diff's own facts stay in the row tint, the
+// marker and the emphasis background, so the text colour is free for the syntax.
 
 import { computed } from "vue";
 
-import type { DiffLine, Token } from "@/ipc/schemas";
+import type { DiffLine, Token, TokenClass } from "@/ipc/schemas";
 
 import { segments, type Segment } from "./diffRows";
 
@@ -21,15 +21,23 @@ const props = withDefaults(
 
 const parts = computed(() => segments(props.line, props.tokens));
 
+/** The colour of each class; plain text keeps the line's own. */
+const syntax: Record<TokenClass, string> = {
+  plain: "",
+  keyword: "text-syntax-keyword",
+  function: "text-syntax-function",
+  type: "text-syntax-type",
+  string: "text-syntax-string",
+  number: "text-syntax-number",
+  comment: "text-syntax-comment",
+  punctuation: "text-fg-secondary",
+};
+
 function classOf(segment: Segment): string {
-  const tone =
-    segment.class === "comment"
-      ? "text-fg-muted"
-      : segment.class === "string"
-        ? "text-fg-secondary"
-        : "";
-  if (!segment.emphasis) return tone;
-  return `${tone} ${props.line.kind === "added" ? "bg-add-emphasis" : "bg-del-emphasis"}`;
+  const colour = syntax[segment.class];
+  if (!segment.emphasis) return colour;
+  const emphasis = props.line.kind === "added" ? "bg-add-emphasis" : "bg-del-emphasis";
+  return colour ? `${colour} ${emphasis}` : emphasis;
 }
 </script>
 
