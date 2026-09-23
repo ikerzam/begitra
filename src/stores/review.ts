@@ -1,7 +1,8 @@
 // Review focus state: the target under review (the selected commit by default, or what the
 // picker, the palette and the graph's pins chose), its change set, the file filters and the
-// open file, the viewer options, and the review state (files and hunks marked reviewed, one
-// note per file) persisted per repository and target through the annotations commands.
+// open file, the viewer options, and the review state persisted per repository and target
+// through the annotations commands: files and hunks marked reviewed, each mark holding the
+// content it was given for, and one note per file.
 
 import { defineStore } from "pinia";
 import { computed, ref, shallowRef, watch } from "vue";
@@ -89,9 +90,50 @@ export function shortRev(rev: string): string {
   return /^[0-9a-f]{40}$/i.test(rev) ? shortHash(rev) : rev;
 }
 
-/** The key a hunk's mark is stored under. */
+/** Content keys, computed once per hunk object. */
+const hunkKeys = new WeakMap<Hunk, string>();
+
+/**
+ * The key a hunk's mark is stored under: a hash of its lines (kind, text and the missing
+ * final newline), so the mark follows the lines when they move and drops when they change.
+ */
 export function hunkKey(hunk: Hunk): string {
+  let key = hunkKeys.get(hunk);
+  if (key === undefined) {
+    const text = hunk.lines
+      .map((line) => `${line.kind[0] ?? ""}${line.noNewline ? "\\" : ""}${line.text}`)
+      .join("\n");
+    key = `c:${hash53(text)}`;
+    hunkKeys.set(hunk, key);
+  }
+  return key;
+}
+
+/** The key a hunk's mark had before marks held content: its position and its header. */
+export function positionKey(hunk: Hunk): string {
   return `${hunk.oldStart},${hunk.newStart}:${hunk.header}`;
+}
+
+/** The content a file mark holds: the ids of the file's two blobs. */
+export function contentOf(file: FileChange): string {
+  return `${file.oldId ?? "-"}:${file.newId ?? "-"}`;
+}
+
+/** The value of a mark written before marks held content, and of every hunk mark. */
+const NO_CONTENT = "1";
+
+/** cyrb53, a 53-bit string hash (public domain), in hex. */
+function hash53(text: string): string {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ code, 2654435761);
+    h2 = Math.imul(h2 ^ code, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
 }
 
 /** The filters a review starts with, from the settings' "Hide by default". */
@@ -117,8 +159,11 @@ export const useReviewStore = defineStore("review", () => {
   const chosenTarget = ref<ReviewTarget | null>(null);
   /** The change set streamed for the chosen target (or for the commit with other options). */
   const ownChangeSet = shallowRef<ReviewChangeSet | null>(null);
-  /** Hunk keys marked reviewed per path; the empty key is the whole file. */
-  const marks = ref(new Map<string, Set<string>>());
+  /**
+   * The marks of each path: key to value. The empty key is the whole file, its value the
+   * content it was marked for ("1" when marked before marks held content); hunk keys hold "1".
+   */
+  const marks = ref(new Map<string, Map<string, string>>());
   const notes = ref(new Map<string, string>());
   /** Two pinned commits of the graph (its chips). */
   const diffBase = ref<string | null>(null);
@@ -175,31 +220,65 @@ export const useReviewStore = defineStore("review", () => {
   });
   const files = computed(() => changeSet.value?.files ?? []);
 
-  /** Files marked as a whole, or with every hunk marked. */
+  const fileByPath = computed(() => new Map(files.value.map((file) => [file.path, file])));
+  /** A commit's diff cannot change: marks with no content still count on it. */
+  const fixedContent = computed(() => target.value?.kind === "commit");
+
+  /** How the whole-file mark of `file` reads against the content it shows now. */
+  function fileMark(file: FileChange): "reviewed" | "changed" | "none" {
+    const value = marks.value.get(file.path)?.get("");
+    if (value === undefined) return "none";
+    if (value === contentOf(file)) return "reviewed";
+    if (value === NO_CONTENT) return fixedContent.value ? "reviewed" : "none";
+    return "changed";
+  }
+
+  function hunkMarked(path: string, hunk: Hunk): boolean {
+    const set = marks.value.get(path);
+    if (!set) return false;
+    return set.has(hunkKey(hunk)) || (fixedContent.value && set.has(positionKey(hunk)));
+  }
+
+  /** Files whose mark holds the content they show, or with every hunk marked. */
   const reviewedFiles = computed(() => {
     const done = new Set<string>();
     for (const file of files.value) {
-      const set = marks.value.get(file.path);
-      if (!set) continue;
-      if (set.has("")) {
+      if (!marks.value.has(file.path)) continue;
+      if (fileMark(file) === "reviewed") {
         done.add(file.path);
         continue;
       }
-      if (file.hunks.length > 0 && file.hunks.every((hunk) => set.has(hunkKey(hunk)))) {
+      if (file.hunks.length > 0 && file.hunks.every((hunk) => hunkMarked(file.path, hunk))) {
         done.add(file.path);
       }
     }
     return done;
   });
   const reviewedCount = computed(() => reviewedFiles.value.size);
+  /** Files marked for another content than they show: reviewed, then changed. */
+  const changedFiles = computed(() => {
+    const changed = new Set<string>();
+    for (const file of files.value) {
+      if (!reviewedFiles.value.has(file.path) && fileMark(file) === "changed") {
+        changed.add(file.path);
+      }
+    }
+    return changed;
+  });
+  const changedCount = computed(() => changedFiles.value.size);
 
   function isReviewed(path: string): boolean {
     return reviewedFiles.value.has(path);
   }
 
+  function isChanged(path: string): boolean {
+    return changedFiles.value.has(path);
+  }
+
   function isHunkReviewed(path: string, hunk: Hunk): boolean {
-    const set = marks.value.get(path);
-    return set !== undefined && (set.has("") || set.has(hunkKey(hunk)));
+    const file = fileByPath.value.get(path);
+    if (file && fileMark(file) === "reviewed") return true;
+    return hunkMarked(path, hunk);
   }
 
   function setFilter<K extends keyof FileFilters>(key: K, value: boolean): void {
@@ -388,11 +467,11 @@ export const useReviewStore = defineStore("review", () => {
 
   // --- Marks and notes -----------------------------------------------------------------
 
-  function marksOf(path: string): Set<string> {
-    return new Set(marks.value.get(path) ?? []);
+  function marksOf(path: string): Map<string, string> {
+    return new Map(marks.value.get(path) ?? []);
   }
 
-  function replaceMarks(path: string, set: Set<string>): void {
+  function replaceMarks(path: string, set: Map<string, string>): void {
     const next = new Map(marks.value);
     if (set.size === 0) next.delete(path);
     else next.set(path, set);
@@ -401,47 +480,63 @@ export const useReviewStore = defineStore("review", () => {
   }
 
   /** Writes a mark through the IPC; a failure reverts the optimistic change. */
-  function persistMark(path: string, hunk: string, on: boolean, revert: () => void): void {
+  function persistMark(
+    path: string,
+    hunk: string,
+    on: boolean,
+    revert: () => void,
+    value = NO_CONTENT,
+  ): void {
     const root = repo.repo?.root;
     const current = key.value;
     if (!root || !current) return;
-    const write = { path, hunk, kind: "reviewed" as const, value: "1" };
+    const write = { path, hunk, kind: "reviewed" as const, value };
     const call = on
       ? ipc.setAnnotation(root, current, write)
       : ipc.deleteAnnotation(root, current, write);
     void call.catch(() => revert());
   }
 
+  /** Marks the file for the content it shows, or clears every mark of a reviewed one. */
   function toggleReviewed(path: string): void {
+    const file = fileByPath.value.get(path);
     const before = marksOf(path);
     const set = marksOf(path);
-    const on = !set.has("");
-    if (on) set.add("");
-    else set.clear();
-    replaceMarks(path, set);
-    persistMark(path, "", on, () => replaceMarks(path, before));
-    if (!on) {
-      // Unmarking a file marked hunk by hunk clears its hunks too.
-      for (const hunk of before) if (hunk !== "") persistMark(path, hunk, false, () => {});
+    const on = file ? fileMark(file) !== "reviewed" : !set.has("");
+    if (on) {
+      const content = file ? contentOf(file) : NO_CONTENT;
+      set.set("", content);
+      replaceMarks(path, set);
+      persistMark(path, "", true, () => replaceMarks(path, before), content);
+      return;
     }
+    set.clear();
+    replaceMarks(path, set);
+    persistMark(path, "", false, () => replaceMarks(path, before));
+    // Unmarking a file marked hunk by hunk clears its hunks too.
+    for (const hunk of before.keys()) if (hunk !== "") persistMark(path, hunk, false, () => {});
   }
 
   function toggleHunkReviewed(path: string, hunk: Hunk): void {
+    const file = fileByPath.value.get(path);
     const before = marksOf(path);
     const set = marksOf(path);
     const hunkId = hunkKey(hunk);
-    const on = !(set.has(hunkId) || set.has(""));
-    if (on) set.add(hunkId);
+    const wholeFile = file !== undefined && fileMark(file) === "reviewed";
+    const on = !(hunkMarked(path, hunk) || wholeFile);
+    if (on) set.set(hunkId, NO_CONTENT);
     else {
       set.delete(hunkId);
-      if (set.has("")) {
+      // A mark from before marks held content, on a commit.
+      const legacy = positionKey(hunk);
+      if (set.delete(legacy)) persistMark(path, legacy, false, () => {});
+      if (wholeFile) {
         // Unmarking one hunk of a file marked whole leaves the other hunks marked.
         set.delete("");
-        const file = files.value.find((f) => f.path === path);
-        for (const other of file?.hunks ?? []) {
+        for (const other of file.hunks) {
           const otherKey = hunkKey(other);
           if (otherKey !== hunkId) {
-            set.add(otherKey);
+            set.set(otherKey, NO_CONTENT);
             persistMark(path, otherKey, true, () => {});
           }
         }
@@ -496,12 +591,12 @@ export const useReviewStore = defineStore("review", () => {
         if (retry) await loadAnnotations(false);
         return;
       }
-      const nextMarks = new Map<string, Set<string>>();
+      const nextMarks = new Map<string, Map<string, string>>();
       const nextNotes = new Map<string, string>();
       for (const annotation of listed) {
         if (annotation.kind === "reviewed") {
-          const set = nextMarks.get(annotation.path) ?? new Set<string>();
-          set.add(annotation.hunk);
+          const set = nextMarks.get(annotation.path) ?? new Map<string, string>();
+          set.set(annotation.hunk, annotation.value);
           nextMarks.set(annotation.path, set);
         } else if (annotation.hunk === "") {
           nextNotes.set(annotation.path, annotation.value);
@@ -570,6 +665,8 @@ export const useReviewStore = defineStore("review", () => {
     notes,
     reviewedFiles,
     reviewedCount,
+    changedFiles,
+    changedCount,
     layout,
     tabWidth,
     wrap,
@@ -578,6 +675,7 @@ export const useReviewStore = defineStore("review", () => {
     rangeEnd,
     currentSymbol,
     isReviewed,
+    isChanged,
     isHunkReviewed,
     setFilter,
     select,

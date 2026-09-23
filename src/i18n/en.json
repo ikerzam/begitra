@@ -73,6 +73,7 @@
   "treeRow": {
     "generated": "generated",
     "reviewed": "Reviewed",
+    "changedSinceReview": "Changed since review",
     "expand": "Expand",
     "collapse": "Collapse",
     "binary": "binary",
@@ -345,6 +346,7 @@
     "deleted": "{n} deleted",
     "progress": "Review progress",
     "reviewed": "{done} of {total} files reviewed",
+    "changedSince": "{n} changed since review",
     "largeFile": "Over 5,000 lines or 1 MB changed, so it is collapsed and the review stays on the rest. Generated files and binaries collapse the same way.",
     "binaryFile": "Binary file, {status}",
     "generatedFile": "Marked linguist-generated in .gitattributes, so it is collapsed and the review stays on hand-written code. Large files over 5,000 lines and binaries collapse the same way.",

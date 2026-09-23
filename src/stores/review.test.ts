@@ -6,7 +6,14 @@ import type { FileChange, Hunk } from "@/ipc/schemas";
 import { fakeBackend, fakeCommit, settled } from "@/test/backend";
 
 import { useRepoStore } from "./repo";
-import { hunkKey, targetKey, targetLabel, useReviewStore, type ReviewTarget } from "./review";
+import {
+  contentOf,
+  hunkKey,
+  targetKey,
+  targetLabel,
+  useReviewStore,
+  type ReviewTarget,
+} from "./review";
 import { useSettingsStore } from "./settings";
 
 function file(path: string, overrides: Partial<FileChange> = {}): FileChange {
@@ -67,15 +74,112 @@ describe("review targets", () => {
       expect(targetKey(target)).toBe(key);
       expect(targetLabel(target)).toBe(label);
     }
-    const hunk: Hunk = {
-      oldStart: 12,
-      oldLines: 7,
-      newStart: 14,
-      newLines: 9,
-      header: "@@ -12,7 +14,9 @@ class TileCache",
-      lines: [],
-    };
-    expect(hunkKey(hunk)).toBe("12,14:@@ -12,7 +14,9 @@ class TileCache");
+  });
+});
+
+/** A hunk at `start` with the given changed lines. */
+function hunkAt(start: number, removed: string, added: string): Hunk {
+  return {
+    oldStart: start,
+    oldLines: 1,
+    newStart: start,
+    newLines: 1,
+    header: `@@ -${start},1 +${start},1 @@ class TileCache`,
+    lines: [
+      {
+        kind: "removed",
+        oldNumber: start,
+        newNumber: null,
+        text: removed,
+        spans: [],
+        noNewline: false,
+      },
+      {
+        kind: "added",
+        oldNumber: null,
+        newNumber: start,
+        text: added,
+        spans: [],
+        noNewline: false,
+      },
+    ],
+  };
+}
+
+describe("marks held by content", () => {
+  it("keys a hunk by its lines, wherever they are", () => {
+    const here = hunkAt(12, "  return a;", "  return b;");
+    const moved = hunkAt(40, "  return a;", "  return b;");
+    const changed = hunkAt(12, "  return a;", "  return c;");
+    expect(hunkKey(here)).toMatch(/^c:[0-9a-f]+$/);
+    expect(hunkKey(moved)).toBe(hunkKey(here));
+    expect(hunkKey(changed)).not.toBe(hunkKey(here));
+  });
+
+  it("counts a file mark while the file shows the ids it was given for", async () => {
+    const edited = file("src/cache.ts", { oldId: "a1", newId: "b2", hunks: [hunkAt(3, "x", "y")] });
+    const calls = fakeBackend({
+      changes: { unstaged: [edited], staged: [] },
+      annotations: {
+        worktree: [
+          // Marked for an older content, and a mark with no content from before.
+          { path: "src/cache.ts", hunk: "", kind: "reviewed", value: "a1:b0", updatedAt: 1 },
+          { path: "src/old.ts", hunk: "", kind: "reviewed", value: "1", updatedAt: 1 },
+        ],
+      },
+    });
+    await openRepository();
+    const review = useReviewStore();
+    review.setTarget({ kind: "worktree" });
+    await settled();
+    expect(review.isReviewed("src/cache.ts")).toBe(false);
+    expect([...review.changedFiles]).toEqual(["src/cache.ts"]);
+    expect(review.reviewedCount).toBe(0);
+    expect(review.changedCount).toBe(1);
+
+    // Marking it again takes the content it shows now.
+    review.toggleReviewed("src/cache.ts");
+    expect(review.isReviewed("src/cache.ts")).toBe(true);
+    expect(review.changedCount).toBe(0);
+    await settled();
+    expect(calls.filter((c) => c.cmd === "set_annotation").at(-1)?.args).toMatchObject({
+      target: "worktree",
+      annotation: { path: "src/cache.ts", hunk: "", kind: "reviewed", value: "a1:b2" },
+    });
+  });
+
+  it("counts marks with no content only on a commit, whose diff cannot change", async () => {
+    const edited = file("src/cache.ts", { oldId: "a1", newId: "b2", hunks: [hunkAt(3, "x", "y")] });
+    const legacyHunk = `3,3:${edited.hunks[0]!.header}`;
+    fakeBackend({
+      changes: { unstaged: [edited], staged: [] },
+      annotations: {
+        worktree: [
+          { path: "src/cache.ts", hunk: "", kind: "reviewed", value: "1", updatedAt: 1 },
+          { path: "src/cache.ts", hunk: legacyHunk, kind: "reviewed", value: "1", updatedAt: 1 },
+        ],
+      },
+    });
+    await openRepository();
+    const review = useReviewStore();
+    review.setTarget({ kind: "worktree" });
+    await settled();
+    // Neither reviewed nor changed: what was reviewed is not known.
+    expect(review.isReviewed("src/cache.ts")).toBe(false);
+    expect(review.isHunkReviewed("src/cache.ts", edited.hunks[0]!)).toBe(false);
+    expect(review.changedCount).toBe(0);
+  });
+
+  it("keeps a hunk mark across a shift and drops it when its lines change", async () => {
+    const before = file("src/cache.ts", { oldId: "a1", newId: "b2", hunks: [hunkAt(3, "x", "y")] });
+    fakeBackend({ changes: { unstaged: [before], staged: [] } });
+    await openRepository();
+    const review = useReviewStore();
+    review.setTarget({ kind: "worktree" });
+    await settled();
+    review.toggleHunkReviewed("src/cache.ts", before.hunks[0]!);
+    expect(review.isHunkReviewed("src/cache.ts", hunkAt(30, "x", "y"))).toBe(true);
+    expect(review.isHunkReviewed("src/cache.ts", hunkAt(3, "x", "z"))).toBe(false);
   });
 });
 
@@ -177,7 +281,7 @@ describe("review store", () => {
     expect(writes.at(-1)?.args).toEqual({
       repo: "/r",
       target,
-      annotation: { path: first.path, hunk: "", kind: "reviewed", value: "1" },
+      annotation: { path: first.path, hunk: "", kind: "reviewed", value: contentOf(first) },
     });
     review.toggleReviewed(first.path);
     expect(review.isReviewed(first.path)).toBe(false);

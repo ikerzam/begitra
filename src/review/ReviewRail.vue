@@ -17,7 +17,15 @@ import type { FileChange } from "@/ipc/schemas";
 
 import NotesBlock from "./NotesBlock.vue";
 
-const props = defineProps<{ files: FileChange[]; reviewedCount: number }>();
+const props = withDefaults(
+  defineProps<{
+    files: FileChange[];
+    reviewedCount: number;
+    /** Listed files reviewed for another content than they show now. */
+    changedCount?: number;
+  }>(),
+  { changedCount: 0 },
+);
 const emit = defineEmits<{ hide: [] }>();
 
 const { t, n } = useI18n();
@@ -132,6 +140,9 @@ const reviewShare = computed(() =>
         <h3 class="text-lg font-semibold text-fg">{{ t("review.progress") }}</h3>
         <p class="text-sm text-fg-secondary">
           {{ t("review.reviewed", { done: props.reviewedCount, total: stats.files }) }}
+        </p>
+        <p v-if="props.changedCount > 0" class="text-sm text-warn" data-testid="review-changed">
+          {{ t("review.changedSince", { n: props.changedCount }) }}
         </p>
         <Progress :value="reviewShare" variant="reviewed" :label="t('review.progress')" />
       </div>

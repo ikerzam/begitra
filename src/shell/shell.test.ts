@@ -101,6 +101,8 @@ function backend(
     conflict?: string;
     /** The commit `main` and `origin/main` point at; the test moves it to fake a commit outside. */
     tip?: { index: number };
+    /** A file marked reviewed for another content than the diff shows. */
+    staleMark?: string;
   } = {},
 ) {
   const tip = options.tip ?? { index: 0 };
@@ -354,6 +356,18 @@ function backend(
             prunable: false,
           },
         ];
+      case "list_annotations":
+        return options.staleMark
+          ? [
+              {
+                path: options.staleMark,
+                hunk: "",
+                kind: "reviewed",
+                value: "old:blob",
+                updatedAt: 1,
+              },
+            ]
+          : [];
       default:
         return null;
     }
@@ -1034,6 +1048,28 @@ describe("useExternal", () => {
     review.setFilter("hideLockfiles", false);
     await settle();
     expect(rail.text()).toContain("2 of 2 files reviewed");
+    wrapper.unmount();
+  });
+
+  it("counts files changed since their review and warns on their rows", async () => {
+    backend({ staleMark: "src/app.ts" });
+    const shell = useShellStore();
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    shell.setWindowWidth(1440);
+    await useRepoStore().open("/r");
+    await settle();
+    await shell.setLayoutMode("review");
+    await settle();
+    const rail = wrapper.get('[data-testid="review-rail"]');
+    expect(rail.text()).toContain("0 of 1 files reviewed");
+    expect(rail.get('[data-testid="review-changed"]').text()).toBe("1 changed since review");
+    const row = wrapper.get('[data-path="src/app.ts"]');
+    expect(row.get("svg.lucide-check").attributes("aria-label")).toBe("Changed since review");
+    // Marking it again takes the content it shows now.
+    useReviewStore().toggleReviewed("src/app.ts");
+    await settle();
+    expect(rail.text()).toContain("1 of 1 files reviewed");
+    expect(rail.find('[data-testid="review-changed"]').exists()).toBe(false);
     wrapper.unmount();
   });
 

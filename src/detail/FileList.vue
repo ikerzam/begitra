@@ -22,10 +22,17 @@ const props = withDefaults(
     selectedPath?: string | null;
     /** Paths marked reviewed, shown with the check. */
     reviewed?: Set<string>;
+    /** Files reviewed for another content than they show now. */
+    changed?: Set<string>;
     /** Paths the comparison's preview says would conflict. */
     conflicts?: Set<string>;
   }>(),
-  { selectedPath: null, reviewed: () => new Set<string>(), conflicts: () => new Set<string>() },
+  {
+    selectedPath: null,
+    reviewed: () => new Set<string>(),
+    changed: () => new Set<string>(),
+    conflicts: () => new Set<string>(),
+  },
 );
 const emit = defineEmits<{
   select: [file: FileChange, trigger: SelectTrigger];
@@ -112,6 +119,7 @@ defineExpose({ focus: navigation.focus, collapseAll });
           :generated="entry.file.isGenerated"
           :binary="entry.file.isBinary"
           :reviewed="props.reviewed.has(entry.file.path)"
+          :changed="props.changed.has(entry.file.path)"
           :conflict="props.conflicts.has(entry.file.path)"
           :selected="entry.file.path === props.selectedPath"
           :tab-stop="entry.file.path === tabStopPath"

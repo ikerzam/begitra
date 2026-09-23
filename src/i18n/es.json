@@ -73,6 +73,7 @@
   "treeRow": {
     "generated": "generado",
     "reviewed": "Revisado",
+    "changedSinceReview": "Cambiado desde la revisión",
     "expand": "Expandir",
     "collapse": "Contraer",
     "binary": "binario",
@@ -345,6 +346,7 @@
     "deleted": "{n} borrados",
     "progress": "Progreso de la revisión",
     "reviewed": "{done} de {total} ficheros revisados",
+    "changedSince": "{n} con cambios desde la revisión",
     "largeFile": "Cambia más de 5.000 líneas o 1 MB, así que se pliega y la revisión sigue con el resto. Los ficheros generados y los binarios se pliegan igual.",
     "binaryFile": "Fichero binario, {status}",
     "generatedFile": "Marcado linguist-generated en .gitattributes, así que se pliega y la revisión sigue con el código escrito a mano. Los ficheros de más de 5.000 líneas y los binarios se pliegan igual.",

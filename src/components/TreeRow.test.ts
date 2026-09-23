@@ -90,6 +90,16 @@ describe("TreeRow", () => {
     expect(check.attributes("aria-label")).toBe("Reviewed");
   });
 
+  it("keeps a file changed since its review bright and warns with the check", () => {
+    const wrapper = mountWithI18n(TreeRow, {
+      props: { name: "worker.ts", status: "modified", added: 12, removed: 9, changed: true },
+    });
+    expect(wrapper.get("[data-testid='tree-row-name']").classes()).toContain("text-fg");
+    const check = wrapper.get("svg.lucide-check");
+    expect(check.classes()).toContain("text-warn");
+    expect(check.attributes("aria-label")).toBe("Changed since review");
+  });
+
   it("selects on click, activates a file on Enter, and shows the selected treatment", async () => {
     const wrapper = mountWithI18n(TreeRow, {
       props: { name: "lru-map.ts", status: "added", added: 84, removed: 0, selected: true },

@@ -166,6 +166,7 @@ defineExpose({ focus: () => list.value?.focus(), moveFile });
         :files="files"
         :selected-path="review.selectedPath"
         :reviewed="review.reviewedFiles"
+        :changed="review.changedFiles"
         :conflicts="props.conflicts"
         @select="(file) => review.select(file.path)"
       />

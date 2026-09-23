@@ -27,6 +27,8 @@ const props = withDefaults(
     /** Muted text after the name (the kind of a conflict: "both modified"). */
     meta?: string;
     reviewed?: boolean;
+    /** Reviewed for another content than the file shows now: the check in `--warn`. */
+    changed?: boolean;
     selected?: boolean;
     /** Roving tab stop; defaults to the selected row. Lists without a selection pass it to the first row. */
     tabStop?: boolean;
@@ -44,6 +46,7 @@ const props = withDefaults(
     conflict: false,
     meta: "",
     reviewed: false,
+    changed: false,
     selected: false,
     tabStop: undefined,
   },
@@ -159,12 +162,13 @@ function onKeydown(event: KeyboardEvent): void {
     </span>
     <DiffStat v-if="hasStats" :added="props.added ?? 0" :removed="props.removed ?? 0" />
     <Check
-      v-if="props.reviewed"
+      v-if="props.reviewed || props.changed"
       :size="16"
       :stroke-width="1.5"
       role="img"
-      :aria-label="t('treeRow.reviewed')"
-      class="shrink-0 text-reviewed"
+      :aria-label="props.reviewed ? t('treeRow.reviewed') : t('treeRow.changedSinceReview')"
+      class="shrink-0"
+      :class="props.reviewed ? 'text-reviewed' : 'text-warn'"
     />
   </div>
 </template>

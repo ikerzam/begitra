@@ -29,6 +29,9 @@ const files = computed(() => applyFilters(review.files, review.filters));
 const reviewedShown = computed(
   () => files.value.filter((file) => review.isReviewed(file.path)).length,
 );
+const changedShown = computed(
+  () => files.value.filter((file) => review.isChanged(file.path)).length,
+);
 const openFile = computed(
   () => files.value.find((file) => file.path === review.selectedPath) ?? null,
 );
@@ -77,6 +80,7 @@ defineExpose({ focusFiles: () => filesPanel.value?.focus() });
         :style="{ width: railWidth }"
         :files="files"
         :reviewed-count="reviewedShown"
+        :changed-count="changedShown"
         @hide="shell.hideReviewRail()"
       />
     </template>
