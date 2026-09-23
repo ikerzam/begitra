@@ -102,10 +102,10 @@ pub struct RepoWatcher {
 
 impl RepoWatcher {
     /// Starts watching the working tree of `bases` recursively and, for a linked worktree,
-    /// its own git directory and the shared refs of its owner; `emit` receives one payload
-    /// per debounced batch. Fails when the platform watcher cannot be created or a path
-    /// cannot be watched (too many watches, an unsupported filesystem), which the caller
-    /// reports as a warning.
+    /// its own git directory and the shared refs, configuration and ignore rules of its
+    /// owner; `emit` receives one payload per debounced batch. Fails when the platform
+    /// watcher cannot be created or a path cannot be watched (too many watches, an
+    /// unsupported filesystem), which the caller reports as a warning.
     pub fn start(
         bases: WatchBases,
         emit: impl Fn(RepoChanged) + Send + 'static,
@@ -114,10 +114,10 @@ impl RepoWatcher {
         let mut watcher = notify::recommended_watcher(raw_tx)?;
         watcher.watch(&bases.root, RecursiveMode::Recursive)?;
         if bases.is_linked() {
-            // HEAD and the index of a linked worktree live in its own git directory; its
-            // refs are the owner's.
+            // HEAD, the index and an operation's state of a linked worktree live in its own
+            // git directory; its refs, configuration and ignore rules are the owner's.
             watcher.watch(&bases.gitdir, RecursiveMode::Recursive)?;
-            for shared in ["HEAD", "packed-refs"] {
+            for shared in ["HEAD", "packed-refs", "config", "info"] {
                 let path = bases.commondir.join(shared);
                 if path.exists() {
                     watcher.watch(&path, RecursiveMode::NonRecursive)?;
@@ -233,6 +233,11 @@ impl Batch {
                     self.dropped = true;
                 }
             }
+            Classified::StatusRules => {
+                // No path names what changed, as for a lost batch.
+                self.kinds.insert(Kind::Status);
+                self.dropped = true;
+            }
         }
     }
 
@@ -285,6 +290,8 @@ enum Classified {
     Index,
     Worktrees,
     Status(String),
+    /// The ignore or sparse rules changed: any working file may show or hide.
+    StatusRules,
 }
 
 /// Folder names whose content is never reported as a working tree change: build outputs
@@ -299,10 +306,12 @@ const NOISY: [&str; 6] = [
 ];
 
 /// Where a changed path sits. Inside a git directory (the repository's own or the shared
-/// one): `HEAD`, `ORIG_HEAD`, `FETCH_HEAD`, `packed-refs`, `refs/**` and `logs/**` are refs;
-/// `index` is the index; `worktrees/**` is worktrees; lock files and everything else there
-/// (objects, hooks) are ignored. Under the working tree: a repository-relative path, except
-/// noisy folders and lock files.
+/// one): `HEAD`, `ORIG_HEAD`, `FETCH_HEAD`, `packed-refs`, `refs/**`, `logs/**`, an operation's
+/// state (`MERGE_HEAD` and the other pseudo-refs, `rebase-merge/`, `rebase-apply/`,
+/// `sequencer/`, `BISECT_*`) and the configuration are refs; `index` is the index;
+/// `worktrees/**` is worktrees; `info/exclude`, `info/sparse-checkout` and a submodule's
+/// `HEAD` or `index` under `modules/` are a status change without a path; lock files and everything else there (objects, hooks) are ignored. Under
+/// the working tree: a repository-relative path, except noisy folders and lock files.
 fn classify(bases: &WatchBases, path: &Path) -> Option<Classified> {
     let under = |base: &Path, real: &Path| strip(path, base).or_else(|| strip(path, real));
     if let Some(inside) = under(&bases.gitdir, &bases.real.gitdir)
@@ -350,8 +359,29 @@ fn classify_git(inside: &[String]) -> Option<Classified> {
         "HEAD" | "ORIG_HEAD" | "FETCH_HEAD" | "packed-refs" | "refs" | "logs" => {
             Some(Classified::Refs)
         }
+        // The state of an operation in progress: pseudo-refs, and the folders and files of a
+        // rebase, a cherry-pick or revert sequence and a bisect. `--quit` removes only these.
+        "MERGE_HEAD" | "CHERRY_PICK_HEAD" | "REVERT_HEAD" | "REBASE_HEAD" | "AUTO_MERGE"
+        | "rebase-merge" | "rebase-apply" | "sequencer" => Some(Classified::Refs),
+        name if name.starts_with("BISECT_") => Some(Classified::Refs),
+        // The remotes and the upstreams, which the refs listing reads.
+        "config" | "config.worktree" => Some(Classified::Refs),
         "index" => Some(Classified::Index),
         "worktrees" => Some(Classified::Worktrees),
+        // The rules that decide which working files are ignored or checked out.
+        "info"
+            if matches!(
+                inside.get(1).map(String::as_str),
+                Some("exclude" | "sparse-checkout")
+            ) =>
+        {
+            Some(Classified::StatusRules)
+        }
+        // A submodule's own HEAD or index: the parent lists the submodule as changed even
+        // when none of its files moved (a `git -C sub reset --soft`).
+        "modules" if matches!(inside.last().map(String::as_str), Some("HEAD" | "index")) => {
+            Some(Classified::StatusRules)
+        }
         _ => None,
     }
 }
@@ -397,6 +427,56 @@ mod tests {
         // A ref lock alone is not a change.
         batch.add(&bases, Path::new("/r/.git/refs/heads/main.lock"));
         assert!(batch.take(&root).is_none());
+    }
+
+    #[test]
+    fn an_operations_state_the_configuration_and_the_rules_are_classified() {
+        let bases = WatchBases::main(Path::new("/r"));
+        let refs = [
+            "/r/.git/MERGE_HEAD",
+            "/r/.git/CHERRY_PICK_HEAD",
+            "/r/.git/REVERT_HEAD",
+            "/r/.git/REBASE_HEAD",
+            "/r/.git/AUTO_MERGE",
+            "/r/.git/rebase-merge/done",
+            "/r/.git/rebase-apply/next",
+            "/r/.git/sequencer/todo",
+            "/r/.git/BISECT_LOG",
+            "/r/.git/config",
+        ];
+        for path in refs {
+            let mut batch = Batch::default();
+            batch.add(&bases, Path::new(path));
+            let payload = batch.take(&bases.root).expect(path);
+            assert_eq!(payload.kinds, vec![RepoChangeKind::Refs], "{path}");
+        }
+        for path in [
+            "/r/.git/info/exclude",
+            "/r/.git/info/sparse-checkout",
+            "/r/.git/modules/sub/HEAD",
+            "/r/.git/modules/sub/modules/nested/index",
+        ] {
+            let mut batch = Batch::default();
+            batch.add(&bases, Path::new("/r/src/app.ts"));
+            batch.add(&bases, Path::new(path));
+            let payload = batch.take(&bases.root).expect(path);
+            assert_eq!(payload.kinds, vec![RepoChangeKind::Status], "{path}");
+            // Any working file may show or hide: the event names none.
+            assert!(payload.paths.is_empty(), "{path}");
+        }
+        let mut batch = Batch::default();
+        for path in [
+            "/r/.git/COMMIT_EDITMSG",
+            "/r/.git/MERGE_MSG",
+            "/r/.git/hooks/pre-commit",
+            "/r/.git/info/attributes",
+            "/r/.git/config.lock",
+            "/r/.git/modules/sub/objects/ab/cdef",
+            "/r/.git/modules/sub/refs/remotes/origin/main",
+        ] {
+            batch.add(&bases, Path::new(path));
+        }
+        assert!(batch.take(&bases.root).is_none());
     }
 
     #[test]
