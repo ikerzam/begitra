@@ -325,10 +325,7 @@ fn a_cancelled_add_is_rolled_back() {
         for file in 0..40 {
             f.write(
                 &format!("bulk/d{dir}/f{file}.txt"),
-                &format!(
-                    "{dir}-{file}
-"
-                ),
+                &format!("{dir}-{file}\n"),
             );
         }
     }

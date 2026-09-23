@@ -113,32 +113,42 @@ pub(super) fn add(
 
 /// Undoes an add that was cancelled mid-checkout: git was killed before its own cleanup, so
 /// the entry (locked "initializing") and the partial folder go; the branch stays, as after
-/// git's own failure. Not cancellable: it is the rollback of the cancelled action. The kill
-/// lands on its own thread a moment later, and git's removal races the dying checkout
-/// (it unregisters the entry but leaves the files still being written), so the folder is
-/// deleted directly once git no longer claims it, and the attempts are repeated until it
-/// is gone. Nothing is deleted unless git had registered an entry for the folder: that is
-/// the proof the folder is the add's own (git registers before it creates the folder).
+/// git's own failure. Not cancellable: it is the rollback of the cancelled action.
+///
+/// The kill lands on its own thread a moment after the cancel, so the dying git may still
+/// register the entry or write files after the first look: the rollback looks again after
+/// every pause. git's removal races the dying checkout (it unregisters the entry but leaves
+/// the files still being written), so the folder is deleted directly once git no longer
+/// claims it, and a locked entry whose folder is already gone, which `prune` skips, goes
+/// through git's removal too. Nothing is deleted unless git registered an entry for the
+/// folder: that is the proof the folder is the add's own (git registers before it creates
+/// the folder). When nothing was registered a second after the cancel, the kill came
+/// first and there is nothing to undo.
 fn roll_back_add(cwd: &Path, common_dir: &Path, path: &Path) {
-    if !registered_at(common_dir, path) {
-        return;
-    }
     let path_text = path.to_string_lossy().into_owned();
-    for _ in 0..20 {
+    let mut owned = false;
+    for attempt in 0..20 {
         std::thread::sleep(std::time::Duration::from_millis(250));
-        let _ = run_git(
-            cwd,
-            &["worktree", "remove", "--force", "--force", "--", &path_text],
-        );
-        if path.exists() {
+        if registered_at(common_dir, path) {
+            owned = true;
+            let _ = run_git(
+                cwd,
+                &["worktree", "remove", "--force", "--force", "--", &path_text],
+            );
+        }
+        if owned && path.exists() {
             let _ = std::fs::remove_dir_all(path);
         }
-        if !path.exists() {
+        let settled = !path.exists() && !registered_at(common_dir, path);
+        if settled && (owned || attempt >= 3) {
             break;
         }
     }
+    if !owned {
+        return;
+    }
     let _ = run_git(cwd, &["worktree", "prune"]);
-    if path.exists() {
+    if path.exists() || registered_at(common_dir, path) {
         tracing::warn!(path = %path.display(), "a cancelled worktree add could not be rolled back");
     }
 }
