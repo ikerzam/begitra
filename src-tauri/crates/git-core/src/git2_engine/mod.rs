@@ -174,6 +174,15 @@ impl Git2Engine {
         f(&repo)
     }
 
+    /// Forgets the remembered merge base, so the next one is computed again: for a
+    /// benchmark that repeats one pair and must time the walk rather than the lookup.
+    pub fn forget_merge_base(&self) {
+        *self
+            .merge_base
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+    }
+
     /// The merge base of two commits through `repo`, remembered for the last pair: the
     /// comparison and every file of it read at its merge base ask for the same one, and the
     /// walk costs seconds between distant commits of a large history. Commits never change,

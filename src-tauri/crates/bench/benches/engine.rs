@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use bench::repos;
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use git_core::cli::run_git;
 use git_core::engine::{Cancel, GitEngine};
 use git_core::error::GitError;
@@ -442,7 +442,13 @@ fn merge_base(c: &mut Criterion) {
         };
         let engine = engine(&target.path);
         group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
-            b.iter(|| e.merge_base(&a, &b_rev).expect("merge base"));
+            // The engine remembers the last pair's base: forget it, untimed, so the walk is
+            // what is measured.
+            b.iter_batched(
+                || e.forget_merge_base(),
+                |()| e.merge_base(&a, &b_rev).expect("merge base"),
+                BatchSize::PerIteration,
+            );
         });
     }
     group.finish();
@@ -458,7 +464,12 @@ fn compare(c: &mut Criterion) {
         };
         let engine = engine(&target.path);
         group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
-            b.iter(|| e.compare(&a, &b_rev, &Cancel::never()).expect("compare"));
+            // A first comparison of the pair: the remembered merge base is forgotten, untimed.
+            b.iter_batched(
+                || e.forget_merge_base(),
+                |()| e.compare(&a, &b_rev, &Cancel::never()).expect("compare"),
+                BatchSize::PerIteration,
+            );
         });
     }
     group.finish();
@@ -577,10 +588,14 @@ fn merge_preview(c: &mut Criterion) {
         };
         let engine = engine(&target.path);
         group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
-            b.iter(|| {
-                e.merge_preview(&a, &b_rev, &Cancel::never())
-                    .expect("preview")
-            });
+            b.iter_batched(
+                || e.forget_merge_base(),
+                |()| {
+                    e.merge_preview(&a, &b_rev, &Cancel::never())
+                        .expect("preview")
+                },
+                BatchSize::PerIteration,
+            );
         });
     }
     group.finish();
