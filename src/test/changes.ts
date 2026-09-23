@@ -42,6 +42,8 @@ export function changedFile(path: string, extra: Partial<FileChange> = {}): File
     isGenerated: false,
     isTest: false,
     isLossy: false,
+    oldId: null,
+    newId: null,
     ...extra,
   };
 }

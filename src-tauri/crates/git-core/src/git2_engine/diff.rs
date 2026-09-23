@@ -575,7 +575,7 @@ pub(super) fn collect_range(
             )
         })?;
         let generated = prepared.generated_attributes;
-        let file = match patch {
+        let mut file = match patch {
             Some(mut patch) => file_change(repo, &mut patch, status, options, generated, cancel)?,
             None => {
                 let meta = FileMeta::of(&delta, status);
@@ -591,6 +591,11 @@ pub(super) fn collect_range(
             && delta.old_file().mode() == delta.new_file().mode()
         {
             continue;
+        }
+        // The working tree's side is always hashed from disk, so one content has one id
+        // whether or not libgit2 hashed the file (its hash goes through the filters).
+        if working_tree && status != ChangeKind::Deleted {
+            file.new_id = disk_id(repo, &file.path);
         }
         additions = additions.saturating_add(file.additions);
         deletions = deletions.saturating_add(file.deletions);
@@ -699,6 +704,25 @@ struct FileMeta {
     old_size: u64,
     new_size: u64,
     is_binary: bool,
+    old_id: Option<String>,
+    new_id: Option<String>,
+}
+
+/// The blob id of one side of a delta, when the side exists and libgit2 knows its id (always
+/// for a tree or the index; for the working tree only when it hashed the file).
+fn known_id(file: &git2::DiffFile<'_>) -> Option<String> {
+    let id = file.id();
+    (file.exists() && file.is_valid_id() && !id.is_zero()).then(|| id.to_string())
+}
+
+/// The id of a working tree file's bytes as they are on disk, without git's clean filters and
+/// without writing an object: it changes exactly when the file does, which is what a review
+/// mark compares. `None` when the file cannot be read (a folder, a dangling link).
+fn disk_id(repo: &Repository, path: &str) -> Option<String> {
+    let root = repo.workdir()?;
+    git2::Oid::hash_file(git2::ObjectType::Blob, root.join(path))
+        .ok()
+        .map(|id| id.to_string())
 }
 
 impl FileMeta {
@@ -720,6 +744,8 @@ impl FileMeta {
             old_size: old_file.size(),
             new_size: new_file.size(),
             is_binary: delta.flags().is_binary(),
+            old_id: known_id(&old_file),
+            new_id: known_id(&new_file),
         }
     }
 }
@@ -751,6 +777,8 @@ fn assemble(
         status,
         path: meta.path,
         old_path: meta.old_path,
+        old_id: meta.old_id,
+        new_id: meta.new_id,
         similarity,
         additions,
         deletions,

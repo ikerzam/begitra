@@ -586,6 +586,12 @@ pub struct FileChange {
     pub path: String,
     /// Previous path of a rename or copy.
     pub old_path: Option<String>,
+    /// Id of the old side's blob, hex; `None` when the file has no old side.
+    pub old_id: Option<String>,
+    /// Id of the new side's blob, hex; `None` when the file has no new side. A working
+    /// tree's side is hashed from the bytes on disk, without git's clean filters and without
+    /// writing an object: it identifies the content a review mark was given for.
+    pub new_id: Option<String>,
     /// Similarity of a rename or copy, in percent.
     pub similarity: Option<u8>,
     /// Added lines.

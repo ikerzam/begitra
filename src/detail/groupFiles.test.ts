@@ -29,6 +29,8 @@ function file(path: string, overrides: Partial<FileChange> = {}): FileChange {
     isGenerated: false,
     isTest: false,
     isLossy: false,
+    oldId: null,
+    newId: null,
     ...overrides,
   };
 }

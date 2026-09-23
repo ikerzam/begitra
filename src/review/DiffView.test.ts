@@ -51,6 +51,8 @@ function file(lines: DiffLine[][], extra: Partial<FileChange> = {}): FileChange 
     isGenerated: false,
     isTest: false,
     isLossy: false,
+    oldId: null,
+    newId: null,
     ...extra,
   };
 }

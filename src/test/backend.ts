@@ -193,6 +193,8 @@ export function fakeFiles(target: DiffTarget): FileChange[] {
     isGenerated: false,
     isTest: false,
     isLossy: false,
+    oldId: null,
+    newId: null,
   };
   return [
     {

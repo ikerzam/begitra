@@ -172,6 +172,8 @@ function mockBackend(options: BackendOptions = {}): Call[] {
                     isGenerated: false,
                     isTest: false,
                     isLossy: false,
+                    oldId: null,
+                    newId: null,
                   },
                 ],
               },

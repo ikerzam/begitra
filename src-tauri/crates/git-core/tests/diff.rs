@@ -290,6 +290,49 @@ fn single_commits_match_git_show_including_merge_and_root() {
 }
 
 #[test]
+fn every_file_carries_the_ids_of_its_blobs() {
+    let mut f = Fixture::basic();
+    f.write("src/lib.rs", "pub fn one() -> u32 {\n    2\n}\n");
+    f.write("docs/new.md", "new\n");
+    f.remove("README.md");
+    let head = f.commit("c5: edit, add and delete");
+    let set = diff(&f, &commit(&head));
+    let id = |spec: &str| Some(f.git(&["rev-parse", spec]));
+
+    let edited = file(&set, "src/lib.rs");
+    assert_eq!(edited.old_id, id(&format!("{head}^:src/lib.rs")));
+    assert_eq!(edited.new_id, id(&format!("{head}:src/lib.rs")));
+    let added = file(&set, "docs/new.md");
+    assert_eq!(added.old_id, None);
+    assert_eq!(added.new_id, id(&format!("{head}:docs/new.md")));
+    let deleted = file(&set, "README.md");
+    assert_eq!(deleted.old_id, id(&format!("{head}^:README.md")));
+    assert_eq!(deleted.new_id, None);
+
+    // The working tree's side is hashed from the file on disk when the diff has no id.
+    f.write("src/lib.rs", "pub fn one() -> u32 {\n    3\n}\n");
+    f.write("notes.txt", "untracked\n");
+    let hashed = |path: &str| Some(f.git(&["hash-object", "--no-filters", path]));
+    for base in [WorkingTreeBase::Index, WorkingTreeBase::Head] {
+        let set = diff(&f, &DiffTarget::WorkingTree { base: base.clone() });
+        let changed = file(&set, "src/lib.rs");
+        assert_eq!(changed.old_id, id(":src/lib.rs"), "{base:?}");
+        assert_eq!(changed.new_id, hashed("src/lib.rs"), "{base:?}");
+        if base == WorkingTreeBase::Index {
+            let untracked = file(&set, "notes.txt");
+            assert_eq!(untracked.old_id, None);
+            assert_eq!(untracked.new_id, hashed("notes.txt"));
+        }
+    }
+    // The index against HEAD: both sides are blobs of the object store.
+    f.git(&["add", "src/lib.rs"]);
+    let staged = diff(&f, &DiffTarget::Index);
+    let staged = file(&staged, "src/lib.rs");
+    assert_eq!(staged.old_id, id("HEAD:src/lib.rs"));
+    assert_eq!(staged.new_id, id(":src/lib.rs"));
+}
+
+#[test]
 fn working_tree_and_index_diffs_match_git() {
     let f = Fixture::basic().with_mixed_status();
     f.remove("docs/guide.md");

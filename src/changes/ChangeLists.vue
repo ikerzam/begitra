@@ -68,6 +68,8 @@ function conflictRow(conflict: Conflict): Row {
     isGenerated: false,
     isTest: false,
     isLossy: false,
+    oldId: null,
+    newId: null,
   };
   return { list: "conflicts", file };
 }

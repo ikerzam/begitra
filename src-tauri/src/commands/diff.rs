@@ -101,6 +101,8 @@ mod tests {
             status: ChangeKind::Modified,
             path: format!("f{n}.rs"),
             old_path: None,
+            old_id: None,
+            new_id: None,
             similarity: None,
             additions: 1,
             deletions: 0,
