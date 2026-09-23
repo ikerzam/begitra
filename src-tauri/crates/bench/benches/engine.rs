@@ -722,8 +722,8 @@ fn touch_files(root: &Path, files: &[String]) {
 }
 
 /// The first page of 200 files of the working tree against the index with 1,000 files
-/// modified: what the changes screen waits for, every working-tree side hashed from disk for
-/// the review marks. Restores the tree afterwards.
+/// modified: what the changes screen waits for, each working-tree side read and hashed by its
+/// patch for the review marks. Restores the tree afterwards.
 fn diff_working_tree_first_page(c: &mut Criterion) {
     let mut group = c.benchmark_group("diff_working_tree_first_page");
     group.sample_size(10);

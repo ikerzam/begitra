@@ -597,8 +597,8 @@ pub(super) fn collect_range(
         {
             continue;
         }
-        // The working tree's side is always hashed from disk, so one content has one id
-        // whether or not libgit2 hashed the file (its hash goes through the filters).
+        // Read after the patch, which gave the working tree's side the id of the bytes its
+        // hunks come from when it read the file.
         if working_tree && status != ChangeKind::Deleted {
             file.new_id = working_id(repo, &delta.new_file());
         }
@@ -718,34 +718,66 @@ struct FileMeta {
 }
 
 /// The blob id of one side of a delta, when the side exists and libgit2 knows its id (always
-/// for a tree or the index; for the working tree only when it hashed the file).
+/// for a tree or the index; for the working tree once the patch read the file).
 fn known_id(file: &git2::DiffFile<'_>) -> Option<String> {
     let id = file.id();
     (file.exists() && file.is_valid_id() && !id.is_zero()).then(|| id.to_string())
 }
 
-/// The id of a working tree side, which changes exactly when that side does (what a review
-/// mark compares): the commit checked out in a submodule, the blob of a symbolic link's
-/// text, and otherwise the blob of the file's bytes as they are on disk, without git's clean
-/// filters and without writing an object. The file is named by the delta's own path, not the
-/// lossy one the change set shows. `None` when the side cannot be read.
+/// Largest working file hashed when the patch did not read it (about 100 ms of hashing); a
+/// larger one is named by its size and time, so no page reads a huge file whole.
+const HASH_LIMIT: u64 = 64 << 20;
+
+/// The id of a working tree side once its patch was read, which changes exactly when that
+/// side does (what a review mark compares):
+///
+/// - when the patch read the side, the id libgit2 gave what it read: git's blob id of the
+///   bytes after the clean filters (the blob `git add` would write), of a symbolic link's
+///   text, or the commit checked out in a submodule. It costs nothing more and comes from
+///   the bytes the hunks come from;
+/// - for a side the patch does not read (binary by attribute, or larger than libgit2 reads),
+///   the blob of the bytes on disk up to [`HASH_LIMIT`], and above it or for a folder (an
+///   untracked nested repository) `stat:<size>:<modified, in ns>`.
+///
+/// The file is named by the delta's own path, not the lossy one the change set shows. `None`
+/// when the side cannot be read at all (gone since the listing).
 fn working_id(repo: &Repository, file: &git2::DiffFile<'_>) -> Option<String> {
+    if let Some(id) = known_id(file) {
+        return Some(id);
+    }
     let id = file.id();
     if file.mode() == git2::FileMode::Commit {
-        // libgit2 reads the submodule's HEAD without marking the id valid.
+        // A submodule the patch did not look up: its HEAD was read without marking the id.
         return (!id.is_zero()).then(|| id.to_string());
     }
-    let path = repo.workdir()?.join(file.path()?);
-    let hashed = if file.mode() == git2::FileMode::Link {
-        match std::fs::read_link(&path) {
-            Ok(target) => git2::Oid::hash_object(git2::ObjectType::Blob, &link_text(&target)),
-            // Without `core.symlinks` the link is checked out as a file holding its text.
-            Err(_) => git2::Oid::hash_file(git2::ObjectType::Blob, &path),
-        }
+    let path = repo.workdir()?.join(super::os_path(file.path_bytes()?)?);
+    unread_id(&path, file.mode() == git2::FileMode::Link, HASH_LIMIT)
+}
+
+/// The id of a working tree side the patch did not read, hashing at most `limit` bytes.
+fn unread_id(path: &Path, link: bool, limit: u64) -> Option<String> {
+    let metadata = std::fs::symlink_metadata(path).ok()?;
+    let hashed = if link && metadata.file_type().is_symlink() {
+        std::fs::read_link(path).ok().and_then(|target| {
+            git2::Oid::hash_object(git2::ObjectType::Blob, &link_text(&target)).ok()
+        })
+    } else if metadata.is_file() && metadata.len() <= limit {
+        // Without `core.symlinks` a link is checked out as a file holding its text.
+        git2::Oid::hash_file(git2::ObjectType::Blob, path).ok()
     } else {
-        git2::Oid::hash_file(git2::ObjectType::Blob, &path)
+        None
     };
-    hashed.ok().map(|id| id.to_string())
+    Some(hashed.map_or_else(|| stat_token(&metadata), |id| id.to_string()))
+}
+
+/// A side's size and modification time, for one that is not hashed.
+fn stat_token(metadata: &std::fs::Metadata) -> String {
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |since| since.as_nanos());
+    format!("stat:{}:{modified}", metadata.len())
 }
 
 /// A link's target as git stores it: its bytes, with `/` separators.
@@ -962,5 +994,25 @@ mod tests {
             Some(ChangeKind::TypeChanged)
         );
         assert_eq!(change_kind(Delta::Unmodified), None);
+    }
+
+    #[test]
+    fn an_unread_side_is_hashed_up_to_the_limit_and_named_by_size_and_time_above() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("data.bin");
+        std::fs::write(&path, [7_u8; 16]).expect("write");
+        let blob = git2::Oid::hash_object(git2::ObjectType::Blob, &[7_u8; 16]).expect("hash");
+        assert_eq!(unread_id(&path, false, 16), Some(blob.to_string()));
+
+        let over = unread_id(&path, false, 15).expect("token");
+        assert!(over.starts_with("stat:16:"), "{over}");
+        std::fs::write(&path, [7_u8; 17]).expect("rewrite");
+        let grown = unread_id(&path, false, 15).expect("token");
+        assert!(grown.starts_with("stat:17:"), "{grown}");
+
+        // A folder (an untracked nested repository) has a token too; a missing file none.
+        let folder = unread_id(dir.path(), false, 16).expect("token");
+        assert!(folder.starts_with("stat:"), "{folder}");
+        assert_eq!(unread_id(&dir.path().join("gone"), false, 16), None);
     }
 }

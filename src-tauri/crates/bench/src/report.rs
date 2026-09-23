@@ -29,7 +29,7 @@ pub fn budget(id: &str) -> Option<Duration> {
         // whole three-dot diff (the app pages it).
         ("compare", _) | ("walk_range_first_page", _) | ("count_range", _) => 500,
         ("diff_three_dot_first_page", _) => 500,
-        // The changes screen's first page, the working tree's sides hashed from disk.
+        // The changes screen's first page: 1,000 files modified against the index.
         ("diff_working_tree_first_page", _) => 500,
         // The merge preview runs in the background under its own banner (delegated).
         ("merge_preview", _) => 2_000,

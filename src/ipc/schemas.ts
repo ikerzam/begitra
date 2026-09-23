@@ -263,7 +263,10 @@ export const FileChangeSchema = v.object({
   isLossy: v.boolean(),
   /** The old side's blob id; null when the file has none. */
   oldId: v.nullable(v.string()),
-  /** The new side's blob id (a working tree file hashed from disk); null when it has none. */
+  /**
+   * The new side's id: a blob id, a submodule's commit, or `stat:<size>:<ns>` for a working
+   * file too large to hash; null when the file has none or it could not be read.
+   */
   newId: v.nullable(v.string()),
 });
 export type FileChange = v.InferOutput<typeof FileChangeSchema>;

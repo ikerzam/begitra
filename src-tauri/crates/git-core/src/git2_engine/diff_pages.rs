@@ -15,9 +15,11 @@
 //!
 //! Two waits cannot be interrupted, because libgit2 exposes no progress callback for them:
 //! the preparation (the delta list and the rename detection of the whole change set) and
-//! the patch of one file, which for a huge single file is the bulk of a page. A cancelled
-//! or timed-out operation returns when the current one of these ends; the worker is not in
-//! the pool meanwhile, so the next diff starts on a fresh one rather than queueing behind it.
+//! the patch of one file, which for a huge single file is the bulk of a page. A working file
+//! the patch does not read is hashed for its id only up to 64 MiB (a tenth of a second).
+//! A cancelled or timed-out operation returns when the current one of these ends; the worker
+//! is not in the pool meanwhile, so the next diff starts on a fresh one rather than queueing
+//! behind it.
 
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};

@@ -309,10 +309,10 @@ fn every_file_carries_the_ids_of_its_blobs() {
     assert_eq!(deleted.old_id, id(&format!("{head}^:README.md")));
     assert_eq!(deleted.new_id, None);
 
-    // The working tree's side is hashed from the file on disk when the diff has no id.
+    // The working tree's side is the blob `git add` would write, which the patch hashed.
     f.write("src/lib.rs", "pub fn one() -> u32 {\n    3\n}\n");
     f.write("notes.txt", "untracked\n");
-    let hashed = |path: &str| Some(f.git(&["hash-object", "--no-filters", path]));
+    let hashed = |path: &str| Some(f.git(&["hash-object", path]));
     for base in [WorkingTreeBase::Index, WorkingTreeBase::Head] {
         let set = diff(&f, &DiffTarget::WorkingTree { base: base.clone() });
         let changed = file(&set, "src/lib.rs");
@@ -402,10 +402,7 @@ fn an_intent_to_add_file_has_no_old_blob() {
     let added = file(&intent, "ita.txt");
     assert_eq!(added.status, ChangeKind::Added);
     assert_eq!(added.old_id, None);
-    assert_eq!(
-        added.new_id,
-        Some(f.git(&["hash-object", "--no-filters", "ita.txt"]))
-    );
+    assert_eq!(added.new_id, Some(f.git(&["hash-object", "ita.txt"])));
     let before = file(&untracked, "ita.txt");
     assert_eq!(
         (&added.old_id, &added.new_id),
@@ -413,26 +410,51 @@ fn an_intent_to_add_file_has_no_old_blob() {
     );
 }
 
-/// Under `core.autocrlf` the working side is the id of the bytes on disk, not the blob git
-/// would store: git2 offers no filtered hash that writes nothing. A rewrite of line endings
-/// alone then asks for a new review, which is the safe side of the choice.
+/// Under `core.autocrlf` the working side is the blob git would store (the lines after the
+/// clean filters), which the patch hashed from what it read: a rewrite of line endings alone
+/// keeps the id, as `git diff` shows the same lines.
 #[test]
-fn the_working_side_under_autocrlf_is_the_unfiltered_bytes() {
+fn the_working_side_under_autocrlf_is_gits_blob() {
     let mut f = Fixture::basic();
     f.git(&["config", "core.autocrlf", "true"]);
     f.write("crlf.txt", "one\r\ntwo\r\n");
     f.commit("crlf");
+    let target = DiffTarget::WorkingTree {
+        base: WorkingTreeBase::Index,
+    };
     f.write("crlf.txt", "one\r\nTWO\r\n");
-    let set = diff(
-        &f,
-        &DiffTarget::WorkingTree {
-            base: WorkingTreeBase::Index,
-        },
+    let crlf = file(&diff(&f, &target), "crlf.txt").new_id.clone();
+    let filtered = f.git(&["hash-object", "crlf.txt"]);
+    assert_eq!(crlf.as_deref(), Some(filtered.as_str()));
+    assert_ne!(
+        filtered,
+        f.git(&["hash-object", "--no-filters", "crlf.txt"])
     );
-    let changed = file(&set, "crlf.txt");
-    let unfiltered = f.git(&["hash-object", "--no-filters", "crlf.txt"]);
-    assert_eq!(changed.new_id.as_deref(), Some(unfiltered.as_str()));
-    assert_ne!(unfiltered, f.git(&["hash-object", "crlf.txt"]));
+    f.write("crlf.txt", "one\nTWO\n");
+    assert_eq!(file(&diff(&f, &target), "crlf.txt").new_id, crlf);
+}
+
+/// A file the patch does not read (binary by attribute) is hashed from its bytes on disk,
+/// without the filters: here `-diff` leaves the CRLF conversion on, so the id is not the
+/// blob git would store, and only has to change with the file.
+#[test]
+fn a_working_file_the_patch_does_not_read_is_hashed_from_disk() {
+    let mut f = Fixture::basic();
+    f.git(&["config", "core.autocrlf", "true"]);
+    f.write(".gitattributes", "*.dat -diff\n");
+    f.write("table.dat", "one\r\n");
+    f.commit("table");
+    for content in ["two\r\n", "three\r\n"] {
+        f.write("table.dat", content);
+        let raw = f.git(&["hash-object", "--no-filters", "table.dat"]);
+        assert_ne!(raw, f.git(&["hash-object", "table.dat"]));
+        for base in [WorkingTreeBase::Index, WorkingTreeBase::Head] {
+            let set = diff(&f, &DiffTarget::WorkingTree { base: base.clone() });
+            let changed = file(&set, "table.dat");
+            assert!(changed.is_binary, "{base:?}");
+            assert_eq!(changed.new_id.as_deref(), Some(raw.as_str()), "{base:?}");
+        }
+    }
 }
 
 /// An index entry whose name is not UTF-8 (an index written on Linux) is listed under its
