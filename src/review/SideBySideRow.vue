@@ -16,7 +16,7 @@ const props = withDefaults(
     leftTokens?: Token[];
     rightTokens?: Token[];
     wrap?: boolean;
-    /** The side's changed line is picked for a partial stage: `--bg-selected` over the tint. */
+    /** The side's changed line is picked for a partial stage: `--bg-selected` in place of the tint. */
     leftSelected?: boolean;
     rightSelected?: boolean;
     /** The selection cursor rests on this row. */

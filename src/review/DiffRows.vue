@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // The virtualised rows of one file: hunk headers with their reviewed control (or the actions
 // the changes screen puts there), unified lines or side-by-side pairs with the intra-line
-// emphasis and the two-tone highlighting, heights from the wrap setting and the measured
+// emphasis and the syntax colours, heights from the wrap setting and the measured
 // column width, n/p over hunks and ]/[ over the changed symbols. In `selectable` mode the
 // changed lines can be picked for a partial stage: a click toggles a line, shift-click extends
 // from the last click, and the arrows move a cursor that Space toggles.

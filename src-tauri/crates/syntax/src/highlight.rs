@@ -1,8 +1,7 @@
 //! Token classes per line with syntect: the syntax is picked by extension, then by the first
 //! line; every scope of the stack is mapped to one of eight classes and adjacent tokens of one
 //! class are merged. Only the non-plain tokens are reported: what a line does not list is
-//! plain. The viewer paints comments muted and strings secondary (the interface keeps colour
-//! for facts); the other classes are kept for a later, richer treatment.
+//! plain. The viewer paints each class in its syntax colour.
 
 use std::sync::OnceLock;
 use std::time::Instant;

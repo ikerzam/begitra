@@ -11,7 +11,7 @@ const props = withDefaults(
     newNumber?: number;
     /** Plain code; use the default slot instead to mark intra-line emphasis spans. */
     code?: string;
-    /** A changed line picked for a partial stage: `--bg-selected` over the tint. */
+    /** A changed line picked for a partial stage: `--bg-selected` in place of the tint. */
     selected?: boolean;
     /** The selection cursor rests here (the keyboard's way to pick lines). */
     cursor?: boolean;
