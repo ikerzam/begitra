@@ -22,20 +22,47 @@ use crate::types::{Worktree, WorktreeAdd, WorktreeBranch};
 /// untracked files, use --force to delete it"): the one part a translated git keeps.
 const DIRTY_REFUSAL: &str = "--force";
 
-/// The main worktree's folder, where every worktree command runs.
-fn main_root(engine: &Git2Engine, cancel: &Cancel) -> GitResult<PathBuf> {
-    let listed = engine.with_repo(|repo| worktrees::collect(repo, cancel))?;
-    listed
-        .into_iter()
-        .find(|worktree| worktree.is_main)
-        .map(|worktree| worktree.path)
-        .ok_or_else(|| GitError::Git("the repository lists no main worktree".to_owned()))
+/// Where every worktree command runs: the main worktree's folder, with the repository named
+/// outright when that folder is the common directory itself (a bare repository, or a git
+/// directory that lives elsewhere seen from a linked worktree), which is no working tree and
+/// which git refuses to find by itself under `safe.bareRepository=explicit`.
+struct Place {
+    cwd: PathBuf,
+    git_dir: Option<String>,
+}
+
+impl Place {
+    fn of(engine: &Git2Engine, cancel: &Cancel) -> GitResult<Self> {
+        let (listed, common_dir) = engine.with_repo(|repo| {
+            Ok((
+                worktrees::collect(repo, cancel)?,
+                repo.commondir().to_path_buf(),
+            ))
+        })?;
+        let cwd = listed
+            .into_iter()
+            .find(|worktree| worktree.is_main)
+            .map(|worktree| worktree.path)
+            .ok_or_else(|| GitError::Git("the repository lists no main worktree".to_owned()))?;
+        let git_dir =
+            same_folder(&cwd, &common_dir).then(|| format!("--git-dir={}", common_dir.display()));
+        Ok(Self { cwd, git_dir })
+    }
+
+    /// `args` after the repository's name when it must be given.
+    fn args<'a>(&'a self, args: &[&'a str]) -> Vec<&'a str> {
+        self.git_dir
+            .iter()
+            .map(String::as_str)
+            .chain(args.iter().copied())
+            .collect()
+    }
 }
 
 /// Runs `git <args>` in the main worktree and turns a non-zero status into [`GitError::Cli`].
 fn git(engine: &Git2Engine, args: &[&str], cancel: &Cancel) -> GitResult<CliExit> {
-    let cwd = main_root(engine, cancel)?;
-    git_in(&cwd, args, cancel)
+    let place = Place::of(engine, cancel)?;
+    git_in(&place.cwd, &place.args(args), cancel)
 }
 
 /// [`git`] in a known folder.
@@ -91,16 +118,16 @@ pub(super) fn add(
             args.extend(["--detach", "--", path.as_str(), rev.as_str()]);
         }
     }
-    let cwd = main_root(engine, cancel)?;
+    let place = Place::of(engine, cancel)?;
     let common_dir = engine.with_repo(|repo| Ok(repo.commondir().to_path_buf()))?;
     // Only what this add creates is ever rolled back: a folder that existed before is the
     // user's, an entry that existed before is another add's, and a cancel that lands before
     // git registered the entry created nothing.
     let existed = request.path.exists();
     let entries_before = admin_entries(&common_dir);
-    if let Err(error) = git_in(&cwd, &args, cancel) {
+    if let Err(error) = git_in(&place.cwd, &place.args(&args), cancel) {
         if matches!(error, GitError::Cancelled) && !existed {
-            roll_back_add(&cwd, &common_dir, &request.path, &entries_before);
+            roll_back_add(&place, &common_dir, &request.path, &entries_before);
         }
         return Err(error);
     }
@@ -132,7 +159,7 @@ pub(super) fn add(
 /// came first and there is nothing more to undo. The pauses and git's removals together
 /// stop at [`ROLLBACK_LIMIT`], since a file another program holds open in the partial
 /// checkout can make each removal walk it again.
-fn roll_back_add(cwd: &Path, common_dir: &Path, path: &Path, before: &HashSet<OsString>) {
+fn roll_back_add(place: &Place, common_dir: &Path, path: &Path, before: &HashSet<OsString>) {
     let started = Instant::now();
     let path_text = path.to_string_lossy().into_owned();
     let mut owned = false;
@@ -144,8 +171,8 @@ fn roll_back_add(cwd: &Path, common_dir: &Path, path: &Path, before: &HashSet<Os
         if registered_at(common_dir, path, before) {
             owned = true;
             let _ = run_git_env_within(
-                cwd,
-                &["worktree", "remove", "--force", "--force", "--", &path_text],
+                &place.cwd,
+                &place.args(&["worktree", "remove", "--force", "--force", "--", &path_text]),
                 &[],
                 &Cancel::never(),
                 left,

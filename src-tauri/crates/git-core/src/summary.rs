@@ -72,12 +72,7 @@ fn read(path: &Path, with_dirty: bool, cancel: &Cancel) -> GitResult<RepoSummary
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| root.to_string_lossy().into_owned());
     let is_linked_worktree = repo.is_worktree();
-    let main_root = if is_linked_worktree {
-        let common: PathBuf = repo.commondir().components().collect();
-        common.parent().map(Path::to_path_buf)
-    } else {
-        None
-    };
+    let main_root = is_linked_worktree.then(|| crate::git2_engine::main_path(repo.commondir()));
 
     let head = repo.find_reference("HEAD")?;
     let (current_branch, detached) = match head.symbolic_target()? {

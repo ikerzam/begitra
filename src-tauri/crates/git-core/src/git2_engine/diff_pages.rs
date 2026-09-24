@@ -21,12 +21,11 @@
 //! is not in the pool meanwhile, so the next diff starts on a fresh one rather than queueing
 //! behind it.
 
-use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use super::{diff, reopen_gitdir, Git2Engine};
+use super::{diff, Git2Engine, Location};
 use crate::engine::{Cancel, DiffWalk, RESTRICTED_FILES};
 use crate::error::{GitError, GitResult};
 use crate::types::{ChangeSet, ChangeSetPage, DiffOptions, DiffTarget, FileChange};
@@ -132,9 +131,9 @@ fn open(
     };
     // Revisions and the merge base resolve on the engine's warm handle; the worker only
     // diffs trees.
-    let (gitdir, target): (PathBuf, DiffTarget) = engine.with_repo(|repo| {
+    let (location, target): (Location, DiffTarget) = engine.with_repo(|repo| {
         Ok((
-            repo.path().to_path_buf(),
+            Location::of(repo),
             diff::resolve_target(engine, repo, target)?,
         ))
     })?;
@@ -144,7 +143,7 @@ fn open(
     let paths = diff::working_tree_paths(engine, &target, pathspecs, cancel)?;
     let generated_attributes = engine.generated_attributes_present();
     let pool = engine.diff_workers();
-    let worker = take_worker(&pool, &gitdir)?;
+    let worker = take_worker(&pool, &location)?;
     let (requests, worker_requests) = mpsc::channel::<Request>();
     let (worker_replies, replies) = mpsc::channel::<Reply>();
     // The first reply carries the file count, or the error that stopped the preparation.
@@ -163,7 +162,7 @@ fn open(
     let worker = match worker.send(job) {
         Ok(()) => worker,
         Err(mpsc::SendError(job)) => {
-            let fresh = start_worker(&gitdir)?;
+            let fresh = start_worker(&location)?;
             fresh
                 .send(job)
                 .map_err(|_| GitError::Git("the diff thread ended early".to_owned()))?;
@@ -189,32 +188,32 @@ fn open(
 }
 
 /// An idle worker of the pool, or a new one on its own repository handle.
-fn take_worker(pool: &WorkerPool, gitdir: &std::path::Path) -> GitResult<Sender<Job>> {
+fn take_worker(pool: &WorkerPool, location: &Location) -> GitResult<Sender<Job>> {
     let idle = pool
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .pop();
     match idle {
         Some(worker) => Ok(worker),
-        None => start_worker(gitdir),
+        None => start_worker(location),
     }
 }
 
 /// A new worker thread on its own repository handle.
-fn start_worker(gitdir: &std::path::Path) -> GitResult<Sender<Job>> {
+fn start_worker(location: &Location) -> GitResult<Sender<Job>> {
     let (jobs, inbox) = mpsc::channel::<Job>();
-    let gitdir = gitdir.to_path_buf();
+    let location = location.clone();
     thread::Builder::new()
         .name("begitra-diff".to_owned())
-        .spawn(move || serve(&gitdir, &inbox))
+        .spawn(move || serve(&location, &inbox))
         .map_err(|error| GitError::Git(format!("could not start the diff thread: {error}")))?;
     Ok(jobs)
 }
 
 /// The worker: one repository handle for every job it gets; each job prepares its diff,
 /// reports the count, then answers page requests until the handle goes away.
-fn serve(gitdir: &std::path::Path, inbox: &Receiver<Job>) {
-    let repo = match reopen_gitdir(gitdir) {
+fn serve(location: &Location, inbox: &Receiver<Job>) {
+    let repo = match location.reopen() {
         Ok(repo) => repo,
         Err(error) => {
             // The first job learns why; the pool never sees this worker again.
@@ -362,10 +361,10 @@ mod tests {
         // while a page is being read.
         let (dir, from, to) = two_commits();
         let engine = Git2Engine::open(dir.path()).expect("open");
-        let (gitdir, target) = engine
+        let (location, target) = engine
             .with_repo(|repo| {
                 Ok((
-                    repo.path().to_path_buf(),
+                    Location::of(repo),
                     diff::resolve_target(
                         &engine,
                         repo,
@@ -377,7 +376,7 @@ mod tests {
                 ))
             })
             .expect("resolve");
-        let worker = start_worker(&gitdir).expect("worker");
+        let worker = start_worker(&location).expect("worker");
         let (requests, worker_requests) = mpsc::channel::<Request>();
         let (worker_replies, replies) = mpsc::channel::<Reply>();
         let (ready_tx, ready_rx) = mpsc::channel::<GitResult<usize>>();

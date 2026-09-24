@@ -7,7 +7,7 @@
 //! whole listing.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use git2::{ErrorCode, Oid, Repository};
 
@@ -50,13 +50,10 @@ pub(super) fn collect(repo: &Repository, cancel: &Cancel) -> GitResult<Vec<Workt
 }
 
 /// The main working tree. Its path comes from the opened repository, or from the common
-/// directory opened as a repository when a linked worktree was opened; a bare main
-/// repository reports the common directory itself.
+/// directory when a linked worktree was opened (see [`main_path`]).
 fn main_worktree(repo: &Repository, common_dir: &Path) -> GitResult<Worktree> {
     let path = if repo.is_worktree() {
-        let main = Repository::open(common_dir)?;
-        main.workdir()
-            .map_or_else(|| normalize(common_dir), normalize)
+        main_path(common_dir)
     } else {
         repo.workdir()
             .map_or_else(|| normalize(common_dir), normalize)
@@ -73,6 +70,39 @@ fn main_worktree(repo: &Repository, common_dir: &Path) -> GitResult<Worktree> {
         lock_reason: None,
         prunable: false,
     })
+}
+
+/// Where the main working tree of the repository whose common directory is `common_dir`
+/// is, seen from a linked worktree: the folder `core.worktree` names, else the parent of a
+/// `.git` directory. A bare repository and a git directory that lives elsewhere
+/// (`--separate-git-dir`), which record nowhere where their working tree is, report the
+/// common directory, where `git worktree list` names it too. Not libgit2's guess, the
+/// directory's parent, which for a separate directory is some other folder, whose owner
+/// libgit2 would check besides.
+pub(crate) fn main_path(common_dir: &Path) -> PathBuf {
+    let config = git2::Config::open(&common_dir.join("config")).ok();
+    // An entry, not the value: git2 panics on a path setting that is not UTF-8 on Windows.
+    let named = config
+        .as_ref()
+        .is_some_and(|config| config.get_entry("core.worktree").is_ok());
+    if named {
+        // libgit2 resolves the setting against the directory, relative or not.
+        if let Some(workdir) = Repository::open(common_dir)
+            .ok()
+            .and_then(|main| main.workdir().map(normalize))
+        {
+            return workdir;
+        }
+    }
+    let bare = config
+        .as_ref()
+        .is_some_and(|config| config.get_bool("core.bare").unwrap_or(false));
+    match common_dir.parent() {
+        Some(parent) if !bare && common_dir.file_name() == Some(std::ffi::OsStr::new(".git")) => {
+            normalize(parent)
+        }
+        _ => normalize(common_dir),
+    }
 }
 
 /// A linked worktree by name. Locking and prunability follow git: a locked worktree is never

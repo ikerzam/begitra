@@ -33,10 +33,10 @@ pub(super) fn compare(
     cancel: &Cancel,
 ) -> GitResult<Comparison> {
     cancel.check()?;
-    let (pair, gitdir) = engine
-        .with_repo(|repo| Ok((resolve_pair(engine, repo, a, b)?, repo.path().to_path_buf())))?;
+    let (pair, location) = engine
+        .with_repo(|repo| Ok((resolve_pair(engine, repo, a, b)?, super::Location::of(repo))))?;
     cancel.check()?;
-    let (only_in_a, only_in_b) = engine.with_counts_repo(&gitdir, |repo| {
+    let (only_in_a, only_in_b) = engine.with_counts_repo(&location, |repo| {
         Ok(repo.graph_ahead_behind(pair.one, pair.two)?)
     })?;
     let only_in_a = u32::try_from(only_in_a).unwrap_or(u32::MAX);

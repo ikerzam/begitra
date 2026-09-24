@@ -25,10 +25,12 @@ mod walk;
 mod worktree_ops;
 mod worktrees;
 
+pub(crate) use worktrees::main_path;
+
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use git2::{ErrorClass, ErrorCode, Oid, Repository};
+use git2::{ErrorClass, ErrorCode, Oid, Repository, RepositoryOpenFlags};
 
 use crate::engine::{Cancel, CommitWalk, DiffWalk, GitEngine};
 use crate::error::{GitError, GitResult};
@@ -73,17 +75,28 @@ impl Git2Engine {
     /// any directory inside either.
     ///
     /// Fails with [`GitError::NotFound`] when no repository is found at or above the path and
-    /// with [`GitError::Invalid`] when one is found but cannot be opened (a bare repository
-    /// counts as invalid for now: there is no working tree to show).
+    /// with [`GitError::Invalid`] when one is found but cannot be opened: a bare repository,
+    /// which has no working tree to show, and a git directory opened by its own path whose
+    /// working tree lives elsewhere.
     #[tracing::instrument(level = "debug", skip_all, fields(path = %path.display()))]
     pub fn open(path: &Path) -> GitResult<Self> {
-        let repo = Repository::discover(path).map_err(|error| match error.code() {
+        // Not `Repository::discover`, which opens the git directory it finds by that
+        // directory's own path: libgit2 then takes the directory's parent as the working tree,
+        // a folder that holds none of it when the directory lives elsewhere
+        // (`--separate-git-dir`), where a `.git` file names it from the working tree.
+        let repo = Repository::open_ext(
+            path,
+            RepositoryOpenFlags::CROSS_FS,
+            std::iter::empty::<&std::ffi::OsStr>(),
+        )
+        .map_err(|error| match error.code() {
             git2::ErrorCode::NotFound => GitError::NotFound(path.to_path_buf()),
             _ => GitError::Invalid {
                 path: path.to_path_buf(),
                 reason: error.message().to_owned(),
             },
         })?;
+        check_working_tree(&repo, path)?;
         let info = describe(&repo, path)?;
         Ok(Self {
             info,
@@ -105,10 +118,10 @@ impl Git2Engine {
         status::list_libgit2(self, options, cancel)
     }
 
-    /// Runs `f` on the comparison handle, opened from `gitdir` on first use.
+    /// Runs `f` on the comparison handle, opened at `location` on first use.
     pub(crate) fn with_counts_repo<T>(
         &self,
-        gitdir: &Path,
+        location: &Location,
         f: impl FnOnce(&Repository) -> GitResult<T>,
     ) -> GitResult<T> {
         let mut slot = self
@@ -116,7 +129,7 @@ impl Git2Engine {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         if slot.is_none() {
-            *slot = Some(reopen_gitdir(gitdir)?);
+            *slot = Some(location.reopen()?);
         }
         match slot.as_ref() {
             Some(repo) => f(repo),
@@ -263,21 +276,89 @@ impl Git2Engine {
 }
 
 /// Opens a second handle on the repository `repo` was opened from, for work that must not
-/// hold the engine's mutex (walks, parallel counts). The gitdir is what libgit2 opened, so
-/// linked worktrees and repositories whose working tree lives elsewhere (`core.worktree`)
-/// reopen as themselves.
+/// hold the engine's mutex (walks, parallel counts).
 pub(crate) fn reopen(repo: &Repository) -> GitResult<Repository> {
-    reopen_gitdir(repo.path())
+    Location::of(repo).reopen()
 }
 
-/// [`reopen`] from a gitdir path, for threads that cannot borrow the handle.
-pub(crate) fn reopen_gitdir(gitdir: &Path) -> GitResult<Repository> {
-    Repository::open(gitdir).map_err(|error| match error.code() {
-        ErrorCode::NotFound => GitError::NotFound(gitdir.to_path_buf()),
-        _ => GitError::Invalid {
-            path: gitdir.to_path_buf(),
-            reason: error.message().to_owned(),
-        },
+/// Where a handle was opened: the git directory libgit2 opened and the working tree, for
+/// threads that cannot borrow the handle and open their own.
+#[derive(Clone, Debug)]
+pub(crate) struct Location {
+    gitdir: PathBuf,
+    workdir: Option<PathBuf>,
+}
+
+impl Location {
+    pub(crate) fn of(repo: &Repository) -> Self {
+        Self {
+            gitdir: repo.path().to_path_buf(),
+            workdir: repo.workdir().map(Path::to_path_buf),
+        }
+    }
+
+    /// A new handle on the same repository, opened as the first one was: from the working
+    /// tree whose `.git` names the directory, so libgit2 knows that working tree and checks
+    /// its owner. A git directory opened by its own path takes its parent as the working tree,
+    /// which a `--separate-git-dir` one is not, and checks that folder's owner instead. A
+    /// working tree with no `.git` naming the directory (one `core.worktree` names, one
+    /// deleted meanwhile) reopens from the directory, whose configuration names its working
+    /// tree.
+    pub(crate) fn reopen(&self) -> GitResult<Repository> {
+        if let Some(workdir) = &self.workdir {
+            let from_tree = Repository::open_ext(
+                workdir,
+                RepositoryOpenFlags::NO_SEARCH,
+                std::iter::empty::<&std::ffi::OsStr>(),
+            );
+            if let Ok(repo) = from_tree {
+                if normalize(repo.path()) == normalize(&self.gitdir) {
+                    return Ok(repo);
+                }
+            }
+        }
+        Repository::open(&self.gitdir).map_err(|error| match error.code() {
+            ErrorCode::NotFound => GitError::NotFound(self.gitdir.clone()),
+            _ => GitError::Invalid {
+                path: self.gitdir.clone(),
+                reason: error.message().to_owned(),
+            },
+        })
+    }
+}
+
+/// Refuses a git directory opened by its own path whose working tree libgit2 can only guess.
+/// libgit2 takes the directory's parent, which is the working tree of a `.git` folder but not
+/// of a git directory that lives elsewhere (`--separate-git-dir`): there the status would read
+/// every tracked file as deleted and the directory's own files as untracked, and git refuses
+/// to run ("must be run in a work tree"). A linked worktree's directory names its working
+/// tree, and so does `core.worktree`.
+fn check_working_tree(repo: &Repository, opened: &Path) -> GitResult<()> {
+    let gitdir = repo.path();
+    if repo.workdir().is_none()
+        || repo.is_worktree()
+        || gitdir.file_name() == Some(std::ffi::OsStr::new(".git"))
+    {
+        return Ok(());
+    }
+    // Whether the path opened lies in the git directory: on disk when both resolve (a link,
+    // a `\\?\` prefix), as spelled otherwise.
+    let inside = match (std::fs::canonicalize(gitdir), std::fs::canonicalize(opened)) {
+        (Ok(gitdir), Ok(opened)) => opened.starts_with(gitdir),
+        _ => normalize(opened).starts_with(normalize(gitdir)),
+    };
+    // An entry, not the value: git2 panics on a path setting that is not UTF-8 on Windows.
+    let named = repo
+        .config()
+        .and_then(|config| config.get_entry("core.worktree").map(|_| ()))
+        .is_ok();
+    if !inside || named {
+        return Ok(());
+    }
+    Err(GitError::Invalid {
+        path: opened.to_path_buf(),
+        reason: "a git directory whose working tree lives elsewhere: open the working tree"
+            .to_owned(),
     })
 }
 

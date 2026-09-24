@@ -341,15 +341,15 @@ fn parallel_trackings(
         .map_or(1, std::num::NonZero::get)
         .clamp(1, TRACKING_THREADS);
     let chunk = work.len().div_ceil(threads).max(1);
-    // Repository handles do not cross threads: each worker reopens the gitdir.
-    let gitdir = repo.path().to_path_buf();
+    // Repository handles do not cross threads: each worker opens its own.
+    let location = super::Location::of(repo);
     let results: Vec<GitResult<Vec<Tracking>>> = std::thread::scope(|scope| {
         let workers: Vec<_> = work
             .chunks(chunk)
             .map(|part| {
-                let gitdir = gitdir.clone();
+                let location = location.clone();
                 scope.spawn(move || -> GitResult<Vec<Tracking>> {
-                    let repo = super::reopen_gitdir(&gitdir)?;
+                    let repo = location.reopen()?;
                     let mut out = Vec::with_capacity(part.len());
                     for (full_name, local) in part {
                         cancel.check()?;
