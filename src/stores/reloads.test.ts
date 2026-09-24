@@ -3,10 +3,12 @@ import { describe, expect, it } from "vitest";
 import type { ChangeKind, FileChange, RepoChanged } from "@/ipc/schemas";
 import {
   comparePaths,
+  Coverage,
   covers,
   MAX_RESTRICTED_PATHS,
   mergeReloads,
   mergeRestricted,
+  pairingPaths,
   reloadFor,
   Reloader,
   requestedPaths,
@@ -108,11 +110,35 @@ describe("mergeRestricted", () => {
       { changed: ["dir"], after: [file("a.txt"), file("nested/"), file("sub"), file("z.txt")] },
     ];
     for (const { changed, after } of cases) {
-      const requested = requestedPaths(before, changed, false);
+      const requested = requestedPaths(before, changed);
       const fresh = after.filter((f) => requested.some((path) => covers(path, f.path)));
       expect(paths(mergeRestricted(before, requested, fresh)), changed.join()).toEqual(
         paths(after),
       );
+    }
+  });
+});
+
+describe("Coverage", () => {
+  it("answers as covers does for every pair", () => {
+    const requested = ["src", "src/a.rs", "nested/x.txt", "sub/s.txt", "docs/", "a"];
+    const listed = [
+      "src/a.rs",
+      "src/ab.rs",
+      "src2/a.rs",
+      "nested/",
+      "nested",
+      "sub",
+      "docs/x",
+      "docs",
+      "a",
+      "a/b/c",
+      "ab",
+      "x/src",
+    ];
+    const coverage = new Coverage(requested);
+    for (const path of listed) {
+      expect(coverage.covers(path), path).toBe(requested.some((r) => covers(r, path)));
     }
   });
 });
@@ -126,18 +152,48 @@ describe("requestedPaths", () => {
     file("sub"),
   ];
 
-  it("adds the listed entries a path touches", () => {
-    expect(requestedPaths(listed, ["nested/x.txt"], false).sort()).toEqual([
-      "nested",
-      "nested/x.txt",
-    ]);
-    expect(requestedPaths(listed, ["sub/s.txt"], false).sort()).toEqual(["sub", "sub/s.txt"]);
-    expect(requestedPaths(listed, ["new.rs"], false).sort()).toEqual(["new.rs", "old.rs"]);
+  it("adds the listed entries a path touches, and nothing else", () => {
+    expect(requestedPaths(listed, ["nested/x.txt"]).sort()).toEqual(["nested", "nested/x.txt"]);
+    expect(requestedPaths(listed, ["sub/s.txt"]).sort()).toEqual(["sub", "sub/s.txt"]);
+    expect(requestedPaths(listed, ["new.rs"]).sort()).toEqual(["new.rs", "old.rs"]);
+    expect(requestedPaths(listed, ["plain.txt"])).toEqual(["plain.txt"]);
+  });
+});
+
+describe("pairingPaths", () => {
+  const listed = [
+    file("added.rs", "added"),
+    file("gone.rs", "deleted"),
+    file("new.rs", "renamed", "old.rs"),
+    file("plain.txt"),
+  ];
+
+  it("adds nothing when the read touched modified files only", () => {
+    expect(pairingPaths(listed, ["plain.txt"], [file("plain.txt")])).toEqual([]);
   });
 
-  it("adds every listed addition and deletion for a list that pairs renames", () => {
-    expect(requestedPaths(listed, ["plain.txt"], true).sort()).toEqual(["gone.rs", "plain.txt"]);
-    expect(requestedPaths(listed, ["plain.txt"], false)).toEqual(["plain.txt"]);
+  it("adds the deletions and renames an addition may pair with", () => {
+    expect(pairingPaths(listed, ["d.rs"], [file("d.rs", "added")]).sort()).toEqual([
+      "gone.rs",
+      "new.rs",
+      "old.rs",
+    ]);
+  });
+
+  it("adds the additions and renames a deletion may pair with", () => {
+    expect(pairingPaths(listed, ["plain.txt"], [file("plain.txt", "deleted")]).sort()).toEqual([
+      "added.rs",
+      "new.rs",
+      "old.rs",
+    ]);
+  });
+
+  it("adds both for a rename it touched, never what the read covered", () => {
+    const fresh = [file("new.rs", "added"), file("old.rs", "deleted")];
+    expect(pairingPaths(listed, ["new.rs", "old.rs"], fresh).sort()).toEqual([
+      "added.rs",
+      "gone.rs",
+    ]);
   });
 });
 
@@ -170,6 +226,10 @@ describe("reloadFor", () => {
     });
     const many = Array.from({ length: MAX_RESTRICTED_PATHS + 1 }, (_, i) => `f${i}`);
     expect(reloadFor(change({ kinds: ["status"], paths: many }), true)).toEqual({ kind: "full" });
+    // A name the backend could not spell (not UTF-8) matches nothing when read at.
+    expect(reloadFor(change({ kinds: ["status"], paths: ["caf\uFFFD.txt"] }), true)).toEqual({
+      kind: "full",
+    });
   });
 });
 
@@ -188,6 +248,12 @@ describe("mergeReloads", () => {
     expect(mergeReloads({ kind: "paths", paths: ["a"] }, { kind: "full" })).toEqual({
       kind: "full",
     });
+    // Paths waiting through a long write or stream turn whole past the limit.
+    const half = (from: number) =>
+      Array.from({ length: MAX_RESTRICTED_PATHS / 2 + 1 }, (_, i) => `f${from + i}`);
+    expect(
+      mergeReloads({ kind: "paths", paths: half(0) }, { kind: "paths", paths: half(1000) }),
+    ).toEqual({ kind: "full" });
   });
 });
 

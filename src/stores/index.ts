@@ -448,11 +448,15 @@ export const useIndexStore = defineStore("index", () => {
 
   // The open repository's dirty flag is left alone while it is open (the home table, the only
   // place that shows it, shows no open repository); it is read once when the repository stops
-  // being the open one.
+  // being the open one. Back home, the listing read on the way may land after that refresh and
+  // hold the flag from before it, so the listing is read once more after it.
   watch(
     () => useRepoStore().repo?.root,
     (now, before) => {
-      if (before !== undefined && before !== now) void refresh(before, true);
+      if (before === undefined || before === now) return;
+      void refresh(before, true).then(() => {
+        if (useRepoStore().state.kind === "empty") return load();
+      });
     },
   );
 

@@ -14,6 +14,7 @@ import * as ipc from "@/ipc/commands";
 import { toAppError, type AppError } from "@/ipc/errors";
 import { newOpId } from "@/ipc/invoke";
 import type {
+  ChangeSet,
   CommitContext,
   DiffPage,
   DiffTarget,
@@ -28,10 +29,12 @@ import { useOperationsStore } from "./operations";
 import {
   MAX_RESTRICTED_PATHS,
   mergeRestricted,
+  pairingPaths,
   type Reload,
   Reloader,
   reloadFor,
   requestedPaths,
+  unspellable,
 } from "./reloads";
 import { headTarget, useRepoStore } from "./repo";
 
@@ -171,6 +174,8 @@ export const useChangesStore = defineStore("changes", () => {
   };
   /** Bumped when a list's stream stops, so a superseded stream's pages and ending are dropped. */
   const serials: Record<ChangeList, number> = { unstaged: 0, staged: 0 };
+  /** The operation of a list's restricted read in flight, cancelled when a whole one starts. */
+  const restricted: Record<ChangeList, string | null> = { unstaged: null, staged: null };
   /** One reload at a time per list: whole, or at the paths that changed. */
   const reloaders: Record<ChangeList, Reloader> = {
     unstaged: new Reloader({
@@ -215,6 +220,11 @@ export const useChangesStore = defineStore("changes", () => {
     serials[list] += 1;
     void handles[list]?.cancel();
     handles[list] = null;
+    const reading = restricted[list];
+    if (reading !== null) {
+      restricted[list] = null;
+      void ipc.cancelOperation(reading).catch(() => undefined);
+    }
   }
 
   function stream(list: ChangeList, root: string): Promise<void> {
@@ -274,25 +284,24 @@ export const useChangesStore = defineStore("changes", () => {
     if (root === undefined || root !== loadedRoot) return true;
     const target = listOf(list);
     if (target.value.error) return false;
-    const requested = requestedPaths(target.value.files, changed, list === "staged");
-    if (requested.length > MAX_RESTRICTED_PATHS) return false;
     const mine = serials[list];
-    let result;
-    try {
-      // Whitespace is never ignored here, as in the whole list.
-      result = await ipc.diffPaths(
-        root,
-        diffTargetOfList(list),
-        requested,
-        { ...ipc.defaultDiffOptions, ignoreWhitespace: false },
-        newOpId(`changes-${list}`),
-      );
-    } catch {
-      return false;
-    }
     // A whole reload that started meanwhile, or another repository, holds the newer list.
-    if (mine !== serials[list] || root !== repo.repo?.root) return true;
+    const superseded = () => mine !== serials[list] || root !== repo.repo?.root;
+    let requested = requestedPaths(target.value.files, changed);
+    let result = await readPaths(list, root, requested);
+    if (superseded()) return true;
     if (result === null) return false;
+    // The staged list pairs renames: a read that touched an addition, a deletion or a rename
+    // reads again with the listed files it may pair with.
+    if (list === "staged") {
+      const extra = pairingPaths(target.value.files, requested, result.files);
+      if (extra.length > 0) {
+        requested = [...new Set([...requested, ...extra])];
+        result = await readPaths(list, root, requested);
+        if (superseded()) return true;
+        if (result === null) return false;
+      }
+    }
     const files = mergeRestricted(target.value.files, requested, result.files);
     target.value = {
       ...target.value,
@@ -300,8 +309,34 @@ export const useChangesStore = defineStore("changes", () => {
       additions: files.reduce((sum, file) => sum + file.additions, 0),
       deletions: files.reduce((sum, file) => sum + file.deletions, 0),
     };
-    settleSelection();
+    // A write moves the selection itself once both of its lists landed.
+    if (anchor === null) settleSelection();
     return true;
+  }
+
+  /** The restricted diff of `list` at `paths`; null when the list must be read whole. */
+  async function readPaths(
+    list: ChangeList,
+    root: string,
+    paths: string[],
+  ): Promise<ChangeSet | null> {
+    if (paths.length > MAX_RESTRICTED_PATHS || paths.some(unspellable)) return null;
+    const opId = newOpId(`changes-${list}`);
+    restricted[list] = opId;
+    try {
+      // Whitespace is never ignored here, as in the whole list.
+      return await ipc.diffPaths(
+        root,
+        diffTargetOfList(list),
+        paths,
+        { ...ipc.defaultDiffOptions, ignoreWhitespace: false },
+        opId,
+      );
+    } catch {
+      return null;
+    } finally {
+      if (restricted[list] === opId) restricted[list] = null;
+    }
   }
 
   /**
@@ -396,13 +431,13 @@ export const useChangesStore = defineStore("changes", () => {
       : null;
     const opId = newOpId("changes-write");
     operations.start(opId, label);
+    let done = false;
     try {
       await run(root);
-      return true;
+      done = true;
     } catch (failure) {
       actionError.value = toAppError(failure);
       failed.value = { kind, files, path };
-      return false;
     } finally {
       operations.finish(opId);
       busy.value = null;
@@ -411,6 +446,11 @@ export const useChangesStore = defineStore("changes", () => {
       reloaders.unstaged.resume();
       reloaders.staged.resume();
     }
+    // The selection moves once both lists show the write, whichever answered first: a file
+    // that left hands it to the row that took its place.
+    await Promise.all([reloaders.unstaged.settled(), reloaders.staged.settled()]);
+    settleSelection();
+    return done;
   }
 
   function stage(paths: string[]): Promise<boolean> {

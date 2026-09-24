@@ -28,9 +28,11 @@ import { useOperationsStore } from "./operations";
 import {
   MAX_RESTRICTED_PATHS,
   mergeRestricted,
+  pairingPaths,
   Reloader,
   reloadFor,
   requestedPaths,
+  unspellable,
 } from "./reloads";
 import { useRepoStore } from "./repo";
 import { useSettingsStore, type DiffLayout } from "./settings";
@@ -226,6 +228,8 @@ export const useReviewStore = defineStore("review", () => {
 
   let streamHandle: StreamHandle | null = null;
   let streamSerial = 0;
+  /** The operation of a restricted read in flight, cancelled when a whole one starts. */
+  let restrictedOp: string | null = null;
   let annotationsSerial = 0;
   /** Local writes since the marks were last loaded; a load that raced one runs again. */
   let localWrites = 0;
@@ -411,14 +415,17 @@ export const useReviewStore = defineStore("review", () => {
     streamSerial += 1;
     void streamHandle?.cancel();
     streamHandle = null;
+    if (restrictedOp !== null) {
+      void ipc.cancelOperation(restrictedOp).catch(() => undefined);
+      restrictedOp = null;
+    }
   }
 
   /** The own change set's reloads, one at a time: whole, or at the paths that changed. */
   const reloader = new Reloader({ full: () => loadOwn(), paths: (paths) => readOwnAt(paths) });
 
-  /** Streams the own change set again whole, dropping the reloads that waited. */
+  /** Streams the own change set again whole, which replaces the reloads that waited. */
   function restartOwn(): void {
-    reloader.clear();
     reloader.request({ kind: "full" });
   }
 
@@ -486,25 +493,43 @@ export const useReviewStore = defineStore("review", () => {
     const set = ownChangeSet.value;
     if (!current || !root || !set || !ownStream.value) return true;
     if (set.error) return false;
-    // The working tree against the index pairs no rename; the others do.
-    const requested = requestedPaths(set.files, changed, current.kind !== "worktree");
-    if (requested.length > MAX_RESTRICTED_PATHS) return false;
     const serial = streamSerial;
-    let result;
-    try {
-      result = await ipc.diffPaths(
-        root,
-        diffTargetOf(current),
-        requested,
-        { ...ipc.defaultDiffOptions, ignoreWhitespace: ignoreWhitespace.value },
-        newOpId("review"),
-      );
-    } catch {
-      return false;
-    }
     // Another target or a whole reload since holds the newer change set.
-    if (serial !== streamSerial || !ownChangeSet.value) return true;
+    const superseded = () => serial !== streamSerial || !ownChangeSet.value;
+    const read = async (paths: string[]) => {
+      if (paths.length > MAX_RESTRICTED_PATHS || paths.some(unspellable)) return null;
+      const opId = newOpId("review");
+      restrictedOp = opId;
+      try {
+        return await ipc.diffPaths(
+          root,
+          diffTargetOf(current),
+          paths,
+          { ...ipc.defaultDiffOptions, ignoreWhitespace: ignoreWhitespace.value },
+          opId,
+        );
+      } catch {
+        return null;
+      } finally {
+        if (restrictedOp === opId) restrictedOp = null;
+      }
+    };
+    let requested = requestedPaths(set.files, changed);
+    let result = await read(requested);
+    if (superseded()) return true;
     if (result === null) return false;
+    // The working tree against the index pairs no rename; the others read again with the
+    // listed files a touched addition, deletion or rename may pair with.
+    if (current.kind !== "worktree") {
+      const extra = pairingPaths(set.files, requested, result.files);
+      if (extra.length > 0) {
+        requested = [...new Set([...requested, ...extra])];
+        result = await read(requested);
+        if (superseded()) return true;
+        if (result === null) return false;
+      }
+    }
+    if (!ownChangeSet.value) return true;
     const files = mergeRestricted(ownChangeSet.value.files, requested, result.files);
     ownChangeSet.value = {
       ...ownChangeSet.value,

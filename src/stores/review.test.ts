@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { FileChange, Hunk, Ref } from "@/ipc/schemas";
 import { fakeBackend, fakeCommit, settled } from "@/test/backend";
+import * as ipc from "@/ipc/commands";
 import { changedFile, repoChange } from "@/test/changes";
 
 import { useRepoStore } from "./repo";
@@ -389,11 +390,17 @@ describe("review store", () => {
     expect(restricted).toHaveLength(1);
     expect(restricted[0]?.args["paths"]).toEqual(["src/b.ts"]);
     expect(review.files.map((file) => file.path)).toEqual(["src/a.ts", "src/b.ts"]);
+    // Staged elsewhere, the file leaves the working tree against the index once read again.
+    await ipc.stagePaths("/r", ["src/b.ts"]);
+    review.onRepoChanged(repoChange({ kinds: ["status"], paths: ["src/b.ts"] }));
+    await settled();
+    expect(review.files.map((file) => file.path)).toEqual(["src/a.ts"]);
+    expect(count("diff")).toBe(diffs);
     // A commit under review follows nothing.
     review.setTarget(null);
     review.onRepoChanged(repoChange({ kinds: ["status"], paths: ["src/b.ts"] }));
     await settled();
-    expect(count("diff_paths")).toBe(1);
+    expect(count("diff_paths")).toBe(2);
   });
 
   it("computes a target named by refs again when they move, and only then", async () => {

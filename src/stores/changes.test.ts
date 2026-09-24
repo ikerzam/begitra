@@ -11,6 +11,7 @@ import {
   type Call,
   type FakeBackendOptions,
 } from "@/test/backend";
+import * as ipc from "@/ipc/commands";
 import { changedFile, repoChange } from "@/test/changes";
 
 import {
@@ -319,6 +320,36 @@ describe("changes store", () => {
     changes.onRepoChanged(repoChange({ kinds: ["refs"] }));
     await settled();
     expect(of(calls, "commit_context")).toHaveLength(1);
+  });
+
+  it("hands the selection to the row that took the file's place when Staged answers first", async () => {
+    const { changes } = await openChanges({
+      changes: {
+        unstaged: [changedFile("a.ts"), changedFile("b.ts"), changedFile("c.ts")],
+        staged: [],
+      },
+      diffPathsDelayMs: { workingTree: 20 },
+    });
+    changes.select("unstaged", "b.ts");
+    // The write resolves once both lists show it.
+    expect(await changes.stage(["b.ts"])).toBe(true);
+    expect(changes.unstaged.files.map((file) => file.path)).toEqual(["a.ts", "c.ts"]);
+    expect(changes.staged.files.map((file) => file.path)).toEqual(["b.ts"]);
+    expect(changes.selected).toEqual({ list: "unstaged", path: "c.ts" });
+  });
+
+  it("drops a restricted reply that a whole reload overtook", async () => {
+    const { changes } = await openChanges({ diffPathsDelayMs: { workingTree: 20 } });
+    // A read of src/a.ts starts while the file is unstaged; it is staged elsewhere and the
+    // lists reload whole before the reply, which still lists it unstaged, lands.
+    changes.onRepoChanged(repoChange({ kinds: ["status"], paths: ["src/a.ts"] }));
+    await settled();
+    await ipc.stagePaths("/r", ["src/a.ts"]);
+    changes.load();
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    await settled();
+    expect(changes.unstaged.files.map((file) => file.path)).not.toContain("src/a.ts");
+    expect(changes.staged.files.map((file) => file.path)).toContain("src/a.ts");
   });
 
   it("reads again the paths a write moved, and they list as a whole reload lists them", async () => {

@@ -4,7 +4,7 @@
  * The rules match the engine's (`git2_engine/diff.rs`, `covers` and the listing order), so a
  * list read again at some paths equals a full reload.
  */
-import type { FileChange, RepoChanged } from "@/ipc/schemas";
+import type { ChangeKind, FileChange, RepoChanged } from "@/ipc/schemas";
 
 /** Most paths a restricted reload asks for; more reload the list in full. */
 export const MAX_RESTRICTED_PATHS = 200;
@@ -31,10 +31,38 @@ export function covers(requested: string, listed: string): boolean {
   return entry === path || below(entry, path) || below(path, entry);
 }
 
-function coveredFile(file: FileChange, paths: string[]): boolean {
-  return paths.some(
-    (path) => covers(path, file.path) || (file.oldPath !== null && covers(path, file.oldPath)),
-  );
+/**
+ * [`covers`] for many listed paths against the same requested ones, by lookups: a listed path
+ * is covered when it or one of its folders is requested, or when it is a folder of a requested
+ * path. Linear in the paths' depth, where testing every pair costs the list times the paths.
+ */
+export class Coverage {
+  private readonly requested = new Set<string>();
+  private readonly folders = new Set<string>();
+
+  constructor(paths: Iterable<string>) {
+    for (const raw of paths) {
+      const path = trim(raw);
+      this.requested.add(path);
+      for (let at = path.indexOf("/"); at !== -1; at = path.indexOf("/", at + 1)) {
+        this.folders.add(path.slice(0, at));
+      }
+    }
+  }
+
+  covers(listed: string): boolean {
+    const entry = trim(listed);
+    if (this.requested.has(entry) || this.folders.has(entry)) return true;
+    for (let at = entry.lastIndexOf("/"); at > 0; at = entry.lastIndexOf("/", at - 1)) {
+      if (this.requested.has(entry.slice(0, at))) return true;
+    }
+    return false;
+  }
+
+  /** Whether `file` is covered by its path or by the old path of a rename. */
+  coversFile(file: FileChange): boolean {
+    return this.covers(file.path) || (file.oldPath !== null && this.covers(file.oldPath));
+  }
 }
 
 /**
@@ -58,21 +86,59 @@ export function comparePaths(a: string, b: string): number {
 }
 
 /**
- * The paths a restricted reload of `files` asks for after `changed`: those paths, the listed
- * entries they touch (a folder entry or a submodule above them, both sides of a rename), and,
- * for a list that pairs renames, every listed addition and deletion, so a pair that forms or
- * breaks is found as a full reload finds it.
+ * A path the backend could not spell (a name that is not UTF-8 arrives with U+FFFD): a read at
+ * it matches nothing, so the list reloads in full.
  */
-export function requestedPaths(files: FileChange[], changed: string[], renames: boolean): string[] {
+export function unspellable(path: string): boolean {
+  return path.includes("\uFFFD");
+}
+
+/**
+ * The paths a restricted reload of `files` asks for after `changed`: those paths and the listed
+ * entries they touch (a folder entry or a submodule above them, both sides of a rename).
+ */
+export function requestedPaths(files: FileChange[], changed: string[]): string[] {
+  const coverage = new Coverage(changed);
   const requested = new Set(changed.map(trim));
   for (const file of files) {
-    const sides = file.oldPath === null ? [file.path] : [file.path, file.oldPath];
-    const touched = sides.some((side) => changed.some((path) => covers(path, side)));
-    if (touched || (renames && (file.status === "added" || file.status === "deleted"))) {
-      for (const side of sides) requested.add(trim(side));
-    }
+    if (!coverage.coversFile(file)) continue;
+    requested.add(trim(file.path));
+    if (file.oldPath !== null) requested.add(trim(file.oldPath));
   }
   return [...requested];
+}
+
+const PAIRED = new Set<ChangeKind>(["renamed", "copied"]);
+
+/**
+ * For a list that pairs renames, the listed paths a second read adds after a first one at
+ * `requested` returned `fresh`. libgit2 pairs a deletion with an addition, never a modified
+ * file: when what the read touched (the listed files it covers, and `fresh`) holds an addition
+ * or a rename, every listed deletion and rename may pair with it; a deletion or a rename, every
+ * listed addition and rename. Empty when it touched neither, and the first read stands.
+ */
+export function pairingPaths(
+  files: FileChange[],
+  requested: string[],
+  fresh: FileChange[],
+): string[] {
+  const coverage = new Coverage(requested);
+  const touched = files.filter((file) => coverage.coversFile(file)).concat(fresh);
+  const additions = touched.some((file) => file.status === "added" || PAIRED.has(file.status));
+  const deletions = touched.some((file) => file.status === "deleted" || PAIRED.has(file.status));
+  if (!additions && !deletions) return [];
+  const extra = new Set<string>();
+  for (const file of files) {
+    if (coverage.coversFile(file)) continue;
+    const pairs =
+      PAIRED.has(file.status) ||
+      (additions && file.status === "deleted") ||
+      (deletions && file.status === "added");
+    if (!pairs) continue;
+    extra.add(trim(file.path));
+    if (file.oldPath !== null) extra.add(trim(file.oldPath));
+  }
+  return [...extra];
 }
 
 /** The list after a restricted reload at `paths`: what they cover leaves, `fresh` joins. */
@@ -81,8 +147,9 @@ export function mergeRestricted(
   paths: string[],
   fresh: FileChange[],
 ): FileChange[] {
+  const coverage = new Coverage(paths);
   const replaced = new Set(fresh.map((file) => file.path));
-  const kept = files.filter((file) => !replaced.has(file.path) && !coveredFile(file, paths));
+  const kept = files.filter((file) => !replaced.has(file.path) && !coverage.coversFile(file));
   return kept.concat(fresh).sort((a, b) => comparePaths(a.path, b.path));
 }
 
@@ -94,8 +161,8 @@ function isRuleFile(path: string): boolean {
 
 /**
  * What a list reads again after `change`. A list that `readsWorkingTree` follows the working
- * tree's paths; every list follows the index entries. Unknown paths, a rule file among them or
- * more than [`MAX_RESTRICTED_PATHS`] reload it in full.
+ * tree's paths; every list follows the index entries. Unknown paths, a rule file or a path the
+ * backend could not spell among them, or more than [`MAX_RESTRICTED_PATHS`], reload it in full.
  */
 export function reloadFor(change: RepoChanged, readsWorkingTree: boolean): Reload {
   const paths = new Set<string>();
@@ -108,16 +175,18 @@ export function reloadFor(change: RepoChanged, readsWorkingTree: boolean): Reloa
     for (const path of change.indexPaths) paths.add(path);
   }
   if (paths.size === 0) return { kind: "none" };
-  if (paths.size > MAX_RESTRICTED_PATHS || [...paths].some(isRuleFile)) return { kind: "full" };
+  const whole = [...paths].some((path) => isRuleFile(path) || unspellable(path));
+  if (paths.size > MAX_RESTRICTED_PATHS || whole) return { kind: "full" };
   return { kind: "paths", paths: [...paths] };
 }
 
-/** Two waiting reloads as one: a full one absorbs any other, paths join. */
+/** Two waiting reloads as one: a full one absorbs any other, paths join up to the limit. */
 export function mergeReloads(a: Reload | null, b: Reload): Reload {
   if (a === null || a.kind === "none") return b;
   if (b.kind === "none") return a;
   if (a.kind === "full" || b.kind === "full") return { kind: "full" };
-  return { kind: "paths", paths: [...new Set([...a.paths, ...b.paths])] };
+  const paths = [...new Set([...a.paths, ...b.paths])];
+  return paths.length > MAX_RESTRICTED_PATHS ? { kind: "full" } : { kind: "paths", paths };
 }
 
 /** How a list reloads: in full, or at some paths (false when that lists too many files). */
@@ -166,7 +235,10 @@ export class Reloader {
     this.pending = null;
   }
 
-  /** Resolves once nothing runs or waits (for tests and writes that await their reload). */
+  /**
+   * Resolves once nothing runs: a write awaits its own reloads before it settles the selection.
+   * What a hold keeps waiting does not count.
+   */
   async settled(): Promise<void> {
     while (this.running !== null) await this.running;
   }

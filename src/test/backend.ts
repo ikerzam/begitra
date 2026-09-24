@@ -87,6 +87,11 @@ export interface FakeBackendOptions {
   commitContext?: Partial<CommitContext>;
   /** Every diff answers after this many milliseconds (the loading states, by eye). */
   diffDelayMs?: number;
+  /**
+   * `diff_paths` answers after this many milliseconds, per target: the index against HEAD or
+   * the working tree. The answer is the lists as they were when it was asked.
+   */
+  diffPathsDelayMs?: { index?: number; workingTree?: number };
   /** The network commands end after this many milliseconds (the progress, by eye). */
   networkDelayMs?: number;
   /** The refs `list_refs` answers; the two local branches by default. */
@@ -472,18 +477,28 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
       case "diff_paths": {
         // The full diff's files that the paths cover, as the engine restricts it.
         const requested = args["paths"] as string[];
-        const files = filesOf(args["target"] as DiffTarget).filter((file) =>
+        const target = args["target"] as DiffTarget;
+        const files = filesOf(target).filter((file) =>
           requested.some(
             (path) =>
               covers(path, file.path) || (file.oldPath !== null && covers(path, file.oldPath)),
           ),
         );
-        if (files.length > 200) return null;
-        return {
-          files,
-          additions: files.reduce((n, f) => n + f.additions, 0),
-          deletions: files.reduce((n, f) => n + f.deletions, 0),
-        };
+        const answer =
+          files.length > 200
+            ? null
+            : {
+                files,
+                additions: files.reduce((n, f) => n + f.additions, 0),
+                deletions: files.reduce((n, f) => n + f.deletions, 0),
+              };
+        const delay =
+          target.kind === "index"
+            ? options.diffPathsDelayMs?.index
+            : options.diffPathsDelayMs?.workingTree;
+        return delay === undefined
+          ? answer
+          : new Promise((resolve) => setTimeout(() => resolve(answer), delay));
       }
       case "read_blob": {
         const path = args["path"] as string;

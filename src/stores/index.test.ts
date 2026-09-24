@@ -481,13 +481,21 @@ describe("index store", () => {
     await store.open("/home/iker/oss/newcomer");
     await settled();
     expect(repo.state.kind).toBe("ready");
-    expect(calls.filter((c) => c.cmd === "refresh_repository").map((c) => c.args["path"])).toEqual([
-      "/home/iker/oss/newcomer",
-    ]);
+    const refreshes = () =>
+      calls
+        .filter((c) => c.cmd === "refresh_repository")
+        .map((c) => [c.args["path"], c.args["dirty"]]);
+    // Open: without the dirty flag, which nothing shows while the repository is open.
+    expect(refreshes()).toEqual([["/home/iker/oss/newcomer", false]]);
     const listings = calls.filter((c) => c.cmd === "list_repositories").length;
     await repo.close();
     await settled();
-    expect(calls.filter((c) => c.cmd === "list_repositories")).toHaveLength(listings + 1);
+    // Back home: the closed repository's flag is read, then the listing again after it.
+    expect(refreshes()).toEqual([
+      ["/home/iker/oss/newcomer", false],
+      ["/home/iker/oss/newcomer", true],
+    ]);
+    expect(calls.filter((c) => c.cmd === "list_repositories")).toHaveLength(listings + 2);
   });
 
   it("open flags the entry missing when the folder is gone and leaves the error state to the shell", async () => {
