@@ -117,10 +117,11 @@ pub struct RepoWatcher {
 
 impl RepoWatcher {
     /// Starts watching the working tree of `bases` recursively and, for a linked worktree,
-    /// its own git directory and the shared refs, configuration and ignore rules of its
-    /// owner; `emit` receives one payload per debounced batch. Fails when the platform
-    /// watcher cannot be created or a path cannot be watched (too many watches, an
-    /// unsupported filesystem), which the caller reports as a warning.
+    /// its own git directory and the folders of its owner that hold the shared refs,
+    /// configuration, ignore rules and worktree list; `emit` receives one payload per
+    /// debounced batch. Fails when the platform watcher cannot be created or a path cannot be
+    /// watched (too many watches, an unsupported filesystem), which the caller reports as a
+    /// warning.
     pub fn start(
         bases: WatchBases,
         emit: impl Fn(RepoChanged) + Send + 'static,
@@ -130,17 +131,29 @@ impl RepoWatcher {
         watcher.watch(&bases.root, RecursiveMode::Recursive)?;
         if bases.is_linked() {
             // HEAD, the index and an operation's state of a linked worktree live in its own
-            // git directory; its refs, configuration and ignore rules are the owner's.
+            // git directory.
             watcher.watch(&bases.gitdir, RecursiveMode::Recursive)?;
-            for shared in ["HEAD", "packed-refs", "config", "info"] {
-                let path = bases.commondir.join(shared);
-                if path.exists() {
-                    watcher.watch(&path, RecursiveMode::NonRecursive)?;
+            // Its refs, configuration and ignore rules are the owner's, and the owner's
+            // `worktrees/` lists the others. Folders, not files: git replaces a file by
+            // renaming a lock over it, which ends a watch on the file itself on Linux. A
+            // refusal fails the start like the rest: without these, branches moved by the
+            // other worktrees would go unseen with no warning. An `info/` created after the
+            // start is not watched.
+            for (path, mode) in [
+                (bases.commondir.clone(), RecursiveMode::NonRecursive),
+                (bases.commondir.join("refs"), RecursiveMode::Recursive),
+                (bases.commondir.join("info"), RecursiveMode::NonRecursive),
+                (bases.commondir.join("worktrees"), RecursiveMode::Recursive),
+                // The stash list reads its entries from the stash's reflog, which a
+                // `git reflog delete stash@{1}` edits alone.
+                (
+                    bases.commondir.join("logs").join("refs"),
+                    RecursiveMode::NonRecursive,
+                ),
+            ] {
+                if path.is_dir() {
+                    watcher.watch(&path, mode)?;
                 }
-            }
-            let refs = bases.commondir.join("refs");
-            if refs.is_dir() {
-                watcher.watch(&refs, RecursiveMode::Recursive)?;
             }
         }
         let thread = thread::Builder::new()
@@ -340,22 +353,24 @@ const NOISY: [&str; 6] = [
     "__pycache__",
 ];
 
-/// Where a changed path sits. Inside a git directory (the repository's own or the shared
-/// one): `HEAD`, `ORIG_HEAD`, `FETCH_HEAD`, `packed-refs`, `refs/**`, `logs/**` and an
-/// operation's state (`MERGE_HEAD` and the other pseudo-refs, `rebase-merge/`,
-/// `rebase-apply/`, `sequencer/`, `BISECT_*`) are refs; the configuration is refs and a
-/// status change; `index` is the index; `worktrees/**` is worktrees; `info/exclude`,
-/// `info/sparse-checkout`, `info/attributes` and what a submodule has checked out under
-/// `modules/` are a status change without a path; lock files and the rest (objects, hooks)
-/// are ignored. Under the working tree: a repository-relative path, except the noisy
-/// folders that hold no tracked file and git's lock files; a nested repository's `.git`
-/// counts only for what it has checked out, as a change of its folder.
+/// Where a changed path sits. In the repository's own git directory: `HEAD`, `ORIG_HEAD`,
+/// `FETCH_HEAD`, `packed-refs`, `refs/**`, `logs/**` and an operation's state (`MERGE_HEAD` and
+/// the other pseudo-refs, `rebase-merge/`, `rebase-apply/`, `sequencer/`, `BISECT_*`) are
+/// refs; the configuration is refs and a status change; `index` is the index; `worktrees/**`
+/// is worktrees; `info/exclude`, `info/sparse-checkout`, `info/attributes` and what a
+/// submodule has checked out under `modules/` are a status change without a path; lock files
+/// and the rest (objects, hooks) are ignored. A linked worktree takes from its owner's
+/// directory only what concerns it ([`classify_shared`]). Under the working tree: a
+/// repository-relative path, except the noisy folders that hold no tracked file and git's lock
+/// files; a nested repository's `.git` counts only for what it has checked out, as a change of
+/// its folder.
 fn classify(bases: &WatchBases, path: &Path) -> Option<Classified> {
     let under = |base: &Path, real: &Path| strip(path, base).or_else(|| strip(path, real));
-    if let Some(inside) = under(&bases.gitdir, &bases.real.gitdir)
-        .or_else(|| under(&bases.commondir, &bases.real.commondir))
-    {
-        return classify_git(&inside);
+    if let Some(inside) = under(&bases.gitdir, &bases.real.gitdir) {
+        return classify_git(&inside).or_else(|| own_entry(bases, &inside));
+    }
+    if let Some(inside) = under(&bases.commondir, &bases.real.commondir) {
+        return classify_shared(&inside);
     }
     let inside = under(&bases.root, &bases.real.root)?;
     if inside.first().is_some_and(|first| first == ".git") {
@@ -384,6 +399,53 @@ fn classify(bases: &WatchBases, path: &Path) -> Option<Classified> {
         return None;
     }
     Some(Classified::Status(inside.join("/")))
+}
+
+/// A linked worktree's own folder is also its entry in the owner's list: its lock and its
+/// link to the working tree belong to the worktree list.
+fn own_entry(bases: &WatchBases, inside: &[String]) -> Option<Classified> {
+    let entry = matches!(inside, [name] if name == "locked" || name == "gitdir");
+    (entry && bases.is_linked()).then_some(Classified::Worktrees)
+}
+
+/// A path in the owner's git directory of a linked worktree: the shared refs (the stash's
+/// reflog included) and configuration, the ignore and attribute rules and the other
+/// worktrees. The owner's own state (its index,
+/// `FETCH_HEAD`, an operation in progress there, its per-worktree refs, configuration and
+/// sparse rules) is not this worktree's. Its HEAD is the main worktree's row in the worktree
+/// list, and the branch checked out there cannot be checked out here: `worktrees`, which
+/// refreshes the refs too.
+fn classify_shared(inside: &[String]) -> Option<Classified> {
+    let first = inside.first()?;
+    if inside.last().is_some_and(|last| last.ends_with(".lock")) {
+        return None;
+    }
+    match first.as_str() {
+        "HEAD" => Some(Classified::Worktrees),
+        "refs"
+            if matches!(
+                inside.get(1).map(String::as_str),
+                Some("bisect" | "rewritten" | "worktree")
+            ) =>
+        {
+            None
+        }
+        "packed-refs" | "refs" => Some(Classified::Refs),
+        "logs" if matches!(inside, [_, refs, stash] if refs == "refs" && stash == "stash") => {
+            Some(Classified::Refs)
+        }
+        "config" => Some(Classified::Config),
+        "info"
+            if matches!(
+                inside.get(1).map(String::as_str),
+                Some("exclude" | "attributes")
+            ) =>
+        {
+            Some(Classified::StatusRules)
+        }
+        "worktrees" => Some(Classified::Worktrees),
+        _ => None,
+    }
 }
 
 /// Components of `path` below `base`, as strings; `None` when `path` is not below `base`.
@@ -589,6 +651,60 @@ mod tests {
             let payload = batch.take(&bases.root).expect(path);
             assert_eq!(payload.kinds, vec![RepoChangeKind::Status], "{path}");
             assert_eq!(payload.paths, vec!["vendor/lib".to_owned()], "{path}");
+        }
+    }
+
+    #[test]
+    fn a_linked_worktree_takes_from_its_owner_what_concerns_it() {
+        let bases = WatchBases::new(
+            PathBuf::from("/wt/feature"),
+            PathBuf::from("/main/.git/worktrees/feature"),
+            PathBuf::from("/main/.git"),
+        );
+        let kinds = |path: &str| {
+            let mut batch = Batch::default();
+            batch.add(&bases, Path::new(path));
+            batch.take(&bases.root).map(|payload| payload.kinds)
+        };
+        use RepoChangeKind::{Refs, Status, Worktrees};
+        // The owner's HEAD (its row in the worktree list, the branch checked out there),
+        // refs, configuration and ignore rules, and the other worktrees.
+        assert_eq!(kinds("/main/.git/HEAD"), Some(vec![Worktrees]));
+        assert_eq!(kinds("/main/.git/packed-refs"), Some(vec![Refs]));
+        assert_eq!(kinds("/main/.git/refs/heads/main"), Some(vec![Refs]));
+        assert_eq!(kinds("/main/.git/config"), Some(vec![Refs, Status]));
+        assert_eq!(kinds("/main/.git/info/exclude"), Some(vec![Status]));
+        assert_eq!(kinds("/main/.git/info/attributes"), Some(vec![Status]));
+        assert_eq!(kinds("/main/.git/logs/refs/stash"), Some(vec![Refs]));
+        assert_eq!(
+            kinds("/main/.git/worktrees/other/locked"),
+            Some(vec![Worktrees])
+        );
+        // Its own lock and operation state.
+        assert_eq!(
+            kinds("/main/.git/worktrees/feature/locked"),
+            Some(vec![Worktrees])
+        );
+        assert_eq!(
+            kinds("/main/.git/worktrees/feature/MERGE_HEAD"),
+            Some(vec![Refs])
+        );
+        // The owner's own state is not this worktree's.
+        for path in [
+            "/main/.git/index",
+            "/main/.git/FETCH_HEAD",
+            "/main/.git/refs/bisect/bad",
+            "/main/.git/refs/rewritten/onto",
+            "/main/.git/refs/worktree/mark",
+            "/main/.git/MERGE_HEAD",
+            "/main/.git/ORIG_HEAD",
+            "/main/.git/info/sparse-checkout",
+            "/main/.git/config.worktree",
+            "/main/.git/objects/ab/cdef",
+            "/main/.git/logs/HEAD",
+            "/main/.git/logs/refs/heads/main",
+        ] {
+            assert_eq!(kinds(path), None, "{path}");
         }
     }
 

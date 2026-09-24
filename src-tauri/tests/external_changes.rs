@@ -232,6 +232,30 @@ impl Session {
         }
         events
     }
+
+    /// Runs `operation` (the `step` a failure names), asserts that the watcher reports
+    /// `expected`, and waits until the operation's events end so that the next step starts
+    /// clean.
+    #[track_caller]
+    fn expect(&self, step: &str, operation: impl FnOnce(), expected: &[RepoChangeKind]) {
+        operation();
+        let events = self.collect(
+            |events| expected.iter().all(|kind| kinds(events).contains(kind)),
+            QUIET,
+            PATIENCE,
+        );
+        let seen = kinds(&events);
+        for kind in expected {
+            assert!(seen.contains(kind), "{step}: expected {kind:?} in {seen:?}");
+        }
+    }
+}
+
+/// The bases of the linked worktree at `path`, as the app builds them from its engine.
+fn linked_bases(path: &Path) -> WatchBases {
+    git_core::git2_engine::Git2Engine::open(path)
+        .expect("the linked worktree opens")
+        .watch_bases()
 }
 
 fn kinds(events: &[RepoChanged]) -> Vec<RepoChangeKind> {
@@ -579,4 +603,107 @@ fn an_embedded_repository_reports_its_folder_when_its_checkout_moves() {
     std::fs::remove_dir_all(dep.join(".git")).expect("remove dep/.git");
     let events = session.collect(reported, QUIET, PATIENCE);
     assert!(reported(&events), "removed: {events:?}");
+}
+
+#[test]
+fn a_linked_worktree_follows_its_owner_every_time() {
+    let repo = Repo::new();
+    repo.git(&["branch", "spare"]);
+    let (path, path_arg) = repo.beside("wt");
+    repo.git(&["worktree", "add", "-q", "-b", "wt", &path_arg]);
+    let session = Session::start(linked_bases(&path));
+    // The owner's HEAD is its row in the worktree list.
+    for branch in ["spare", "main", "spare"] {
+        session.expect(
+            &format!("switch {branch}"),
+            || {
+                repo.git(&["switch", "-q", branch]);
+            },
+            &[Worktrees],
+        );
+    }
+    for remote in ["one", "two", "three"] {
+        session.expect(
+            &format!("remote add {remote}"),
+            || {
+                repo.git(&["remote", "add", remote, "https://example.invalid/r.git"]);
+            },
+            &[Refs, Status],
+        );
+    }
+    // `packed-refs` appears after the start and is then replaced; `--no-prune` keeps the
+    // loose refs, so the packed file is the only change.
+    for tag in ["t1", "t2"] {
+        session.expect(
+            &format!("tag {tag}"),
+            || {
+                repo.git(&["tag", tag]);
+            },
+            &[Refs],
+        );
+        session.expect(
+            &format!("pack-refs after {tag}"),
+            || {
+                repo.git(&["pack-refs", "--all", "--no-prune"]);
+            },
+            &[Refs],
+        );
+    }
+}
+
+#[test]
+fn a_linked_worktree_follows_its_owners_stash_list() {
+    let repo = Repo::new();
+    let (path, path_arg) = repo.beside("wt");
+    repo.git(&["worktree", "add", "-q", "-b", "wt", &path_arg]);
+    for n in 0..3 {
+        repo.write("a.txt", &format!("stash {n}\n"));
+        repo.git(&["stash", "push", "-q"]);
+    }
+    let session = Session::start(linked_bases(&path));
+    // `git reflog delete` rewrites the stash's reflog alone, and the list drops by position.
+    session.expect(
+        "reflog delete",
+        || {
+            repo.git(&["reflog", "delete", "stash@{1}"]);
+        },
+        &[Refs],
+    );
+}
+
+#[test]
+fn a_linked_worktree_follows_the_worktree_list() {
+    let repo = Repo::new();
+    let (path, path_arg) = repo.beside("wt");
+    repo.git(&["worktree", "add", "-q", "-b", "wt", &path_arg]);
+    let session = Session::start(linked_bases(&path));
+    session.expect(
+        "lock",
+        || {
+            repo.git(&["worktree", "lock", &path_arg]);
+        },
+        &[Worktrees],
+    );
+    session.expect(
+        "unlock",
+        || {
+            repo.git(&["worktree", "unlock", &path_arg]);
+        },
+        &[Worktrees],
+    );
+    let (_, other_arg) = repo.beside("wt2");
+    session.expect(
+        "add wt2",
+        || {
+            repo.git(&["worktree", "add", "-q", "-b", "wt2", &other_arg]);
+        },
+        &[Worktrees],
+    );
+    session.expect(
+        "lock wt2",
+        || {
+            repo.git(&["worktree", "lock", &other_arg]);
+        },
+        &[Worktrees],
+    );
 }
