@@ -251,10 +251,10 @@ impl Session {
     }
 }
 
-/// The bases of the linked worktree at `path`, as the app builds them from its engine.
-fn linked_bases(path: &Path) -> WatchBases {
+/// The bases of the repository at `path`, as the app builds them from its engine.
+fn engine_bases(path: &Path) -> WatchBases {
     git_core::git2_engine::Git2Engine::open(path)
-        .expect("the linked worktree opens")
+        .expect("the repository opens")
         .watch_bases()
 }
 
@@ -606,12 +606,62 @@ fn an_embedded_repository_reports_its_folder_when_its_checkout_moves() {
 }
 
 #[test]
+fn a_submodule_opened_on_its_own_watches_its_git_directory_whole() {
+    let repo = Repo::new();
+    let (lib, lib_arg) = repo.beside("lib");
+    std::fs::create_dir_all(&lib).expect("lib folder");
+    repo.git_in(&lib, &["init", "-q", "-b", "main"]);
+    std::fs::write(lib.join("l.txt"), "l\n").expect("write");
+    repo.git_in(&lib, &["add", "l.txt"]);
+    repo.git_in(&lib, &["commit", "-q", "-m", "l1"]);
+    repo.git(&[
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "add",
+        "-q",
+        &lib_arg,
+        "sub",
+    ]);
+    // Its git directory is the parent's `.git/modules/sub`, outside its working tree and
+    // shared with no worktree.
+    let session = Session::start(engine_bases(&repo.root.join("sub")));
+    let state = repo
+        .root
+        .join(".git")
+        .join("modules")
+        .join("sub")
+        .join("rebase-merge");
+    session.expect(
+        "create rebase-merge",
+        || std::fs::create_dir(&state).expect("folder"),
+        &[Refs],
+    );
+    // A folder created there after the start is watched too.
+    session.expect(
+        "write rebase-merge/done",
+        || std::fs::write(state.join("done"), "pick\n").expect("write"),
+        &[Refs],
+    );
+    // And the watcher stops at once when dropped.
+    let (stopped_tx, stopped) = mpsc::channel();
+    std::thread::spawn(move || {
+        drop(session);
+        let _ = stopped_tx.send(());
+    });
+    assert!(
+        stopped.recv_timeout(Duration::from_secs(5)).is_ok(),
+        "the watcher did not stop"
+    );
+}
+
+#[test]
 fn a_linked_worktree_follows_its_owner_every_time() {
     let repo = Repo::new();
     repo.git(&["branch", "spare"]);
     let (path, path_arg) = repo.beside("wt");
     repo.git(&["worktree", "add", "-q", "-b", "wt", &path_arg]);
-    let session = Session::start(linked_bases(&path));
+    let session = Session::start(engine_bases(&path));
     // The owner's HEAD is its row in the worktree list.
     for branch in ["spare", "main", "spare"] {
         session.expect(
@@ -660,7 +710,7 @@ fn a_linked_worktree_follows_its_owners_stash_list() {
         repo.write("a.txt", &format!("stash {n}\n"));
         repo.git(&["stash", "push", "-q"]);
     }
-    let session = Session::start(linked_bases(&path));
+    let session = Session::start(engine_bases(&path));
     // `git reflog delete` rewrites the stash's reflog alone, and the list drops by position.
     session.expect(
         "reflog delete",
@@ -676,7 +726,7 @@ fn a_linked_worktree_follows_the_worktree_list() {
     let repo = Repo::new();
     let (path, path_arg) = repo.beside("wt");
     repo.git(&["worktree", "add", "-q", "-b", "wt", &path_arg]);
-    let session = Session::start(linked_bases(&path));
+    let session = Session::start(engine_bases(&path));
     session.expect(
         "lock",
         || {

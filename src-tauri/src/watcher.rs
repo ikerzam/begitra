@@ -104,8 +104,11 @@ impl WatchBases {
         Self::new(root.to_path_buf(), gitdir.clone(), gitdir)
     }
 
+    /// Whether this is a linked worktree: its own git directory is not the shared one. A
+    /// submodule opened on its own or a `--separate-git-dir` repository has its git directory
+    /// outside the tree too, but shares it with no one.
     fn is_linked(&self) -> bool {
-        self.gitdir != self.root.join(".git")
+        self.gitdir != self.commondir
     }
 }
 
@@ -129,10 +132,14 @@ impl RepoWatcher {
         let (raw_tx, raw_rx) = mpsc::channel::<notify::Result<notify::Event>>();
         let mut watcher = notify::recommended_watcher(raw_tx)?;
         watcher.watch(&bases.root, RecursiveMode::Recursive)?;
-        if bases.is_linked() {
-            // HEAD, the index and an operation's state of a linked worktree live in its own
-            // git directory.
+        // A git directory outside the tree (a linked worktree's, a submodule's opened on its
+        // own, a `--separate-git-dir`) holds HEAD, the index and an operation's state. Watched
+        // once: a second watch on the same folder replaces the first without stopping it on
+        // Windows (the dropped watcher never ends) and resets its recursion on Linux.
+        if bases.gitdir != bases.root.join(".git") {
             watcher.watch(&bases.gitdir, RecursiveMode::Recursive)?;
+        }
+        if bases.is_linked() {
             // Its refs, configuration and ignore rules are the owner's, and the owner's
             // `worktrees/` lists the others. Folders, not files: git replaces a file by
             // renaming a lock over it, which ends a watch on the file itself on Linux. A
