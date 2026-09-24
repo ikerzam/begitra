@@ -337,16 +337,18 @@ pub trait GitEngine: Send + Sync {
     /// Pushes a stash; `false` when there was nothing to save.
     fn stash_push(&self, request: &StashPush, cancel: &Cancel) -> GitResult<bool>;
 
-    /// Applies the stash whose commit is `stash`, keeping it; conflicts are an [`Outcome`].
+    /// Applies the stash whose full commit id is `stash`, keeping it; conflicts are an
+    /// [`Outcome`].
     /// The stash is named by its commit, not by its position, because a stash made or dropped
     /// elsewhere shifts the positions: one no longer in the list is
     /// [`GitError::StashNotFound`](crate::error::GitError::StashNotFound) and git does not run.
     fn stash_apply(&self, stash: &str, cancel: &Cancel) -> GitResult<Outcome>;
 
-    /// Pops the stash whose commit is `stash`, wherever it is in the list now; on conflicts the
-    /// stash is kept and the [`Outcome`] says so.
+    /// Pops the stash whose full commit id is `stash`, wherever it is in the list now: applies
+    /// it and drops it when the apply went through; on conflicts the stash is kept and the
+    /// [`Outcome`] says so.
     fn stash_pop(&self, stash: &str, cancel: &Cancel) -> GitResult<Outcome>;
 
-    /// Drops the stash whose commit is `stash`, wherever it is in the list now.
+    /// Drops the stash whose full commit id is `stash`, wherever it is in the list now.
     fn stash_drop(&self, stash: &str, cancel: &Cancel) -> GitResult<()>;
 }

@@ -18,17 +18,19 @@ fn stash_ref(index: usize) -> String {
     format!("stash@{{{index}}}")
 }
 
-/// The position of the stash whose commit is `stash` in the stash list now (the `n` of
-/// `stash@{n}`): the stash's reflog lists the entries newest first, as `git stash list` does.
-/// The first match wins when `git stash store` put a commit in twice.
+/// The position of the stash whose full commit id is `stash` in the stash list now (the `n`
+/// of `stash@{n}`), read as the refs listing reads it (see `refs::stash_reflog`). The first
+/// match wins when `git stash store` put a commit in twice. An abbreviated id is not in the
+/// list: libgit2 would pad it with zeros.
 fn position_of(engine: &Git2Engine, stash: &str) -> GitResult<usize> {
     let gone = || GitError::StashNotFound(stash.to_owned());
+    if !matches!(stash.len(), 40 | 64) {
+        return Err(gone());
+    }
     let oid = git2::Oid::from_str(stash).map_err(|_| gone())?;
     engine.with_repo(|repo| {
-        let reflog = match repo.reflog("refs/stash") {
-            Ok(reflog) => reflog,
-            Err(error) if error.code() == git2::ErrorCode::NotFound => return Err(gone()),
-            Err(error) => return Err(GitError::from(error)),
+        let Some(reflog) = super::refs::stash_reflog(repo)? else {
+            return Err(gone());
         };
         reflog
             .iter()
@@ -86,17 +88,11 @@ fn stash_tip(engine: &Git2Engine) -> GitResult<Option<String>> {
     })
 }
 
-/// `git stash apply|pop <stash>` on `reference` (the commit for apply, `stash@{n}` for pop):
-/// done, or conflicts with the paths (the stash stays). git exits 1 both for a conflicting
-/// apply and for a refusal over paths conflicted before it ran (`needs merge`), so a stop is
-/// one that added conflicted paths.
-fn apply_or_pop(
-    engine: &Git2Engine,
-    verb: &str,
-    reference: &str,
-    cancel: &Cancel,
-) -> GitResult<Outcome> {
-    let args = ["stash", verb, "-q", reference];
+/// `git stash apply <commit>`: done, or conflicts with the paths (the stash stays). git exits
+/// 1 both for a conflicting apply and for a refusal over paths conflicted before it ran
+/// (`needs merge`), so a stop is one that added conflicted paths.
+fn apply_commit(engine: &Git2Engine, stash: &str, cancel: &Cancel) -> GitResult<Outcome> {
+    let args = ["stash", "apply", "-q", stash];
     let before = sequencer::conflicts(engine, cancel)?;
     let exit = run_git_env(&GitEngine::repo(engine).root, &args, &WRITE_ENV, cancel)?;
     if exit.status == Some(0) {
@@ -120,22 +116,33 @@ fn apply_or_pop(
 
 /// See [`GitEngine::stash_apply`]: on the commit itself, which `git stash apply` takes, so
 /// nothing can shift under it; the stash must still be in the list.
-#[tracing::instrument(level = "debug", skip_all, fields(stash))]
+#[tracing::instrument(level = "debug", skip_all, fields(stash = %stash))]
 pub(super) fn stash_apply(engine: &Git2Engine, stash: &str, cancel: &Cancel) -> GitResult<Outcome> {
     position_of(engine, stash)?;
-    apply_or_pop(engine, "apply", stash, cancel)
+    apply_commit(engine, stash, cancel)
 }
 
-/// See [`GitEngine::stash_pop`]: on its position now, since `git stash pop` refuses a commit.
-#[tracing::instrument(level = "debug", skip_all, fields(stash))]
+/// See [`GitEngine::stash_pop`]: the apply of the commit and, when it went through, the drop
+/// of that stash where it sits then, which is what `git stash pop` does inside. Not
+/// `git stash pop stash@{n}`: git applies what the ref names for `stash@{0}`, which is not
+/// the list's newest entry once `git reflog delete stash@{0}` ran without `--updateref`, and
+/// a position read before the apply's own status can be a second old when git starts.
+#[tracing::instrument(level = "debug", skip_all, fields(stash = %stash))]
 pub(super) fn stash_pop(engine: &Git2Engine, stash: &str, cancel: &Cancel) -> GitResult<Outcome> {
-    let reference = stash_ref(position_of(engine, stash)?);
-    apply_or_pop(engine, "pop", &reference, cancel)
+    let outcome = stash_apply(engine, stash, cancel)?;
+    if outcome.kind == OutcomeKind::Done {
+        match stash_drop(engine, stash, cancel) {
+            // Dropped elsewhere meanwhile: the pop's end state holds.
+            Ok(()) | Err(GitError::StashNotFound(_)) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(outcome)
 }
 
-/// See [`GitEngine::stash_drop`]: on its position now, since `git stash drop` refuses a
-/// commit.
-#[tracing::instrument(level = "debug", skip_all, fields(stash))]
+/// See [`GitEngine::stash_drop`]: on its position now, looked up right before git runs, since
+/// `git stash drop` refuses a commit.
+#[tracing::instrument(level = "debug", skip_all, fields(stash = %stash))]
 pub(super) fn stash_drop(engine: &Git2Engine, stash: &str, cancel: &Cancel) -> GitResult<()> {
     let reference = stash_ref(position_of(engine, stash)?);
     let args = ["stash", "drop", "-q", reference.as_str()];

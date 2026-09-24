@@ -379,18 +379,28 @@ fn count(n: usize) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
 
-/// Stash entries newest first, from the reflog of `refs/stash` like `git stash list` (which is
-/// what `git_stash_foreach` reads too). Each stash commit is checked to exist.
-fn stashes(repo: &Repository, cancel: &Cancel) -> GitResult<Vec<Ref>> {
+/// The stash list as `git stash list` reads it, the reflog of `refs/stash` newest first, or
+/// `None` without stashes: `refs/stash` missing, or without its reflog. Both are checked first
+/// because libgit2 creates an empty reflog file when asked for a missing one, and reading the
+/// list must not write.
+pub(super) fn stash_reflog(repo: &Repository) -> GitResult<Option<git2::Reflog>> {
     match repo.find_reference(STASH) {
         Ok(_) => {}
-        Err(error) if error.code() == ErrorCode::NotFound => return Ok(Vec::new()),
+        Err(error) if error.code() == ErrorCode::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
     }
     if !repo.reference_has_log(STASH)? {
-        return Ok(Vec::new());
+        return Ok(None);
     }
-    let reflog = repo.reflog(STASH)?;
+    Ok(Some(repo.reflog(STASH)?))
+}
+
+/// Stash entries newest first, from the reflog of `refs/stash` like `git stash list` (which is
+/// what `git_stash_foreach` reads too). Each stash commit is checked to exist.
+fn stashes(repo: &Repository, cancel: &Cancel) -> GitResult<Vec<Ref>> {
+    let Some(reflog) = stash_reflog(repo)? else {
+        return Ok(Vec::new());
+    };
     let mut refs = Vec::with_capacity(reflog.len());
     for (index, entry) in reflog.iter().enumerate() {
         cancel.check()?;

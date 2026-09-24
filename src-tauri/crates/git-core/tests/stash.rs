@@ -121,7 +121,7 @@ fn paths_with_glob_characters_are_stashed_literally() {
 }
 
 #[test]
-fn drops_by_index() {
+fn drops_the_older_of_two_by_its_commit() {
     let f = Fixture::basic();
     let e = engine(&f);
     f.append("README.md", "first\n");
@@ -140,6 +140,69 @@ fn drops_by_index() {
         "{error:?}"
     );
     assert_eq!(stash_list(&f), ["On main: second"]);
+}
+
+#[test]
+fn nothing_is_written_when_there_is_no_stash() {
+    let f = Fixture::basic();
+    let e = engine(&f);
+    f.append("README.md", "only\n");
+    f.git(&["stash", "push", "-q", "-m", "only"]);
+    let only = stash_commit(&f, 0);
+    // Dropped from a terminal: no stash is left, and git removes the list.
+    f.git(&["stash", "drop", "-q"]);
+    let log = f.git_dir().join("logs").join("refs").join("stash");
+    assert!(!log.exists());
+    for error in [
+        e.stash_drop(&only, &never()).expect_err("drop"),
+        e.stash_pop(&only, &never()).map(|_| ()).expect_err("pop"),
+        e.stash_apply(&only, &never())
+            .map(|_| ())
+            .expect_err("apply"),
+    ] {
+        assert_eq!(error.code(), "stash.not_found", "{error:?}");
+    }
+    // libgit2 creates an empty reflog when asked for a missing one: the lookup must not ask.
+    assert!(!log.exists(), "the lookup wrote {}", log.display());
+    assert_eq!(read(&f, "README.md"), "# Fixture\n");
+}
+
+#[test]
+fn pops_what_the_list_shows_after_its_newest_entry_was_deleted() {
+    let f = Fixture::basic();
+    let e = engine(&f);
+    for (file, message) in [("a.txt", "a"), ("b.txt", "b"), ("c.txt", "c")] {
+        f.write(file, &format!("{message}\n"));
+        f.git(&["add", file]);
+        f.git(&["stash", "push", "-q", "-m", message]);
+    }
+    // Without `--updateref`, `refs/stash` keeps naming "c" while the list starts at "b": git
+    // reads `stash@{0}` as the ref, the list and the app as the reflog's newest entry.
+    f.git(&["reflog", "delete", "stash@{0}"]);
+    assert_eq!(stash_list(&f), ["On main: b", "On main: a"]);
+    let newest = f.git(&["log", "-g", "--format=%H", "refs/stash"]);
+    let b = newest.lines().next().expect("the list's newest entry");
+    assert_ne!(stash_commit(&f, 0), b, "git reads stash@{{0}} as the ref");
+    let outcome = e.stash_pop(b, &never()).expect("pop");
+    assert_eq!(outcome.kind, OutcomeKind::Done);
+    assert!(f.root.join("b.txt").exists(), "b applied");
+    assert!(!f.root.join("c.txt").exists(), "c not applied");
+    assert_eq!(stash_list(&f), ["On main: a"]);
+}
+
+#[test]
+fn a_stash_stored_twice_drops_its_newest_copy() {
+    let f = Fixture::basic();
+    let e = engine(&f);
+    f.append("README.md", "twice\n");
+    f.git(&["stash", "push", "-q", "-m", "twice"]);
+    let twice = stash_commit(&f, 0);
+    f.append("src/lib.rs", "// other\n");
+    f.git(&["stash", "push", "-q", "-m", "other"]);
+    f.git(&["stash", "store", "-m", "copy", &twice]);
+    assert_eq!(stash_list(&f), ["copy", "On main: other", "On main: twice"]);
+    e.stash_drop(&twice, &never()).expect("drop");
+    assert_eq!(stash_list(&f), ["On main: other", "On main: twice"]);
 }
 
 #[test]

@@ -717,7 +717,6 @@ const remoteUrl = v.pipe(
 );
 /** One to 100 revisions for a cherry-pick or a revert. */
 const revisions = v.pipe(v.array(revision), v.minLength(1), v.maxLength(100));
-/** A stash index, `stash@{n}`. */
 /** A stash is named by its full commit hash, lowercase, as the refs listing gives it. */
 const stashCommit = v.pipe(
   v.string(),
