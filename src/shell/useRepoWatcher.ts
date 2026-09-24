@@ -1,10 +1,10 @@
 // Keeps the open repository current: starts the filesystem watcher when a repository opens
 // (a watcher that cannot start becomes a toast: the repository stays open without change
-// detection), and on `repo:changed` refreshes the refs when they changed (and lists the
-// history again when a tip moved, unless the app's own write just did), the worktree list
-// when a worktree came or went, the remotes with the refs (the configuration counts as refs),
-// and the index entry on any change. The backend debounces, so
-// nothing is coalesced here.
+// detection), and on `repo:changed` refreshes the refs when they or the worktrees changed (a
+// branch's worktree marker follows the worktrees; the history lists again when a tip moved,
+// unless the app's own write just did), the worktree list when a worktree came or went, the
+// remotes with the refs (the configuration counts as refs), and the index entry on any change.
+// The backend debounces, so nothing is coalesced here.
 
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { onBeforeUnmount, onMounted, watch } from "vue";
@@ -62,7 +62,7 @@ export function useRepoWatcher(): void {
   function onChange(change: RepoChanged): void {
     const root = repo.repo?.root;
     if (!root || change.repo !== root) return;
-    if (change.kinds.includes("refs")) void followRefs();
+    if (change.kinds.includes("refs") || change.kinds.includes("worktrees")) void followRefs();
     if (change.kinds.includes("worktrees")) void repo.loadWorktrees();
     review.onRepoChanged(change.kinds);
     compare.onRepoChanged(change.kinds);

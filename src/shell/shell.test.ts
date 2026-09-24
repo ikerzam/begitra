@@ -435,6 +435,8 @@ describe("launch and the watcher", () => {
     await emit("repo:changed", { repo: "/r", kinds: ["worktrees"], paths: [] });
     await settle();
     expect(calls.filter((c) => c === "list_worktrees")).toHaveLength(worktreeListings + 1);
+    // A worktree that came or went changes which branches are checked out where.
+    expect(calls.filter((c) => c === "list_refs")).toHaveLength(3);
     expect(useSettingsStore().values.lastRepository).toBe("/r");
     wrapper.unmount();
   });
