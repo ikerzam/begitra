@@ -374,10 +374,14 @@ export const useIndexStore = defineStore("index", () => {
     }
   }
 
-  /** Describes one entry again and stores the result; a vanished one is flagged missing. */
-  async function refresh(path: string): Promise<void> {
+  /**
+   * Describes one entry again and stores the result; a vanished one is flagged missing. Without
+   * `dirty` the working tree is not scanned and the stored dirty flag stays: for the open
+   * repository, whose flag nothing shows until it is no longer open.
+   */
+  async function refresh(path: string, dirty = true): Promise<void> {
     try {
-      upsert(await ipc.refreshRepository(path));
+      upsert(await ipc.refreshRepository(path, dirty));
     } catch (error) {
       if (toAppError(error).code === "repo.not_found") markMissing([path]);
     }
@@ -424,12 +428,12 @@ export const useIndexStore = defineStore("index", () => {
     if (repo.state.kind === "ready") {
       const root = repo.repo?.root ?? path;
       await load();
-      if (!find(root)) await refresh(root);
+      if (!find(root)) await refresh(root, false);
       patch(root, { lastOpenedAt: nowSeconds() });
     } else if (repo.state.kind === "error" && repo.state.error.code === "repo.not_found") {
       markMissing([path]);
       // The backend flags the entry too, so the mark survives the next listing.
-      void ipc.refreshRepository(path).catch(() => undefined);
+      void ipc.refreshRepository(path, false).catch(() => undefined);
     }
   }
 
@@ -439,6 +443,16 @@ export const useIndexStore = defineStore("index", () => {
     () => useRepoStore().state.kind,
     (kind, previous) => {
       if (kind === "empty" && previous !== undefined && previous !== "empty") void load();
+    },
+  );
+
+  // The open repository's dirty flag is left alone while it is open (the home table, the only
+  // place that shows it, shows no open repository); it is read once when the repository stops
+  // being the open one.
+  watch(
+    () => useRepoStore().repo?.root,
+    (now, before) => {
+      if (before !== undefined && before !== now) void refresh(before, true);
     },
   );
 

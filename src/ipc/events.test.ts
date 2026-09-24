@@ -15,7 +15,10 @@ describe("onRepoChanged", () => {
     const seen: RepoChanged[] = [];
     const unlisten = await onRepoChanged((change) => seen.push(change));
     await emit("repo:changed", { repo: "/r", kinds: ["refs"], paths: [] });
-    expect(seen).toEqual([{ repo: "/r", kinds: ["refs"], paths: [] }]);
+    // The index fields default as the backend defaults them.
+    expect(seen).toEqual([
+      { repo: "/r", kinds: ["refs"], paths: [], indexPaths: null, conflictsChanged: false },
+    ]);
     unlisten();
   });
 

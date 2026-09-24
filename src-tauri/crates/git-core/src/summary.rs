@@ -43,6 +43,18 @@ pub struct RepoSummary {
 /// it.
 #[tracing::instrument(level = "debug", skip_all, fields(path = %path.display()))]
 pub fn describe(path: &Path, cancel: &Cancel) -> GitResult<RepoSummary> {
+    read(path, true, cancel)
+}
+
+/// [`describe`] without the dirty flag (`None`): HEAD, the upstream counts and the tip, with
+/// no status of the working tree. For the open repository, whose flag nothing shows until it
+/// is no longer open.
+#[tracing::instrument(level = "debug", skip_all, fields(path = %path.display()))]
+pub fn describe_head(path: &Path, cancel: &Cancel) -> GitResult<RepoSummary> {
+    read(path, false, cancel)
+}
+
+fn read(path: &Path, with_dirty: bool, cancel: &Cancel) -> GitResult<RepoSummary> {
     let repo = Repository::open(path).map_err(|error| match error.code() {
         ErrorCode::NotFound => GitError::NotFound(path.to_path_buf()),
         _ => GitError::Invalid {
@@ -90,7 +102,11 @@ pub fn describe(path: &Path, cancel: &Cancel) -> GitResult<RepoSummary> {
         _ => (None, None),
     };
     cancel.check()?;
-    let dirty = dirty_flag(&repo, cancel);
+    let dirty = if with_dirty {
+        dirty_flag(&repo, cancel)
+    } else {
+        None
+    };
     Ok(RepoSummary {
         root,
         name,

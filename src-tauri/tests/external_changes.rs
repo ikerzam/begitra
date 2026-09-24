@@ -491,6 +491,87 @@ fn a_worktree_added_and_removed_reports_worktrees() {
     );
 }
 
+/// The events that report `index`.
+fn index_changes(events: &[RepoChanged]) -> Vec<&RepoChanged> {
+    events
+        .iter()
+        .filter(|event| event.kinds.contains(&Index))
+        .collect()
+}
+
+#[test]
+fn a_staged_file_names_its_index_entry() {
+    let repo = Repo::new();
+    repo.write("a.txt", "two\n");
+    let events = Repo::watch(
+        WatchBases::main(&repo.root),
+        || {
+            repo.git(&["add", "a.txt"]);
+        },
+        |events| {
+            index_changes(events)
+                .iter()
+                .any(|event| event.index_paths.as_deref() == Some(&["a.txt".to_owned()][..]))
+        },
+        PATIENCE,
+    );
+    let index = index_changes(&events);
+    assert!(
+        index
+            .iter()
+            .any(|event| event.index_paths.as_deref() == Some(&["a.txt".to_owned()][..])),
+        "{events:?}"
+    );
+    assert!(
+        index.iter().all(|event| !event.conflicts_changed),
+        "{events:?}"
+    );
+}
+
+#[test]
+fn a_refresh_of_the_stat_data_names_no_index_entry() {
+    let repo = Repo::new();
+    // Written again with its own content before the watch: only its stat data changed, which
+    // a plain status writes back to the index.
+    repo.write("a.txt", "one\n");
+    let events = Repo::watch(
+        WatchBases::main(&repo.root),
+        || {
+            repo.git(&["status", "--porcelain"]);
+        },
+        |events| !index_changes(events).is_empty(),
+        PATIENCE,
+    );
+    let index = index_changes(&events);
+    assert!(
+        !index.is_empty(),
+        "the status rewrote the index: {events:?}"
+    );
+    for event in index {
+        assert_eq!(event.index_paths.as_deref(), Some(&[][..]), "{events:?}");
+        assert!(!event.conflicts_changed, "{events:?}");
+    }
+}
+
+#[test]
+fn a_merge_stopped_on_a_conflict_names_its_entry_and_the_conflicts() {
+    let repo = Repo::new().with_conflicting_branches();
+    let names_a = |event: &&RepoChanged| {
+        event.conflicts_changed
+            && event
+                .index_paths
+                .as_ref()
+                .is_some_and(|paths| paths.iter().any(|path| path == "a.txt"))
+    };
+    let events = Repo::watch(
+        WatchBases::main(&repo.root),
+        || repo.git_may_fail(&["merge", "other"]),
+        |events| index_changes(events).iter().any(names_a),
+        PATIENCE,
+    );
+    assert!(index_changes(&events).iter().any(names_a), "{events:?}");
+}
+
 #[test]
 fn a_file_edited_deep_in_the_tree_reports_its_path() {
     let repo = Repo::new();

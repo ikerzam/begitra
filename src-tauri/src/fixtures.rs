@@ -835,8 +835,14 @@ fn write_fixtures() {
         "repo-changed",
         &RepoChanged {
             repo: PathBuf::from("/home/iker/code/begitra"),
-            kinds: vec![RepoChangeKind::Refs, RepoChangeKind::Status],
+            kinds: vec![
+                RepoChangeKind::Refs,
+                RepoChangeKind::Index,
+                RepoChangeKind::Status,
+            ],
             paths: vec!["src/main.rs".to_owned()],
+            index_paths: Some(vec!["src/lib.rs".to_owned()]),
+            conflicts_changed: false,
         },
     );
     write("pong", &pong("hello".to_owned()));

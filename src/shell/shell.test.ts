@@ -423,11 +423,13 @@ describe("launch and the watcher", () => {
     await emit("repo:changed", { repo: "/r", kinds: ["status"], paths: ["a.ts"] });
     await settle();
     expect(calls.filter((c) => c === "list_refs")).toHaveLength(1);
-    expect(calls.filter((c) => c === "refresh_repository")).toHaveLength(1);
-    expect(useIndexStore().find("/r")?.summary.ahead).toBe(7);
+    // The working tree does not move the index entry: its dirty flag waits for the close.
+    expect(calls.filter((c) => c === "refresh_repository")).toHaveLength(0);
     await emit("repo:changed", { repo: "/r", kinds: ["refs"], paths: [] });
     await settle();
     expect(calls.filter((c) => c === "list_refs")).toHaveLength(2);
+    expect(calls.filter((c) => c === "refresh_repository")).toHaveLength(1);
+    expect(useIndexStore().find("/r")?.summary.ahead).toBe(7);
     await emit("repo:changed", { repo: "/elsewhere", kinds: ["refs"], paths: [] });
     await settle();
     expect(calls.filter((c) => c === "list_refs")).toHaveLength(2);

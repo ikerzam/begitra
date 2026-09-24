@@ -2,9 +2,14 @@
   "repo": "/home/iker/code/begitra",
   "kinds": [
     "refs",
+    "index",
     "status"
   ],
   "paths": [
     "src/main.rs"
-  ]
+  ],
+  "indexPaths": [
+    "src/lib.rs"
+  ],
+  "conflictsChanged": false
 }

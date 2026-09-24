@@ -5,18 +5,22 @@ use std::path::PathBuf;
 
 use git_core::engine::{Cancel, DiffWalk, GitEngine};
 use git_core::error::GitError;
-use git_core::types::{ChangeSetPage, DiffOptions, DiffTarget, FileChange};
+use git_core::types::{ChangeSet, ChangeSetPage, DiffOptions, DiffTarget, FileChange};
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::State;
 
 use crate::channels::{Sink, Stream, StreamMessage};
 use crate::error::AppError;
-use crate::ops::{run_stream, DEFAULT_TIMEOUT};
+use crate::ops::{run_blocking, run_stream, DEFAULT_TIMEOUT};
 use crate::state::AppState;
 
 /// Files per streamed page.
 pub const FILES_PER_PAGE: usize = 200;
+
+/// Most paths a restricted diff takes: the watcher sends at most this many, and a
+/// command line carries them to git's status.
+pub const MAX_RESTRICTED_PATHS: usize = 200;
 
 /// One streamed page of a diff. The totals are the running sums over the pages so far (the
 /// whole change set's on the last page); `total_files` is known from the first page.
@@ -87,6 +91,47 @@ pub async fn diff(
         },
     )
     .await
+}
+
+/// The diff of a working-tree target, or of the index against HEAD, restricted to `paths`
+/// (each path, what lies below it, and the folder entries and submodules above it) in one
+/// reply; `None` when it lists more files than a page, and the frontend streams the full diff.
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip(state, paths), fields(paths = paths.len()))]
+pub async fn diff_paths(
+    state: State<'_, AppState>,
+    repo: PathBuf,
+    target: DiffTarget,
+    paths: Vec<String>,
+    options: DiffOptions,
+    op_id: String,
+) -> Result<Option<ChangeSet>, AppError> {
+    validate_restriction(&target, &paths)?;
+    let app = state.inner().clone();
+    let worker = app.clone();
+    run_blocking(app.ops(), &op_id, DEFAULT_TIMEOUT, move |cancel| {
+        let engine = worker.open(&repo)?;
+        Ok::<_, AppError>(engine.diff_paths(&target, &options, &paths, &cancel)?)
+    })
+    .await
+}
+
+/// A restricted diff serves the working tree and the index: one to
+/// [`MAX_RESTRICTED_PATHS`] relative paths inside the repository.
+fn validate_restriction(target: &DiffTarget, paths: &[String]) -> Result<(), AppError> {
+    if !matches!(target, DiffTarget::WorkingTree { .. } | DiffTarget::Index) {
+        return Err(AppError::invalid_argument(
+            "target",
+            "not the working tree or the index",
+        ));
+    }
+    if paths.len() > MAX_RESTRICTED_PATHS {
+        return Err(AppError::invalid_argument(
+            "paths",
+            format!("more than {MAX_RESTRICTED_PATHS} paths"),
+        ));
+    }
+    crate::commands::staging::validate_paths("paths", paths)
 }
 
 #[cfg(test)]
@@ -169,6 +214,32 @@ mod tests {
         );
         assert!(pages.iter().all(|p| p.total_files == 450));
         assert_eq!(pages[2].files[0].path, "f400.rs");
+    }
+
+    #[test]
+    fn a_restricted_diff_takes_the_working_tree_or_the_index_and_at_most_200_paths() {
+        let code = |result: Result<(), AppError>| result.map_err(|error| error.code).err();
+        let working = DiffTarget::WorkingTree {
+            base: git_core::types::WorkingTreeBase::Index,
+        };
+        let one = ["src/a.rs".to_owned()];
+        assert_eq!(code(validate_restriction(&working, &one)), None);
+        assert_eq!(code(validate_restriction(&DiffTarget::Index, &one)), None);
+        let commit = DiffTarget::Commit {
+            hash: "abc".to_owned(),
+        };
+        let refused = Some("ipc.invalid_argument".to_owned());
+        assert_eq!(code(validate_restriction(&commit, &one)), refused);
+        let many: Vec<String> = (0..=MAX_RESTRICTED_PATHS)
+            .map(|i| format!("f{i}"))
+            .collect();
+        assert_eq!(code(validate_restriction(&working, &many)), refused);
+        assert_eq!(code(validate_restriction(&working, &many[1..])), None);
+        assert_eq!(code(validate_restriction(&working, &[])), refused);
+        assert_eq!(
+            code(validate_restriction(&working, &["../outside".to_owned()])),
+            refused
+        );
     }
 
     #[test]

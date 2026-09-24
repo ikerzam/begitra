@@ -29,13 +29,15 @@ pub async fn open_repository(
     })
     .await?;
     // The index learns about every opened repository and its recents order off the open's
-    // critical path (the summary runs a status); a failure there is logged, never shown.
+    // critical path; a failure there is logged, never shown. The dirty flag is left as it
+    // was: nothing shows it while the repository is open, and the frontend refreshes it once
+    // the repository stops being the open one.
     let recorder = app.clone();
     let root = repo.root.clone();
     tokio::task::spawn_blocking(move || {
         let cancel = git_core::engine::Cancel::never();
-        let outcome =
-            crate::commands::index::refresh_entry(&recorder, &root, &cancel).and_then(|_| {
+        let outcome = crate::commands::index::refresh_entry(&recorder, &root, false, &cancel)
+            .and_then(|_| {
                 recorder.with_index(|index| {
                     Ok(index.record_open(
                         &crate::commands::index::normalise(&root),

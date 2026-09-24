@@ -128,6 +128,7 @@ pub fn run() {
             commands::walk::walk_continue,
             commands::walk::close_walk,
             commands::diff::diff,
+            commands::diff::diff_paths,
             commands::review::read_blob,
             commands::review::highlight_file,
             commands::review::file_symbols,

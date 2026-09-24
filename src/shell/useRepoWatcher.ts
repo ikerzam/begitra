@@ -69,7 +69,10 @@ export function useRepoWatcher(): void {
     changes.onRepoChanged(change.kinds);
     sequencer.onRepoChanged(change.kinds);
     remotes.onRepoChanged(change.kinds);
-    void index.refresh(root);
+    // Branch, upstream and tip; the dirty flag waits until the repository is closed.
+    if (change.kinds.includes("refs") || change.kinds.includes("worktrees")) {
+      void index.refresh(root, false);
+    }
   }
 
   watch(

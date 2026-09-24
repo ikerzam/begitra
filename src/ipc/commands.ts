@@ -27,6 +27,7 @@ import {
   type SequencerAction,
   type StashPush,
   type SwitchTarget,
+  ChangeSetSchema,
   DiffPageSchema,
   HighlightSchema,
   IndexEntrySchema,
@@ -418,6 +419,21 @@ export function diff(
   return stream("diff", { repo, target, options }, DiffPageSchema, onPage, opId);
 }
 
+/**
+ * The diff of a working-tree target, or of the index against HEAD, restricted to `paths` (each
+ * path, what lies below it, and the folder entries and submodules above it) in one reply; null
+ * past 200 files, when the full diff streams instead.
+ */
+export function diffPaths(
+  repo: string,
+  target: DiffTarget,
+  paths: string[],
+  options: DiffOptions = defaultDiffOptions,
+  opId = newOpId("diff-paths"),
+) {
+  return call("diff_paths", { repo, target, paths, options, opId }, v.nullable(ChangeSetSchema));
+}
+
 /** One file whole at a revision or in the working tree (text, or base64 bytes when binary). */
 export function readBlob(repo: string, at: BlobAt, path: string, opId = newOpId("blob")) {
   return call("read_blob", { repo, at, path, opId }, BlobContentSchema);
@@ -507,8 +523,12 @@ export function recordRepositoryOpen(path: string) {
   return call("record_repository_open", { path }, v.null());
 }
 
-export function refreshRepository(path: string, opId = newOpId("refresh")) {
-  return call("refresh_repository", { path, opId }, IndexEntrySchema);
+/**
+ * Describes a repository again; without `dirty`, reads HEAD, the upstream and the tip and keeps
+ * the stored dirty flag, with no status of the working tree.
+ */
+export function refreshRepository(path: string, dirty: boolean, opId = newOpId("refresh")) {
+  return call("refresh_repository", { path, dirty, opId }, IndexEntrySchema);
 }
 
 export function removeScanRoot(root: string) {

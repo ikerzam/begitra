@@ -595,6 +595,14 @@ export const RepoChangedSchema = v.object({
   repo: v.string(),
   kinds: v.array(RepoChangeKindSchema),
   paths: v.array(v.string()),
+  /**
+   * With `index`: the paths whose index entries changed since the watcher's last snapshot (none
+   * for a rewrite that only refreshed stat data), or null when the index could not be compared.
+   * Absent from the debug command's payloads, as the backend defaults it.
+   */
+  indexPaths: v.optional(v.nullable(v.array(v.string())), null),
+  /** With `index`: whether an unmerged entry came, went or changed (true when unknown). */
+  conflictsChanged: v.optional(v.boolean(), false),
 });
 export type RepoChanged = v.InferOutput<typeof RepoChangedSchema>;
 
@@ -885,6 +893,13 @@ export const commandArgs = {
   }),
   close_walk: v.object({ walkId: v.string() }),
   diff: v.object({ repo: path, target: DiffTargetSchema, options: DiffOptionsSchema, opId }),
+  diff_paths: v.object({
+    repo: path,
+    target: DiffTargetSchema,
+    paths: v.pipe(v.array(v.pipe(v.string(), v.minLength(1))), v.minLength(1), v.maxLength(200)),
+    options: DiffOptionsSchema,
+    opId,
+  }),
   read_blob: v.object({
     repo: path,
     at: BlobAtSchema,
@@ -923,7 +938,7 @@ export const commandArgs = {
   pin_repository: v.object({ path, pinned: v.boolean() }),
   forget_repository: v.object({ path }),
   record_repository_open: v.object({ path }),
-  refresh_repository: v.object({ path, opId }),
+  refresh_repository: v.object({ path, dirty: v.boolean(), opId }),
   remove_scan_root: v.object({ root: path }),
   scan_folders: v.object({
     folders: v.array(path),

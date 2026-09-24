@@ -5,6 +5,8 @@
 import type { Channel } from "@tauri-apps/api/core";
 import { mockIPC } from "@tauri-apps/api/mocks";
 
+import { covers } from "@/stores/reloads";
+
 import type {
   Annotation,
   AnnotationWrite,
@@ -281,6 +283,15 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
   let remotes: Remote[] = (options.remotes ?? []).map((remote) => ({ ...remote }));
   let unstaged: FileChange[] = [...(options.changes?.unstaged ?? [])];
   let staged: FileChange[] = [...(options.changes?.staged ?? [])];
+  /** What a diff of `target` answers: the changes lists when given, else the fake files. */
+  const filesOf = (target: DiffTarget): FileChange[] =>
+    !options.changes
+      ? fakeFiles(target)
+      : target.kind === "index"
+        ? staged
+        : target.kind === "working-tree" && target.base === "index"
+          ? unstaged
+          : fakeFiles(target);
   const stagingFailure = () =>
     // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
     Promise.reject({
@@ -436,13 +447,7 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
           return null;
         }
         const target = args["target"] as DiffTarget;
-        const files = !options.changes
-          ? fakeFiles(target)
-          : target.kind === "index"
-            ? staged
-            : target.kind === "working-tree" && target.base === "index"
-              ? unstaged
-              : fakeFiles(target);
+        const files = filesOf(target);
         const additions = files.reduce((n, f) => n + f.additions, 0);
         const deletions = files.reduce((n, f) => n + f.deletions, 0);
         send(
@@ -458,6 +463,22 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
           options.diffDelayMs,
         );
         return null;
+      }
+      case "diff_paths": {
+        // The full diff's files that the paths cover, as the engine restricts it.
+        const requested = args["paths"] as string[];
+        const files = filesOf(args["target"] as DiffTarget).filter((file) =>
+          requested.some(
+            (path) =>
+              covers(path, file.path) || (file.oldPath !== null && covers(path, file.oldPath)),
+          ),
+        );
+        if (files.length > 200) return null;
+        return {
+          files,
+          additions: files.reduce((n, f) => n + f.additions, 0),
+          deletions: files.reduce((n, f) => n + f.deletions, 0),
+        };
       }
       case "read_blob": {
         const path = args["path"] as string;

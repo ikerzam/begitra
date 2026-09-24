@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use git_core::engine::Cancel;
-use git_core::summary::{describe, RepoSummary};
+use git_core::summary::{describe, describe_head, RepoSummary};
 use repo_index::{Found, IndexEntry, RepoKind};
 use tauri::State;
 
@@ -57,9 +57,15 @@ pub fn index_summary(summary: &RepoSummary) -> repo_index::RepoSummary {
 pub fn refresh_entry(
     state: &AppState,
     path: &Path,
+    dirty: bool,
     cancel: &Cancel,
 ) -> Result<IndexEntry, AppError> {
-    let summary = match describe(path, cancel) {
+    let described = if dirty {
+        describe(path, cancel)
+    } else {
+        describe_head(path, cancel)
+    };
+    let summary = match described {
         Ok(summary) => summary,
         Err(error) => {
             let code = error.code();
@@ -75,7 +81,14 @@ pub fn refresh_entry(
         if index.get(&found.path)?.is_none() {
             index.upsert_found(&found, stamp)?;
         }
-        index.update_summary(&found.path, &index_summary(&summary), stamp)?;
+        let mut stored = index_summary(&summary);
+        if !dirty {
+            // Without a status the stored flag stays what it was.
+            stored.dirty = index
+                .get(&found.path)?
+                .and_then(|entry| entry.summary.dirty);
+        }
+        index.update_summary(&found.path, &stored, stamp)?;
         index
             .get(&found.path)?
             .ok_or_else(|| AppError::internal("the refreshed entry vanished"))
@@ -135,18 +148,21 @@ pub async fn record_repository_open(
     .map_err(|join| AppError::internal(format!("index task failed: {join}")))?
 }
 
-/// Describes one repository again and returns its updated entry.
+/// Describes one repository again and returns its updated entry; without `dirty`, reads HEAD,
+/// the upstream counts and the tip and keeps the stored dirty flag, with no status of the
+/// working tree.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state))]
 pub async fn refresh_repository(
     state: State<'_, AppState>,
     path: PathBuf,
+    dirty: bool,
     op_id: String,
 ) -> Result<IndexEntry, AppError> {
     let app = state.inner().clone();
     let worker = app.clone();
     run_blocking(app.ops(), &op_id, DEFAULT_TIMEOUT, move |cancel| {
-        refresh_entry(&worker, &path, &cancel)
+        refresh_entry(&worker, &path, dirty, &cancel)
     })
     .await
 }
@@ -161,4 +177,40 @@ pub async fn remove_scan_root(state: State<'_, AppState>, root: PathBuf) -> Resu
     })
     .await
     .map_err(|join| AppError::internal(format!("index task failed: {join}")))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn git(root: &Path, args: &[&str]) {
+        let output = git_core::cli::command(root, args)
+            .output()
+            .expect("git runs");
+        assert!(output.status.success(), "git {args:?} failed");
+    }
+
+    #[test]
+    fn a_refresh_without_the_dirty_flag_keeps_the_stored_one() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path().join("repo");
+        std::fs::create_dir_all(&root).expect("mkdir");
+        git(&root, &["init", "-q", "-b", "main"]);
+        git(&root, &["config", "user.email", "t@x"]);
+        git(&root, &["config", "user.name", "t"]);
+        git(&root, &["commit", "-q", "--allow-empty", "-m", "init"]);
+        std::fs::write(root.join("dirty.txt"), b"x").expect("write");
+        let state = AppState::default();
+        let cancel = Cancel::never();
+        let entry = refresh_entry(&state, &root, true, &cancel).expect("refresh");
+        assert_eq!(entry.summary.dirty, Some(true));
+        git(&root, &["switch", "-q", "-c", "other"]);
+        std::fs::remove_file(root.join("dirty.txt")).expect("clean");
+        // Without the flag the branch moves and the stored flag stays, stale by design.
+        let entry = refresh_entry(&state, &root, false, &cancel).expect("refresh");
+        assert_eq!(entry.summary.current_branch.as_deref(), Some("other"));
+        assert_eq!(entry.summary.dirty, Some(true));
+        let entry = refresh_entry(&state, &root, true, &cancel).expect("refresh");
+        assert_eq!(entry.summary.dirty, Some(false));
+    }
 }

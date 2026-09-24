@@ -1,14 +1,17 @@
 //! One filesystem watcher per open repository: `notify` events are collected for
 //! 150 ms after the first one, classified into the kinds of `repo:changed`, and emitted as one
-//! event with the changed paths relative to the root.
+//! event with the changed paths relative to the root. A batch that touched the index also names
+//! the entries that moved, against the watcher's last snapshot of the index.
 
 use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::sync::Once;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use git_core::engine::GitEngine;
+use git_core::git2_engine::index_snapshot::IndexSnapshot;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 
 use crate::events::{RepoChangeKind, RepoChanged};
@@ -130,6 +133,9 @@ impl RepoWatcher {
         bases: WatchBases,
         emit: impl Fn(RepoChanged) + Send + 'static,
     ) -> Result<Self, notify::Error> {
+        // The index as it is before the watch starts: every change the watch sees is named
+        // against it or a later snapshot.
+        let index = read_index(&bases.gitdir.join("index"));
         let (raw_tx, raw_rx) = mpsc::channel::<notify::Result<notify::Event>>();
         let mut watcher = notify::recommended_watcher(raw_tx)?;
         watcher.watch(&bases.root, RecursiveMode::Recursive)?;
@@ -166,7 +172,7 @@ impl RepoWatcher {
         }
         let thread = thread::Builder::new()
             .name("begitra-watcher".to_owned())
-            .spawn(move || debounce_loop(&bases, &raw_rx, emit))
+            .spawn(move || debounce_loop(&bases, &raw_rx, index, emit))
             .map_err(notify::Error::io)?;
         Ok(Self {
             watcher: Some(watcher),
@@ -186,12 +192,15 @@ impl Drop for RepoWatcher {
     }
 }
 
-/// Collects raw events, waits [`DEBOUNCE`] after the first of a batch, and emits the batch.
+/// Collects raw events, waits [`DEBOUNCE`] after the first of a batch, and emits the batch;
+/// one that touched the index names the entries that moved since `index`, the last snapshot.
 fn debounce_loop(
     bases: &WatchBases,
     raw: &Receiver<notify::Result<notify::Event>>,
+    mut index: Option<IndexSnapshot>,
     emit: impl Fn(RepoChanged),
 ) {
+    let index_file = bases.gitdir.join("index");
     let mut batch = Batch::default();
     let mut deadline: Option<Instant> = None;
     // Whether a watch was refused after the start: its reload happens once, since an install
@@ -241,7 +250,18 @@ fn debounce_loop(
         if let Some(d) = deadline {
             if Instant::now() >= d {
                 deadline = None;
-                if let Some(payload) = batch.take(&bases.root) {
+                if let Some(mut payload) = batch.take(&bases.root) {
+                    if payload.kinds.contains(&RepoChangeKind::Index) {
+                        let newer = read_index(&index_file);
+                        (payload.index_paths, payload.conflicts_changed) = match (&index, &newer) {
+                            (Some(before), Some(after)) => {
+                                let changes = before.changes(after);
+                                (changes.paths, changes.conflicts)
+                            }
+                            _ => (None, true),
+                        };
+                        index = newer;
+                    }
                     emit(payload);
                 }
             }
@@ -342,7 +362,25 @@ impl Batch {
             repo: root.to_path_buf(),
             kinds,
             paths,
+            index_paths: None,
+            conflicts_changed: false,
         })
+    }
+}
+
+/// The snapshot of the index at `path`, or `None` when libgit2 cannot read it (a split or
+/// sparse index, a file being replaced): the frontend then reloads in full.
+fn read_index(path: &Path) -> Option<IndexSnapshot> {
+    match IndexSnapshot::read(path) {
+        Ok(snapshot) => Some(snapshot),
+        Err(error) => {
+            static WARNED: Once = Once::new();
+            WARNED.call_once(|| {
+                tracing::warn!(%error, "the index could not be read: its changes reload the lists in full");
+            });
+            tracing::debug!(%error, "the index could not be read");
+            None
+        }
     }
 }
 
@@ -642,7 +680,7 @@ mod tests {
         let (raw_tx, raw_rx) = mpsc::channel();
         let (tx, rx) = mpsc::channel();
         let looping = thread::spawn(move || {
-            debounce_loop(&bases, &raw_rx, move |payload| {
+            debounce_loop(&bases, &raw_rx, None, move |payload| {
                 let _ = tx.send(payload);
             });
         });
@@ -652,6 +690,9 @@ mod tests {
             .recv_timeout(Duration::from_secs(5))
             .expect("a full reload");
         assert_eq!(first.kinds.len(), 4, "{first:?}");
+        // No snapshot to compare: the index's entries are unknown, and so are the conflicts.
+        assert_eq!(first.index_paths, None);
+        assert!(first.conflicts_changed);
         // An install creating folder after folder past the limit: no reload after the first.
         for _ in 0..3 {
             raw_tx.send(refused()).expect("send");

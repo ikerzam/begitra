@@ -35,6 +35,15 @@ pub struct RepoChanged {
     pub kinds: Vec<RepoChangeKind>,
     /// Affected repository-relative paths when known, otherwise empty.
     pub paths: Vec<String>,
+    /// With [`RepoChangeKind::Index`], the paths whose index entries changed since the
+    /// watcher's last snapshot of the index (none for a rewrite that only refreshed stat
+    /// data), or `None` when the index could not be compared; `None` without that kind.
+    #[serde(default)]
+    pub index_paths: Option<Vec<String>>,
+    /// With [`RepoChangeKind::Index`], whether an unmerged entry came, went or changed (true
+    /// when that is unknown); false without that kind.
+    #[serde(default)]
+    pub conflicts_changed: bool,
 }
 
 /// Emits `repo:changed` to every window.
@@ -52,11 +61,19 @@ mod tests {
             repo: PathBuf::from("/r"),
             kinds: vec![RepoChangeKind::Refs, RepoChangeKind::Worktrees],
             paths: vec![],
+            index_paths: None,
+            conflicts_changed: false,
         };
         let json = serde_json::to_string(&payload).expect("json");
         assert_eq!(
             json,
-            r#"{"repo":"/r","kinds":["refs","worktrees"],"paths":[]}"#
+            r#"{"repo":"/r","kinds":["refs","worktrees"],"paths":[],"indexPaths":null,"conflictsChanged":false}"#
         );
+        // The debug command's payload may leave the index fields out.
+        let parsed: RepoChanged =
+            serde_json::from_str(r#"{"repo":"/r","kinds":["status"],"paths":["a"]}"#)
+                .expect("parse");
+        assert_eq!(parsed.index_paths, None);
+        assert!(!parsed.conflicts_changed);
     }
 }
