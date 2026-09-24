@@ -36,8 +36,9 @@ pub struct WatchBases {
     /// A path that cannot be resolved (it is gone, or the platform does not do this) keeps
     /// its given form, and the given form is always tried first.
     real: Real,
-    /// The noisy folders ([`NOISY`]) that hold tracked files, reported like any other folder:
-    /// a committed `dist/` changes what git lists. Read from the index when the watch starts.
+    /// The noisy names ([`NOISY`]) that hold a tracked path, reported like any other: a
+    /// committed `dist/` or a `build` script changes what git lists. Read from the index when
+    /// the watch starts.
     tracked: Vec<String>,
 }
 
@@ -91,8 +92,8 @@ impl WatchBases {
         }
     }
 
-    /// The same bases with the noisy folders that hold tracked files, which are then
-    /// reported like any other folder.
+    /// The same bases with the noisy names that hold a tracked path, which are then reported
+    /// like any other.
     pub fn with_tracked(mut self, tracked: Vec<String>) -> Self {
         self.tracked = tracked;
         self
@@ -193,6 +194,9 @@ fn debounce_loop(
 ) {
     let mut batch = Batch::default();
     let mut deadline: Option<Instant> = None;
+    // Whether a watch was refused after the start: its reload happens once, since an install
+    // past the limit refuses folder after folder.
+    let mut refused = false;
     loop {
         let wait = deadline.map_or(Duration::from_secs(3600), |d| {
             d.saturating_duration_since(Instant::now())
@@ -215,17 +219,22 @@ fn debounce_loop(
                     deadline = Some(Instant::now() + DEBOUNCE);
                 }
             }
-            Ok(Err(error)) => {
-                tracing::warn!(error = %error, "watcher error");
-                // A folder created past the platform's limit is not watched: what changes in
-                // it is lost, so everything may have changed.
-                if matches!(error.kind, notify::ErrorKind::MaxFilesWatch) {
+            Ok(Err(error)) if matches!(error.kind, notify::ErrorKind::MaxFilesWatch) => {
+                // A folder created past the platform's limit is not watched: what changed in
+                // it until now is reloaded once, and what changes in it later is lost.
+                if !refused {
+                    refused = true;
+                    tracing::warn!(
+                        error = %error,
+                        "a folder is not watched: changes in it will not be detected"
+                    );
                     batch.add_everything();
                     if deadline.is_none() {
                         deadline = Some(Instant::now() + DEBOUNCE);
                     }
                 }
             }
+            Ok(Err(error)) => tracing::warn!(error = %error, "watcher error"),
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => return,
         }
@@ -349,7 +358,7 @@ enum Classified {
 }
 
 /// Folder names whose content is not reported as a working tree change: build outputs and
-/// caches churn while nothing the user reviews changed. One that holds tracked files is
+/// caches churn while nothing the user reviews changed. A name that holds a tracked path is
 /// reported all the same ([`WatchBases::with_tracked`]).
 const NOISY: [&str; 6] = [
     "node_modules",
@@ -363,14 +372,14 @@ const NOISY: [&str; 6] = [
 /// Where a changed path sits. In the repository's own git directory: `HEAD`, `ORIG_HEAD`,
 /// `FETCH_HEAD`, `packed-refs`, `refs/**`, `logs/**` and an operation's state (`MERGE_HEAD` and
 /// the other pseudo-refs, `rebase-merge/`, `rebase-apply/`, `sequencer/`, `BISECT_*`) are
-/// refs; the configuration is refs and a status change; `index` is the index; `worktrees/**`
-/// is worktrees; `info/exclude`, `info/sparse-checkout`, `info/attributes` and what a
-/// submodule has checked out under `modules/` are a status change without a path; lock files
-/// and the rest (objects, hooks) are ignored. A linked worktree takes from its owner's
-/// directory only what concerns it ([`classify_shared`]). Under the working tree: a
-/// repository-relative path, except the noisy folders that hold no tracked file and git's lock
-/// files; a nested repository's `.git` counts only for what it has checked out, as a change of
-/// its folder.
+/// refs; the configuration is refs and a status change; `index` is the index; a worktree's
+/// entry under `worktrees/` is worktrees ([`worktree_entry`]); `info/exclude`,
+/// `info/sparse-checkout`, `info/attributes` and what a submodule has checked out under
+/// `modules/` are a status change without a path; lock files and the rest (objects, hooks) are
+/// ignored. A linked worktree takes from its owner's directory only what concerns it
+/// ([`classify_shared`]). Under the working tree: a repository-relative path, except the
+/// noisy names that hold no tracked path and git's lock files; a nested repository's `.git`
+/// counts only for what it has checked out, as a change of its folder.
 fn classify(bases: &WatchBases, path: &Path) -> Option<Classified> {
     let under = |base: &Path, real: &Path| strip(path, base).or_else(|| strip(path, real));
     if let Some(inside) = under(&bases.gitdir, &bases.real.gitdir) {
@@ -383,6 +392,8 @@ fn classify(bases: &WatchBases, path: &Path) -> Option<Classified> {
     if inside.first().is_some_and(|first| first == ".git") {
         return classify_git(inside.get(1..).unwrap_or_default());
     }
+    // The folder's own entry too: Windows reports `node_modules` itself as modified while an
+    // install writes inside it. A tracked file of that name is in `tracked`.
     if inside.first().is_some_and(|first| {
         NOISY.contains(&first.as_str()) && !bases.tracked.iter().any(|name| name == first)
     }) {
@@ -450,8 +461,20 @@ fn classify_shared(inside: &[String]) -> Option<Classified> {
         {
             Some(Classified::StatusRules)
         }
-        "worktrees" => Some(Classified::Worktrees),
+        "worktrees" if worktree_entry(inside) => Some(Classified::Worktrees),
         _ => None,
+    }
+}
+
+/// Whether a path under `worktrees/` changes the worktree list: an entry coming or going, its
+/// HEAD (the branch and commit its row shows), its lock and its link to the working tree. Its
+/// index, reflog and an operation in progress there churn with every `git add` or `git status`
+/// in that worktree, and the list shows none of them.
+fn worktree_entry(inside: &[String]) -> bool {
+    match inside {
+        [_] | [_, _] => true,
+        [_, _, file] => matches!(file.as_str(), "HEAD" | "locked" | "gitdir"),
+        _ => false,
     }
 }
 
@@ -487,7 +510,7 @@ fn classify_git(inside: &[String]) -> Option<Classified> {
         // change the status (`core.excludesFile`, `status.showUntrackedFiles`).
         "config" | "config.worktree" => Some(Classified::Config),
         "index" => Some(Classified::Index),
-        "worktrees" => Some(Classified::Worktrees),
+        "worktrees" if worktree_entry(inside) => Some(Classified::Worktrees),
         // The rules that decide which working files are ignored or checked out, and the
         // attributes that mark files generated or binary in the lists.
         "info"
@@ -567,6 +590,76 @@ mod tests {
         // A ref lock alone is not a change.
         batch.add(&bases, Path::new("/r/.git/refs/heads/main.lock"));
         assert!(batch.take(&root).is_none());
+    }
+
+    #[test]
+    fn only_a_worktree_entry_changes_the_worktree_list() {
+        let bases = WatchBases::main(Path::new("/r"));
+        let kinds = |path: &str| {
+            let mut batch = Batch::default();
+            batch.add(&bases, Path::new(path));
+            batch.take(&bases.root).map(|payload| payload.kinds)
+        };
+        // An entry coming or going, its HEAD, its lock and its link to the working tree.
+        for path in [
+            "/r/.git/worktrees",
+            "/r/.git/worktrees/wt",
+            "/r/.git/worktrees/wt/HEAD",
+            "/r/.git/worktrees/wt/locked",
+            "/r/.git/worktrees/wt/gitdir",
+        ] {
+            assert_eq!(kinds(path), Some(vec![RepoChangeKind::Worktrees]), "{path}");
+        }
+        // What churns with every `git add` or `git status` in that worktree.
+        for path in [
+            "/r/.git/worktrees/wt/index",
+            "/r/.git/worktrees/wt/logs/HEAD",
+            "/r/.git/worktrees/wt/ORIG_HEAD",
+            "/r/.git/worktrees/wt/rebase-merge/done",
+            "/r/.git/worktrees/wt/modules/sub/index",
+        ] {
+            assert_eq!(kinds(path), None, "{path}");
+        }
+    }
+
+    #[test]
+    fn a_tracked_file_named_like_a_build_folder_is_reported() {
+        let tracked = WatchBases::main(Path::new("/r")).with_tracked(vec!["build".to_owned()]);
+        let mut batch = Batch::default();
+        batch.add(&tracked, Path::new("/r/build"));
+        let payload = batch.take(&tracked.root).expect("payload");
+        assert_eq!(payload.paths, vec!["build"]);
+        // Untracked, the name is the folder's, itself included.
+        let bases = WatchBases::main(Path::new("/r"));
+        batch.add(&bases, Path::new("/r/build"));
+        batch.add(&bases, Path::new("/r/node_modules"));
+        assert!(batch.take(&bases.root).is_none());
+    }
+
+    #[test]
+    fn a_refused_watch_reloads_everything_once() {
+        let bases = WatchBases::main(Path::new("/r"));
+        let (raw_tx, raw_rx) = mpsc::channel();
+        let (tx, rx) = mpsc::channel();
+        let looping = thread::spawn(move || {
+            debounce_loop(&bases, &raw_rx, move |payload| {
+                let _ = tx.send(payload);
+            });
+        });
+        let refused = || Err(notify::Error::new(notify::ErrorKind::MaxFilesWatch));
+        raw_tx.send(refused()).expect("send");
+        let first = rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("a full reload");
+        assert_eq!(first.kinds.len(), 4, "{first:?}");
+        // An install creating folder after folder past the limit: no reload after the first.
+        for _ in 0..3 {
+            raw_tx.send(refused()).expect("send");
+            thread::sleep(DEBOUNCE * 2);
+        }
+        assert!(rx.recv_timeout(DEBOUNCE * 2).is_err(), "reloaded again");
+        drop(raw_tx);
+        looping.join().expect("the loop ends");
     }
 
     #[test]
@@ -687,6 +780,7 @@ mod tests {
             kinds("/main/.git/worktrees/other/locked"),
             Some(vec![Worktrees])
         );
+        assert_eq!(kinds("/main/.git/worktrees/other/index"), None);
         // Its own lock and operation state.
         assert_eq!(
             kinds("/main/.git/worktrees/feature/locked"),
