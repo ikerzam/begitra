@@ -2409,9 +2409,9 @@ fn against_head() -> DiffTarget {
 #[test]
 fn a_staged_file_the_status_finds_unchanged_reads_the_index_in_every_diff() {
     // git reads a file its status finds unchanged from the index (here one `assume-unchanged`
-    // hides; an LFS pointer is the common case). libgit2's merged diff read it from the disk
-    // once any other file had an unstaged change, and the restricted diff, with none, from
-    // the index.
+    // hides; an LFS pointer is the common case). The full diff merges an unstaged change of
+    // another file, after which libgit2 reads every new side from the disk; the restricted
+    // one merges none and reads the index.
     let f = Fixture::basic();
     f.append("README.md", "staged line\n");
     f.git(&["add", "README.md"]);
@@ -2438,9 +2438,49 @@ fn a_staged_file_the_status_finds_unchanged_reads_the_index_in_every_diff() {
 }
 
 #[test]
+fn a_staged_rename_the_status_finds_unchanged_reads_the_index() {
+    // The rename pairs in both halves by its paths; its working copy, which `skip-worktree`
+    // hides from git's status, holds an edit git does not show. (`assume-unchanged` would not
+    // do: libgit2 drops an added file that carries it.)
+    let f = Fixture::basic();
+    f.git(&["mv", "README.md", "NOTES.md"]);
+    f.git(&["update-index", "--skip-worktree", "NOTES.md"]);
+    f.append(
+        "NOTES.md",
+        "disk only
+",
+    );
+    f.append(
+        "src/lib.rs",
+        "// unstaged
+",
+    );
+    let both = ["README.md", "NOTES.md"];
+    let full = full_at(&f, &against_head(), &both);
+    assert_eq!(full.len(), 1);
+    assert_eq!(full[0].status, ChangeKind::Renamed);
+    assert_eq!(full[0].similarity, Some(100));
+    assert!(full[0].hunks.is_empty(), "{}", unified(&full[0]));
+    assert_eq!(full[0].new_id.as_deref(), Some(f.rev(":NOTES.md").as_str()));
+    assert_eq!(
+        git_name_status(&f, &["diff", "HEAD", "-M", "--name-status"]),
+        vec![
+            (
+                "R".to_owned(),
+                "NOTES.md".to_owned(),
+                Some("README.md".to_owned())
+            ),
+            ("M".to_owned(), "src/lib.rs".to_owned(), None),
+        ]
+    );
+    let listed = restricted(&f, &against_head(), &both).expect("cap");
+    assert_eq!(listed.files, full);
+}
+
+#[test]
 fn a_submodule_holding_only_untracked_files_reads_its_staged_commit() {
-    // `git diff v1 -- sub2` names the staged commit; libgit2's merged diff read the checkout
-    // and added `-dirty` for its untracked file once another path had an unstaged change.
+    // `git diff v1 -- sub2` names the staged commit; read from the checkout, as libgit2 reads
+    // every new side once another path's unstaged change is merged, it would add `-dirty`.
     let (f, _) = with_submodules(&["sub", "sub2"]);
     fs::write(f.root.join("sub/s.txt"), "edited inside\n").expect("write");
     fs::write(f.root.join("sub2/u.txt"), "untracked\n").expect("write");

@@ -126,24 +126,46 @@ pub(super) fn prepare<'r>(
             .map(|path| path.as_bytes().to_vec())
             .collect()
     });
-    let (mut diff, mut staged) = build_diff(repo, target, options, paths, pathspecs.as_deref())?;
+    let (mut diff, halves) = build_diff(repo, target, options, paths, pathspecs.as_deref())?;
+    let threshold = u16::from(options.similarity.min(100));
+    let mut find = DiffFindOptions::new();
+    // libgit2 would ignore whitespace in the similarity score; git does not, so a reindented
+    // file is an add and a delete for both. Copies are off, as for `-M`.
+    find.renames(true)
+        .copies(false)
+        .rename_threshold(threshold)
+        .dont_ignore_whitespace(true);
     if options.renames {
-        let threshold = u16::from(options.similarity.min(100));
-        let mut find = DiffFindOptions::new();
-        // libgit2 would ignore whitespace in the similarity score; git does not, so a
-        // reindented file is an add and a delete for both. Copies are off, as for `-M`.
-        find.renames(true)
-            .copies(false)
-            .rename_threshold(threshold)
-            .dont_ignore_whitespace(true);
         let found = diff.find_similar(Some(&mut find));
         found.map_err(|error| blob_error(repo, diff.deltas(), probe_new_side, error))?;
-        if let Some((staged, _)) = staged.as_mut() {
-            let found = staged.find_similar(Some(&mut find));
-            found.map_err(|error| blob_error(repo, staged.deltas(), true, error))?;
-        }
     }
-    let index_side = staged.map(|(staged, unstaged)| index_side(&diff, staged, &unstaged));
+    let index_side = match halves {
+        Some((mut staged, unstaged)) => {
+            let held: std::collections::HashSet<&[u8]> = unstaged
+                .deltas()
+                .flat_map(|delta| [delta.old_file().path_bytes(), delta.new_file().path_bytes()])
+                .flatten()
+                .collect();
+            let alone = |delta: &DiffDelta<'_>| {
+                [delta.old_file().path_bytes(), delta.new_file().path_bytes()]
+                    .into_iter()
+                    .flatten()
+                    .all(|path| !held.contains(path))
+            };
+            // The staged half pairs its renames only when the merged diff found one among the
+            // files it reads there; its unpaired deletions and additions map as they are.
+            if options.renames
+                && diff
+                    .deltas()
+                    .any(|delta| delta.status() == Delta::Renamed && alone(&delta))
+            {
+                let found = staged.find_similar(Some(&mut find));
+                found.map_err(|error| blob_error(repo, staged.deltas(), true, error))?;
+            }
+            index_side(&diff, staged, alone)
+        }
+        None => None,
+    };
     // Files are listed by the path they are shown under, like `git diff --name-status`;
     // libgit2 sorts a renamed delta by its old path.
     // The paths borrow from the diff, so the order costs one lookup per delta and no copy.
@@ -289,9 +311,9 @@ pub(super) fn resolve_target(
     })
 }
 
-/// The staged half of a merged diff, kept for the files the working tree left as staged, with
-/// the paths the working-tree half holds.
-type StagedHalf<'r> = (Diff<'r>, std::collections::HashSet<Vec<u8>>);
+/// The staged half of a merged diff, kept unmerged for the files the working tree left as
+/// staged, and the working-tree half, whose files read the merged diff.
+type StagedHalf<'r> = (Diff<'r>, Diff<'r>);
 
 /// Creates the libgit2 diff for `target`, resolving revisions and trees, with its staged half
 /// when it merges one with the working tree (see [`IndexSide`]). A restriction (`only`) that
@@ -430,51 +452,46 @@ fn tree_to_workdir<'r>(
         // libgit2 merges nothing, and every new side stays the index's.
         return Ok((diff, None));
     }
-    let held = unstaged
-        .deltas()
-        .flat_map(|delta| [delta.old_file().path_bytes(), delta.new_file().path_bytes()])
-        .flatten()
-        .map(<[u8]>::to_vec)
-        .collect();
     let alone = repo.diff_tree_to_index(tree, Some(&index), Some(&mut against_index))?;
     diff.merge(&unstaged)?;
-    Ok((diff, Some((alone, held))))
+    Ok((diff, Some((alone, unstaged))))
 }
 
-/// Pairs each delta of the merged diff that the working-tree half does not hold with the same
-/// file's delta in the staged half, found by its status and both paths; a delta the two diffs
-/// pair differently (a rename scored on the working file) keeps the merged diff's patch.
+/// Pairs each delta of the merged diff that the working-tree half does not hold (`alone`)
+/// with the same file's delta in the staged half, found by its status and both paths; a delta
+/// the two diffs pair differently (a rename scored on the working file) keeps the merged
+/// diff's patch. `None` when no delta pairs.
 fn index_side<'r>(
     merged: &Diff<'r>,
     staged: Diff<'r>,
-    held: &std::collections::HashSet<Vec<u8>>,
-) -> IndexSide<'r> {
-    let key = |delta: &DiffDelta<'_>| {
+    alone: impl Fn(&DiffDelta<'_>) -> bool,
+) -> Option<IndexSide<'r>> {
+    fn key<'d>(delta: &DiffDelta<'d>) -> (Option<ChangeKind>, Option<&'d [u8]>, Option<&'d [u8]>) {
         (
             change_kind(delta.status()),
-            delta.old_file().path_bytes().map(<[u8]>::to_vec),
-            delta.new_file().path_bytes().map(<[u8]>::to_vec),
+            delta.old_file().path_bytes(),
+            delta.new_file().path_bytes(),
         )
+    }
+    let deltas: Vec<Option<usize>> = {
+        let positions: std::collections::HashMap<_, usize> = staged
+            .deltas()
+            .enumerate()
+            .map(|(at, delta)| (key(&delta), at))
+            .collect();
+        merged
+            .deltas()
+            .map(|delta| {
+                alone(&delta)
+                    .then(|| positions.get(&key(&delta)).copied())
+                    .flatten()
+            })
+            .collect()
     };
-    let positions: std::collections::HashMap<_, usize> = staged
-        .deltas()
-        .enumerate()
-        .map(|(at, delta)| (key(&delta), at))
-        .collect();
-    let deltas = merged
-        .deltas()
-        .map(|delta| {
-            let paths = [delta.old_file().path_bytes(), delta.new_file().path_bytes()];
-            if paths.iter().flatten().any(|path| held.contains(*path)) {
-                return None;
-            }
-            positions.get(&key(&delta)).copied()
-        })
-        .collect();
-    IndexSide {
+    deltas.iter().any(Option::is_some).then(|| IndexSide {
         diff: staged,
         deltas,
-    }
+    })
 }
 
 /// The paths where a revision's tree can differ from the index: those git's status names
