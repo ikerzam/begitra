@@ -48,6 +48,8 @@ type Reply = GitResult<(Vec<FileChange>, u32, u32)>;
 pub(super) struct Job {
     target: DiffTarget,
     options: DiffOptions,
+    /// The paths a working-tree diff reads, or `None` for the whole tree.
+    paths: Option<Vec<Vec<u8>>>,
     generated_attributes: bool,
     ready: Sender<GitResult<usize>>,
     requests: Receiver<Request>,
@@ -93,6 +95,9 @@ pub(super) fn start(
             diff::resolve_target(engine, repo, target)?,
         ))
     })?;
+    // git's status names the working tree's changed paths on this thread, where a cancel
+    // reaches the git it runs; the worker then reads only those.
+    let paths = diff::working_tree_paths(engine, &target, cancel)?;
     let generated_attributes = engine.generated_attributes_present();
     let pool = engine.diff_workers();
     let worker = take_worker(&pool, &gitdir)?;
@@ -103,6 +108,7 @@ pub(super) fn start(
     let job = Job {
         target,
         options: options.clone(),
+        paths,
         generated_attributes,
         ready: ready_tx,
         requests: worker_requests,
@@ -174,14 +180,19 @@ fn serve(gitdir: &std::path::Path, inbox: &Receiver<Job>) {
         }
     };
     while let Ok(job) = inbox.recv() {
-        let prepared =
-            match diff::prepare(&repo, &job.target, &job.options, job.generated_attributes) {
-                Ok(prepared) => prepared,
-                Err(error) => {
-                    let _ = job.ready.send(Err(error));
-                    continue;
-                }
-            };
+        let prepared = match diff::prepare(
+            &repo,
+            &job.target,
+            &job.options,
+            job.generated_attributes,
+            job.paths.as_deref(),
+        ) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                let _ = job.ready.send(Err(error));
+                continue;
+            }
+        };
         if job.ready.send(Ok(prepared.total_files())).is_err() {
             continue;
         }
@@ -328,6 +339,7 @@ mod tests {
             .send(Job {
                 target,
                 options: DiffOptions::default(),
+                paths: None,
                 generated_attributes: false,
                 ready: ready_tx,
                 requests: worker_requests,

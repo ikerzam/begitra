@@ -42,6 +42,55 @@ pub(super) fn list(
     options: &StatusOptions,
     cancel: &Cancel,
 ) -> GitResult<Vec<StatusEntry>> {
+    // Ignored paths are only found by the untracked scan, so it runs whenever either is
+    // wanted; the parser drops the untracked records when they were not. With
+    // `--untracked-files=all`, `traditional` lists the files of an ignored directory one by
+    // one, as libgit2's recursion did.
+    let extra = [
+        if options.include_untracked || options.include_ignored {
+            "--untracked-files=all"
+        } else {
+            "--untracked-files=no"
+        },
+        if options.include_ignored {
+            "--ignored=traditional"
+        } else {
+            "--ignored=no"
+        },
+        if options.renames {
+            "--renames"
+        } else {
+            "--no-renames"
+        },
+    ];
+    match porcelain(engine, &extra, cancel)? {
+        Some(output) => Ok(status_porcelain::parse(&output, options.include_untracked)),
+        // git could not be started (not installed, not on PATH): libgit2 answers instead.
+        None => {
+            static WARNED: Once = Once::new();
+            WARNED.call_once(|| {
+                tracing::warn!("git could not be started; the status falls back to libgit2");
+            });
+            list_libgit2(engine, options, cancel)
+        }
+    }
+}
+
+/// The paths git's status names as changed, in the index or in the working tree, untracked
+/// files included and a rename as both its paths, as raw bytes: what a working-tree diff has
+/// to read. `None` when git cannot be started, and the diff then walks the whole tree.
+#[tracing::instrument(level = "debug", skip_all)]
+pub(super) fn changed_paths(
+    engine: &Git2Engine,
+    cancel: &Cancel,
+) -> GitResult<Option<Vec<Vec<u8>>>> {
+    let extra = ["--untracked-files=all", "--ignored=no", "--no-renames"];
+    Ok(porcelain(engine, &extra, cancel)?.map(|output| status_porcelain::changed_paths(&output)))
+}
+
+/// `git status --porcelain=v2 -z` with `extra` options, on the engine's repository named
+/// outright; its output, or `None` when git cannot be started.
+fn porcelain(engine: &Git2Engine, extra: &[&str], cancel: &Cancel) -> GitResult<Option<Vec<u8>>> {
     cancel.check()?;
     // A HEAD whose commit cannot be read is `repo.corrupt_object` with its hash, as every
     // read reports it, on a handle that has not read the commit yet; once libgit2's object
@@ -71,25 +120,7 @@ pub(super) fn list(
         "--porcelain=v2",
         "-z",
     ];
-    // Ignored paths are only found by the untracked scan, so it runs whenever either is
-    // wanted; the parser drops the untracked records when they were not.
-    args.push(if options.include_untracked || options.include_ignored {
-        "--untracked-files=all"
-    } else {
-        "--untracked-files=no"
-    });
-    // With `--untracked-files=all`, `traditional` lists the files of an ignored directory
-    // one by one, as libgit2's recursion did.
-    args.push(if options.include_ignored {
-        "--ignored=traditional"
-    } else {
-        "--ignored=no"
-    });
-    args.push(if options.renames {
-        "--renames"
-    } else {
-        "--no-renames"
-    });
+    args.extend_from_slice(extra);
     match run_git_cancellable(&root, &args, cancel) {
         Ok(exit) if exit.status == Some(0) => {
             // git exits 0 and lists nothing for a folder it could not read (a path over the
@@ -105,24 +136,14 @@ pub(super) fn list(
                     });
                 }
             }
-            Ok(status_porcelain::parse(
-                &exit.stdout,
-                options.include_untracked,
-            ))
+            Ok(Some(exit.stdout))
         }
         Ok(exit) => Err(GitError::Cli {
             command: args.join(" "),
             status: exit.status,
             stderr: exit.stderr,
         }),
-        // git could not be started (not installed, not on PATH): libgit2 answers instead.
-        Err(GitError::GitNotStarted { .. }) => {
-            static WARNED: Once = Once::new();
-            WARNED.call_once(|| {
-                tracing::warn!("git could not be started; the status falls back to libgit2");
-            });
-            list_libgit2(engine, options, cancel)
-        }
+        Err(GitError::GitNotStarted { .. }) => Ok(None),
         Err(error) => Err(error),
     }
 }

@@ -77,6 +77,38 @@ pub(super) fn parse(output: &[u8], include_untracked: bool) -> Vec<StatusEntry> 
     entries
 }
 
+/// The paths the records of `git status --porcelain=v2 -z` name, as git wrote them: both
+/// paths of a rename or a copy, untracked paths, no ignored one. Raw bytes, because a path
+/// that is not UTF-8 must still match itself when it is handed back to libgit2.
+pub(super) fn changed_paths(output: &[u8]) -> Vec<Vec<u8>> {
+    let mut records = output
+        .split(|&byte| byte == 0)
+        .filter(|record| !record.is_empty());
+    let mut paths = Vec::new();
+    while let Some(record) = records.next() {
+        let Some((&kind, rest)) = record.split_first() else {
+            continue;
+        };
+        let rest = rest.strip_prefix(b" ").unwrap_or(rest);
+        let path = match kind {
+            b'1' => fields(rest, 7).map(|(_, path)| path),
+            b'2' => {
+                if let Some(original) = records.next() {
+                    paths.push(original.to_vec());
+                }
+                fields(rest, 8).map(|(_, path)| path)
+            }
+            b'u' => fields(rest, 9).map(|(_, path)| path),
+            b'?' if !rest.is_empty() => Some(rest),
+            _ => None,
+        };
+        if let Some(path) = path {
+            paths.push(path.to_vec());
+        }
+    }
+    paths
+}
+
 /// Folds consecutive entries of one path into one, in place: the deletion carries the
 /// untracked flag.
 fn merge_same_paths(entries: &mut Vec<StatusEntry>) {
@@ -187,6 +219,33 @@ mod tests {
             ignored: false,
             conflicted: false,
         }
+    }
+
+    #[test]
+    fn names_every_changed_path_as_raw_bytes() {
+        let mut output = concat!(
+            "1 .M N... 100644 100644 100644 e69de29 e69de29 src/lib.rs\0",
+            "2 R. N... 100644 100644 100644 e69de29 e69de29 R100 new name.txt\0old name.txt\0",
+            "u UU N... 100644 100644 100644 100644 e69de29 e69de29 e69de29 conflict.txt\0",
+            "! build/out.o\0",
+            "? dir with [glob]/f.txt\0",
+        )
+        .as_bytes()
+        .to_vec();
+        // A path that is not UTF-8 stays itself.
+        output.extend_from_slice(b"? caf\xe9.txt\0");
+        let paths: Vec<Vec<u8>> = changed_paths(&output);
+        assert_eq!(
+            paths,
+            [
+                b"src/lib.rs".to_vec(),
+                b"old name.txt".to_vec(),
+                b"new name.txt".to_vec(),
+                b"conflict.txt".to_vec(),
+                b"dir with [glob]/f.txt".to_vec(),
+                b"caf\xe9.txt".to_vec(),
+            ]
+        );
     }
 
     #[test]

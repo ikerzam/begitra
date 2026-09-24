@@ -697,6 +697,144 @@ fn a_working_file_with_a_non_utf8_name_is_hashed() {
     }
 }
 
+fn against_index() -> DiffTarget {
+    DiffTarget::WorkingTree {
+        base: WorkingTreeBase::Index,
+    }
+}
+
+/// What the working tree against the index lists for git: `git diff`, and the untracked
+/// files `git status` shows as `??`, added; both read NUL-separated, so no path is quoted.
+fn git_working_tree(f: &Fixture) -> Vec<NameStatus> {
+    let diff = f.git(&["diff", "--name-status", "-z"]);
+    let mut fields = diff.split(' ').filter(|field| !field.is_empty());
+    let mut expected = Vec::new();
+    while let Some(status) = fields.next() {
+        let code: String = status.chars().take(1).collect();
+        let first = fields.next().expect("path").to_owned();
+        if code == "R" || code == "C" {
+            let second = fields.next().expect("new path").to_owned();
+            expected.push((code, second, Some(first)));
+        } else {
+            expected.push((code, first, None));
+        }
+    }
+    let porcelain = f.git(&["status", "--porcelain", "-z", "-uall"]);
+    for path in porcelain
+        .split(' ')
+        .filter_map(|record| record.strip_prefix("?? "))
+    {
+        expected.push(("A".to_owned(), path.to_owned(), None));
+    }
+    expected.sort();
+    expected
+}
+
+fn sorted(mut listed: Vec<NameStatus>) -> Vec<NameStatus> {
+    listed.sort();
+    listed
+}
+
+#[test]
+fn a_file_git_leaves_out_is_not_listed() {
+    let f = Fixture::basic();
+    // `assume-unchanged`: git trusts the flag and neither `git diff` nor `git status` shows
+    // the edit.
+    f.git(&["update-index", "--assume-unchanged", "README.md"]);
+    f.append("README.md", "edited\n");
+    f.append("src/lib.rs", "// edited\n");
+    let listed = diff(&f, &against_index());
+    assert_eq!(paths(&listed), ["src/lib.rs"]);
+    assert_eq!(engine_name_status(&listed), git_working_tree(&f));
+}
+
+#[test]
+fn awkward_paths_are_read_literally() {
+    let mut f = Fixture::basic();
+    for name in [
+        "star[1].txt",
+        "star1.txt",
+        "with space.txt",
+        "ünïcödé.txt",
+        "{brace}.txt",
+    ] {
+        f.write(name, "one\n");
+    }
+    f.commit("awkward names");
+    // A glob `star[1].txt` would match `star1.txt`, which does not change.
+    for name in [
+        "star[1].txt",
+        "with space.txt",
+        "ünïcödé.txt",
+        "{brace}.txt",
+    ] {
+        f.append(name, "two\n");
+    }
+    f.write("new [dir]/ünï file.txt", "new\n");
+    let listed = diff(&f, &against_index());
+    assert_eq!(sorted(engine_name_status(&listed)), git_working_tree(&f));
+    assert!(!paths(&listed).contains(&"star1.txt"));
+}
+
+#[test]
+fn a_move_across_folders_is_listed_from_both_paths() {
+    let f = Fixture::basic();
+    // Unstaged: the old path deleted, the new one untracked.
+    fs::create_dir_all(f.root.join("moved")).expect("folder");
+    fs::rename(f.root.join("src/lib.rs"), f.root.join("moved/lib.rs")).expect("move");
+    let listed = diff(&f, &against_index());
+    assert_eq!(sorted(engine_name_status(&listed)), git_working_tree(&f));
+    // Staged with `git mv` and edited: the working tree against HEAD finds the rename.
+    fs::rename(f.root.join("moved/lib.rs"), f.root.join("src/lib.rs")).expect("back");
+    f.git(&["mv", "src/lib.rs", "moved.rs"]);
+    f.append("moved.rs", "// edited\n");
+    let head = diff(
+        &f,
+        &DiffTarget::WorkingTree {
+            base: WorkingTreeBase::Head,
+        },
+    );
+    assert_eq!(
+        engine_name_status(&head),
+        git_name_status(&f, &["diff", "HEAD", "-M", "--name-status"])
+    );
+    assert!(head
+        .files
+        .iter()
+        .any(|file| file.status == ChangeKind::Renamed));
+}
+
+#[test]
+fn untracked_folders_and_a_nested_repository_are_listed_as_before() {
+    let f = Fixture::basic();
+    f.write("fresh/deep/er/file.txt", "fresh\n");
+    f.write("fresh/top.txt", "top\n");
+    let nested = f.root.join("nested");
+    fs::create_dir_all(&nested).expect("nested folder");
+    f.git_in(&nested, &["init", "-q", "-b", "main"]);
+    fs::write(nested.join("n.txt"), "n\n").expect("write");
+    let listed = diff(&f, &against_index());
+    assert_eq!(
+        paths(&listed),
+        ["fresh/deep/er/file.txt", "fresh/top.txt", "nested/"]
+    );
+}
+
+#[test]
+fn a_clean_working_tree_lists_nothing() {
+    let f = Fixture::basic();
+    for base in [
+        WorkingTreeBase::Index,
+        WorkingTreeBase::Head,
+        WorkingTreeBase::Revision {
+            rev: "HEAD".to_owned(),
+        },
+    ] {
+        let listed = diff(&f, &DiffTarget::WorkingTree { base });
+        assert!(listed.files.is_empty(), "{:?}", paths(&listed));
+    }
+}
+
 #[test]
 fn working_tree_and_index_diffs_match_git() {
     let f = Fixture::basic().with_mixed_status();

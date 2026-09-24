@@ -70,13 +70,15 @@ impl Prepared<'_> {
     }
 }
 
-/// Builds the delta list of `target` and finds its renames, without reading any patch.
-#[tracing::instrument(level = "debug", skip_all)]
+/// Builds the delta list of `target` and finds its renames, without reading any patch. A
+/// working-tree target reads only `paths` when given (see [`working_tree_paths`]).
+#[tracing::instrument(level = "debug", skip_all, fields(paths = paths.map(<[Vec<u8>]>::len)))]
 pub(super) fn prepare<'r>(
     repo: &'r Repository,
     target: &DiffTarget,
     options: &DiffOptions,
     generated_attributes: bool,
+    paths: Option<&[Vec<u8>]>,
 ) -> GitResult<Prepared<'r>> {
     // Working tree files are not objects, so their ids never resolve in the object store.
     let probe_new_side = !matches!(target, DiffTarget::WorkingTree { .. });
@@ -87,7 +89,7 @@ pub(super) fn prepare<'r>(
             base: WorkingTreeBase::Index
         }
     );
-    let mut diff = build_diff(repo, target, options)?;
+    let mut diff = build_diff(repo, target, options, paths)?;
     if options.renames {
         let threshold = u16::from(options.similarity.min(100));
         let mut find = DiffFindOptions::new();
@@ -238,12 +240,17 @@ fn build_diff<'r>(
     repo: &'r Repository,
     target: &DiffTarget,
     options: &DiffOptions,
+    paths: Option<&[Vec<u8>]>,
 ) -> GitResult<Diff<'r>> {
     let mut git_options = Git2DiffOptions::new();
     git_options
         .context_lines(options.context.min(MAX_CONTEXT))
         .include_typechange(true)
         .ignore_whitespace(options.ignore_whitespace);
+    // The working tree is read at the paths git's status named, not folder by folder.
+    if let (DiffTarget::WorkingTree { .. }, Some(paths)) = (target, paths) {
+        limit_to(&mut git_options, paths);
+    }
     let diff = match target {
         DiffTarget::Commit { hash } => {
             let commit = resolve_commit(repo, hash)?;
@@ -340,6 +347,65 @@ const CANCEL_EVERY_LINES: usize = 512;
 /// the walk it saves, and such a diff is dominated by its deltas anyway.
 const PRUNE_LIMIT: usize = 2_000;
 
+/// Changed paths above which a working-tree diff walks the whole tree rather than the paths
+/// git's status names. Higher than [`PRUNE_LIMIT`] because the walk it saves reads every
+/// folder of the working tree (seconds on a large one), not two trees from the object store.
+const STATUS_PATH_LIMIT: usize = 10_000;
+
+/// The paths a working-tree diff reads: those git's status names and, against a revision,
+/// those that differ between that revision's tree and HEAD's (a file the index and the
+/// working tree leave as HEAD has it still differs from the revision). `None` for another
+/// target, without git, past [`STATUS_PATH_LIMIT`], on an unborn HEAD against a revision, or
+/// when the trees differ in more paths than the list takes: the diff then walks the whole
+/// tree, as libgit2 does on its own. `target` is resolved (its revision is a commit id).
+pub(super) fn working_tree_paths(
+    engine: &super::Git2Engine,
+    target: &DiffTarget,
+    cancel: &Cancel,
+) -> GitResult<Option<Vec<Vec<u8>>>> {
+    let DiffTarget::WorkingTree { base } = target else {
+        return Ok(None);
+    };
+    let Some(mut paths) = super::status::changed_paths(engine, cancel)? else {
+        return Ok(None);
+    };
+    if let WorkingTreeBase::Revision { rev } = base {
+        let differing = engine.with_repo(|repo| {
+            let Some(head) = head_tree(repo)? else {
+                return Ok(None);
+            };
+            let tree = commit_tree(&resolve_commit(repo, rev)?)?;
+            changed_paths(repo, &tree, &head, STATUS_PATH_LIMIT)
+        })?;
+        match differing {
+            Some(differing) => paths.extend(differing),
+            None => return Ok(None),
+        }
+    }
+    Ok(within_limit(paths, STATUS_PATH_LIMIT))
+}
+
+/// The paths sorted and without repeats, or `None` past `limit`.
+fn within_limit(mut paths: Vec<Vec<u8>>, limit: usize) -> Option<Vec<Vec<u8>>> {
+    paths.sort_unstable();
+    paths.dedup();
+    (paths.len() <= limit).then_some(paths)
+}
+
+/// Limits a diff to `paths`, matched literally (no glob, no magic), which libgit2's iterators
+/// prune on: a folder no path lies under is never read. No path at all is a name of one
+/// control byte, which matches nothing, so libgit2 visits no entry instead of walking
+/// everything.
+fn limit_to(git_options: &mut Git2DiffOptions, paths: &[Vec<u8>]) {
+    git_options.disable_pathspec_match(true);
+    if paths.is_empty() {
+        git_options.pathspec(&[1u8][..]);
+    }
+    for path in paths {
+        git_options.pathspec(path);
+    }
+}
+
 /// A tree-to-tree diff limited to the paths that differ.
 ///
 /// libgit2 walks both trees completely, which costs tens of milliseconds on a tree of fifty
@@ -355,15 +421,7 @@ fn tree_diff<'r>(
 ) -> GitResult<Diff<'r>> {
     if let Some(old) = old {
         if let Some(paths) = changed_paths(repo, old, new, PRUNE_LIMIT)? {
-            git_options.disable_pathspec_match(true);
-            if paths.is_empty() {
-                // Identical trees: a name of one control byte matches nothing, so libgit2
-                // visits no entry at all instead of walking both trees.
-                git_options.pathspec(&[1u8][..]);
-            }
-            for path in paths {
-                git_options.pathspec(path);
-            }
+            limit_to(git_options, &paths);
         }
     }
     repo.diff_tree_to_tree(old, Some(new), Some(git_options))
@@ -1085,6 +1143,18 @@ fn locate_unreadable_blob<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_status_path_list_is_sorted_once_and_given_up_past_its_limit() {
+        let paths = |names: &[&str]| names.iter().map(|name| name.as_bytes().to_vec()).collect();
+        assert_eq!(
+            within_limit(paths(&["b", "a", "b"]), 2),
+            Some(paths(&["a", "b"])),
+            "a path named twice (a status record and a tree path) counts once"
+        );
+        assert_eq!(within_limit(paths(&["a", "b", "c"]), 2), None);
+        assert_eq!(within_limit(Vec::new(), 2), Some(Vec::new()));
+    }
 
     #[test]
     fn hash_is_read_from_the_not_found_message() {
