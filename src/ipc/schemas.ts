@@ -33,6 +33,7 @@ export const errorCodes = [
   "worktree.dirty",
   "git.not_started",
   "git.cli_failed",
+  "stash.not_found",
   "ipc.invalid_argument",
   "op.cancelled",
   "op.timeout",
@@ -717,7 +718,11 @@ const remoteUrl = v.pipe(
 /** One to 100 revisions for a cherry-pick or a revert. */
 const revisions = v.pipe(v.array(revision), v.minLength(1), v.maxLength(100));
 /** A stash index, `stash@{n}`. */
-const stashIndex = v.pipe(count, v.maxValue(999));
+/** A stash is named by its full commit hash, lowercase, as the refs listing gives it. */
+const stashCommit = v.pipe(
+  v.string(),
+  v.regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/, "not a full commit hash"),
+);
 /** A tag message with a line, at most 10,000 characters. */
 const tagMessage = v.pipe(
   v.string(),
@@ -852,9 +857,9 @@ export const commandArgs = {
     }),
     opId,
   }),
-  stash_apply: v.object({ repo: path, index: stashIndex, opId }),
-  stash_pop: v.object({ repo: path, index: stashIndex, opId }),
-  stash_drop: v.object({ repo: path, index: stashIndex, opId }),
+  stash_apply: v.object({ repo: path, stash: stashCommit, opId }),
+  stash_pop: v.object({ repo: path, stash: stashCommit, opId }),
+  stash_drop: v.object({ repo: path, stash: stashCommit, opId }),
   detect_git: v.object({ opId }),
   set_git_executable: v.object({
     path: v.pipe(

@@ -519,16 +519,16 @@ impl GitEngine for Git2Engine {
         stash::stash_push(self, request, cancel)
     }
 
-    fn stash_apply(&self, index: u32, cancel: &Cancel) -> GitResult<Outcome> {
-        stash::stash_apply(self, index, cancel)
+    fn stash_apply(&self, stash: &str, cancel: &Cancel) -> GitResult<Outcome> {
+        stash::stash_apply(self, stash, cancel)
     }
 
-    fn stash_pop(&self, index: u32, cancel: &Cancel) -> GitResult<Outcome> {
-        stash::stash_pop(self, index, cancel)
+    fn stash_pop(&self, stash: &str, cancel: &Cancel) -> GitResult<Outcome> {
+        stash::stash_pop(self, stash, cancel)
     }
 
-    fn stash_drop(&self, index: u32, cancel: &Cancel) -> GitResult<()> {
-        stash::stash_drop(self, index, cancel)
+    fn stash_drop(&self, stash: &str, cancel: &Cancel) -> GitResult<()> {
+        stash::stash_drop(self, stash, cancel)
     }
 }
 

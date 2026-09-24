@@ -80,6 +80,10 @@ pub enum GitError {
         /// Standard error output, verbatim.
         stderr: String,
     },
+    /// The stash named by this commit is no longer in the stash list: it was applied or
+    /// dropped, or its entry deleted from the stash's reflog, since the list was read.
+    #[error("stash {0} is no longer in the stash list")]
+    StashNotFound(String),
     /// The operation was cancelled through its [`crate::engine::Cancel`] handle.
     #[error("operation cancelled")]
     Cancelled,
@@ -104,6 +108,7 @@ impl GitError {
             GitError::WorktreeDirty(_) => "worktree.dirty",
             GitError::GitNotStarted { .. } => "git.not_started",
             GitError::Cli { .. } => "git.cli_failed",
+            GitError::StashNotFound(_) => "stash.not_found",
             GitError::Cancelled => "op.cancelled",
             GitError::Git(_) => "internal",
         }
@@ -124,7 +129,7 @@ impl GitError {
     }
 
     /// Every code an engine error can carry, for the tests that keep the IPC list in sync.
-    pub const CODES: [&'static str; 14] = [
+    pub const CODES: [&'static str; 15] = [
         "repo.not_found",
         "repo.invalid",
         "repo.corrupt_object",
@@ -137,6 +142,7 @@ impl GitError {
         "worktree.dirty",
         "git.not_started",
         "git.cli_failed",
+        "stash.not_found",
         "op.cancelled",
         "internal",
     ];
@@ -228,6 +234,7 @@ mod tests {
                 status: None,
                 stderr: String::new(),
             },
+            GitError::StashNotFound(String::new()),
             GitError::Cancelled,
             GitError::Git(String::new()),
         ];

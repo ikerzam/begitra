@@ -511,6 +511,7 @@
     "indexDatabase": "The repository list could not be saved. {message}",
     "indexFolder": "Couldn't scan {path}. {message}",
     "watcherUnavailable": "Changes in this repository will not be detected automatically.",
+    "stashNotFound": "That stash is no longer in the list: it was applied or dropped outside Begitra.",
     "generic": "{message}"
   },
   "repoRow": {

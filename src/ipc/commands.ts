@@ -313,16 +313,19 @@ export function stashPush(repo: string, request: StashPush, opId = newOpId("stas
   return call("stash_push", { repo, request, opId }, v.boolean());
 }
 
-export function stashApply(repo: string, index: number, opId = newOpId("stash-apply")) {
-  return call("stash_apply", { repo, index, opId }, OutcomeSchema);
+/** The stash is named by its commit, which a stash made or dropped elsewhere does not move. */
+export function stashApply(repo: string, stash: string, opId = newOpId("stash-apply")) {
+  return call("stash_apply", { repo, stash, opId }, OutcomeSchema);
 }
 
-export function stashPop(repo: string, index: number, opId = newOpId("stash-pop")) {
-  return call("stash_pop", { repo, index, opId }, OutcomeSchema);
+/** The stash is named by its commit, which a stash made or dropped elsewhere does not move. */
+export function stashPop(repo: string, stash: string, opId = newOpId("stash-pop")) {
+  return call("stash_pop", { repo, stash, opId }, OutcomeSchema);
 }
 
-export function stashDrop(repo: string, index: number, opId = newOpId("stash-drop")) {
-  return call("stash_drop", { repo, index, opId }, v.null());
+/** The stash is named by its commit, which a stash made or dropped elsewhere does not move. */
+export function stashDrop(repo: string, stash: string, opId = newOpId("stash-drop")) {
+  return call("stash_drop", { repo, stash, opId }, v.null());
 }
 
 export function listWorktrees(repo: string, opId = newOpId("worktrees")) {

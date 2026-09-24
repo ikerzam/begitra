@@ -51,7 +51,7 @@ const navigation = useListNavigation({
   selected,
   onActivate: (index) => {
     const row = stash.stashes[index];
-    if (row && !busy.value) void stash.apply(row.index);
+    if (row && !busy.value) void stash.apply(row);
   },
   rowElement: (index) => grid.value?.querySelector(`[data-index="${index}"]`),
 });
@@ -76,8 +76,8 @@ async function push(): Promise<void> {
 }
 
 function confirmDrop(): void {
-  const index = stash.dropPrompt;
-  if (index !== null) void stash.drop(index);
+  const row = stash.dropPrompt;
+  if (row !== null) void stash.drop(row);
 }
 </script>
 
@@ -165,7 +165,7 @@ function confirmDrop(): void {
             tabindex="-1"
             data-row-action
             data-testid="stash-apply"
-            @click="() => void stash.apply(row.index)"
+            @click="() => void stash.apply(row)"
           >
             {{ t("stash.apply") }}
           </Button>
@@ -175,7 +175,7 @@ function confirmDrop(): void {
             tabindex="-1"
             data-row-action
             data-testid="stash-pop"
-            @click="() => void stash.pop(row.index)"
+            @click="() => void stash.pop(row)"
           >
             {{ t("stash.pop") }}
           </Button>
@@ -186,14 +186,14 @@ function confirmDrop(): void {
             tabindex="-1"
             data-row-action
             data-testid="stash-drop"
-            @click="stash.askDrop(row.index)"
+            @click="stash.askDrop(row)"
           />
         </span>
       </div>
     </div>
     <Dialog
       v-if="stash.dropPrompt !== null"
-      :title="t('stash.dropTitle', { name: `stash@{${stash.dropPrompt}}` })"
+      :title="t('stash.dropTitle', { name: stash.dropPrompt.name })"
       :body="t('stash.dropBody')"
       :confirm-label="t('stash.dropConfirm')"
       variant="destructive"

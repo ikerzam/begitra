@@ -1,7 +1,8 @@
 //! The stash writes: push, apply, pop and drop through the git CLI. The listing
-//! is part of `list_refs` (the `stash` kind). Not registered for cancellation,
-//! like the other index writes; a pop or apply that conflicts is an outcome the frontend
-//! shows with the stash kept.
+//! is part of `list_refs` (the `stash` kind). Apply, pop and drop name the stash by its
+//! commit, which the engine finds in the list when the action starts. Not registered for
+//! cancellation, like the other index writes; a pop or apply that conflicts is an outcome the
+//! frontend shows with the stash kept.
 
 use std::path::PathBuf;
 
@@ -18,9 +19,6 @@ use super::staging::validate_paths;
 
 /// Longest stash message accepted.
 const MAX_MESSAGE_CHARS: usize = 10_000;
-
-/// Highest stash index addressed (`stash@{n}`); git lists far fewer in practice.
-const MAX_STASH_INDEX: u32 = 999;
 
 fn validate_push(request: &StashPush) -> Result<(), AppError> {
     if let Some(message) = request.message.as_deref() {
@@ -46,14 +44,21 @@ fn validate_push(request: &StashPush) -> Result<(), AppError> {
     Ok(())
 }
 
-fn validate_index(index: u32) -> Result<(), AppError> {
-    if index > MAX_STASH_INDEX {
-        return Err(AppError::invalid_argument(
-            "index",
-            format!("over {MAX_STASH_INDEX}"),
-        ));
+/// A stash is named by its full commit hash, lowercase, as the refs listing gives it (SHA-1
+/// or SHA-256): not a revision, so neither a position like `stash@{1}` nor anything
+/// option-shaped reaches git.
+fn validate_stash(stash: &str) -> Result<(), AppError> {
+    let hex = stash
+        .bytes()
+        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
+    if hex && matches!(stash.len(), 40 | 64) {
+        Ok(())
+    } else {
+        Err(AppError::invalid_argument(
+            "stash",
+            "not a full commit hash",
+        ))
     }
-    Ok(())
 }
 
 /// Stashes the working tree (or the given paths); `false` when there was nothing to save.
@@ -73,55 +78,57 @@ pub async fn stash_push(
     .await
 }
 
-/// Applies `stash@{index}`, keeping it.
+/// Applies the stash whose commit is `stash`, keeping it; `stash.not_found` when it is no
+/// longer in the list.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state))]
 pub async fn stash_apply(
     state: State<'_, AppState>,
     repo: PathBuf,
-    index: u32,
+    stash: String,
     op_id: String,
 ) -> Result<Outcome, AppError> {
-    validate_index(index)?;
+    validate_stash(&stash)?;
     let app = state.inner().clone();
     run_unregistered(&op_id, WRITE_TIMEOUT, move |cancel| {
-        app.open(&repo)?.stash_apply(index, &cancel)
+        app.open(&repo)?.stash_apply(&stash, &cancel)
     })
     .await
 }
 
-/// Pops `stash@{index}`; on conflicts the stash is kept and the outcome says so.
+/// Pops the stash whose commit is `stash`; on conflicts the stash is kept and the outcome
+/// says so; `stash.not_found` when it is no longer in the list.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state))]
 pub async fn stash_pop(
     state: State<'_, AppState>,
     repo: PathBuf,
-    index: u32,
+    stash: String,
     op_id: String,
 ) -> Result<Outcome, AppError> {
-    validate_index(index)?;
+    validate_stash(&stash)?;
     let app = state.inner().clone();
     run_unregistered(&op_id, WRITE_TIMEOUT, move |cancel| {
-        app.open(&repo)?.stash_pop(index, &cancel)
+        app.open(&repo)?.stash_pop(&stash, &cancel)
     })
     .await
 }
 
-/// Drops `stash@{index}` after the confirmation (a dropped stash is in no reflog: the
-/// frontend keeps the row's commit hash in its toast, which `git stash apply <hash>` brings
-/// back until `git gc` runs).
+/// Drops the stash whose commit is `stash` after the confirmation (a dropped stash is in no
+/// reflog: the frontend keeps its commit hash in the toast, which `git stash apply <hash>`
+/// brings back until `git gc` runs); `stash.not_found` when it is no longer in the list.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state))]
 pub async fn stash_drop(
     state: State<'_, AppState>,
     repo: PathBuf,
-    index: u32,
+    stash: String,
     op_id: String,
 ) -> Result<(), AppError> {
-    validate_index(index)?;
+    validate_stash(&stash)?;
     let app = state.inner().clone();
     run_unregistered(&op_id, DEFAULT_TIMEOUT, move |cancel| {
-        app.open(&repo)?.stash_drop(index, &cancel)
+        app.open(&repo)?.stash_drop(&stash, &cancel)
     })
     .await
 }
@@ -150,12 +157,26 @@ mod tests {
                 "ipc.invalid_argument"
             );
         }
-        assert!(validate_index(0).is_ok());
-        assert_eq!(
-            validate_index(MAX_STASH_INDEX + 1)
-                .expect_err("refused")
-                .code,
-            "ipc.invalid_argument"
-        );
+    }
+
+    #[test]
+    fn a_stash_is_named_by_its_full_commit_hash() {
+        assert!(validate_stash(&"a".repeat(40)).is_ok());
+        assert!(validate_stash(&"0123456789abcdef".repeat(4)).is_ok());
+        for bad in [
+            "stash@{1}".to_owned(),
+            "abc1234".to_owned(),
+            "A".repeat(40),
+            "g".repeat(40),
+            format!("-{}", "a".repeat(39)),
+            "a".repeat(41),
+            String::new(),
+        ] {
+            assert_eq!(
+                validate_stash(&bad).expect_err("refused").code,
+                "ipc.invalid_argument",
+                "{bad}"
+            );
+        }
     }
 }

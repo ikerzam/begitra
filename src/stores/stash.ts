@@ -1,7 +1,8 @@
 // The stash sheet: the stashes from the refs (`stash@{n}` with its message; the
 // date when the loaded history holds the stash commit), push with a message and the untracked
-// files, apply, pop and drop by index. A pop or apply that conflicts hands over to the
-// sequencer with the stash kept, as git does.
+// files, apply, pop and drop of the row's stash, named by its commit so that a stash made or
+// dropped outside the app cannot put another under the row. A pop or apply that conflicts
+// hands over to the sequencer with the stash kept, as git does.
 
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
@@ -10,6 +11,7 @@ import * as ipc from "@/ipc/commands";
 import { toAppError } from "@/ipc/errors";
 import { newOpId } from "@/ipc/invoke";
 import type { Outcome } from "@/ipc/schemas";
+import { errorText } from "@/shell/errorMessage";
 import { shortHash } from "@/shell/format";
 
 import { useChangesStore } from "./changes";
@@ -44,8 +46,8 @@ export const useStashStore = defineStore("stash", () => {
   const changes = useChangesStore();
 
   const sheetOpen = ref(false);
-  /** The index whose drop awaits confirmation. */
-  const dropPrompt = ref<number | null>(null);
+  /** The stash whose drop awaits confirmation. */
+  const dropPrompt = ref<StashRow | null>(null);
   const busy = ref<string | null>(null);
 
   const stashes = computed<StashRow[]>(() =>
@@ -82,11 +84,16 @@ export const useStashStore = defineStore("stash", () => {
       return await run(root, opId);
     } catch (failure) {
       const error = toAppError(failure);
+      // A stash gone outside the app is said as such: git never ran, so "git refused" is false.
+      const text =
+        error.code === "stash.not_found"
+          ? errorText(error)
+          : { key: "stash.failed", params: { message: error.message } };
       toasts.push({
         kind: "error",
         message: "",
-        key: "stash.failed",
-        params: { message: error.message },
+        key: text.key,
+        params: text.params,
         output: error.detail ?? error.message,
       });
       return null;
@@ -122,26 +129,26 @@ export const useStashStore = defineStore("stash", () => {
     return saved;
   }
 
-  async function apply(index: number): Promise<boolean> {
+  async function apply(row: StashRow): Promise<boolean> {
     const outcome = await write("operations.applyingStash", (root, opId) =>
-      ipc.stashApply(root, index, opId),
+      ipc.stashApply(root, row.hash, opId),
     );
     if (!outcome) return false;
     settle(outcome, "stash.applied");
     return true;
   }
 
-  async function pop(index: number): Promise<boolean> {
+  async function pop(row: StashRow): Promise<boolean> {
     const outcome = await write("operations.poppingStash", (root, opId) =>
-      ipc.stashPop(root, index, opId),
+      ipc.stashPop(root, row.hash, opId),
     );
     if (!outcome) return false;
     settle(outcome, "stash.popped");
     return true;
   }
 
-  function askDrop(index: number): void {
-    dropPrompt.value = index;
+  function askDrop(row: StashRow): void {
+    dropPrompt.value = row;
   }
 
   function dismissDrop(): void {
@@ -149,11 +156,11 @@ export const useStashStore = defineStore("stash", () => {
   }
 
   /** Drops a stash; the toast keeps its commit hash, which brings it back until `git gc`. */
-  async function drop(index: number): Promise<boolean> {
+  async function drop(row: StashRow): Promise<boolean> {
     dropPrompt.value = null;
-    const hash = stashes.value.find((row) => row.index === index)?.hash ?? "";
+    const hash = row.hash;
     const done = await write("operations.droppingStash", async (root, opId) => {
-      await ipc.stashDrop(root, index, opId);
+      await ipc.stashDrop(root, hash, opId);
       return true;
     });
     if (done) {

@@ -50,6 +50,10 @@
     "detail": "fatal: raw output"
   },
   {
+    "code": "stash.not_found",
+    "message": "Sample message for stash.not_found"
+  },
+  {
     "code": "ipc.invalid_argument",
     "message": "Sample message for ipc.invalid_argument"
   },

@@ -102,14 +102,14 @@ describe("StashSheet", () => {
     });
     await rows[1]!.get('[data-testid="stash-pop"]').trigger("click");
     await settled();
-    expect(of(calls, "stash_pop")[0]?.args["index"]).toBe(1);
+    expect(of(calls, "stash_pop")[0]?.args["stash"]).toBe("f".repeat(40));
     await rows[0]!.get('[data-testid="stash-drop"]').trigger("click");
     await nextTick();
     const dialog = wrapper.get('[data-testid="stash-drop-dialog"]');
     expect(dialog.text()).toContain("Drop stash@{0}?");
     await dialog.get('[data-testid="dialog-confirm"]').trigger("click");
     await settled();
-    expect(of(calls, "stash_drop")[0]?.args["index"]).toBe(0);
+    expect(of(calls, "stash_drop")[0]?.args["stash"]).toBe(fakeCommit(3).hash);
     // The way back stays in the toast: the dropped stash's hash and the command.
     const toast = useToastsStore().toasts.at(-1);
     expect(toast?.key).toBe("stash.dropped");

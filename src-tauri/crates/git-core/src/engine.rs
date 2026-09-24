@@ -337,12 +337,16 @@ pub trait GitEngine: Send + Sync {
     /// Pushes a stash; `false` when there was nothing to save.
     fn stash_push(&self, request: &StashPush, cancel: &Cancel) -> GitResult<bool>;
 
-    /// Applies `stash@{index}`, keeping it; conflicts are an [`Outcome`].
-    fn stash_apply(&self, index: u32, cancel: &Cancel) -> GitResult<Outcome>;
+    /// Applies the stash whose commit is `stash`, keeping it; conflicts are an [`Outcome`].
+    /// The stash is named by its commit, not by its position, because a stash made or dropped
+    /// elsewhere shifts the positions: one no longer in the list is
+    /// [`GitError::StashNotFound`](crate::error::GitError::StashNotFound) and git does not run.
+    fn stash_apply(&self, stash: &str, cancel: &Cancel) -> GitResult<Outcome>;
 
-    /// Pops `stash@{index}`; on conflicts the stash is kept and the [`Outcome`] says so.
-    fn stash_pop(&self, index: u32, cancel: &Cancel) -> GitResult<Outcome>;
+    /// Pops the stash whose commit is `stash`, wherever it is in the list now; on conflicts the
+    /// stash is kept and the [`Outcome`] says so.
+    fn stash_pop(&self, stash: &str, cancel: &Cancel) -> GitResult<Outcome>;
 
-    /// Drops `stash@{index}`.
-    fn stash_drop(&self, index: u32, cancel: &Cancel) -> GitResult<()>;
+    /// Drops the stash whose commit is `stash`, wherever it is in the list now.
+    fn stash_drop(&self, stash: &str, cancel: &Cancel) -> GitResult<()>;
 }

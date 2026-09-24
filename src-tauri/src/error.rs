@@ -37,6 +37,8 @@ pub mod codes {
     pub const GIT_NOT_STARTED: &str = "git.not_started";
     /// The system `git` failed; `detail` carries its stderr.
     pub const GIT_CLI_FAILED: &str = "git.cli_failed";
+    /// A stash named by its commit is no longer in the stash list; git did not run.
+    pub const STASH_NOT_FOUND: &str = "stash.not_found";
     /// A command argument did not match its type; `detail` names the field.
     pub const IPC_INVALID_ARGUMENT: &str = "ipc.invalid_argument";
     /// The operation was cancelled.
@@ -62,7 +64,7 @@ pub mod codes {
     pub const INTERNAL: &str = "internal";
 
     /// Every code, in the order of the declarations above.
-    pub const ALL: [&str; 23] = [
+    pub const ALL: [&str; 24] = [
         REPO_NOT_FOUND,
         REPO_INVALID,
         REPO_CORRUPT_OBJECT,
@@ -75,6 +77,7 @@ pub mod codes {
         WORKTREE_DIRTY,
         GIT_NOT_STARTED,
         GIT_CLI_FAILED,
+        STASH_NOT_FOUND,
         IPC_INVALID_ARGUMENT,
         OP_CANCELLED,
         OP_TIMEOUT,

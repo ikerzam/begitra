@@ -96,6 +96,8 @@ export interface FakeBackendOptions {
   /** What `operation_state` and `conflicts` answer. */
   operation?: OperationState;
   conflicts?: Conflict[];
+  /** Apply, pop and drop reject with `stash.not_found` (the stash went outside the app). */
+  stashGone?: boolean;
   /** `switch` rejects with git's "would be overwritten" message. */
   dirtySwitch?: boolean;
   /** `branch_delete` without force rejects with "not fully merged". */
@@ -258,6 +260,15 @@ export function fakeCommit(n: number): CommitNode {
     edges: [{ fromLane: n % 3, toLane: (n + 1) % 3, parent: (n + 1).toString(16) }],
     overflow: 0,
   };
+}
+
+/** What the backend answers for a stash that is no longer in the list. */
+function stashGone(args: Record<string, unknown>): Promise<never> {
+  // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+  return Promise.reject({
+    code: "stash.not_found",
+    message: `stash ${String(args["stash"])} is no longer in the stash list`,
+  });
 }
 
 export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
@@ -713,6 +724,7 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
       case "sequencer":
       case "stash_apply":
       case "stash_pop":
+        if (options.stashGone) return stashGone(args);
         return (
           options.outcome ?? { kind: "done", hash: FAKE_OUTCOME_HASH, conflicts: [] as Conflict[] }
         );
@@ -785,6 +797,7 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
       case "stash_push":
         return !options.stashNothing;
       case "stash_drop":
+        if (options.stashGone) return stashGone(args);
         return null;
       case "commit_context":
         return {

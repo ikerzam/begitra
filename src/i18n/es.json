@@ -511,6 +511,7 @@
     "indexDatabase": "No se ha podido guardar la lista de repositorios. {message}",
     "indexFolder": "No se ha podido escanear {path}. {message}",
     "watcherUnavailable": "Los cambios en este repositorio no se detectarán automáticamente.",
+    "stashNotFound": "Ese stash ya no está en la lista: se aplicó o se borró fuera de Begitra.",
     "generic": "{message}"
   },
   "repoRow": {

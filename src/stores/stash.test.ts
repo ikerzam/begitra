@@ -98,25 +98,42 @@ describe("stash store", () => {
     expect(useToastsStore().toasts.at(-1)?.key).toBe("stash.nothing");
   });
 
-  it("applies, pops and drops by index, the drop after its prompt", async () => {
+  it("applies, pops and drops the row's stash by its commit, the drop after its prompt", async () => {
     const calls = await open();
     const stash = useStashStore();
     stash.openSheet();
-    expect(await stash.apply(1)).toBe(true);
-    expect(of(calls, "stash_apply")[0]?.args["index"]).toBe(1);
-    expect(await stash.pop(0)).toBe(true);
-    expect(of(calls, "stash_pop")[0]?.args["index"]).toBe(0);
-    stash.askDrop(1);
-    expect(stash.dropPrompt).toBe(1);
-    expect(await stash.drop(1)).toBe(true);
+    const [newest, older] = stash.stashes;
+    expect(await stash.apply(older!)).toBe(true);
+    expect(of(calls, "stash_apply")[0]?.args["stash"]).toBe("f".repeat(40));
+    expect(await stash.pop(newest!)).toBe(true);
+    expect(of(calls, "stash_pop")[0]?.args["stash"]).toBe(fakeCommit(3).hash);
+    stash.askDrop(older!);
+    expect(stash.dropPrompt?.name).toBe("stash@{1}");
+    expect(await stash.drop(older!)).toBe(true);
     expect(stash.dropPrompt).toBeNull();
-    expect(of(calls, "stash_drop")[0]?.args["index"]).toBe(1);
+    expect(of(calls, "stash_drop")[0]?.args["stash"]).toBe("f".repeat(40));
     expect(useToastsStore().toasts.map((toast) => toast.key)).toEqual([
       "stash.applied",
       "stash.popped",
       "stash.dropped",
     ]);
     expect(of(calls, "list_refs").length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("says a stash gone outside the app is no longer in the list and lists them again", async () => {
+    const calls = await open({ stashGone: true });
+    const stash = useStashStore();
+    stash.openSheet();
+    const listings = of(calls, "list_refs").length;
+    expect(await stash.drop(stash.stashes[1]!)).toBe(false);
+    await settled();
+    const toast = useToastsStore().toasts.at(-1);
+    expect(toast?.kind).toBe("error");
+    expect(toast?.key).toBe("errors.stashNotFound");
+    expect(toast?.output).toBe(`stash ${"f".repeat(40)} is no longer in the stash list`);
+    expect(of(calls, "list_refs").length).toBeGreaterThan(listings);
+    // No success toast: nothing was dropped.
+    expect(useToastsStore().toasts.map((entry) => entry.key)).toEqual(["errors.stashNotFound"]);
   });
 
   it("hands a conflicting pop to the sequencer on the changes screen, the sheet closed", async () => {
@@ -130,7 +147,7 @@ describe("stash store", () => {
     });
     const stash = useStashStore();
     stash.openSheet();
-    expect(await stash.pop(0)).toBe(true);
+    expect(await stash.pop(stash.stashes[0]!)).toBe(true);
     await settled();
     expect(stash.sheetOpen).toBe(false);
     expect(useShellStore().layoutMode).toBe("changes");

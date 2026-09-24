@@ -1,4 +1,5 @@
-//! `Git2Engine` stash push, apply, pop and drop against `git stash list`.
+//! `Git2Engine` stash push, apply, pop and drop against `git stash list`; the stash is
+//! named by its commit, as the stash sheet names the row the user chose.
 
 mod support;
 
@@ -21,6 +22,11 @@ fn stash_list(f: &Fixture) -> Vec<String> {
         .lines()
         .map(str::to_owned)
         .collect()
+}
+
+/// The commit of `stash@{n}`, as the refs listing gives it to the frontend.
+fn stash_commit(f: &Fixture, n: usize) -> String {
+    f.git(&["rev-parse", &format!("stash@{{{n}}}")])
 }
 
 fn read(f: &Fixture, relative: &str) -> String {
@@ -47,7 +53,7 @@ fn pushes_with_a_message_and_untracked_files_and_pops() {
     assert_eq!(f.git(&["status", "--porcelain"]), "");
     assert!(!f.root.join("new.txt").exists());
     assert_eq!(stash_list(&f), ["On main: wip: readme"]);
-    let outcome = e.stash_pop(0, &never()).expect("pop");
+    let outcome = e.stash_pop(&stash_commit(&f, 0), &never()).expect("pop");
     assert_eq!(outcome.kind, OutcomeKind::Done);
     assert_eq!(read(&f, "README.md"), "# Fixture\nwip\n");
     assert!(f.root.join("new.txt").exists());
@@ -72,7 +78,9 @@ fn pushes_only_the_given_paths_and_applies_keeping_the_stash() {
     assert_eq!(read(&f, "README.md"), "# Fixture\n");
     assert!(read(&f, "src/lib.rs").ends_with("// two\n"));
     assert_eq!(stash_list(&f).len(), 1);
-    let outcome = e.stash_apply(0, &never()).expect("apply");
+    let outcome = e
+        .stash_apply(&stash_commit(&f, 0), &never())
+        .expect("apply");
     assert_eq!(outcome.kind, OutcomeKind::Done);
     assert_eq!(read(&f, "README.md"), "# Fixture\none\n");
     assert_eq!(stash_list(&f).len(), 1, "apply keeps the stash");
@@ -108,7 +116,7 @@ fn paths_with_glob_characters_are_stashed_literally() {
         f.root.join("star1.txt").exists(),
         "the glob would have matched it"
     );
-    e.stash_pop(0, &never()).expect("pop");
+    e.stash_pop(&stash_commit(&f, 0), &never()).expect("pop");
     assert!(f.root.join("star[1].txt").exists());
 }
 
@@ -121,10 +129,93 @@ fn drops_by_index() {
     f.append("README.md", "second\n");
     f.git(&["stash", "push", "-q", "-m", "second"]);
     assert_eq!(stash_list(&f), ["On main: second", "On main: first"]);
-    e.stash_drop(1, &never()).expect("drop the older one");
+    e.stash_drop(&stash_commit(&f, 1), &never())
+        .expect("drop the older one");
     assert_eq!(stash_list(&f), ["On main: second"]);
-    let error = e.stash_drop(5, &never()).expect_err("no such stash");
-    assert!(matches!(error, GitError::Cli { .. }));
+    // A commit that is no stash.
+    let head = f.head();
+    let error = e.stash_drop(&head, &never()).expect_err("no such stash");
+    assert!(
+        matches!(&error, GitError::StashNotFound(hash) if *hash == head),
+        "{error:?}"
+    );
+    assert_eq!(stash_list(&f), ["On main: second"]);
+}
+
+#[test]
+fn drops_the_chosen_stash_after_another_was_pushed() {
+    let f = Fixture::basic();
+    let e = engine(&f);
+    f.append("README.md", "first\n");
+    f.git(&["stash", "push", "-q", "-m", "first"]);
+    f.append("README.md", "second\n");
+    f.git(&["stash", "push", "-q", "-m", "second"]);
+    let first = stash_commit(&f, 1);
+    // A stash pushed from a terminal: the chosen one is `stash@{2}` now.
+    f.append("src/lib.rs", "// third\n");
+    f.git(&["stash", "push", "-q", "-m", "third"]);
+    assert_eq!(
+        stash_list(&f),
+        ["On main: third", "On main: second", "On main: first"]
+    );
+    e.stash_drop(&first, &never()).expect("drop the chosen one");
+    assert_eq!(stash_list(&f), ["On main: third", "On main: second"]);
+}
+
+#[test]
+fn applies_and_pops_the_chosen_stash_after_another_was_pushed() {
+    let f = Fixture::basic();
+    let e = engine(&f);
+    f.append("README.md", "chosen\n");
+    f.git(&["stash", "push", "-q", "-m", "chosen"]);
+    let chosen = stash_commit(&f, 0);
+    f.append("src/lib.rs", "// other\n");
+    f.git(&["stash", "push", "-q", "-m", "other"]);
+    // Applied where it sits now, `stash@{1}`, and kept.
+    let outcome = e.stash_apply(&chosen, &never()).expect("apply");
+    assert_eq!(outcome.kind, OutcomeKind::Done);
+    assert_eq!(read(&f, "README.md"), "# Fixture\nchosen\n");
+    assert!(!read(&f, "src/lib.rs").contains("// other"));
+    assert_eq!(stash_list(&f), ["On main: other", "On main: chosen"]);
+    f.git(&["checkout", "-q", "--", "README.md"]);
+    let outcome = e.stash_pop(&chosen, &never()).expect("pop");
+    assert_eq!(outcome.kind, OutcomeKind::Done);
+    assert_eq!(read(&f, "README.md"), "# Fixture\nchosen\n");
+    assert_eq!(stash_list(&f), ["On main: other"]);
+}
+
+#[test]
+fn a_stash_gone_meanwhile_is_not_found_and_nothing_runs() {
+    let f = Fixture::basic();
+    let e = engine(&f);
+    for message in ["one", "two", "three"] {
+        f.append("README.md", &format!("{message}\n"));
+        f.git(&["stash", "push", "-q", "-m", message]);
+    }
+    // Dropped from a terminal.
+    let dropped = stash_commit(&f, 0);
+    f.git(&["stash", "drop", "-q", "stash@{0}"]);
+    // Deleted from the stash's reflog alone.
+    let deleted = stash_commit(&f, 1);
+    f.git(&["reflog", "delete", "stash@{1}"]);
+    assert_eq!(stash_list(&f), ["On main: two"]);
+    for gone in [&dropped, &deleted] {
+        for error in [
+            e.stash_drop(gone, &never()).expect_err("drop"),
+            e.stash_pop(gone, &never()).map(|_| ()).expect_err("pop"),
+            e.stash_apply(gone, &never())
+                .map(|_| ())
+                .expect_err("apply"),
+        ] {
+            assert!(
+                matches!(&error, GitError::StashNotFound(hash) if hash == gone),
+                "{error:?}"
+            );
+            assert_eq!(error.code(), "stash.not_found");
+        }
+    }
+    assert_eq!(stash_list(&f), ["On main: two"]);
+    assert_eq!(read(&f, "README.md"), "# Fixture\n", "nothing was applied");
 }
 
 #[test]
@@ -135,7 +226,10 @@ fn a_conflicting_pop_reports_the_conflicts_and_keeps_the_stash() {
     f.git(&["stash", "push", "-q"]);
     f.write("README.md", "# Committed\n");
     f.commit("readme");
-    let outcome = e.stash_pop(0, &never()).expect("pop stops on conflicts");
+    let stashed = stash_commit(&f, 0);
+    let outcome = e
+        .stash_pop(&stashed, &never())
+        .expect("pop stops on conflicts");
     assert_eq!(outcome.kind, OutcomeKind::Conflicts);
     assert_eq!(outcome.conflicts[0].path, "README.md");
     assert_eq!(stash_list(&f).len(), 1, "the stash stays");
@@ -153,7 +247,7 @@ fn a_conflicting_pop_reports_the_conflicts_and_keeps_the_stash() {
         ),
         other => panic!("unexpected {other:?}"),
     }
-    let error = e.stash_apply(0, &never()).expect_err("refused");
+    let error = e.stash_apply(&stashed, &never()).expect_err("refused");
     assert!(matches!(error, GitError::Cli { .. }), "{error:?}");
     assert_eq!(e.operation_state().expect("state"), OperationState::None);
     assert_eq!(stash_list(&f).len(), 1);

@@ -1,7 +1,7 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { openRepository, ping } from "./commands";
+import { openRepository, ping, stashDrop } from "./commands";
 import { AppError } from "./errors";
 import { checkArgs, newOpId } from "./invoke";
 
@@ -173,6 +173,16 @@ describe("call", () => {
     mockIPC(invoke);
     const error = await openRepository("").catch((e: unknown) => e as AppError);
     expect((error as AppError).code).toBe("ipc.invalid_argument");
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("names a stash by its full commit only: never a position, an abbreviation or an option", async () => {
+    const invoke = vi.fn();
+    mockIPC(invoke);
+    for (const stash of ["stash@{1}", "abc1234", "A".repeat(40), `-${"a".repeat(39)}`]) {
+      const error = await stashDrop("/r", stash).catch((e: unknown) => e as AppError);
+      expect((error as AppError).code, stash).toBe("ipc.invalid_argument");
+    }
     expect(invoke).not.toHaveBeenCalled();
   });
 });
