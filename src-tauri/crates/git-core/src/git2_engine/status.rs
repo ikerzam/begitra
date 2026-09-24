@@ -76,16 +76,38 @@ pub(super) fn list(
     }
 }
 
-/// The paths git's status names as changed, in the index or in the working tree, untracked
-/// files included and a rename as both its paths, as raw bytes: what a working-tree diff has
-/// to read. `None` when git cannot be started, and the diff then walks the whole tree.
-#[tracing::instrument(level = "debug", skip_all)]
+/// The paths git's status names as changed, in the index or in the working tree (untracked
+/// files when `untracked`), a rename as both its paths: what a working-tree diff has to read.
+/// `None` when git cannot be started, and the diff then walks the whole tree.
+#[tracing::instrument(level = "debug", skip_all, fields(untracked = untracked))]
 pub(super) fn changed_paths(
     engine: &Git2Engine,
+    untracked: bool,
     cancel: &Cancel,
-) -> GitResult<Option<Vec<Vec<u8>>>> {
-    let extra = ["--untracked-files=all", "--ignored=no", "--no-renames"];
+) -> GitResult<Option<Vec<status_porcelain::NamedPath>>> {
+    let mut extra = vec![
+        if untracked {
+            "--untracked-files=all"
+        } else {
+            "--untracked-files=no"
+        },
+        "--ignored=no",
+        "--no-renames",
+    ];
+    // Without untracked files git's status also leaves out a submodule whose only change is
+    // untracked content, which a diff shows when `diff.ignoreSubmodules` is `none`: the status
+    // then names every changed submodule, and libgit2 judges each one by its own rules.
+    if !untracked && engine.with_repo(|repo| Ok(diff_shows_untracked_submodules(repo)))? {
+        extra.push("--ignore-submodules=none");
+    }
     Ok(porcelain(engine, &extra, cancel)?.map(|output| status_porcelain::changed_paths(&output)))
+}
+
+/// Whether the repository's configuration sets `diff.ignoreSubmodules` to `none`.
+fn diff_shows_untracked_submodules(repo: &git2::Repository) -> bool {
+    repo.config()
+        .and_then(|config| config.get_string("diff.ignoreSubmodules"))
+        .is_ok_and(|value| value.trim().eq_ignore_ascii_case("none"))
 }
 
 /// `git status --porcelain=v2 -z` with `extra` options, on the engine's repository named

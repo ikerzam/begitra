@@ -77,33 +77,68 @@ pub(super) fn parse(output: &[u8], include_untracked: bool) -> Vec<StatusEntry> 
     entries
 }
 
-/// The paths the records of `git status --porcelain=v2 -z` name, as git wrote them: both
-/// paths of a rename or a copy, untracked paths, no ignored one. Raw bytes, because a path
-/// that is not UTF-8 must still match itself when it is handed back to libgit2.
-pub(super) fn changed_paths(output: &[u8]) -> Vec<Vec<u8>> {
+/// A path the status names, with what matching it in libgit2 depends on.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct NamedPath {
+    /// As git wrote it: raw bytes, because a path that is not UTF-8 must still match itself
+    /// when it is handed back to libgit2.
+    pub(super) path: Vec<u8>,
+    /// An untracked path (`?`), which libgit2 lists only when no folder above it holds a
+    /// `.git`.
+    pub(super) untracked: bool,
+    /// A folder (`dir/`, an untracked nested repository) or a submodule, which libgit2
+    /// matches as a pattern even when told to match literally.
+    pub(super) folder: bool,
+}
+
+/// The paths the records of `git status --porcelain=v2 -z` name: both paths of a rename or a
+/// copy, untracked paths, no ignored one.
+pub(super) fn changed_paths(output: &[u8]) -> Vec<NamedPath> {
     let mut records = output
         .split(|&byte| byte == 0)
         .filter(|record| !record.is_empty());
+    let named = |path: &[u8], untracked: bool, folder: bool| NamedPath {
+        path: path.to_vec(),
+        untracked,
+        folder,
+    };
     let mut paths = Vec::new();
     while let Some(record) = records.next() {
         let Some((&kind, rest)) = record.split_first() else {
             continue;
         };
         let rest = rest.strip_prefix(b" ").unwrap_or(rest);
-        let path = match kind {
-            b'1' => fields(rest, 7).map(|(_, path)| path),
-            b'2' => {
-                if let Some(original) = records.next() {
-                    paths.push(original.to_vec());
-                }
-                fields(rest, 8).map(|(_, path)| path)
-            }
-            b'u' => fields(rest, 9).map(|(_, path)| path),
-            b'?' if !rest.is_empty() => Some(rest),
-            _ => None,
+        // The `sub` field, the second of a change record: `N...`, or `S` and three letters
+        // for a submodule.
+        let submodule = |rest: &[u8]| {
+            rest.split(|&byte| byte == b' ')
+                .nth(1)
+                .is_some_and(|sub| sub.first() == Some(&b'S'))
         };
-        if let Some(path) = path {
-            paths.push(path.to_vec());
+        match kind {
+            b'1' => {
+                if let Some((_, path)) = fields(rest, 7) {
+                    paths.push(named(path, false, submodule(rest)));
+                }
+            }
+            b'2' => {
+                let original = records.next();
+                if let Some((_, path)) = fields(rest, 8) {
+                    paths.push(named(path, false, submodule(rest)));
+                    if let Some(original) = original {
+                        paths.push(named(original, false, submodule(rest)));
+                    }
+                }
+            }
+            b'u' => {
+                if let Some((_, path)) = fields(rest, 9) {
+                    paths.push(named(path, false, submodule(rest)));
+                }
+            }
+            b'?' if !rest.is_empty() => {
+                paths.push(named(rest, true, rest.last() == Some(&b'/')));
+            }
+            _ => {}
         }
     }
     paths
@@ -232,18 +267,26 @@ mod tests {
         )
         .as_bytes()
         .to_vec();
-        // A path that is not UTF-8 stays itself.
+        // A path that is not UTF-8 stays itself; a submodule and an untracked nested
+        // repository are folders to libgit2.
         output.extend_from_slice(b"? caf\xe9.txt\0");
-        let paths: Vec<Vec<u8>> = changed_paths(&output);
+        output.extend_from_slice(b"1 .M S.M. 160000 160000 160000 e69de29 e69de29 vendor/lib\0");
+        output.extend_from_slice(b"? nested/\0");
+        let paths: Vec<(Vec<u8>, bool, bool)> = changed_paths(&output)
+            .into_iter()
+            .map(|named| (named.path, named.untracked, named.folder))
+            .collect();
         assert_eq!(
             paths,
             [
-                b"src/lib.rs".to_vec(),
-                b"old name.txt".to_vec(),
-                b"new name.txt".to_vec(),
-                b"conflict.txt".to_vec(),
-                b"dir with [glob]/f.txt".to_vec(),
-                b"caf\xe9.txt".to_vec(),
+                (b"src/lib.rs".to_vec(), false, false),
+                (b"new name.txt".to_vec(), false, false),
+                (b"old name.txt".to_vec(), false, false),
+                (b"conflict.txt".to_vec(), false, false),
+                (b"dir with [glob]/f.txt".to_vec(), true, false),
+                (b"caf\xe9.txt".to_vec(), true, false),
+                (b"vendor/lib".to_vec(), false, true),
+                (b"nested/".to_vec(), true, true),
             ]
         );
     }

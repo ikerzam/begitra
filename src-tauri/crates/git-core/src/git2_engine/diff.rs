@@ -21,15 +21,20 @@
 //!   and collapses only the first `$Id$`: such a working file shows its raw or partly
 //!   filtered content, and a file the patch does not read (binary by attribute) compares by
 //!   its raw bytes, so a `-diff` file with CRLF endings under `core.autocrlf` is listed;
-//! - a file flagged `assume-unchanged` or `skip-worktree` with a staged change shows its disk
-//!   content against HEAD, where git shows the index's, and a staged change to a sparse file
-//!   absent from the disk is not listed against HEAD;
+//! - against HEAD or a revision, a file flagged `assume-unchanged` or `skip-worktree` with a
+//!   staged change and other content on disk shows the index's content only while no other
+//!   file has an unstaged change: the merged diff then takes every new side from the disk, and
+//!   the file is listed without lines (or with the disk's lines when the sizes agree), where
+//!   git shows the index's; a staged change to a sparse file absent from the disk is not
+//!   listed, since the working-tree half reads the file as deleted and the `skip-worktree` rule
+//!   drops the merged delta;
 //! - `linguist-generated` is read from the index and the working copy (`.gitattributes` as
 //!   checked out), not from the compared commit, and only when some attributes file of the
 //!   repository names the attribute at all (each lookup costs a stat per directory level);
 //! - an unborn HEAD counts as the empty tree, where `git diff HEAD` fails.
 
 use std::path::Path;
+use std::sync::Once;
 
 use git2::{
     AttrCheckFlags, AttrValue, Commit, Delta, Diff, DiffDelta, DiffFindOptions, DiffHunk,
@@ -38,7 +43,7 @@ use git2::{
 };
 
 use crate::diff::{hunk_header, line_text, mark_intra_line_spans, parse_similarity};
-use crate::engine::Cancel;
+use crate::engine::{Cancel, GitEngine};
 use crate::error::{GitError, GitResult};
 use crate::flags;
 use crate::types::{
@@ -242,15 +247,7 @@ fn build_diff<'r>(
     options: &DiffOptions,
     paths: Option<&[Vec<u8>]>,
 ) -> GitResult<Diff<'r>> {
-    let mut git_options = Git2DiffOptions::new();
-    git_options
-        .context_lines(options.context.min(MAX_CONTEXT))
-        .include_typechange(true)
-        .ignore_whitespace(options.ignore_whitespace);
-    // The working tree is read at the paths git's status named, not folder by folder.
-    if let (DiffTarget::WorkingTree { .. }, Some(paths)) = (target, paths) {
-        limit_to(&mut git_options, paths);
-    }
+    let mut git_options = base_options(options);
     let diff = match target {
         DiffTarget::Commit { hash } => {
             let commit = resolve_commit(repo, hash)?;
@@ -295,20 +292,27 @@ fn build_diff<'r>(
             base: WorkingTreeBase::Head,
         } => {
             let head = head_tree(repo)?;
-            repo.diff_tree_to_workdir_with_index(head.as_ref(), Some(&mut git_options))
-                .map_err(GitError::from)
+            // git's status compares HEAD with the index too, so its paths cover both halves.
+            tree_to_workdir(repo, head.as_ref(), options, paths, paths)
         }
         DiffTarget::WorkingTree {
             base: WorkingTreeBase::Revision { rev },
         } => {
             let tree = commit_tree(&resolve_commit(repo, rev)?)?;
-            repo.diff_tree_to_workdir_with_index(Some(&tree), Some(&mut git_options))
-                .map_err(GitError::from)
+            let staged = match (paths, head_tree(repo)?) {
+                (Some(paths), Some(head)) => revision_paths(repo, &tree, &head, paths)?,
+                _ => None,
+            };
+            tree_to_workdir(repo, Some(&tree), options, staged.as_deref(), paths)
         }
         DiffTarget::WorkingTree {
             base: WorkingTreeBase::Index,
-        } => repo
-            .diff_index_to_workdir(
+        } => {
+            // The working tree is read at the paths git's status named, not folder by folder.
+            if let Some(paths) = paths {
+                limit_to(&mut git_options, paths);
+            }
+            repo.diff_index_to_workdir(
                 None,
                 Some(
                     git_options
@@ -317,7 +321,8 @@ fn build_diff<'r>(
                         .show_untracked_content(true),
                 ),
             )
-            .map_err(GitError::from),
+            .map_err(GitError::from)
+        }
         DiffTarget::Index => {
             let head = head_tree(repo)?;
             repo.diff_tree_to_index(head.as_ref(), None, Some(&mut git_options))
@@ -325,6 +330,63 @@ fn build_diff<'r>(
         }
     };
     diff
+}
+
+/// `git diff <tree>`: the tree against the index and the index against the working tree,
+/// merged, which is what libgit2's `diff_tree_to_workdir_with_index` does inside, with the
+/// index read once for both. Done here so each half takes its own paths, `staged` for the tree
+/// against the index and `paths` for the working tree; `None` reads everything.
+fn tree_to_workdir<'r>(
+    repo: &'r Repository,
+    tree: Option<&Tree<'r>>,
+    options: &DiffOptions,
+    staged: Option<&[Vec<u8>]>,
+    paths: Option<&[Vec<u8>]>,
+) -> GitResult<Diff<'r>> {
+    let mut index = repo.index()?;
+    // As libgit2 loads it for its own two halves: a failed read keeps the index in memory.
+    if let Err(error) = index.read(false) {
+        tracing::debug!(%error, "the index could not be read again from disk");
+    }
+    let mut against_index = base_options(options);
+    if let Some(staged) = staged {
+        limit_to(&mut against_index, staged);
+    }
+    let mut diff = repo.diff_tree_to_index(tree, Some(&index), Some(&mut against_index))?;
+    let mut working = base_options(options);
+    if let Some(paths) = paths {
+        limit_to(&mut working, paths);
+    }
+    let unstaged = repo.diff_index_to_workdir(Some(&index), Some(&mut working))?;
+    diff.merge(&unstaged)?;
+    Ok(diff)
+}
+
+/// The paths where a revision's tree can differ from the index: those git's status names
+/// (HEAD against the index) and those where the revision differs from HEAD. `None` when the
+/// trees differ in more paths than the list takes or in one libgit2 would not match
+/// literally: the tree is then compared with the whole index.
+fn revision_paths(
+    repo: &Repository,
+    tree: &Tree<'_>,
+    head: &Tree<'_>,
+    paths: &[Vec<u8>],
+) -> GitResult<Option<Vec<Vec<u8>>>> {
+    let Some(mut differing) = changed_paths(repo, tree, head, STATUS_PATH_LIMIT)? else {
+        return Ok(None);
+    };
+    differing.extend_from_slice(paths);
+    Ok(within_limit(differing, STATUS_PATH_LIMIT))
+}
+
+/// The libgit2 options every diff of the engine starts from.
+fn base_options(options: &DiffOptions) -> Git2DiffOptions {
+    let mut git_options = Git2DiffOptions::new();
+    git_options
+        .context_lines(options.context.min(MAX_CONTEXT))
+        .include_typechange(true)
+        .ignore_whitespace(options.ignore_whitespace);
+    git_options
 }
 
 /// Resolves a revision as `git rev-parse` would and peels it to a commit: unknown and
@@ -348,16 +410,20 @@ const CANCEL_EVERY_LINES: usize = 512;
 const PRUNE_LIMIT: usize = 2_000;
 
 /// Changed paths above which a working-tree diff walks the whole tree rather than the paths
-/// git's status names. Higher than [`PRUNE_LIMIT`] because the walk it saves reads every
-/// folder of the working tree (seconds on a large one), not two trees from the object store.
-const STATUS_PATH_LIMIT: usize = 10_000;
+/// git's status names: a guard on the list's memory only, since the list costs less than the
+/// walk it replaces at every size measured and nears it only when it names most of the tree,
+/// while giving it up adds the whole walk to the status already paid.
+const STATUS_PATH_LIMIT: usize = 250_000;
 
-/// The paths a working-tree diff reads: those git's status names and, against a revision,
-/// those that differ between that revision's tree and HEAD's (a file the index and the
-/// working tree leave as HEAD has it still differs from the revision). `None` for another
-/// target, without git, past [`STATUS_PATH_LIMIT`], on an unborn HEAD against a revision, or
-/// when the trees differ in more paths than the list takes: the diff then walks the whole
-/// tree, as libgit2 does on its own. `target` is resolved (its revision is a commit id).
+/// The paths the working-tree side of a diff reads: those git's status names (untracked
+/// files for the diff against the index only, the others leaving them out); against HEAD
+/// they cover the tree's side too, and a revision adds its own (`revision_paths`). `None`
+/// for another target, when git cannot answer (not started, or its status failing on a
+/// damaged repository that libgit2 still reads), past [`STATUS_PATH_LIMIT`], or when a path
+/// cannot be matched literally (see [`literal`]): the diff then walks the whole working
+/// tree, as libgit2 does on its own. An untracked path under a folder that holds a `.git` is
+/// that folder instead (see [`repository_above`]).
+#[tracing::instrument(level = "debug", skip_all)]
 pub(super) fn working_tree_paths(
     engine: &super::Git2Engine,
     target: &DiffTarget,
@@ -366,23 +432,145 @@ pub(super) fn working_tree_paths(
     let DiffTarget::WorkingTree { base } = target else {
         return Ok(None);
     };
-    let Some(mut paths) = super::status::changed_paths(engine, cancel)? else {
-        return Ok(None);
+    let untracked = matches!(base, WorkingTreeBase::Index);
+    let named = match super::status::changed_paths(engine, untracked, cancel) {
+        Ok(Some(named)) => named,
+        Ok(None) => {
+            tracing::debug!("git could not be started: the diff walks the whole working tree");
+            return Ok(None);
+        }
+        Err(GitError::Cancelled) => return Err(GitError::Cancelled),
+        Err(error) => {
+            // A cancel raised while git failed still cancels: the walk cannot be interrupted.
+            cancel.check()?;
+            static WARNED: Once = Once::new();
+            WARNED.call_once(|| {
+                tracing::warn!(%error, "git's status failed; working-tree diffs walk the whole tree");
+            });
+            tracing::debug!(%error, "git's status failed: the diff walks the whole working tree");
+            return Ok(None);
+        }
     };
-    if let WorkingTreeBase::Revision { rev } = base {
-        let differing = engine.with_repo(|repo| {
-            let Some(head) = head_tree(repo)? else {
+    if named.len() > STATUS_PATH_LIMIT {
+        tracing::debug!(
+            count = named.len(),
+            "more paths than the list takes: the diff walks the whole working tree"
+        );
+        return Ok(None);
+    }
+    if let Some(odd) = named
+        .iter()
+        .find(|named| !literal(&named.path, named.folder))
+    {
+        tracing::debug!(
+            path = %String::from_utf8_lossy(&odd.path),
+            "a path libgit2 would not match literally: the diff walks the whole working tree"
+        );
+        return Ok(None);
+    }
+    let root = GitEngine::repo(engine).root.clone();
+    let mut repositories = std::collections::HashMap::new();
+    let mut paths = Vec::with_capacity(named.len());
+    for (at, named) in named.into_iter().enumerate() {
+        // One stat per new folder: a huge untracked tree takes a while.
+        if at % 1024 == 0 {
+            cancel.check()?;
+        }
+        // An untracked file under a folder that holds a `.git` which is no repository (an
+        // empty one, a pruned worktree's link): git names the file, libgit2 lists the folder
+        // alone, as the whole walk did.
+        let above = if named.untracked {
+            if super::os_path(&named.path).is_none() {
+                tracing::debug!(
+                    path = %String::from_utf8_lossy(&named.path),
+                    "a path this platform cannot spell: the diff walks the whole working tree"
+                );
                 return Ok(None);
-            };
-            let tree = commit_tree(&resolve_commit(repo, rev)?)?;
-            changed_paths(repo, &tree, &head, STATUS_PATH_LIMIT)
-        })?;
-        match differing {
-            Some(differing) => paths.extend(differing),
-            None => return Ok(None),
+            }
+            repository_above(&root, &named.path, &mut repositories)
+        } else {
+            None
+        };
+        match above.and_then(|end| named.path.get(..end)) {
+            Some(folder) => {
+                let mut folder = folder.to_vec();
+                folder.push(b'/');
+                if !literal(&folder, true) {
+                    tracing::debug!(
+                        path = %String::from_utf8_lossy(&folder),
+                        "a folder libgit2 would not match literally: the diff walks the whole working tree"
+                    );
+                    return Ok(None);
+                }
+                paths.push(folder);
+            }
+            None => paths.push(named.path),
         }
     }
     Ok(within_limit(paths, STATUS_PATH_LIMIT))
+}
+
+/// Whether libgit2 matches `path` literally under `disable_pathspec_match`, and the rest of
+/// the list with it. It skips its pattern match only for files and symbolic links: a folder
+/// (`dir/`, whose files match it by prefix) or a submodule is matched again by
+/// `git_pathspec__match` against the whole list read as patterns, where a leading `#` is a
+/// comment, `*`, `?` and `[` turn off the prefix rule, a trailing space is trimmed, and a
+/// leading `!` on any entry, a file's included, makes a negative pattern that leaves out the
+/// folder or submodule it names, and a control character ends a pattern or is trimmed from
+/// its end; and git2 turns every `\` into `/` on Windows. Such a path makes the diff walk the
+/// whole tree instead.
+fn literal(path: &[u8], folder: bool) -> bool {
+    if path.contains(&b'\\') || path.first() == Some(&b'!') {
+        return false;
+    }
+    if !folder {
+        return true;
+    }
+    let name = path.strip_suffix(b"/").unwrap_or(path);
+    name.first() != Some(&b'#')
+        && name.last() != Some(&b' ')
+        && !name
+            .iter()
+            .any(|&byte| matches!(byte, b'*' | b'?' | b'[') || byte < 0x20)
+}
+
+/// The length of the outermost folder above the untracked `path` (below the root) that holds
+/// a `.git`, or `None`: git enters such a folder when that `.git` is no repository and names
+/// its files, where libgit2 never enters an untracked folder holding a `.git` and lists the
+/// folder alone. A tracked folder holding one is entered by both, and naming it only widens
+/// what the diff reads. `seen` keeps the answer per folder.
+fn repository_above(
+    root: &Path,
+    path: &[u8],
+    seen: &mut std::collections::HashMap<Vec<u8>, bool>,
+) -> Option<usize> {
+    let mut end = 0;
+    while let Some(slash) = path
+        .get(end..)
+        .and_then(|rest| rest.iter().position(|&byte| byte == b'/'))
+    {
+        end += slash;
+        let folder = path.get(..end).unwrap_or_default();
+        let at = end;
+        end += 1;
+        if folder.is_empty() || end >= path.len() {
+            continue;
+        }
+        let holds = match seen.get(folder) {
+            Some(&holds) => holds,
+            None => {
+                // libgit2 asks whether the entry exists, following a symbolic link.
+                let holds = super::os_path(folder)
+                    .is_some_and(|relative| root.join(relative).join(".git").exists());
+                seen.insert(folder.to_vec(), holds);
+                holds
+            }
+        };
+        if holds {
+            return Some(at);
+        }
+    }
+    None
 }
 
 /// The paths sorted and without repeats, or `None` past `limit`.
@@ -431,8 +619,10 @@ fn tree_diff<'r>(
 /// The paths that differ between `old` and `new`, descending only into subtrees whose ids
 /// differ; `None` once more than `limit` paths are found, or when a path cannot be given to
 /// libgit2 literally. Trees present on one side only, or replacing a blob, are listed as
-/// `dir/` so a literal pathspec covers their content; a blob replaced by a tree is listed as
-/// both `path` and `path/`. A subtree that cannot be read is [`GitError::CorruptObject`].
+/// `dir/` so a literal pathspec covers their content, unless libgit2 would read `dir/` as a
+/// pattern: their entries are then listed one by one (see [`ChangedPaths::one_side`]). A
+/// blob replaced by a tree is listed as both `path` and `path/`. A subtree that cannot be
+/// read is [`GitError::CorruptObject`].
 fn changed_paths(
     repo: &Repository,
     old: &Tree<'_>,
@@ -444,60 +634,62 @@ fn changed_paths(
         pending: Vec::new(),
         limit,
     };
-    if !found.merge(b"", old, new) {
+    if !found.merge(b"", Some(old), Some(new)) {
         return Ok(None);
     }
+    let subtree = |id: Oid| {
+        repo.find_tree(id)
+            .map_err(|error| GitError::object(&id.to_string(), error))
+    };
     while let Some((prefix, old_id, new_id)) = found.pending.pop() {
-        let old_tree = repo
-            .find_tree(old_id)
-            .map_err(|error| GitError::object(&old_id.to_string(), error))?;
-        let new_tree = repo
-            .find_tree(new_id)
-            .map_err(|error| GitError::object(&new_id.to_string(), error))?;
-        if !found.merge(&prefix, &old_tree, &new_tree) {
+        let old_tree = old_id.map(subtree).transpose()?;
+        let new_tree = new_id.map(subtree).transpose()?;
+        if !found.merge(&prefix, old_tree.as_ref(), new_tree.as_ref()) {
             return Ok(None);
         }
     }
     Ok(Some(found.paths))
 }
 
-/// The changed paths found so far and the differing subtrees still to compare.
+/// The changed paths found so far and the subtrees still to compare.
 struct ChangedPaths {
     paths: Vec<Vec<u8>>,
-    /// `(prefix with trailing slash, old subtree, new subtree)`.
-    pending: Vec<(Vec<u8>, Oid, Oid)>,
+    /// `(prefix with trailing slash, old subtree, new subtree)`, a side `None` for a tree
+    /// present on the other side only.
+    pending: Vec<(Vec<u8>, Option<Oid>, Option<Oid>)>,
     limit: usize,
 }
 
 impl ChangedPaths {
     /// Merges the entries of two trees, which git stores in one canonical order (a directory
-    /// sorts as `name/`), so each side is read once and no map is built. Returns `false`
-    /// when the limit is passed or a path cannot be a literal pathspec.
-    fn merge(&mut self, prefix: &[u8], old: &Tree<'_>, new: &Tree<'_>) -> bool {
+    /// sorts as `name/`), so each side is read once and no map is built; a missing side has
+    /// no entries. Returns `false` when the limit is passed or a path cannot be a literal
+    /// pathspec.
+    fn merge(&mut self, prefix: &[u8], old: Option<&Tree<'_>>, new: Option<&Tree<'_>>) -> bool {
         use std::cmp::Ordering;
-        let mut olds = old.iter().peekable();
-        let mut news = new.iter().peekable();
+        let mut olds = old.into_iter().flat_map(|tree| tree.iter()).peekable();
+        let mut news = new.into_iter().flat_map(|tree| tree.iter()).peekable();
         loop {
             let ok = match (olds.peek(), news.peek()) {
                 (None, None) => return true,
                 (Some(gone), None) => {
-                    let ok = self.push(prefix, gone.name_bytes(), is_tree(gone));
+                    let ok = self.one_side(prefix, gone, true);
                     olds.next();
                     ok
                 }
                 (None, Some(added)) => {
-                    let ok = self.push(prefix, added.name_bytes(), is_tree(added));
+                    let ok = self.one_side(prefix, added, false);
                     news.next();
                     ok
                 }
                 (Some(before), Some(after)) => match before.cmp(after) {
                     Ordering::Less => {
-                        let ok = self.push(prefix, before.name_bytes(), is_tree(before));
+                        let ok = self.one_side(prefix, before, true);
                         olds.next();
                         ok
                     }
                     Ordering::Greater => {
-                        let ok = self.push(prefix, after.name_bytes(), is_tree(after));
+                        let ok = self.one_side(prefix, after, false);
                         news.next();
                         ok
                     }
@@ -510,12 +702,12 @@ impl ChangedPaths {
                             } else if is_tree(before) && is_tree(after) {
                                 self.pending.push((
                                     join(prefix, before.name_bytes(), true),
-                                    before.id(),
-                                    after.id(),
+                                    Some(before.id()),
+                                    Some(after.id()),
                                 ));
                                 true
                             } else {
-                                self.push(prefix, before.name_bytes(), false)
+                                self.push(prefix, before, false)
                             };
                         olds.next();
                         news.next();
@@ -529,13 +721,37 @@ impl ChangedPaths {
         }
     }
 
-    /// Records one changed path; `false` when the limit is passed or the name holds a
-    /// backslash, which git2 rewrites to a slash on Windows (the unpruned diff still lists it).
-    fn push(&mut self, prefix: &[u8], name: &[u8], directory: bool) -> bool {
-        if cfg!(windows) && name.contains(&b'\\') {
+    /// An entry present on one side only (`old_side` for the old tree), recorded as its path,
+    /// a tree as `dir/`, which libgit2 expands. A tree whose `dir/` libgit2 would read as a
+    /// pattern (`app/[locale]/`) is queued against nothing instead, so its entries are
+    /// recorded one by one: a file is filtered by the iterators' literal list and never
+    /// reaches the pattern match, which a folder or a submodule does.
+    fn one_side(&mut self, prefix: &[u8], entry: &git2::TreeEntry<'_>, old_side: bool) -> bool {
+        if is_tree(entry) {
+            let path = join(prefix, entry.name_bytes(), true);
+            if !literal(&path, true) {
+                let id = Some(entry.id());
+                self.pending.push(if old_side {
+                    (path, id, None)
+                } else {
+                    (path, None, id)
+                });
+                return true;
+            }
+        }
+        self.push(prefix, entry, is_tree(entry))
+    }
+
+    /// Records `entry` under `prefix` (as `dir/` when `directory`); `false` when the limit is
+    /// passed or libgit2 would not match the path literally (see [`literal`]), a submodule
+    /// counting as a folder: the unpruned diff still lists it.
+    fn push(&mut self, prefix: &[u8], entry: &git2::TreeEntry<'_>, directory: bool) -> bool {
+        let path = join(prefix, entry.name_bytes(), directory);
+        let folder = directory || entry.kind() == Some(ObjectType::Commit);
+        if !literal(&path, folder) {
             return false;
         }
-        self.paths.push(join(prefix, name, directory));
+        self.paths.push(path);
         self.paths.len() <= self.limit
     }
 }
@@ -1143,6 +1359,115 @@ fn locate_unreadable_blob<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_path_libgit2_reads_as_a_pattern_is_not_literal() {
+        assert!(
+            literal(b"#notes.md", false),
+            "a file skips the pattern match"
+        );
+        assert!(literal(b"lib[v2]/a.txt", false));
+        assert!(literal(b"plain/", true));
+        assert!(literal(b"a/!b.txt", false), "only a leading `!` negates");
+        assert!(
+            !literal(b"!notes.md", false),
+            "a negative pattern leaves out the folder or submodule it names"
+        );
+        for folder in [
+            &b"#hash/"[..],
+            b"lib[v2]/",
+            b"star*/",
+            b"what?",
+            b"trailing /",
+        ] {
+            assert!(
+                !literal(folder, true),
+                "{}",
+                String::from_utf8_lossy(folder)
+            );
+        }
+        assert!(
+            !literal(b"a\\b.txt", false),
+            "git2 turns a backslash into a slash on Windows"
+        );
+        assert!(!literal(b"tab\t", true), "a control character is trimmed");
+        assert!(!literal(b"new\nline/", true), "or ends the pattern");
+    }
+
+    /// A tree of `entries` (`path`, id, mode) written to `repo`'s object store.
+    fn tree_of(repo: &Repository, entries: &[(&str, Oid, i32)]) -> Oid {
+        let mut builder = repo.treebuilder(None).expect("tree builder");
+        let mut folders: std::collections::BTreeMap<&str, Vec<(&str, Oid, i32)>> =
+            std::collections::BTreeMap::new();
+        for &(path, id, mode) in entries {
+            match path.split_once('/') {
+                Some((folder, rest)) => folders.entry(folder).or_default().push((rest, id, mode)),
+                None => {
+                    builder.insert(path, id, mode).expect("insert");
+                }
+            }
+        }
+        for (folder, inner) in folders {
+            builder
+                .insert(folder, tree_of(repo, &inner), 0o040_000)
+                .expect("insert folder");
+        }
+        builder.write().expect("write tree")
+    }
+
+    #[test]
+    fn a_folder_named_like_a_pattern_is_pruned_file_by_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let repo = Repository::init(dir.path()).expect("init");
+        let blob = repo.blob(b"x\n").expect("blob");
+        let file = 0o100_644;
+        let tree =
+            |entries: &[(&str, Oid, i32)]| repo.find_tree(tree_of(&repo, entries)).expect("tree");
+        // The paths come in the order the subtrees are read.
+        let changed = |old: &Tree<'_>, new: &Tree<'_>| {
+            changed_paths(&repo, old, new, 10)
+                .expect("paths")
+                .map(|mut paths| {
+                    paths.sort_unstable();
+                    paths
+                })
+        };
+        let old = tree(&[("app/layout.tsx", blob, file)]);
+        // `app/[locale]/` as a pathspec would be a pattern: its files are listed instead.
+        let new = tree(&[
+            ("app/layout.tsx", blob, file),
+            ("app/[locale]/page.tsx", blob, file),
+            ("app/[locale]/about/page.tsx", blob, file),
+        ]);
+        assert_eq!(
+            changed(&old, &new),
+            Some(vec![
+                b"app/[locale]/about/page.tsx".to_vec(),
+                b"app/[locale]/page.tsx".to_vec(),
+            ])
+        );
+        assert_eq!(
+            changed(&new, &old),
+            Some(vec![
+                b"app/[locale]/about/page.tsx".to_vec(),
+                b"app/[locale]/page.tsx".to_vec(),
+            ]),
+            "a folder removed is listed the same way"
+        );
+        // A plain folder stays one entry.
+        let plain = tree(&[
+            ("app/layout.tsx", blob, file),
+            ("app/en/page.tsx", blob, file),
+        ]);
+        assert_eq!(changed(&old, &plain), Some(vec![b"app/en/".to_vec()]));
+        // A submodule below such a folder goes through the pattern match: no pruning.
+        let commit = Oid::from_str("0123456789abcdef0123456789abcdef01234567").expect("id");
+        let with_submodule = tree(&[
+            ("app/layout.tsx", blob, file),
+            ("app/[locale]/vendor", commit, 0o160_000),
+        ]);
+        assert_eq!(changed(&old, &with_submodule), None);
+    }
 
     #[test]
     fn the_status_path_list_is_sorted_once_and_given_up_past_its_limit() {

@@ -707,7 +707,7 @@ fn against_index() -> DiffTarget {
 /// files `git status` shows as `??`, added; both read NUL-separated, so no path is quoted.
 fn git_working_tree(f: &Fixture) -> Vec<NameStatus> {
     let diff = f.git(&["diff", "--name-status", "-z"]);
-    let mut fields = diff.split(' ').filter(|field| !field.is_empty());
+    let mut fields = diff.split('\0').filter(|field| !field.is_empty());
     let mut expected = Vec::new();
     while let Some(status) = fields.next() {
         let code: String = status.chars().take(1).collect();
@@ -721,7 +721,7 @@ fn git_working_tree(f: &Fixture) -> Vec<NameStatus> {
     }
     let porcelain = f.git(&["status", "--porcelain", "-z", "-uall"]);
     for path in porcelain
-        .split(' ')
+        .split('\0')
         .filter_map(|record| record.strip_prefix("?? "))
     {
         expected.push(("A".to_owned(), path.to_owned(), None));
@@ -818,6 +818,291 @@ fn untracked_folders_and_a_nested_repository_are_listed_as_before() {
         paths(&listed),
         ["fresh/deep/er/file.txt", "fresh/top.txt", "nested/"]
     );
+}
+
+#[test]
+fn names_libgit2_reads_as_patterns_are_listed_as_before() {
+    // One fixture per name: a name that makes the diff walk the whole tree would hide whether
+    // another one is matched.
+    for name in ["lib[v2]", "#hash", "app/[slug]/tool", "plain"] {
+        let f = Fixture::basic();
+        // An untracked nested repository, which libgit2 lists as `dir/` and matches as a
+        // pattern.
+        let nested = f.root.join(name);
+        fs::create_dir_all(&nested).expect("nested folder");
+        f.git_in(&nested, &["init", "-q", "-b", "main"]);
+        fs::write(nested.join("n.txt"), "n\n").expect("write");
+        f.append("README.md", "edited\n");
+        let listed = diff(&f, &against_index());
+        let folder = format!("{name}/");
+        let mut expected = vec!["README.md", folder.as_str()];
+        expected.sort_unstable();
+        assert_eq!(paths(&listed), expected, "as the whole walk lists them");
+    }
+}
+
+/// The basic fixture with a submodule at each of `names`, added in one commit (returned).
+fn with_submodules(names: &[&str]) -> (Fixture, String) {
+    let mut f = Fixture::basic();
+    let source = f.sibling("subsrc");
+    let source_path = source.to_str().expect("utf-8 temp path").to_owned();
+    f.git(&["init", "-q", "-b", "main", &source_path]);
+    for i in 1..=2 {
+        fs::write(source.join("s.txt"), format!("s{i}\n")).expect("write");
+        f.git_in(&source, &["add", "s.txt"]);
+        f.git_in(&source, &["commit", "-q", "-m", &format!("s{i}")]);
+    }
+    for name in names {
+        f.git(&[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            "-q",
+            &source_path,
+            name,
+        ]);
+    }
+    let added = f.commit("add submodules");
+    (f, added)
+}
+
+/// [`with_submodules`], each submodule then moved back one commit in the working tree.
+fn with_moved_submodules(names: &[&str]) -> (Fixture, String) {
+    let (f, added) = with_submodules(names);
+    for name in names {
+        f.git_in(&f.root.join(name), &["checkout", "-q", "HEAD~1"]);
+    }
+    (f, added)
+}
+
+#[test]
+fn a_submodule_named_like_a_pattern_is_listed() {
+    // One fixture per name, `plain-sub` beside it.
+    for name in ["#sub", "app[1]/sub"] {
+        let (f, added) = with_moved_submodules(&[name, "plain-sub"]);
+        // The commit that adds them, whose changed paths prune the tree diff.
+        let listed = diff(&f, &commit(&added));
+        assert_eq!(
+            engine_name_status(&listed),
+            git_name_status(&f, &["show", "--format=", "--name-status", &added]),
+            "{name}"
+        );
+        let mut expected = vec![name, ".gitmodules", "plain-sub"];
+        expected.sort_unstable();
+        assert_eq!(paths(&listed), expected);
+        for base in [WorkingTreeBase::Index, WorkingTreeBase::Head] {
+            let listed = diff(&f, &DiffTarget::WorkingTree { base });
+            let mut expected = vec![name, "plain-sub"];
+            expected.sort_unstable();
+            assert_eq!(paths(&listed), expected, "{name}");
+        }
+    }
+}
+
+#[test]
+fn a_submodule_holding_only_untracked_files_follows_diff_ignore_submodules() {
+    let (f, _) = with_submodules(&["sub"]);
+    fs::write(f.root.join("sub/untracked.txt"), "u\n").expect("write");
+    let targets = [
+        DiffTarget::WorkingTree {
+            base: WorkingTreeBase::Head,
+        },
+        DiffTarget::WorkingTree {
+            base: WorkingTreeBase::Revision { rev: f.head() },
+        },
+    ];
+    // By default `git diff HEAD` leaves it out, and so does the engine.
+    assert_eq!(
+        git_name_status(&f, &["diff", "HEAD", "--name-status"]),
+        Vec::<NameStatus>::new()
+    );
+    for target in &targets {
+        assert_eq!(paths(&diff(&f, target)), Vec::<&str>::new(), "{target:?}");
+    }
+    // Under `diff.ignoreSubmodules=none` git lists it, which a status without untracked
+    // files would not name.
+    f.git(&["config", "diff.ignoreSubmodules", "none"]);
+    let expected = git_name_status(&f, &["diff", "HEAD", "--name-status"]);
+    assert_eq!(expected.len(), 1);
+    for target in &targets {
+        assert_eq!(
+            engine_name_status(&diff(&f, target)),
+            expected,
+            "{target:?}"
+        );
+    }
+}
+
+#[test]
+fn submodules_named_with_control_characters_are_listed_in_their_commit() {
+    let mut f = Fixture::basic();
+    let before = f.head();
+    // Gitlinks written to the index alone: no checkout, and Windows takes the names.
+    for name in ["sub\t", "sub\r", "a\nb/s", "plain"] {
+        f.git(&[
+            "-c",
+            "core.protectNTFS=false",
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            &format!("160000,{before},{name}"),
+        ]);
+    }
+    f.tick();
+    f.git(&["commit", "-q", "-m", "gitlinks"]);
+    let added = f.head();
+    // libgit2's pattern parser trims a trailing tab or carriage return and stops at a newline.
+    let expected = ["a\nb/s", "plain", "sub\t", "sub\r"];
+    let listed = f.git(&["diff", "--name-only", "-z", &before, &added]);
+    let mut git: Vec<&str> = listed.split('\0').filter(|path| !path.is_empty()).collect();
+    git.sort_unstable();
+    assert_eq!(git, expected);
+    assert_eq!(paths(&diff(&f, &commit(&added))), expected);
+    assert_eq!(paths(&diff(&f, &commits(&before, &added))), expected);
+}
+
+#[cfg(unix)]
+#[test]
+fn names_with_control_characters_are_listed_in_the_working_tree() {
+    let mut f = Fixture::basic();
+    let source = f.sibling("subsrc");
+    let source_path = source.to_str().expect("utf-8 temp path").to_owned();
+    f.git(&["init", "-q", "-b", "main", &source_path]);
+    for i in 1..=2 {
+        fs::write(source.join("s.txt"), format!("s{i}\n")).expect("write");
+        f.git_in(&source, &["add", "s.txt"]);
+        f.git_in(&source, &["commit", "-q", "-m", &format!("s{i}")]);
+    }
+    // Moved gitlinks added from clones (no `.gitmodules` entry, whose parser would trim the
+    // tab itself) and an untracked nested repository: libgit2's pattern parser trims a
+    // trailing tab and stops at a vertical tab.
+    let names = ["plain-sub", "sub\t"];
+    for name in names {
+        f.git(&["clone", "-q", &source_path, name]);
+        f.git(&["add", name]);
+    }
+    f.commit("embedded repositories");
+    for name in names {
+        f.git_in(&f.root.join(name), &["checkout", "-q", "HEAD~1"]);
+    }
+    let nested = f.root.join("nest\x0bx");
+    fs::create_dir_all(&nested).expect("nested folder");
+    f.git_in(&nested, &["init", "-q", "-b", "main"]);
+    fs::write(nested.join("n.txt"), "n\n").expect("write");
+    let listed = diff(&f, &against_index());
+    assert_eq!(paths(&listed), ["nest\x0bx/", "plain-sub", "sub\t"]);
+    for base in [
+        WorkingTreeBase::Head,
+        WorkingTreeBase::Revision { rev: f.head() },
+    ] {
+        let listed = diff(&f, &DiffTarget::WorkingTree { base });
+        assert_eq!(paths(&listed), names);
+    }
+}
+
+#[test]
+fn a_name_with_a_leading_bang_leaves_the_others_listed() {
+    // libgit2 reads `!plain-sub/` as a negative pattern, which would leave the submodule
+    // `plain-sub` out.
+    let (f, _) = with_moved_submodules(&["plain-sub"]);
+    let nested = f.root.join("!plain-sub");
+    fs::create_dir_all(&nested).expect("nested folder");
+    f.git_in(&nested, &["init", "-q", "-b", "main"]);
+    fs::write(nested.join("n.txt"), "n\n").expect("write");
+    let listed = diff(&f, &against_index());
+    assert_eq!(paths(&listed), ["!plain-sub/", "plain-sub"]);
+}
+
+#[test]
+fn an_index_name_with_a_backslash_is_listed() {
+    let f = Fixture::basic();
+    let blob = f.git(&["hash-object", "-w", "README.md"]);
+    // git for Windows refuses such a name unless `core.protectNTFS` is off.
+    f.git(&[
+        "-c",
+        "core.protectNTFS=false",
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        &format!("100644,{blob},a\\b.txt"),
+    ]);
+    // Not on disk: deleted in the working tree.
+    let listed = diff(&f, &against_index());
+    assert_eq!(paths(&listed), ["a\\b.txt"]);
+    assert_eq!(listed.files[0].status, ChangeKind::Deleted);
+}
+
+#[test]
+fn a_damaged_head_tree_leaves_the_working_tree_listed() {
+    let f = Fixture::basic();
+    f.append("README.md", "edited\n");
+    // git's status fails on it; the working tree against the index never needed HEAD.
+    f.delete_object("HEAD^{tree}");
+    let listed = diff(&f, &against_index());
+    assert_eq!(paths(&listed), ["README.md"]);
+}
+
+#[test]
+fn a_folder_whose_git_is_no_repository_is_listed_as_a_folder() {
+    let f = Fixture::basic();
+    // git names the files of an untracked folder whose `.git` is no repository (an empty one,
+    // a link to nowhere); libgit2 lists the folder alone, and the engine lists it so.
+    fs::create_dir_all(f.root.join("emptygit/.git")).expect("empty .git");
+    fs::write(f.root.join("emptygit/f.txt"), "f\n").expect("write");
+    fs::create_dir_all(f.root.join("stale/src")).expect("stale folder");
+    fs::write(f.root.join("stale/.git"), "gitdir: /nowhere\n").expect("link");
+    fs::write(f.root.join("stale/src/s.txt"), "s\n").expect("write");
+    fs::write(f.root.join("stale/src/t.txt"), "t\n").expect("write");
+    f.append("README.md", "edited\n");
+    let listed = diff(&f, &against_index());
+    assert_eq!(paths(&listed), ["README.md", "emptygit/", "stale/"]);
+}
+
+#[test]
+fn a_folder_whose_git_is_no_repository_named_like_a_pattern_is_listed() {
+    let f = Fixture::basic();
+    // The folder the untracked file is traded for is itself read as a pattern.
+    fs::create_dir_all(f.root.join("[x]/.git")).expect("empty .git");
+    fs::write(f.root.join("[x]/f.txt"), "f\n").expect("write");
+    f.append("README.md", "edited\n");
+    let listed = diff(&f, &against_index());
+    assert_eq!(paths(&listed), ["README.md", "[x]/"]);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_nested_repository_named_with_a_star_is_listed() {
+    let f = Fixture::basic();
+    let nested = f.root.join("nest*");
+    fs::create_dir_all(&nested).expect("nested folder");
+    f.git_in(&nested, &["init", "-q", "-b", "main"]);
+    fs::write(nested.join("n.txt"), "n\n").expect("write");
+    f.append("README.md", "edited\n");
+    let listed = diff(&f, &against_index());
+    assert_eq!(paths(&listed), ["README.md", "nest*/"]);
+}
+
+#[test]
+fn a_staged_copy_of_a_file_off_the_disk_is_an_addition_against_head() {
+    let f = Fixture::basic();
+    // The sparse checkout keeps `docs/guide.md` in the index and off the disk; a copy of it
+    // staged inside the checkout is an addition, as `git diff HEAD` lists it, not a rename
+    // from a file that is only absent.
+    f.git(&["sparse-checkout", "set", "--no-cone", "src"]);
+    f.write("src/guide-copy.md", "guide\n");
+    f.git(&["add", "src/guide-copy.md"]);
+    let listed = diff(
+        &f,
+        &DiffTarget::WorkingTree {
+            base: WorkingTreeBase::Head,
+        },
+    );
+    assert_eq!(
+        engine_name_status(&listed),
+        git_name_status(&f, &["diff", "HEAD", "--name-status"])
+    );
+    assert_eq!(file(&listed, "src/guide-copy.md").status, ChangeKind::Added);
 }
 
 #[test]
