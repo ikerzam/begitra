@@ -198,7 +198,9 @@ impl Session {
         })
         .expect("the watcher starts");
         std::thread::sleep(SETTLE.max(DEBOUNCE * 2));
-        while events.try_recv().is_ok() {}
+        // What the setup still reports (FSEvents can deliver it late) is dropped: until quiet.
+        let until = Instant::now() + PATIENCE;
+        while Instant::now() < until && events.recv_timeout(QUIET).is_ok() {}
         Self {
             _watcher: watcher,
             events,
@@ -542,7 +544,7 @@ fn a_tracked_file_under_a_build_folder_reports_its_path() {
     repo.write("dist/index.js", "rebuilt\n");
     let events = session.collect(|events| reported(events, "dist/index.js"), QUIET, PATIENCE);
     assert!(reported(&events, "dist/index.js"), "{events:?}");
-    // A build folder without tracked files stays quiet.
+    // A build folder without tracked files stays quiet, created as an install creates it.
     repo.write("node_modules/dep/index.js", "installed\n");
     let events = session.collect(|_| false, Duration::ZERO, SILENCE);
     assert!(events.is_empty(), "{events:?}");
