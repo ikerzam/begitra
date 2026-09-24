@@ -4,6 +4,7 @@
 //! `BEGITRA_BENCH_REPOS`); a missing repository is skipped with the command that creates it.
 //! Results are read by `cargo run -p bench -- report` and pasted into a results table.
 
+use std::cell::OnceCell;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -333,7 +334,9 @@ fn status(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(20));
     for target in present() {
         let engine = engine(&target.path);
+        let refreshed = OnceCell::new();
         group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+            refreshed.get_or_init(|| refresh_index(&target.path));
             b.iter(|| {
                 e.status(&StatusOptions::default(), &Cancel::never())
                     .expect("status")
@@ -721,6 +724,24 @@ fn touch_files(root: &Path, files: &[String]) {
     }
 }
 
+/// Restores `files` as the index has them and refreshes the index, so the next scenario (or
+/// the next run) starts from the state the budgets are measured in.
+fn restore(engine: &Git2Engine, root: &Path, files: &[String]) {
+    engine
+        .discard_paths(files, &[], &Cancel::never())
+        .expect("restore the tree");
+    refresh_index(root);
+}
+
+/// A plain `git status`, which writes the refreshed stat data back to the index: the engine's
+/// status runs with `--no-optional-locks` and never does, so every file rewritten with the same
+/// content (a restore) is hashed again on each status until then.
+fn refresh_index(root: &Path) {
+    if let Err(error) = run_git(root, &["status", "--porcelain"]) {
+        eprintln!("could not refresh the index of {}: {error}", root.display());
+    }
+}
+
 /// The first page of 200 files of the working tree against the index with 1,000 files
 /// modified: what the changes screen waits for, each working-tree side read and hashed by its
 /// patch for the review marks. Restores the tree afterwards.
@@ -737,11 +758,15 @@ fn diff_working_tree_first_page(c: &mut Criterion) {
             );
             continue;
         }
-        touch_files(&target.path, &files);
         let unstaged = DiffTarget::WorkingTree {
             base: WorkingTreeBase::Index,
         };
+        let touched = OnceCell::new();
         group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+            touched.get_or_init(|| {
+                refresh_index(&target.path);
+                touch_files(&target.path, &files);
+            });
             b.iter(|| {
                 let mut walk = e
                     .diff_pages(&unstaged, &DiffOptions::default(), 200, &Cancel::never())
@@ -749,9 +774,9 @@ fn diff_working_tree_first_page(c: &mut Criterion) {
                 walk.next_page(&Cancel::never()).expect("page")
             });
         });
-        engine
-            .discard_paths(&files, &[], &Cancel::never())
-            .expect("restore the tree");
+        if touched.get().is_some() {
+            restore(&engine, &target.path, &files);
+        }
     }
     group.finish();
 }
@@ -771,16 +796,17 @@ fn stage_unstage_10k(c: &mut Criterion) {
             );
             continue;
         }
-        touch_files(&target.path, &files);
+        let touched = OnceCell::new();
         group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+            touched.get_or_init(|| touch_files(&target.path, &files));
             b.iter(|| {
                 e.stage_paths(&files, &Cancel::never()).expect("stage");
                 e.unstage_paths(&files, &Cancel::never()).expect("unstage");
             });
         });
-        engine
-            .discard_paths(&files, &[], &Cancel::never())
-            .expect("restore the tree");
+        if touched.get().is_some() {
+            restore(&engine, &target.path, &files);
+        }
     }
     group.finish();
 }
