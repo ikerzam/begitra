@@ -2,9 +2,9 @@
 // (a watcher that cannot start becomes a toast: the repository stays open without change
 // detection), and on `repo:changed` refreshes the refs when they or the worktrees changed (a
 // branch's worktree marker follows the worktrees; the history lists again when a tip moved,
-// unless the app's own write just did), the worktree list when a worktree came or went, the
-// remotes with the refs (the configuration counts as refs), and the index entry on any change.
-// The backend debounces, so nothing is coalesced here.
+// unless the app's own write just did), the worktree list with either (a commit or a switch
+// moves a worktree's HEAD), the remotes with the refs (the configuration counts as refs), and
+// the index entry on any change. The backend debounces, so nothing is coalesced here.
 
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { onBeforeUnmount, onMounted, watch } from "vue";
@@ -63,10 +63,9 @@ export function useRepoWatcher(): void {
     const root = repo.repo?.root;
     if (!root || change.repo !== root) return;
     if (change.kinds.includes("refs") || change.kinds.includes("worktrees")) void followRefs();
-    if (change.kinds.includes("worktrees")) void repo.loadWorktrees();
     review.onRepoChanged(change.kinds);
     compare.onRepoChanged(change.kinds);
-    worktrees.onRepoChanged(change.kinds);
+    void worktrees.onRepoChanged(change.kinds);
     changes.onRepoChanged(change.kinds);
     sequencer.onRepoChanged(change.kinds);
     remotes.onRepoChanged(change.kinds);

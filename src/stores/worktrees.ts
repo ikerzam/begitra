@@ -153,6 +153,11 @@ export const useWorktreesStore = defineStore("worktrees", () => {
       loading.value = false;
       operations.finish(opId);
     }
+    await refreshRows(root, mine);
+  }
+
+  /** Refreshes the rows' index entries and counts each against main. */
+  async function refreshRows(root: string, mine: number): Promise<void> {
     const main = mainBranch.value;
     const counts = new Map<string, { ahead: number; behind: number }>();
     await Promise.all(
@@ -327,9 +332,31 @@ export const useWorktreesStore = defineStore("worktrees", () => {
     clearError();
   }
 
-  /** The watcher saw the worktrees change (a terminal added or removed one). */
-  function onRepoChanged(kinds: RepoChangeKind[]): void {
-    if (active.value && kinds.includes("worktrees")) void load();
+  /** What the list says of each worktree, to tell whether a listing changed a row. */
+  function listed(): string {
+    return repo.worktrees
+      .map((w) => [w.path, w.branch, w.head, w.detached, w.locked, w.prunable].join("\u0000"))
+      .join("\n");
+  }
+
+  /**
+   * The watcher's kinds. A worktree came, went or changed (`worktrees`): the list follows,
+   * and the dashboard reloads whole while it is up. Refs moved: a commit or a switch moves a
+   * worktree's HEAD without touching the list's folders, so the list is read again, and the
+   * dashboard refreshes its rows when one of them changed.
+   */
+  async function onRepoChanged(kinds: RepoChangeKind[]): Promise<void> {
+    const changed = kinds.includes("worktrees");
+    if (!changed && !kinds.includes("refs")) return;
+    const root = repo.repo?.root;
+    if (!root || repo.state.kind !== "ready") return;
+    if (active.value && changed) return load();
+    const before = listed();
+    await repo.loadWorktrees();
+    if (active.value && listed() !== before) {
+      serial += 1;
+      await refreshRows(root, serial);
+    }
   }
 
   // Entering the dashboard (or the repository becoming ready while it is up) loads it.

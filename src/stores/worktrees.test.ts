@@ -2,6 +2,7 @@ import { clearMocks } from "@tauri-apps/api/mocks";
 import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { worktreeLock } from "@/ipc/commands";
 import { fakeBackend, fakeCommit, fakeWorktrees, settled, type Call } from "@/test/backend";
 
 import { useCompareStore } from "./compare";
@@ -173,19 +174,37 @@ describe("worktrees store", () => {
     });
   });
 
-  it("reloads when the watcher reports a worktree change, only while the dashboard is up", async () => {
+  it("follows the watcher: the list on refs and worktrees, the rows while the dashboard is up", async () => {
     const { worktrees, calls } = await openDashboard();
-    const before = calls.filter((call) => call.cmd === "list_worktrees").length;
-    worktrees.onRepoChanged(["refs"]);
+    const listings = () => calls.filter((call) => call.cmd === "list_worktrees").length;
+    const counts = () => calls.filter((call) => call.cmd === "compare").length;
+    let [listed, counted] = [listings(), counts()];
+    // Refs that move no worktree (a fetch): the list is read again, no row is recounted.
+    await worktrees.onRepoChanged(["refs"]);
     await settled();
-    expect(calls.filter((call) => call.cmd === "list_worktrees").length).toBe(before);
-    worktrees.onRepoChanged(["worktrees"]);
+    expect(listings()).toBe(listed + 1);
+    expect(counts()).toBe(counted);
+    // A worktree locked from a terminal: its row changed, the rows are counted again.
+    await worktreeLock("/r", "/wt/claude-auth", null);
+    await worktrees.onRepoChanged(["refs"]);
     await settled();
-    expect(calls.filter((call) => call.cmd === "list_worktrees").length).toBe(before + 1);
+    expect(worktrees.rows.find((row) => row.path === "/wt/claude-auth")?.locked).toBe(true);
+    expect(counts()).toBeGreaterThan(counted);
+    // A worktree change reloads the dashboard whole.
+    [listed, counted] = [listings(), counts()];
+    await worktrees.onRepoChanged(["worktrees"]);
+    await settled();
+    expect(listings()).toBe(listed + 1);
+    expect(counts()).toBeGreaterThan(counted);
+    // Off the dashboard, the sidebar's list still follows, and nothing is counted.
     await useShellStore().setLayoutMode("graph");
-    worktrees.onRepoChanged(["worktrees"]);
     await settled();
-    expect(calls.filter((call) => call.cmd === "list_worktrees").length).toBe(before + 1);
+    [listed, counted] = [listings(), counts()];
+    await worktrees.onRepoChanged(["worktrees"]);
+    await worktrees.onRepoChanged(["status"]);
+    await settled();
+    expect(listings()).toBe(listed + 1);
+    expect(counts()).toBe(counted);
   });
 
   it("shows the tip's subject when the loaded history lists it", async () => {
