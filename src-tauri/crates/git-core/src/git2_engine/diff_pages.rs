@@ -50,8 +50,8 @@ pub(super) struct Job {
     options: DiffOptions,
     /// The paths a working-tree diff reads, or `None` for the whole tree.
     paths: Option<Vec<Vec<u8>>>,
-    /// A restriction: the files these paths cover, or `None` for the whole change set.
-    only: Option<Vec<Vec<u8>>>,
+    /// A restriction, or `None` for the whole change set.
+    only: Option<diff::Restriction>,
     generated_attributes: bool,
     ready: Sender<GitResult<usize>>,
     requests: Receiver<Request>,
@@ -115,8 +115,8 @@ pub(super) fn restricted(
     }))
 }
 
-/// Prepares a paged diff, restricted to `only` when given (with the repositories above those
-/// paths, see [`diff::with_repositories_above`]).
+/// Prepares a paged diff, restricted to `only` when given (read as git and libgit2 must read
+/// those paths, see [`diff::restriction`]).
 fn open(
     engine: &Git2Engine,
     target: &DiffTarget,
@@ -127,7 +127,7 @@ fn open(
 ) -> GitResult<Pages> {
     cancel.check()?;
     let only = match only {
-        Some(only) => Some(diff::with_repositories_above(engine, only)?),
+        Some(only) => Some(diff::restriction(engine, target, only)?),
         None => None,
     };
     // Revisions and the merge base resolve on the engine's warm handle; the worker only
@@ -140,7 +140,8 @@ fn open(
     })?;
     // git's status names the working tree's changed paths on this thread, where a cancel
     // reaches the git it runs; the worker then reads only those.
-    let paths = diff::working_tree_paths(engine, &target, only.as_deref(), cancel)?;
+    let pathspecs = only.as_ref().map(|only| only.pathspecs.as_slice());
+    let paths = diff::working_tree_paths(engine, &target, pathspecs, cancel)?;
     let generated_attributes = engine.generated_attributes_present();
     let pool = engine.diff_workers();
     let worker = take_worker(&pool, &gitdir)?;
@@ -152,7 +153,7 @@ fn open(
         target,
         options: options.clone(),
         paths,
-        only: only.map(|only| only.into_iter().map(String::into_bytes).collect()),
+        only,
         generated_attributes,
         ready: ready_tx,
         requests: worker_requests,
@@ -230,7 +231,7 @@ fn serve(gitdir: &std::path::Path, inbox: &Receiver<Job>) {
             &job.options,
             job.generated_attributes,
             job.paths.as_deref(),
-            job.only.as_deref(),
+            job.only.as_ref(),
         ) {
             Ok(prepared) => prepared,
             Err(error) => {

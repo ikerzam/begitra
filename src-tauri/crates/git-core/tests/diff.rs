@@ -2390,3 +2390,150 @@ fn a_rename_is_found_when_both_sides_are_requested() {
         assert_eq!(listed.files[0].status, ChangeKind::Renamed, "{target:?}");
     }
 }
+
+/// The working tree against a revision: the tree side read at the revision's tree.
+fn against_v1() -> DiffTarget {
+    DiffTarget::WorkingTree {
+        base: WorkingTreeBase::Revision {
+            rev: "v1".to_owned(),
+        },
+    }
+}
+
+fn against_head() -> DiffTarget {
+    DiffTarget::WorkingTree {
+        base: WorkingTreeBase::Head,
+    }
+}
+
+#[test]
+fn a_staged_file_the_status_finds_unchanged_reads_the_index_in_every_diff() {
+    // git reads a file its status finds unchanged from the index (here one `assume-unchanged`
+    // hides; an LFS pointer is the common case). libgit2's merged diff read it from the disk
+    // once any other file had an unstaged change, and the restricted diff, with none, from
+    // the index.
+    let f = Fixture::basic();
+    f.append("README.md", "staged line\n");
+    f.git(&["add", "README.md"]);
+    f.git(&["update-index", "--assume-unchanged", "README.md"]);
+    f.append("README.md", "disk only\n");
+    f.append("src/lib.rs", "// unstaged\n");
+    let staged = f.rev(":README.md");
+    for (target, rev) in [(against_head(), "HEAD"), (against_v1(), "v1")] {
+        let full = full_at(&f, &target, &["README.md"]);
+        assert_eq!(full.len(), 1, "{target:?}");
+        assert_eq!(
+            unified(&full[0]),
+            git_hunks(&f, &["diff", rev, "--", "README.md"]),
+            "{target:?}"
+        );
+        assert_eq!(
+            full[0].new_id.as_deref(),
+            Some(staged.as_str()),
+            "{target:?}"
+        );
+        let listed = restricted(&f, &target, &["README.md"]).expect("cap");
+        assert_eq!(listed.files, full, "{target:?}");
+    }
+}
+
+#[test]
+fn a_submodule_holding_only_untracked_files_reads_its_staged_commit() {
+    // `git diff v1 -- sub2` names the staged commit; libgit2's merged diff read the checkout
+    // and added `-dirty` for its untracked file once another path had an unstaged change.
+    let (f, _) = with_submodules(&["sub", "sub2"]);
+    fs::write(f.root.join("sub/s.txt"), "edited inside\n").expect("write");
+    fs::write(f.root.join("sub2/u.txt"), "untracked\n").expect("write");
+    let full = full_at(&f, &against_v1(), &["sub2"]);
+    assert_eq!(full.len(), 1);
+    assert!(
+        !unified(&full[0]).contains("-dirty"),
+        "{}",
+        unified(&full[0])
+    );
+    let listed = restricted(&f, &against_v1(), &["sub2"]).expect("cap");
+    assert_eq!(listed.files, full);
+}
+
+#[test]
+fn a_file_turned_into_a_folder_lists_its_deletion_from_a_path_inside() {
+    let mut f = Fixture::basic();
+    f.write("a", "a\n");
+    f.commit("a file");
+    f.git(&["tag", "with-a"]);
+    f.git(&["rm", "-q", "a"]);
+    f.write("a/b.txt", "b\n");
+    f.git(&["add", "a/b.txt"]);
+    for target in [against_head(), DiffTarget::Index] {
+        let listed = restricted(&f, &target, &["a/b.txt"]).expect("cap");
+        assert_eq!(
+            listed.files,
+            full_at(&f, &target, &["a/b.txt"]),
+            "{target:?}"
+        );
+        assert_eq!(paths(&listed), ["a", "a/b.txt"], "{target:?}");
+    }
+    // Committed, the revision's tree holds the file.
+    f.commit("a became a folder");
+    let target = DiffTarget::WorkingTree {
+        base: WorkingTreeBase::Revision {
+            rev: "with-a".to_owned(),
+        },
+    };
+    let listed = restricted(&f, &target, &["a/b.txt"]).expect("cap");
+    assert_eq!(listed.files, full_at(&f, &target, &["a/b.txt"]));
+    assert_eq!(paths(&listed), ["a", "a/b.txt"]);
+}
+
+#[test]
+fn a_moved_submodule_lists_from_a_path_inside_its_old_folder() {
+    let (f, _) = with_submodules(&["sub"]);
+    f.git(&["mv", "sub", "moved"]);
+    for target in [against_head(), DiffTarget::Index] {
+        let listed = restricted(&f, &target, &["sub/s.txt"]).expect("cap");
+        assert_eq!(
+            listed.files,
+            full_at(&f, &target, &["sub/s.txt"]),
+            "{target:?}"
+        );
+        assert_eq!(paths(&listed), ["sub"], "{target:?}");
+    }
+}
+
+#[test]
+fn a_folder_turned_into_a_file_lists_the_file_from_a_path_inside() {
+    let f = Fixture::basic();
+    fs::remove_dir_all(f.root.join("docs")).expect("remove");
+    f.write("docs", "now a file\n");
+    for target in [against_index(), against_head(), against_v1()] {
+        let listed = restricted(&f, &target, &["docs/guide.md"]).expect("cap");
+        assert_eq!(
+            listed.files,
+            full_at(&f, &target, &["docs/guide.md"]),
+            "{target:?}"
+        );
+    }
+    let listed = restricted(&f, &against_index(), &["docs/guide.md"]).expect("cap");
+    assert_eq!(paths(&listed), ["docs", "docs/guide.md"]);
+}
+
+#[test]
+fn a_file_turned_into_a_folder_lists_only_what_the_path_covers() {
+    // The file is read for its deletion alone: its pathspec covers the folder's other files.
+    let mut f = Fixture::basic();
+    f.write("a", "a\n");
+    f.commit("a file");
+    fs::remove_file(f.root.join("a")).expect("remove");
+    f.write("a/b.txt", "b\n");
+    f.write("a/c.txt", "c\n");
+    for target in restricted_targets() {
+        let listed = restricted(&f, &target, &["a/b.txt"]).expect("cap");
+        assert_eq!(
+            listed.files,
+            full_at(&f, &target, &["a/b.txt"]),
+            "{target:?}"
+        );
+    }
+    let listed = restricted(&f, &against_index(), &["a/b.txt"]).expect("cap");
+    assert_eq!(paths(&listed), ["a", "a/b.txt"]);
+}

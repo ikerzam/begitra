@@ -40,10 +40,17 @@ fn a_refresh_of_the_stat_data_names_nothing() {
     let before = snapshot(&f);
     let bytes = fs::read(&index).expect("index");
     // Every tracked file written again with its own content: new stat data, the same
-    // entries, which a plain status writes back.
+    // entries, which a plain status writes back. The time is set outright: a rewrite within
+    // the clock tick of the checkout (about 16 ms on Windows) keeps the time git recorded.
+    let stamp = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_600_000_000);
     for path in f.git(&["ls-files"]).lines() {
         let content = fs::read(f.root.join(path)).expect("read");
         fs::write(f.root.join(path), content).expect("write");
+        fs::File::options()
+            .write(true)
+            .open(f.root.join(path))
+            .and_then(|file| file.set_modified(stamp))
+            .expect("set the modification time");
     }
     f.git(&["status", "--porcelain"]);
     assert_ne!(

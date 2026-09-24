@@ -21,11 +21,7 @@
 //!   and collapses only the first `$Id$`: such a working file shows its raw or partly
 //!   filtered content, and a file the patch does not read (binary by attribute) compares by
 //!   its raw bytes, so a `-diff` file with CRLF endings under `core.autocrlf` is listed;
-//! - against HEAD or a revision, a file flagged `assume-unchanged` or `skip-worktree` with a
-//!   staged change and other content on disk shows the index's content only while no other
-//!   file has an unstaged change: the merged diff then takes every new side from the disk, and
-//!   the file is listed without lines (or with the disk's lines when the sizes agree), where
-//!   git shows the index's; a staged change to a sparse file absent from the disk is not
+//! - against HEAD or a revision, a staged change to a sparse file absent from the disk is not
 //!   listed, since the working-tree half reads the file as deleted and the `skip-worktree` rule
 //!   drops the merged delta;
 //! - `linguist-generated` is read from the index and the working copy (`.gitattributes` as
@@ -56,6 +52,8 @@ pub(super) struct Prepared<'r> {
     diff: Diff<'r>,
     /// Delta indices in listing order (by the path a file is listed under).
     order: Vec<usize>,
+    /// Where the files the working tree left as staged read their patches (see [`IndexSide`]).
+    index_side: Option<IndexSide<'r>>,
     /// Whether the new side's blobs live in the object store (not for the working tree).
     probe_new_side: bool,
     working_tree: bool,
@@ -73,19 +71,45 @@ impl Prepared<'_> {
     pub(super) fn total_files(&self) -> usize {
         self.order.len()
     }
+
+    /// The diff and the delta a file's patch is read from: the index side's for a file the
+    /// working tree left as staged, the merged diff's otherwise.
+    fn source(&self, index: usize) -> (&Diff<'_>, usize, bool) {
+        match &self.index_side {
+            Some(side) => match side.deltas.get(index).copied().flatten() {
+                Some(at) => (&side.diff, at, true),
+                None => (&self.diff, index, false),
+            },
+            None => (&self.diff, index, false),
+        }
+    }
+}
+
+/// The tree against the index, beside a diff of a tree against the working tree: libgit2
+/// reads every new side of a merged diff from the working tree once the working-tree half
+/// holds any file, where git reads a file its status finds unchanged from the index (an LFS
+/// pointer, a file `assume-unchanged` hides, a submodule holding only untracked files), and
+/// libgit2 too when that half is empty and nothing is merged. Such a file reads its patch
+/// here, so a diff lists it as git does whichever other paths it holds.
+struct IndexSide<'r> {
+    diff: Diff<'r>,
+    /// Per delta of the merged diff, the same file's delta here when the working-tree half
+    /// does not hold it.
+    deltas: Vec<Option<usize>>,
 }
 
 /// Builds the delta list of `target` and finds its renames, without reading any patch. A
 /// working-tree target reads only `paths` when given (see [`working_tree_paths`]). With
-/// `only`, the list keeps the files those paths cover (see [`covers`]): a restricted diff.
-#[tracing::instrument(level = "debug", skip_all, fields(paths = paths.map(<[Vec<u8>]>::len), only = only.map(<[Vec<u8>]>::len)))]
+/// `only`, the list keeps the files the restriction keeps (see [`Restriction::keeps`]): a
+/// restricted diff.
+#[tracing::instrument(level = "debug", skip_all, fields(paths = paths.map(<[Vec<u8>]>::len), only = only.map(|only| only.pathspecs.len())))]
 pub(super) fn prepare<'r>(
     repo: &'r Repository,
     target: &DiffTarget,
     options: &DiffOptions,
     generated_attributes: bool,
     paths: Option<&[Vec<u8>]>,
-    only: Option<&[Vec<u8>]>,
+    only: Option<&Restriction>,
 ) -> GitResult<Prepared<'r>> {
     // Working tree files are not objects, so their ids never resolve in the object store.
     let probe_new_side = !matches!(target, DiffTarget::WorkingTree { .. });
@@ -96,7 +120,13 @@ pub(super) fn prepare<'r>(
             base: WorkingTreeBase::Index
         }
     );
-    let mut diff = build_diff(repo, target, options, paths, only)?;
+    let pathspecs: Option<Vec<Vec<u8>>> = only.map(|only| {
+        only.pathspecs
+            .iter()
+            .map(|path| path.as_bytes().to_vec())
+            .collect()
+    });
+    let (mut diff, mut staged) = build_diff(repo, target, options, paths, pathspecs.as_deref())?;
     if options.renames {
         let threshold = u16::from(options.similarity.min(100));
         let mut find = DiffFindOptions::new();
@@ -108,7 +138,12 @@ pub(super) fn prepare<'r>(
             .dont_ignore_whitespace(true);
         let found = diff.find_similar(Some(&mut find));
         found.map_err(|error| blob_error(repo, diff.deltas(), probe_new_side, error))?;
+        if let Some((staged, _)) = staged.as_mut() {
+            let found = staged.find_similar(Some(&mut find));
+            found.map_err(|error| blob_error(repo, staged.deltas(), true, error))?;
+        }
     }
+    let index_side = staged.map(|(staged, unstaged)| index_side(&diff, staged, &unstaged));
     // Files are listed by the path they are shown under, like `git diff --name-status`;
     // libgit2 sorts a renamed delta by its old path.
     // The paths borrow from the diff, so the order costs one lookup per delta and no copy.
@@ -131,10 +166,9 @@ pub(super) fn prepare<'r>(
     if let Some(only) = only {
         order.retain(|&index| {
             diff.get_delta(index).is_some_and(|delta| {
-                [delta.new_file(), delta.old_file()].iter().any(|file| {
-                    file.path_bytes()
-                        .is_some_and(|path| only.iter().any(|requested| covers(requested, path)))
-                })
+                [delta.new_file(), delta.old_file()]
+                    .iter()
+                    .any(|file| file.path_bytes().is_some_and(|path| only.keeps(path)))
             })
         });
     }
@@ -148,6 +182,7 @@ pub(super) fn prepare<'r>(
     Ok(Prepared {
         diff,
         order,
+        index_side,
         probe_new_side,
         working_tree,
         against_index,
@@ -254,15 +289,20 @@ pub(super) fn resolve_target(
     })
 }
 
-/// Creates the libgit2 diff for `target`, resolving revisions and trees. A restriction
-/// (`only`) that libgit2 can match literally limits the sides that read no working tree.
+/// The staged half of a merged diff, kept for the files the working tree left as staged, with
+/// the paths the working-tree half holds.
+type StagedHalf<'r> = (Diff<'r>, std::collections::HashSet<Vec<u8>>);
+
+/// Creates the libgit2 diff for `target`, resolving revisions and trees, with its staged half
+/// when it merges one with the working tree (see [`IndexSide`]). A restriction (`only`) that
+/// libgit2 can match literally limits the sides that read no working tree.
 fn build_diff<'r>(
     repo: &'r Repository,
     target: &DiffTarget,
     options: &DiffOptions,
     paths: Option<&[Vec<u8>]>,
     only: Option<&[Vec<u8>]>,
-) -> GitResult<Diff<'r>> {
+) -> GitResult<(Diff<'r>, Option<StagedHalf<'r>>)> {
     // A requested path may be a folder or a submodule: matched as one.
     let only = only.filter(|only| only.iter().all(|requested| literal(requested, true)));
     let mut git_options = base_options(options);
@@ -271,7 +311,7 @@ fn build_diff<'r>(
             let commit = resolve_commit(repo, hash)?;
             let old = parent_tree(repo, &commit)?;
             let new = commit_tree(&commit)?;
-            tree_diff(repo, old.as_ref(), &new, &mut git_options)
+            tree_diff(repo, old.as_ref(), &new, &mut git_options).map(|diff| (diff, None))
         }
         DiffTarget::Commits { from, to }
         | DiffTarget::Range {
@@ -281,7 +321,7 @@ fn build_diff<'r>(
         } => {
             let old = commit_tree(&resolve_commit(repo, from)?)?;
             let new = commit_tree(&resolve_commit(repo, to)?)?;
-            tree_diff(repo, Some(&old), &new, &mut git_options)
+            tree_diff(repo, Some(&old), &new, &mut git_options).map(|diff| (diff, None))
         }
         DiffTarget::Range {
             from,
@@ -304,7 +344,7 @@ fn build_diff<'r>(
                 .map_err(|error| GitError::object(&base_id.to_string(), error))?;
             let old = commit_tree(&base)?;
             let new = commit_tree(&to_commit)?;
-            tree_diff(repo, Some(&old), &new, &mut git_options)
+            tree_diff(repo, Some(&old), &new, &mut git_options).map(|diff| (diff, None))
         }
         DiffTarget::WorkingTree {
             base: WorkingTreeBase::Head,
@@ -342,6 +382,7 @@ fn build_diff<'r>(
                         .show_untracked_content(true),
                 ),
             )
+            .map(|diff| (diff, None))
             .map_err(GitError::from)
         }
         DiffTarget::Index => {
@@ -350,6 +391,7 @@ fn build_diff<'r>(
                 limit_to(&mut git_options, only);
             }
             repo.diff_tree_to_index(head.as_ref(), None, Some(&mut git_options))
+                .map(|diff| (diff, None))
                 .map_err(GitError::from)
         }
     };
@@ -359,14 +401,16 @@ fn build_diff<'r>(
 /// `git diff <tree>`: the tree against the index and the index against the working tree,
 /// merged, which is what libgit2's `diff_tree_to_workdir_with_index` does inside, with the
 /// index read once for both. Done here so each half takes its own paths, `staged` for the tree
-/// against the index and `paths` for the working tree; `None` reads everything.
+/// against the index and `paths` for the working tree; `None` reads everything. With a
+/// working-tree half to merge, the staged half comes along a second time, unmerged, for the
+/// files that half does not hold (see [`IndexSide`]).
 fn tree_to_workdir<'r>(
     repo: &'r Repository,
     tree: Option<&Tree<'r>>,
     options: &DiffOptions,
     staged: Option<&[Vec<u8>]>,
     paths: Option<&[Vec<u8>]>,
-) -> GitResult<Diff<'r>> {
+) -> GitResult<(Diff<'r>, Option<StagedHalf<'r>>)> {
     let mut index = repo.index()?;
     // As libgit2 loads it for its own two halves: a failed read keeps the index in memory.
     if let Err(error) = index.read(false) {
@@ -382,8 +426,55 @@ fn tree_to_workdir<'r>(
         limit_to(&mut working, paths);
     }
     let unstaged = repo.diff_index_to_workdir(Some(&index), Some(&mut working))?;
+    if unstaged.deltas().len() == 0 {
+        // libgit2 merges nothing, and every new side stays the index's.
+        return Ok((diff, None));
+    }
+    let held = unstaged
+        .deltas()
+        .flat_map(|delta| [delta.old_file().path_bytes(), delta.new_file().path_bytes()])
+        .flatten()
+        .map(<[u8]>::to_vec)
+        .collect();
+    let alone = repo.diff_tree_to_index(tree, Some(&index), Some(&mut against_index))?;
     diff.merge(&unstaged)?;
-    Ok(diff)
+    Ok((diff, Some((alone, held))))
+}
+
+/// Pairs each delta of the merged diff that the working-tree half does not hold with the same
+/// file's delta in the staged half, found by its status and both paths; a delta the two diffs
+/// pair differently (a rename scored on the working file) keeps the merged diff's patch.
+fn index_side<'r>(
+    merged: &Diff<'r>,
+    staged: Diff<'r>,
+    held: &std::collections::HashSet<Vec<u8>>,
+) -> IndexSide<'r> {
+    let key = |delta: &DiffDelta<'_>| {
+        (
+            change_kind(delta.status()),
+            delta.old_file().path_bytes().map(<[u8]>::to_vec),
+            delta.new_file().path_bytes().map(<[u8]>::to_vec),
+        )
+    };
+    let positions: std::collections::HashMap<_, usize> = staged
+        .deltas()
+        .enumerate()
+        .map(|(at, delta)| (key(&delta), at))
+        .collect();
+    let deltas = merged
+        .deltas()
+        .map(|delta| {
+            let paths = [delta.old_file().path_bytes(), delta.new_file().path_bytes()];
+            if paths.iter().flatten().any(|path| held.contains(*path)) {
+                return None;
+            }
+            positions.get(&key(&delta)).copied()
+        })
+        .collect();
+    IndexSide {
+        diff: staged,
+        deltas,
+    }
 }
 
 /// The paths where a revision's tree can differ from the index: those git's status names
@@ -451,8 +542,7 @@ const PATHSPEC_BYTES: usize = 16_384;
 /// cannot be matched literally (see [`literal`]): the diff then walks the whole working
 /// tree, as libgit2 does on its own. An untracked path under a folder that holds a `.git` is
 /// that folder instead (see [`repository_above`]). With `only`, git's status runs at those
-/// paths alone, which the caller extends with the repositories above them (see
-/// [`with_repositories_above`]).
+/// paths alone, which the caller reads as git and libgit2 must (see [`restriction`]).
 #[tracing::instrument(level = "debug", skip_all)]
 pub(super) fn working_tree_paths(
     engine: &super::Git2Engine,
@@ -549,20 +639,47 @@ pub(super) fn working_tree_paths(
     Ok(within_limit(paths, STATUS_PATH_LIMIT))
 }
 
+/// A restricted diff's paths: those git's status and libgit2 read, and what the result keeps.
+pub(super) struct Restriction {
+    /// The paths git's status runs at and libgit2 is limited to.
+    pub(super) pathspecs: Vec<String>,
+    /// The requested paths without a trailing slash: the result keeps what they cover.
+    requested: Vec<Vec<u8>>,
+    /// Entries read for their own listing alone: the index's spelling of a requested path and
+    /// an entry above one that the diff lists under its own name (see [`restriction`]).
+    exact: Vec<Vec<u8>>,
+}
+
+impl Restriction {
+    /// Whether the result keeps a listed path: one a requested path covers, or an entry read
+    /// for itself. Not what every pathspec covers: the file turned into a folder, read for its
+    /// deletion, would bring the folder's other files along.
+    fn keeps(&self, listed: &[u8]) -> bool {
+        let bare = listed.strip_suffix(b"/").unwrap_or(listed);
+        self.requested
+            .iter()
+            .any(|requested| covers(requested, listed))
+            || self.exact.iter().any(|exact| exact.as_slice() == bare)
+    }
+}
+
 /// The requested paths as git's status and libgit2 must read them to list what a full diff
 /// lists there: without a trailing slash (a folder that became a file lists under its bare
 /// name); with the index's own spelling beside one a case-insensitive file system names
-/// otherwise (`README.md` on disk for `Readme.md` in the index); with a tracked file that
-/// became a folder beside a path inside it (its deletion lists under its own name); and with a
+/// otherwise (`README.md` on disk for `Readme.md` in the index); with the entry above a path
+/// that the diff lists under its own name: a file in the index or in the tree compared with
+/// it (HEAD's, or the revision's), which became a folder or a submodule moved away and lists
+/// its deletion, and for a working-tree target a file on disk where a folder was; and with a
 /// path inside a submodule or an untracked repository replaced by that folder, since git's
 /// status names such a folder for the folder itself, where a full status names it, and not
 /// for a path inside it (a pathspec inside an untracked nested repository lists nothing at
 /// all), and a tree compared with the index finds a submodule only at its own path. The
 /// folder covers the path it replaces (see [`covers`]).
-pub(super) fn with_repositories_above(
+pub(super) fn restriction(
     engine: &super::Git2Engine,
+    target: &DiffTarget,
     only: &[String],
-) -> GitResult<Vec<String>> {
+) -> GitResult<Restriction> {
     let root = GitEngine::repo(engine).root.clone();
     let requested: Vec<String> = only
         .iter()
@@ -572,19 +689,39 @@ pub(super) fn with_repositories_above(
     let mut submodules: Vec<String> = Vec::new();
     // Folders with nothing tracked below them, which a `.git` makes a repository.
     let mut untracked: Vec<String> = Vec::new();
-    let mut extra: Vec<String> = Vec::new();
+    let mut exact: Vec<String> = Vec::new();
+    // Every folder above a requested path, once.
+    let mut folders: Vec<String> = Vec::new();
     let mut seen = std::collections::HashSet::new();
     engine.with_repo(|repo| {
         let mut index = repo.index()?;
         if let Err(error) = index.read(false) {
             tracing::debug!(%error, "the index could not be read again from disk");
         }
+        // The tree the diff compares with the index; the working tree against the index has
+        // none.
+        let tree = match target {
+            DiffTarget::WorkingTree {
+                base: WorkingTreeBase::Revision { rev },
+            } => Some(commit_tree(&resolve_commit(repo, rev)?)?),
+            DiffTarget::WorkingTree {
+                base: WorkingTreeBase::Head,
+            }
+            | DiffTarget::Index => head_tree(repo)?,
+            _ => None,
+        };
+        let in_tree = |folder: &str| {
+            tree.as_ref().is_some_and(|tree| {
+                tree.get_path(Path::new(folder))
+                    .is_ok_and(|entry| entry.kind() != Some(ObjectType::Tree))
+            })
+        };
         // git2's `get_path` panics on what `index_path` refuses (a path starting with `.`).
         let entry = |path: &str| super::index_path(path).and_then(|path| index.get_path(path, 0));
         for path in &requested {
             if let Some(stored) = entry(path).filter(|stored| stored.path != path.as_bytes()) {
                 if let Ok(spelling) = String::from_utf8(stored.path) {
-                    extra.push(spelling);
+                    exact.push(spelling);
                 }
             }
             let mut end = 0;
@@ -594,21 +731,31 @@ pub(super) fn with_repositories_above(
                 if folder.is_empty() || !seen.insert(folder.to_owned()) {
                     continue;
                 }
+                folders.push(folder.to_owned());
                 match entry(folder) {
                     Some(tracked) if tracked.mode == u32::from(FileMode::Commit) => {
                         submodules.push(folder.to_owned());
                     }
-                    Some(_) => extra.push(folder.to_owned()),
-                    None if index.find_prefix(format!("{folder}/")).is_err() => {
-                        untracked.push(folder.to_owned());
+                    Some(_) => exact.push(folder.to_owned()),
+                    None => {
+                        if index.find_prefix(format!("{folder}/")).is_err() {
+                            untracked.push(folder.to_owned());
+                        }
+                        if in_tree(folder) {
+                            exact.push(folder.to_owned());
+                        }
                     }
-                    None => {}
                 }
             }
         }
         Ok(())
     })?;
     // The stats run once the engine's lock is released.
+    if matches!(target, DiffTarget::WorkingTree { .. }) {
+        exact.extend(folders.into_iter().filter(|folder| {
+            std::fs::symlink_metadata(root.join(folder)).is_ok_and(|metadata| !metadata.is_dir())
+        }));
+    }
     let mut repositories = submodules;
     repositories.extend(
         untracked
@@ -623,7 +770,7 @@ pub(super) fn with_repositories_above(
     };
     let mut pathspecs: Vec<String> = requested
         .iter()
-        .chain(&extra)
+        .chain(&exact)
         .filter(|path| !inside(path))
         .cloned()
         .collect();
@@ -636,7 +783,11 @@ pub(super) fn with_repositories_above(
     );
     pathspecs.sort_unstable();
     pathspecs.dedup();
-    Ok(pathspecs)
+    Ok(Restriction {
+        pathspecs,
+        requested: requested.into_iter().map(String::into_bytes).collect(),
+        exact: exact.into_iter().map(String::into_bytes).collect(),
+    })
 }
 
 /// Whether a requested path covers a listed one: the same path, one below it, or an entry
@@ -974,8 +1125,6 @@ pub(super) fn collect_range(
     range: std::ops::Range<usize>,
     cancel: &Cancel,
 ) -> GitResult<(Vec<FileChange>, u32, u32)> {
-    let diff = &prepared.diff;
-    let probe_new_side = prepared.probe_new_side;
     let working_tree = prepared.working_tree;
     let index_file = &prepared.index_file;
     let mut files = Vec::with_capacity(range.len());
@@ -983,6 +1132,9 @@ pub(super) fn collect_range(
     let mut deletions: u32 = 0;
     for &index in prepared.order.get(range).unwrap_or(&[]) {
         cancel.check()?;
+        // A file the working tree left as staged reads its patch from the index side.
+        let (diff, index, from_index) = prepared.source(index);
+        let probe_new_side = prepared.probe_new_side || from_index;
         let Some(delta) = diff.get_delta(index) else {
             continue;
         };
@@ -1038,6 +1190,7 @@ pub(super) fn collect_range(
             // rather than failing the page, unless the old side's blob is what failed.
             Err(error)
                 if working_tree
+                    && !from_index
                     && status != ChangeKind::Deleted
                     && matches!(error.class(), ErrorClass::Filesystem | ErrorClass::Os) =>
             {
