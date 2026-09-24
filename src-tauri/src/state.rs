@@ -267,16 +267,17 @@ impl AppState {
             .map(|(_, previous)| previous)
     }
 
-    /// Ends the start that `ticket` began when the platform refused it: the watcher of the
-    /// repository shown before goes too, since the app ignores its events. Returned to be
-    /// dropped off the async runtime.
-    pub fn abandon_watch(&self, ticket: u64) -> Option<RepoWatcher> {
+    /// Ends the start that `ticket` began when the platform refused it. Returns whether it
+    /// was still the latest start (a superseded one concerns nothing the app shows) and, when
+    /// it was, the watcher of the repository shown before, which goes too since the app
+    /// ignores its events: to be dropped off the async runtime.
+    pub fn abandon_watch(&self, ticket: u64) -> (bool, Option<RepoWatcher>) {
         let mut slot = self.watch_slot();
         if slot.generation != ticket {
-            return None;
+            return (false, None);
         }
         slot.pending = None;
-        slot.running.take().map(|(_, previous)| previous)
+        (true, slot.running.take().map(|(_, previous)| previous))
     }
 
     /// Removes the watcher of `root`, if that is the one running, and supersedes a start in
@@ -526,9 +527,13 @@ mod tests {
             .install_watcher(current, b.clone(), start(&b))
             .is_none());
         assert!(state.is_watching(&b));
-        // A refused start takes the watcher of the repository shown before with it.
+        // A refused start takes the watcher of the repository shown before with it; one
+        // that a later start superseded concerns nothing.
+        let superseded = state.begin_watch(&b);
         let refused = state.begin_watch(&a);
-        assert!(state.abandon_watch(refused).is_some());
+        assert!(matches!(state.abandon_watch(superseded), (false, None)));
+        let (latest, previous) = state.abandon_watch(refused);
+        assert!(latest && previous.is_some());
         assert!(!state.is_watching(&b));
     }
 

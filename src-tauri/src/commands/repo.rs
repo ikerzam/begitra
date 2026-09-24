@@ -92,7 +92,9 @@ pub async fn watch_repository(
                     "Changes in this repository will not be detected automatically",
                 )
                 .with_detail(detail);
-                (Err(failure), shared.abandon_watch(ticket))
+                // A refused start that a later one superseded concerns nothing shown.
+                let (latest, previous) = shared.abandon_watch(ticket);
+                (if latest { Err(failure) } else { Ok(()) }, previous)
             }
         }
     })
