@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { FileChange, Hunk, Ref } from "@/ipc/schemas";
 import { fakeBackend, fakeCommit, settled } from "@/test/backend";
+import { changedFile, repoChange } from "@/test/changes";
 
 import { useRepoStore } from "./repo";
 import {
@@ -354,17 +355,45 @@ describe("review store", () => {
     expect(review.changeSet?.loading).toBe(false);
     const diffs = () => calls.filter((c) => c.cmd === "diff").length;
     const before = diffs();
-    review.onRepoChanged(["refs"]);
+    review.onRepoChanged(repoChange({ kinds: ["refs"] }));
     expect(diffs()).toBe(before);
-    review.onRepoChanged(["status"]);
+    // A change set in error reads everything again, whatever the paths.
+    review.onRepoChanged(repoChange({ kinds: ["status"], paths: ["src/a.ts"] }));
+    await settled();
     expect(diffs()).toBe(before + 1);
     review.setTarget({ kind: "index" });
     await settled();
     const indexed = diffs();
-    review.onRepoChanged(["status"]);
+    review.onRepoChanged(repoChange({ kinds: ["status"], paths: ["src/a.ts"] }));
+    await settled();
     expect(diffs()).toBe(indexed);
-    review.onRepoChanged(["index"]);
+    review.onRepoChanged(repoChange({ kinds: ["index"] }));
+    await settled();
     expect(diffs()).toBe(indexed + 1);
+  });
+
+  it("reads a working tree target again at the paths the watcher names", async () => {
+    const calls = fakeBackend({
+      changes: { unstaged: [changedFile("src/a.ts"), changedFile("src/b.ts")], staged: [] },
+    });
+    await openRepository();
+    const review = useReviewStore();
+    review.setTarget({ kind: "worktree" });
+    await settled();
+    const count = (cmd: string) => calls.filter((c) => c.cmd === cmd).length;
+    const diffs = count("diff");
+    review.onRepoChanged(repoChange({ kinds: ["status"], paths: ["src/b.ts"] }));
+    await settled();
+    expect(count("diff")).toBe(diffs);
+    const restricted = calls.filter((c) => c.cmd === "diff_paths");
+    expect(restricted).toHaveLength(1);
+    expect(restricted[0]?.args["paths"]).toEqual(["src/b.ts"]);
+    expect(review.files.map((file) => file.path)).toEqual(["src/a.ts", "src/b.ts"]);
+    // A commit under review follows nothing.
+    review.setTarget(null);
+    review.onRepoChanged(repoChange({ kinds: ["status"], paths: ["src/b.ts"] }));
+    await settled();
+    expect(count("diff_paths")).toBe(1);
   });
 
   it("computes a target named by refs again when they move, and only then", async () => {

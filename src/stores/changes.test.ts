@@ -11,7 +11,7 @@ import {
   type Call,
   type FakeBackendOptions,
 } from "@/test/backend";
-import { changedFile } from "@/test/changes";
+import { changedFile, repoChange } from "@/test/changes";
 
 import {
   lineKey,
@@ -28,7 +28,7 @@ import { memoryStorage, useSettingsStore } from "./settings";
 const unstagedFiles = () => [
   changedFile("src/a.ts"),
   changedFile("src/b.ts"),
-  changedFile("docs/new.md", { status: "added", additions: 3, deletions: 0 }),
+  changedFile("src/new.md", { status: "added", additions: 3, deletions: 0 }),
 ];
 const stagedFiles = () => [changedFile("src/c.ts")];
 
@@ -125,14 +125,15 @@ describe("changes store", () => {
 
   it("stages a file, reloads and hands the selection to the row that took its place", async () => {
     const { changes, calls } = await openChanges();
+    changes.select("unstaged", "src/a.ts");
     const done = await changes.stage(["src/a.ts"]);
     await settled();
     expect(done).toBe(true);
     const staged = of(calls, "stage_paths");
     expect(staged).toHaveLength(1);
     expect(staged[0]?.args).toMatchObject({ repo: "/r", paths: ["src/a.ts"] });
-    expect(changes.unstaged.files.map((file) => file.path)).toEqual(["src/b.ts", "docs/new.md"]);
-    expect(changes.staged.files.map((file) => file.path)).toEqual(["src/c.ts", "src/a.ts"]);
+    expect(changes.unstaged.files.map((file) => file.path)).toEqual(["src/b.ts", "src/new.md"]);
+    expect(changes.staged.files.map((file) => file.path)).toEqual(["src/a.ts", "src/c.ts"]);
     expect(changes.selected).toEqual({ list: "unstaged", path: "src/b.ts" });
     expect(changes.busy).toBeNull();
     expect(changes.actionError).toBeNull();
@@ -157,7 +158,7 @@ describe("changes store", () => {
     const discarded = of(calls, "discard_paths");
     expect(discarded[0]?.args).toMatchObject({
       tracked: ["src/a.ts", "src/b.ts"],
-      untracked: ["docs/new.md"],
+      untracked: ["src/new.md"],
     });
     expect(changes.unstaged.files).toHaveLength(0);
     expect(changes.selected).toEqual({ list: "staged", path: "src/c.ts" });
@@ -286,18 +287,62 @@ describe("changes store", () => {
     expect(changes.canCommit).toBe(false);
   });
 
-  it("reloads on status and index changes when loaded and idle, the context on refs", async () => {
+  it("reads again what the watcher names, whole when it cannot say, the context on refs", async () => {
     const { changes, calls } = await openChanges();
     const before = of(calls, "diff").length;
-    changes.onRepoChanged(["worktrees"]);
+    changes.onRepoChanged(repoChange({ kinds: ["worktrees"] }));
     await settled();
     expect(of(calls, "diff")).toHaveLength(before);
-    changes.onRepoChanged(["status"]);
+    // A working tree path: the unstaged list at that path alone.
+    changes.onRepoChanged(repoChange({ kinds: ["status"], paths: ["src/a.ts"] }));
+    await settled();
+    expect(of(calls, "diff")).toHaveLength(before);
+    const restricted = of(calls, "diff_paths");
+    expect(restricted).toHaveLength(1);
+    expect(restricted[0]?.args["target"]).toEqual({ kind: "working-tree", base: "index" });
+    expect(restricted[0]?.args["paths"]).toEqual(["src/a.ts"]);
+    // Index entries: both lists at those paths; a stat refresh names none and reads nothing.
+    changes.onRepoChanged(repoChange({ kinds: ["index"], indexPaths: ["src/c.ts"] }));
+    changes.onRepoChanged(repoChange({ kinds: ["index"], indexPaths: [] }));
+    await settled();
+    expect(of(calls, "diff_paths")).toHaveLength(3);
+    // Unknown paths and the ignore rules read everything.
+    changes.onRepoChanged(repoChange({ kinds: ["status"] }));
+    await settled();
+    expect(of(calls, "diff")).toHaveLength(before + 1);
+    changes.onRepoChanged(repoChange({ kinds: ["status"], paths: [".gitignore"] }));
     await settled();
     expect(of(calls, "diff")).toHaveLength(before + 2);
-    changes.onRepoChanged(["refs"]);
+    changes.onRepoChanged(repoChange({ kinds: ["index"], indexPaths: null }));
+    await settled();
+    expect(of(calls, "diff")).toHaveLength(before + 4);
+    changes.onRepoChanged(repoChange({ kinds: ["refs"] }));
     await settled();
     expect(of(calls, "commit_context")).toHaveLength(1);
+  });
+
+  it("reads again the paths a write moved, and they list as a whole reload lists them", async () => {
+    const { changes, calls } = await openChanges();
+    const whole = of(calls, "diff").length;
+    expect(await changes.stage(["src/a.ts"])).toBe(true);
+    await settled();
+    // No whole reload: both lists at the staged path.
+    expect(of(calls, "diff")).toHaveLength(whole);
+    expect(of(calls, "diff_paths").map((call) => call.args["paths"])).toEqual([
+      ["src/a.ts"],
+      ["src/a.ts"],
+    ]);
+    const restricted = {
+      unstaged: changes.unstaged.files.map((file) => file.path),
+      staged: changes.staged.files.map((file) => file.path),
+    };
+    changes.load();
+    await settled();
+    expect(restricted).toEqual({
+      unstaged: changes.unstaged.files.map((file) => file.path),
+      staged: changes.staged.files.map((file) => file.path),
+    });
+    expect(restricted.staged).toContain("src/a.ts");
   });
 
   it("streams the staged list again when HEAD moves, not when another branch does", async () => {
@@ -333,7 +378,7 @@ describe("changes store", () => {
     expect(changes.unstaged.files.map((file) => file.path)).toEqual([
       "src/a.ts",
       "src/b.ts",
-      "docs/new.md",
+      "src/new.md",
     ]);
   });
 

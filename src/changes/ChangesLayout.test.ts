@@ -20,7 +20,7 @@ import ChangesLayout from "./ChangesLayout.vue";
 const unstagedFiles = () => [
   changedFile("src/a.ts"),
   changedFile("src/b.ts"),
-  changedFile("docs/new.md", { status: "added", additions: 3, deletions: 0 }),
+  changedFile("src/new.md", { status: "added", additions: 3, deletions: 0 }),
 ];
 const stagedFiles = () => [changedFile("src/c.ts")];
 
@@ -87,7 +87,7 @@ describe("ChangesLayout", () => {
     expect(rows.map((row) => row.get('[data-testid="tree-row-name"]').text())).toEqual([
       "src/a.ts",
       "src/b.ts",
-      "docs/new.md",
+      "src/new.md",
       "src/c.ts",
     ]);
     expect(rows[2]?.find('[data-status="untracked"]').text()).toBe("?");
@@ -137,7 +137,7 @@ describe("ChangesLayout", () => {
     ]);
     // The file is in both lists now and the picked lines are gone with the reload.
     const names = wrapper.findAll('[data-testid="tree-row-name"]').map((name) => name.text());
-    expect(names).toEqual(["src/a.ts", "src/b.ts", "docs/new.md", "src/c.ts", "src/a.ts"]);
+    expect(names).toEqual(["src/a.ts", "src/b.ts", "src/new.md", "src/a.ts", "src/c.ts"]);
     expect(wrapper.findAll('[data-selected="true"]')).toHaveLength(0);
     wrapper.unmount();
   });
@@ -186,10 +186,10 @@ describe("ChangesLayout", () => {
     expect(document.activeElement?.getAttribute("data-path")).toBe("src/b.ts");
     press("j");
     await nextTick();
-    expect(wrapper.get('[data-testid="changes-path"]').text()).toBe("docs/new.md");
+    expect(wrapper.get('[data-testid="changes-path"]').text()).toBe("src/new.md");
     // Enter on a row opens its menu; the staged rows offer Unstage.
     const staged = wrapper.findAll('[data-list="staged"]');
-    await staged[1]!.trigger("contextmenu");
+    await staged[0]!.trigger("contextmenu");
     await nextTick();
     expect(wrapper.find('[data-testid="menu-stage"]').exists()).toBe(false);
     await wrapper.get('[data-testid="menu-unstage"]').trigger("click");
@@ -205,7 +205,7 @@ describe("ChangesLayout", () => {
     const dialog = wrapper.get('[role="dialog"]');
     expect(dialog.text()).toContain("Discard 3 files?");
     expect(dialog.text()).toContain(
-      "The unstaged changes to src/a.ts, src/b.ts and docs/new.md are lost, and new.md is deleted: it is not tracked yet.",
+      "The unstaged changes to src/a.ts, src/b.ts and src/new.md are lost, and new.md is deleted: it is not tracked yet.",
     );
     expect(dialog.text()).toContain("Discarded changes cannot be recovered.");
     expect(wrapper.get('[data-testid="dialog-confirm"]').text()).toBe("Discard 3 files");
@@ -213,7 +213,7 @@ describe("ChangesLayout", () => {
     await nextTick();
     expect(of(calls, "discard_paths")).toHaveLength(0);
     // Backspace on the selected untracked file: one file, deleted.
-    useChangesStore().select("unstaged", "docs/new.md");
+    useChangesStore().select("unstaged", "src/new.md");
     await nextTick();
     press("Backspace");
     await nextTick();
@@ -226,12 +226,12 @@ describe("ChangesLayout", () => {
     press("s");
     await settled();
     expect(of(calls, "stage_paths")).toHaveLength(0);
-    expect(wrapper.get('[data-testid="changes-path"]').text()).toBe("docs/new.md");
+    expect(wrapper.get('[data-testid="changes-path"]').text()).toBe("src/new.md");
     await wrapper.get('[data-testid="dialog-confirm"]').trigger("click");
     await settled();
     expect(of(calls, "discard_paths")[0]?.args).toMatchObject({
       tracked: [],
-      untracked: ["docs/new.md"],
+      untracked: ["src/new.md"],
     });
     expect(wrapper.findAll('[data-list="unstaged"]')).toHaveLength(2);
     wrapper.unmount();

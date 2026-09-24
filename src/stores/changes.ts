@@ -1,10 +1,11 @@
 // The changes screen: the working
 // tree as two lists, Unstaged (the working tree against the index, untracked files as added)
 // and Staged (the index against HEAD), the selected file, the commit draft and its context,
-// and every write of the screen through the staging commands. Both lists reload after each
-// write and when the watcher reports a status or index change, the staged list alone when
-// HEAD moves; the selection survives by path. The draft is kept here so that leaving the
-// screen does not lose a half-written message.
+// and every write of the screen through the staging commands. Each list reads again what
+// changed, one reload at a time (`reloads.ts`): the paths a write or the watcher names, whole
+// when those cannot say enough, and the staged list whole when HEAD moves; the selection
+// survives by path. The draft is kept here so that leaving the screen does not lose a
+// half-written message.
 
 import { defineStore } from "pinia";
 import { computed, ref, shallowRef, watch } from "vue";
@@ -18,11 +19,20 @@ import type {
   DiffTarget,
   FileChange,
   PatchSelection,
+  RepoChanged,
   SelectionTarget,
 } from "@/ipc/schemas";
 import type { StreamHandle } from "@/ipc/stream";
 
 import { useOperationsStore } from "./operations";
+import {
+  MAX_RESTRICTED_PATHS,
+  mergeRestricted,
+  type Reload,
+  Reloader,
+  reloadFor,
+  requestedPaths,
+} from "./reloads";
 import { headTarget, useRepoStore } from "./repo";
 
 export type ChangeList = "unstaged" | "staged";
@@ -60,6 +70,16 @@ const writeLabels: Record<WriteKind, string> = {
   discard: "operations.discarding",
   commit: "operations.committing",
 };
+
+/** A list read again at `paths`, whole past what a restricted reload takes. */
+const atPaths = (paths: string[]): Reload =>
+  paths.length > MAX_RESTRICTED_PATHS ? { kind: "full" } : { kind: "paths", paths };
+
+const nothing: Reload = { kind: "none" };
+
+/** The paths a write to `files` moves: each path, and the old side of a rename. */
+const pathsOf = (files: FileChange[]): string[] =>
+  files.flatMap((file) => (file.oldPath === null ? [file.path] : [file.path, file.oldPath]));
 
 /** The key of a changed line inside a file's hunks, for the selection. */
 export function lineKey(hunkIndex: number, lineIndex: number): string {
@@ -151,6 +171,17 @@ export const useChangesStore = defineStore("changes", () => {
   };
   /** Bumped when a list's stream stops, so a superseded stream's pages and ending are dropped. */
   const serials: Record<ChangeList, number> = { unstaged: 0, staged: 0 };
+  /** One reload at a time per list: whole, or at the paths that changed. */
+  const reloaders: Record<ChangeList, Reloader> = {
+    unstaged: new Reloader({
+      full: () => reloadWhole("unstaged"),
+      paths: (paths) => readAt("unstaged", paths),
+    }),
+    staged: new Reloader({
+      full: () => reloadWhole("staged"),
+      paths: (paths) => readAt("staged", paths),
+    }),
+  };
   let loadedRoot: string | null = null;
   /** Where the selection was when a write started, so its place is kept once the file left. */
   let anchor: { list: ChangeList; index: number } | null = null;
@@ -186,7 +217,7 @@ export const useChangesStore = defineStore("changes", () => {
     handles[list] = null;
   }
 
-  function stream(list: ChangeList, root: string): void {
+  function stream(list: ChangeList, root: string): Promise<void> {
     stop(list);
     const mine = serials[list];
     const current = () => mine === serials[list];
@@ -213,7 +244,7 @@ export const useChangesStore = defineStore("changes", () => {
       opId,
     );
     handles[list] = handle;
-    void handle.done
+    return handle.done
       .then(() => {
         if (current()) target.value = { ...target.value, loading: false };
       })
@@ -226,6 +257,51 @@ export const useChangesStore = defineStore("changes", () => {
         operations.finish(opId);
         if (current()) settleSelection();
       });
+  }
+
+  /** Streams `list` again whole, for the repository the lists were loaded for. */
+  function reloadWhole(list: ChangeList): Promise<void> {
+    const root = repo.repo?.root;
+    return root !== undefined && root === loadedRoot ? stream(list, root) : Promise.resolve();
+  }
+
+  /**
+   * Reads `list` again at the paths that changed and merges the result into it; false when the
+   * list must be read whole instead (too many paths or files, a failed read, a list in error).
+   */
+  async function readAt(list: ChangeList, changed: string[]): Promise<boolean> {
+    const root = repo.repo?.root;
+    if (root === undefined || root !== loadedRoot) return true;
+    const target = listOf(list);
+    if (target.value.error) return false;
+    const requested = requestedPaths(target.value.files, changed, list === "staged");
+    if (requested.length > MAX_RESTRICTED_PATHS) return false;
+    const mine = serials[list];
+    let result;
+    try {
+      // Whitespace is never ignored here, as in the whole list.
+      result = await ipc.diffPaths(
+        root,
+        diffTargetOfList(list),
+        requested,
+        { ...ipc.defaultDiffOptions, ignoreWhitespace: false },
+        newOpId(`changes-${list}`),
+      );
+    } catch {
+      return false;
+    }
+    // A whole reload that started meanwhile, or another repository, holds the newer list.
+    if (mine !== serials[list] || root !== repo.repo?.root) return true;
+    if (result === null) return false;
+    const files = mergeRestricted(target.value.files, requested, result.files);
+    target.value = {
+      ...target.value,
+      files,
+      additions: files.reduce((sum, file) => sum + file.additions, 0),
+      deletions: files.reduce((sum, file) => sum + file.deletions, 0),
+    };
+    settleSelection();
+    return true;
   }
 
   /**
@@ -263,6 +339,8 @@ export const useChangesStore = defineStore("changes", () => {
     if (!root) {
       stop("unstaged");
       stop("staged");
+      reloaders.unstaged.clear();
+      reloaders.staged.clear();
       unstaged.value = emptyList();
       staged.value = emptyList();
       selected.value = null;
@@ -271,31 +349,39 @@ export const useChangesStore = defineStore("changes", () => {
       return;
     }
     if (loadedRoot !== root) {
+      reloaders.unstaged.clear();
+      reloaders.staged.clear();
       selected.value = null;
       draft.value = { subject: "", body: "", amend: false, signoff: false };
       context.value = null;
       loadedRoot = root;
     }
     loaded.value = true;
-    stream("unstaged", root);
-    stream("staged", root);
+    reloaders.unstaged.request({ kind: "full" });
+    reloaders.staged.request({ kind: "full" });
   }
 
   function select(list: ChangeList, path: string): void {
     selected.value = { list, path };
   }
 
-  /** Runs a write with its status bar label, then reloads; a failure lands in the banner. */
+  /**
+   * Runs a write with its status bar label, then reads again what it moved (`reload`); a
+   * failure lands in the banner. The watcher's changes wait for the write meanwhile.
+   */
   async function write(
     kind: WriteKind,
     files: number,
     path: string | null,
+    reload: Record<ChangeList, Reload>,
     run: (root: string) => Promise<unknown>,
   ): Promise<boolean> {
     const root = repo.repo?.root;
     if (!root || busy.value !== null) return false;
     const label = writeLabels[kind];
     busy.value = label;
+    reloaders.unstaged.hold();
+    reloaders.staged.hold();
     actionError.value = null;
     failed.value = null;
     const current = selected.value;
@@ -320,21 +406,34 @@ export const useChangesStore = defineStore("changes", () => {
     } finally {
       operations.finish(opId);
       busy.value = null;
-      load();
+      reloaders.unstaged.request(reload.unstaged);
+      reloaders.staged.request(reload.staged);
+      reloaders.unstaged.resume();
+      reloaders.staged.resume();
     }
   }
 
   function stage(paths: string[]): Promise<boolean> {
     if (paths.length === 0) return Promise.resolve(false);
-    return write("stage", paths.length, paths.length === 1 ? (paths[0] ?? null) : null, (root) =>
-      ipc.stagePaths(root, paths),
+    const both = atPaths(paths);
+    return write(
+      "stage",
+      paths.length,
+      paths.length === 1 ? (paths[0] ?? null) : null,
+      { unstaged: both, staged: both },
+      (root) => ipc.stagePaths(root, paths),
     );
   }
 
   function unstage(paths: string[]): Promise<boolean> {
     if (paths.length === 0) return Promise.resolve(false);
-    return write("unstage", paths.length, paths.length === 1 ? (paths[0] ?? null) : null, (root) =>
-      ipc.unstagePaths(root, paths),
+    const both = atPaths(paths);
+    return write(
+      "unstage",
+      paths.length,
+      paths.length === 1 ? (paths[0] ?? null) : null,
+      { unstaged: both, staged: both },
+      (root) => ipc.unstagePaths(root, paths),
     );
   }
 
@@ -347,6 +446,7 @@ export const useChangesStore = defineStore("changes", () => {
       "discard",
       files.length,
       files.length === 1 ? (files[0]?.path ?? null) : null,
+      { unstaged: atPaths(pathsOf(files)), staged: nothing },
       (root) => ipc.discardPaths(root, tracked, untracked),
     );
   }
@@ -358,7 +458,11 @@ export const useChangesStore = defineStore("changes", () => {
     selectedKeys: Set<string> | null,
   ): Promise<boolean> {
     const selection = selectedKeys ? selectionOf(file, selectedKeys) : wholeSelection(file);
-    return write(target, 1, file.path, (root) => ipc.applySelection(root, target, selection));
+    const moved = atPaths(pathsOf([file]));
+    const reload = { unstaged: moved, staged: target === "discard" ? nothing : moved };
+    return write(target, 1, file.path, reload, (root) =>
+      ipc.applySelection(root, target, selection),
+    );
   }
 
   function stageAll(): Promise<boolean> {
@@ -424,7 +528,9 @@ export const useChangesStore = defineStore("changes", () => {
       amend: draft.value.amend,
       signoff: draft.value.signoff,
     };
-    const done = await write("commit", 0, null, async (root) => {
+    // A commit moves HEAD, not the index: the staged list is read whole again.
+    const reload: Record<ChangeList, Reload> = { unstaged: nothing, staged: { kind: "full" } };
+    const done = await write("commit", 0, null, reload, async (root) => {
       const result = await ipc.commit(root, request);
       lastCommit.value = result.hash;
     });
@@ -441,11 +547,16 @@ export const useChangesStore = defineStore("changes", () => {
     failed.value = null;
   }
 
-  /** The watcher's kinds: a status or index change reloads the lists, a refs change the context. */
-  function onRepoChanged(kinds: string[]): void {
-    if (!loaded.value || busy.value !== null) return;
-    if (kinds.includes("status") || kinds.includes("index")) load();
-    if (kinds.includes("refs")) void loadContext();
+  /**
+   * The watcher: each list reads again what the change moved (the working tree's paths for the
+   * unstaged list, the index entries for both, whole when those cannot say enough), and a refs
+   * change the context. During a write the reloads wait for it.
+   */
+  function onRepoChanged(change: RepoChanged): void {
+    if (!loaded.value) return;
+    reloaders.unstaged.request(reloadFor(change, true));
+    reloaders.staged.request(reloadFor(change, false));
+    if (change.kinds.includes("refs")) void loadContext();
   }
 
   // The staged list is HEAD against the index, so HEAD moving without the index (a soft reset
@@ -456,7 +567,7 @@ export const useChangesStore = defineStore("changes", () => {
     (now, before) => {
       const root = repo.repo?.root;
       if (now === undefined || before === undefined || !root || root !== loadedRoot) return;
-      if (loaded.value && busy.value === null) stream("staged", root);
+      if (loaded.value) reloaders.staged.request({ kind: "full" });
     },
   );
 

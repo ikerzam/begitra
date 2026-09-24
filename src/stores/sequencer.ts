@@ -10,7 +10,13 @@ import { computed, ref } from "vue";
 import * as ipc from "@/ipc/commands";
 import { toAppError, type AppError } from "@/ipc/errors";
 import { newOpId } from "@/ipc/invoke";
-import type { Conflict, OperationState, Outcome, SequencerAction } from "@/ipc/schemas";
+import type {
+  Conflict,
+  OperationState,
+  Outcome,
+  RepoChanged,
+  SequencerAction,
+} from "@/ipc/schemas";
 
 import { useOperationsStore } from "./operations";
 import { useRepoStore } from "./repo";
@@ -139,12 +145,14 @@ export const useSequencerStore = defineStore("sequencer", () => {
     abortPrompt.value = false;
   }
 
-  /** The watcher: refs (a HEAD move), status and index changes may start or end an operation. */
-  function onRepoChanged(kinds: string[]): void {
+  /**
+   * The watcher: an operation starts or ends with the refs (its state files are refs), and the
+   * conflicts are the index's unmerged entries, which a working tree change alone cannot move.
+   */
+  function onRepoChanged(change: RepoChanged): void {
     if (repo.state.kind !== "ready" || busy.value) return;
-    if (kinds.includes("refs") || kinds.includes("status") || kinds.includes("index")) {
-      void load();
-    }
+    const conflicts = change.kinds.includes("index") && change.conflictsChanged;
+    if (change.kinds.includes("refs") || conflicts) void load();
   }
 
   return {

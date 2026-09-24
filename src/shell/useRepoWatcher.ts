@@ -63,11 +63,11 @@ export function useRepoWatcher(): void {
     const root = repo.repo?.root;
     if (!root || change.repo !== root) return;
     if (change.kinds.includes("refs") || change.kinds.includes("worktrees")) void followRefs();
-    review.onRepoChanged(change.kinds);
+    review.onRepoChanged(change);
     compare.onRepoChanged(change.kinds);
     void worktrees.onRepoChanged(change.kinds);
-    changes.onRepoChanged(change.kinds);
-    sequencer.onRepoChanged(change.kinds);
+    changes.onRepoChanged(change);
+    sequencer.onRepoChanged(change);
     remotes.onRepoChanged(change.kinds);
     // Branch, upstream and tip; the dirty flag waits until the repository is closed.
     if (change.kinds.includes("refs") || change.kinds.includes("worktrees")) {

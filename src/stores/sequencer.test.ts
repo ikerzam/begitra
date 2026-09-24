@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { Conflict } from "@/ipc/schemas";
 import { fakeBackend, settled, type Call, type FakeBackendOptions } from "@/test/backend";
+import { repoChange } from "@/test/changes";
 
 import { useRepoStore } from "./repo";
 import { useSequencerStore } from "./sequencer";
@@ -54,12 +55,20 @@ describe("sequencer store", () => {
     expect(sequencer.inProgress).toBe(false);
     expect(sequencer.loaded).toBe(true);
     const before = of(calls, "operation_state").length;
-    sequencer.onRepoChanged(["worktrees"]);
+    sequencer.onRepoChanged(repoChange({ kinds: ["worktrees"] }));
+    // The working tree alone, or an index change that moved no unmerged entry: nothing.
+    sequencer.onRepoChanged(repoChange({ kinds: ["status"], paths: ["src/a.ts"] }));
+    sequencer.onRepoChanged(repoChange({ kinds: ["index"], indexPaths: ["src/a.ts"] }));
     await settled();
     expect(of(calls, "operation_state")).toHaveLength(before);
-    sequencer.onRepoChanged(["refs"]);
+    sequencer.onRepoChanged(repoChange({ kinds: ["refs"] }));
     await settled();
     expect(of(calls, "operation_state")).toHaveLength(before + 1);
+    sequencer.onRepoChanged(
+      repoChange({ kinds: ["index"], indexPaths: ["src/a.ts"], conflictsChanged: true }),
+    );
+    await settled();
+    expect(of(calls, "operation_state")).toHaveLength(before + 2);
   });
 
   it("marks paths resolved and reloads; continue then moves the graph on the new HEAD", async () => {

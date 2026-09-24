@@ -1,7 +1,19 @@
 // A changed file for the tests of the changes screen: one hunk of a context line, a removed
 // line and two added lines, with the flags a text file carries.
 
-import type { DiffLine, FileChange } from "@/ipc/schemas";
+import type { DiffLine, FileChange, RepoChanged } from "@/ipc/schemas";
+
+/** A `repo:changed` event of the open fixture repository, the index fields at their defaults. */
+export function repoChange(change: Partial<RepoChanged>): RepoChanged {
+  return {
+    repo: "/r",
+    kinds: [],
+    paths: [],
+    indexPaths: null,
+    conflictsChanged: false,
+    ...change,
+  };
+}
 
 function line(kind: DiffLine["kind"], n: number, text: string): DiffLine {
   return {

@@ -11,12 +11,27 @@ import { isLockfile, type FileFilters } from "@/detail/groupFiles";
 import * as ipc from "@/ipc/commands";
 import { toAppError, type AppError } from "@/ipc/errors";
 import { newOpId } from "@/ipc/invoke";
-import type { DiffLine, DiffPage, DiffTarget, FileChange, Hunk, Ref } from "@/ipc/schemas";
+import type {
+  DiffLine,
+  DiffPage,
+  DiffTarget,
+  FileChange,
+  Hunk,
+  Ref,
+  RepoChanged,
+} from "@/ipc/schemas";
 import type { StreamHandle } from "@/ipc/stream";
 import { fileSides } from "@/review/sides";
 import { shortHash } from "@/shell/format";
 
 import { useOperationsStore } from "./operations";
+import {
+  MAX_RESTRICTED_PATHS,
+  mergeRestricted,
+  Reloader,
+  reloadFor,
+  requestedPaths,
+} from "./reloads";
 import { useRepoStore } from "./repo";
 import { useSettingsStore, type DiffLayout } from "./settings";
 
@@ -398,14 +413,23 @@ export const useReviewStore = defineStore("review", () => {
     streamHandle = null;
   }
 
+  /** The own change set's reloads, one at a time: whole, or at the paths that changed. */
+  const reloader = new Reloader({ full: () => loadOwn(), paths: (paths) => readOwnAt(paths) });
+
+  /** Streams the own change set again whole, dropping the reloads that waited. */
+  function restartOwn(): void {
+    reloader.clear();
+    reloader.request({ kind: "full" });
+  }
+
   /** Streams the change set of the current target with the current options. */
-  function loadOwn(): void {
+  function loadOwn(): Promise<void> {
     stopStream();
     const current = target.value;
     const root = repo.repo?.root;
     if (!current || !root) {
       ownChangeSet.value = null;
-      return;
+      return Promise.resolve();
     }
     const serial = streamSerial;
     const opId = newOpId("review");
@@ -434,7 +458,7 @@ export const useReviewStore = defineStore("review", () => {
       opId,
     );
     streamHandle = handle;
-    void handle.done
+    return handle.done
       .then(() => {
         if (serial === streamSerial && ownChangeSet.value) {
           ownChangeSet.value = { ...ownChangeSet.value, loading: false };
@@ -452,6 +476,46 @@ export const useReviewStore = defineStore("review", () => {
       .finally(() => operations.finish(opId));
   }
 
+  /**
+   * Reads the own change set again at the paths that changed and merges the result into it;
+   * false when it must be read whole instead (too many paths or files, a failed read).
+   */
+  async function readOwnAt(changed: string[]): Promise<boolean> {
+    const current = target.value;
+    const root = repo.repo?.root;
+    const set = ownChangeSet.value;
+    if (!current || !root || !set || !ownStream.value) return true;
+    if (set.error) return false;
+    // The working tree against the index pairs no rename; the others do.
+    const requested = requestedPaths(set.files, changed, current.kind !== "worktree");
+    if (requested.length > MAX_RESTRICTED_PATHS) return false;
+    const serial = streamSerial;
+    let result;
+    try {
+      result = await ipc.diffPaths(
+        root,
+        diffTargetOf(current),
+        requested,
+        { ...ipc.defaultDiffOptions, ignoreWhitespace: ignoreWhitespace.value },
+        newOpId("review"),
+      );
+    } catch {
+      return false;
+    }
+    // Another target or a whole reload since holds the newer change set.
+    if (serial !== streamSerial || !ownChangeSet.value) return true;
+    if (result === null) return false;
+    const files = mergeRestricted(ownChangeSet.value.files, requested, result.files);
+    ownChangeSet.value = {
+      ...ownChangeSet.value,
+      files,
+      additions: files.reduce((sum, file) => sum + file.additions, 0),
+      deletions: files.reduce((sum, file) => sum + file.deletions, 0),
+      totalFiles: files.length,
+    };
+    return true;
+  }
+
   /** Chooses what review focus shows; null returns to the graph's selection. */
   function setTarget(next: ReviewTarget | null): void {
     const before = key.value;
@@ -462,8 +526,9 @@ export const useReviewStore = defineStore("review", () => {
       shown.value = new Map();
       currentSymbol.value = null;
     }
-    if (ownStream.value) loadOwn();
+    if (ownStream.value) restartOwn();
     else {
+      reloader.clear();
       stopStream();
       ownChangeSet.value = null;
     }
@@ -471,17 +536,20 @@ export const useReviewStore = defineStore("review", () => {
 
   /** Computes the change set again (the watcher reported a change, or an option moved). */
   function reload(): void {
-    if (ownStream.value) loadOwn();
+    if (ownStream.value) restartOwn();
     else if (repo.selectedIndex >= 0) repo.select(repo.selectedIndex);
   }
 
-  /** The working tree or index targets follow the watcher; a commit does not change. */
-  function onRepoChanged(kinds: string[]): void {
+  /**
+   * The targets that involve the working tree or the index follow the watcher, reading again
+   * what the change moved (`reloads.ts`); a commit or a range does not change.
+   */
+  function onRepoChanged(change: RepoChanged): void {
     const current = target.value;
-    if (!current) return;
+    if (!current || !ownStream.value) return;
     const worktree = current.kind === "worktree" || current.kind === "revisionToWorktree";
-    const index = current.kind === "index" || current.kind === "worktree";
-    if ((worktree && kinds.includes("status")) || (index && kinds.includes("index"))) reload();
+    if (!worktree && current.kind !== "index") return;
+    reloader.request(reloadFor(change, worktree));
   }
 
   // A target named by refs (the index against HEAD, `base..HEAD`, a revision against the
@@ -509,7 +577,7 @@ export const useReviewStore = defineStore("review", () => {
     await settings.update("diffIgnoreWhitespace", next);
     // With a chosen target the stream restarts here; a followed commit restarts through the
     // watcher below when the own stream switches on.
-    if (chosenTarget.value) loadOwn();
+    if (chosenTarget.value) restartOwn();
     else if (!ownStream.value) {
       stopStream();
       ownChangeSet.value = null;
@@ -709,7 +777,7 @@ export const useReviewStore = defineStore("review", () => {
   watch(
     () => [repo.selectedCommit?.hash, ownStream.value] as const,
     ([, own]) => {
-      if (own && chosenTarget.value === null) loadOwn();
+      if (own && chosenTarget.value === null) restartOwn();
     },
   );
 

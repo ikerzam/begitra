@@ -5,7 +5,7 @@
 import type { Channel } from "@tauri-apps/api/core";
 import { mockIPC } from "@tauri-apps/api/mocks";
 
-import { covers } from "@/stores/reloads";
+import { comparePaths, covers } from "@/stores/reloads";
 
 import type {
   Annotation,
@@ -283,15 +283,20 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
   let remotes: Remote[] = (options.remotes ?? []).map((remote) => ({ ...remote }));
   let unstaged: FileChange[] = [...(options.changes?.unstaged ?? [])];
   let staged: FileChange[] = [...(options.changes?.staged ?? [])];
-  /** What a diff of `target` answers: the changes lists when given, else the fake files. */
+  /**
+   * What a diff of `target` answers: the changes lists when given, else the fake files; the
+   * lists in the engine's order, by path.
+   */
   const filesOf = (target: DiffTarget): FileChange[] =>
     !options.changes
       ? fakeFiles(target)
-      : target.kind === "index"
-        ? staged
-        : target.kind === "working-tree" && target.base === "index"
-          ? unstaged
-          : fakeFiles(target);
+      : [
+          ...(target.kind === "index"
+            ? staged
+            : target.kind === "working-tree" && target.base === "index"
+              ? unstaged
+              : fakeFiles(target)),
+        ].sort((a, b) => comparePaths(a.path, b.path));
   const stagingFailure = () =>
     // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
     Promise.reject({
