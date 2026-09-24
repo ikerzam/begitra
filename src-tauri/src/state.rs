@@ -46,12 +46,26 @@ struct Inner {
     next_walk: AtomicU64,
     /// The repository index; in memory until [`AppState::open_index`] points it at a file.
     index: Mutex<Option<Index>>,
-    /// The watcher of the open repository, with its root.
-    watcher: Mutex<Option<(PathBuf, RepoWatcher)>>,
+    /// The watcher of the open repository, and the start that may replace it.
+    watcher: Mutex<WatchSlot>,
     /// The token classes of the last files viewed, per repository, keyed by path and content.
     highlights: Mutex<HashMap<PathBuf, VecDeque<CachedHighlight>>>,
     /// The day file the log is written to, once the folder is resolved.
     log_file: Mutex<Option<PathBuf>>,
+}
+
+/// The watcher of the open repository and the start in flight. A start walks the whole tree
+/// before it can be installed (seconds on a large tree on Linux, and notify cannot cancel
+/// it), so a later start, or a close of the repository it is for, must win over it
+/// when it ends: otherwise the app would watch one repository while it shows another.
+#[derive(Default)]
+struct WatchSlot {
+    /// The running watcher and its root.
+    running: Option<(PathBuf, RepoWatcher)>,
+    /// The repository of the latest start, while it runs.
+    pending: Option<PathBuf>,
+    /// Bumped by every start, and by a close of the repository the latest start is for.
+    generation: u64,
 }
 
 /// One cached highlight with the bytes it holds.
@@ -208,40 +222,77 @@ impl AppState {
         }
     }
 
-    /// Replaces the repository watcher with `watcher` for `root`; the previous one is
-    /// returned so the caller drops it off the async runtime.
-    pub fn set_watcher(
-        &self,
-        root: PathBuf,
-        watcher: RepoWatcher,
-    ) -> Option<(PathBuf, RepoWatcher)> {
-        let mut slot = self
-            .inner
-            .watcher
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        slot.replace((root, watcher))
-    }
-
-    /// Whether `root` is the repository being watched.
-    pub fn is_watching(&self, root: &Path) -> bool {
+    fn watch_slot(&self) -> std::sync::MutexGuard<'_, WatchSlot> {
         self.inner
             .watcher
             .lock()
-            .map(|slot| slot.as_ref().is_some_and(|(watched, _)| watched == root))
-            .unwrap_or(false)
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// Removes the watcher of `root`, if that is the one running; returned to be dropped off
-    /// the async runtime.
+    /// Whether `root` is the repository being watched, with no other start in flight.
+    pub fn is_watching(&self, root: &Path) -> bool {
+        let slot = self.watch_slot();
+        slot.pending.is_none()
+            && slot
+                .running
+                .as_ref()
+                .is_some_and(|(watched, _)| watched == root)
+    }
+
+    /// Begins a watcher start for `root`: the ticket installs it through
+    /// [`AppState::install_watcher`] unless a later start, or a close of `root`, came first.
+    pub fn begin_watch(&self, root: &Path) -> u64 {
+        let mut slot = self.watch_slot();
+        slot.generation += 1;
+        slot.pending = Some(root.to_path_buf());
+        slot.generation
+    }
+
+    /// Installs `watcher` for `root` when `ticket` is still the latest start. Returns the
+    /// watcher to drop off the async runtime: the one replaced, or `watcher` itself when it
+    /// came too late.
+    pub fn install_watcher(
+        &self,
+        ticket: u64,
+        root: PathBuf,
+        watcher: RepoWatcher,
+    ) -> Option<RepoWatcher> {
+        let mut slot = self.watch_slot();
+        if slot.generation != ticket {
+            return Some(watcher);
+        }
+        slot.pending = None;
+        slot.running
+            .replace((root, watcher))
+            .map(|(_, previous)| previous)
+    }
+
+    /// Ends the start that `ticket` began when the platform refused it: the watcher of the
+    /// repository shown before goes too, since the app ignores its events. Returned to be
+    /// dropped off the async runtime.
+    pub fn abandon_watch(&self, ticket: u64) -> Option<RepoWatcher> {
+        let mut slot = self.watch_slot();
+        if slot.generation != ticket {
+            return None;
+        }
+        slot.pending = None;
+        slot.running.take().map(|(_, previous)| previous)
+    }
+
+    /// Removes the watcher of `root`, if that is the one running, and supersedes a start in
+    /// flight for it; returned to be dropped off the async runtime.
     pub fn take_watcher(&self, root: &Path) -> Option<(PathBuf, RepoWatcher)> {
-        let mut slot = self
-            .inner
-            .watcher
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if slot.as_ref().is_some_and(|(watched, _)| watched == root) {
-            slot.take()
+        let mut slot = self.watch_slot();
+        if slot.pending.as_deref() == Some(root) {
+            slot.generation += 1;
+            slot.pending = None;
+        }
+        if slot
+            .running
+            .as_ref()
+            .is_some_and(|(watched, _)| watched == root)
+        {
+            slot.running.take()
         } else {
             None
         }
@@ -441,6 +492,44 @@ mod tests {
                 done: true,
             })
         }
+    }
+
+    #[test]
+    fn a_watcher_start_that_came_too_late_is_dropped_not_installed() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let (a, b) = (dir.path().join("a"), dir.path().join("b"));
+        std::fs::create_dir_all(&a).expect("a");
+        std::fs::create_dir_all(&b).expect("b");
+        let start = |root: &Path| {
+            RepoWatcher::start(crate::watcher::WatchBases::main(root), |_| {}).expect("watcher")
+        };
+        let state = AppState::default();
+        // A opens, then B while A's start still walks its tree: B's ends first and stays.
+        let slow = state.begin_watch(&a);
+        let fast = state.begin_watch(&b);
+        assert!(state.install_watcher(fast, b.clone(), start(&b)).is_none());
+        assert!(state.install_watcher(slow, a.clone(), start(&a)).is_some());
+        assert!(state.is_watching(&b));
+        assert!(!state.is_watching(&a));
+        // B closes while a start for it is in flight: that start installs nothing.
+        let restart = state.begin_watch(&b);
+        assert!(!state.is_watching(&b), "a start is in flight");
+        assert!(state.take_watcher(&b).is_some());
+        assert!(state
+            .install_watcher(restart, b.clone(), start(&b))
+            .is_some());
+        assert!(!state.is_watching(&b));
+        // A close of another repository (an abandoned open) leaves the start alone.
+        let current = state.begin_watch(&b);
+        assert!(state.take_watcher(&a).is_none());
+        assert!(state
+            .install_watcher(current, b.clone(), start(&b))
+            .is_none());
+        assert!(state.is_watching(&b));
+        // A refused start takes the watcher of the repository shown before with it.
+        let refused = state.begin_watch(&a);
+        assert!(state.abandon_watch(refused).is_some());
+        assert!(!state.is_watching(&b));
     }
 
     #[test]

@@ -52,7 +52,8 @@ pub async fn open_repository(
 
 /// Starts the filesystem watcher of the open repository at `root` (replacing the watcher of
 /// any other repository); `watcher.unavailable` when the platform refuses, in which case the
-/// repository stays open without change detection.
+/// repository stays open without change detection. A start that a later one, or a close of
+/// `root`, superseded while it walked the tree is dropped instead of installed.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state, app))]
 pub async fn watch_repository(
@@ -64,40 +65,45 @@ pub async fn watch_repository(
     if shared.is_watching(&root) {
         return Ok(());
     }
-    let previous = tokio::task::spawn_blocking(move || {
+    let ticket = shared.begin_watch(&root);
+    let (outcome, superseded) = tokio::task::spawn_blocking(move || {
         let handle = app.clone();
         let bases = match shared.engine_for(&root) {
             Some(engine) => engine.watch_bases(),
             None => crate::watcher::WatchBases::main(&root),
         };
-        let watcher = crate::watcher::RepoWatcher::start(bases, move |payload| {
+        let started = crate::watcher::RepoWatcher::start(bases, move |payload| {
             if let Err(error) = crate::events::emit_repo_changed(&handle, &payload) {
                 tracing::warn!(error = %error, "repo:changed could not be emitted");
             }
-        })
-        .map_err(|error| {
-            let detail = match error.kind {
-                notify::ErrorKind::Io(ref io) if io.raw_os_error() == Some(28) => {
-                    "too many watched folders for this system (inotify limit)".to_owned()
-                }
-                _ => error.to_string(),
-            };
-            AppError::new(
-                crate::error::codes::WATCHER_UNAVAILABLE,
-                "Changes in this repository will not be detected automatically",
-            )
-            .with_detail(detail)
-        })?;
-        Ok::<_, AppError>(shared.set_watcher(root, watcher))
+        });
+        match started {
+            Ok(watcher) => (Ok(()), shared.install_watcher(ticket, root, watcher)),
+            Err(error) => {
+                // notify names the inotify limit as its own kind (ENOSPC included).
+                let detail = match error.kind {
+                    notify::ErrorKind::MaxFilesWatch => {
+                        "too many watched folders for this system (inotify limit)".to_owned()
+                    }
+                    _ => error.to_string(),
+                };
+                let failure = AppError::new(
+                    crate::error::codes::WATCHER_UNAVAILABLE,
+                    "Changes in this repository will not be detected automatically",
+                )
+                .with_detail(detail);
+                (Err(failure), shared.abandon_watch(ticket))
+            }
+        }
     })
     .await
-    .map_err(|join| AppError::internal(format!("watcher task failed: {join}")))??;
-    if let Some(previous) = previous {
-        tokio::task::spawn_blocking(move || drop(previous))
+    .map_err(|join| AppError::internal(format!("watcher task failed: {join}")))?;
+    if let Some(watcher) = superseded {
+        tokio::task::spawn_blocking(move || drop(watcher))
             .await
             .map_err(|join| AppError::internal(format!("watcher task failed: {join}")))?;
     }
-    Ok(())
+    outcome
 }
 
 /// Closes the engine rooted at `root` and drops its walks off the async runtime; returns
