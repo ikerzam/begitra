@@ -108,3 +108,23 @@ fn opens_through_a_symlink() {
     assert_eq!(engine.repo().current_branch.as_deref(), Some("main"));
     assert_same_path(&engine.repo().root, &f.root);
 }
+
+#[test]
+fn names_the_build_folders_that_hold_tracked_files() {
+    let mut f = Fixture::basic();
+    f.write("dist/index.js", "built\n");
+    f.write("build/ci/pipeline.yml", "steps: []\n");
+    f.write(
+        "targets/readme.md",
+        "a folder whose name starts like target\n",
+    );
+    f.commit("committed build output");
+    f.write("node_modules/dep/index.js", "installed\n");
+    f.write("target/debug/app", "built\n");
+    let engine = Git2Engine::open(&f.root).expect("open");
+    let names = ["node_modules", "target", "dist", "build", ".cache"];
+    assert_eq!(
+        engine.tracked_folders(&names).expect("index"),
+        vec!["dist".to_owned(), "build".to_owned()]
+    );
+}

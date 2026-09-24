@@ -218,6 +218,20 @@ impl Git2Engine {
             })
     }
 
+    /// Which of the top-level folders `names` hold a tracked path in the index, in the order
+    /// given: the watcher ignores build and cache folders except those whose files are
+    /// committed (the `dist/` of an action, a vendored `node_modules/`).
+    pub fn tracked_folders(&self, names: &[&str]) -> GitResult<Vec<String>> {
+        self.with_repo(|repo| {
+            let index = repo.index()?;
+            Ok(names
+                .iter()
+                .filter(|name| index.find_prefix(format!("{name}/").as_bytes()).is_ok())
+                .map(|name| (*name).to_owned())
+                .collect())
+        })
+    }
+
     /// The repository description with the current HEAD state, read now rather than at open
     /// time, so a branch switched outside the app is reported on the next open.
     pub fn describe_now(&self) -> GitResult<Repo> {
