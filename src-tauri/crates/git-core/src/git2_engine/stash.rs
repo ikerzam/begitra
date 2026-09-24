@@ -19,9 +19,10 @@ fn stash_ref(index: usize) -> String {
 }
 
 /// The position of the stash whose full commit id is `stash` in the stash list now (the `n`
-/// of `stash@{n}`), read as the refs listing reads it (see `refs::stash_reflog`). The first
-/// match wins when `git stash store` put a commit in twice. An abbreviated id is not in the
-/// list: libgit2 would pad it with zeros.
+/// of `stash@{n}`), read and counted as the refs listing and git do (see
+/// `refs::stash_reflog` and `refs::stash_entries`). The first match wins when
+/// `git stash store` put a commit in twice. An abbreviated id is not in the list: libgit2
+/// would pad it with zeros.
 fn position_of(engine: &Git2Engine, stash: &str) -> GitResult<usize> {
     let gone = || GitError::StashNotFound(stash.to_owned());
     if !matches!(stash.len(), 40 | 64) {
@@ -32,10 +33,10 @@ fn position_of(engine: &Git2Engine, stash: &str) -> GitResult<usize> {
         let Some(reflog) = super::refs::stash_reflog(repo)? else {
             return Err(gone());
         };
-        reflog
-            .iter()
-            .position(|entry| entry.id_new() == oid)
-            .ok_or_else(gone)
+        let position = super::refs::stash_entries(&reflog)
+            .find(|(_, entry)| entry.id_new() == oid)
+            .map(|(position, _)| position);
+        position.ok_or_else(gone)
     })
 }
 

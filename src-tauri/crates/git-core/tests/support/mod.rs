@@ -353,6 +353,23 @@ impl Fixture {
     }
 
     /// Runs `git` in `cwd` without panicking: `(success, stdout, stderr)`.
+    /// Runs `git` in the root with extra environment (a date the clock cannot give); it must
+    /// succeed. Returns trimmed stdout.
+    pub fn git_with_env(&self, env: &[(&str, &str)], args: &[&str]) -> String {
+        let output = self
+            .command(&self.root)
+            .envs(env.iter().copied())
+            .args(args)
+            .output()
+            .unwrap_or_else(|error| panic!("cannot run git {args:?}: {error}"));
+        assert!(
+            output.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    }
+
     pub fn try_git_in(&self, cwd: &Path, args: &[&str]) -> (bool, String, String) {
         let output = self
             .command(cwd)

@@ -395,18 +395,41 @@ pub(super) fn stash_reflog(repo: &Repository) -> GitResult<Option<git2::Reflog>>
     Ok(Some(repo.reflog(STASH)?))
 }
 
+/// The entries of the stash list with the position git gives them (the `n` of `stash@{n}`),
+/// newest first. git skips a reflog line whose time is 0 as corrupt (`show_one_reflog_ent`),
+/// in `git stash list` and in resolving `stash@{n}` alike, while libgit2 reads it: counting
+/// it would move every older stash by one, and a drop by position would take the next one.
+pub(super) fn stash_entries(
+    reflog: &git2::Reflog,
+) -> impl Iterator<Item = (usize, git2::ReflogEntry<'_>)> + '_ {
+    reflog
+        .iter()
+        .filter(|entry| entry.committer().when().seconds() != 0)
+        .enumerate()
+}
+
 /// Stash entries newest first, from the reflog of `refs/stash` like `git stash list` (which is
-/// what `git_stash_foreach` reads too). Each stash commit is checked to exist.
+/// what `git_stash_foreach` reads too). A stash whose commit is missing is left out with a
+/// warning and keeps its position, as `git stash list` does; one that cannot be read fails
+/// the listing with its hash.
 fn stashes(repo: &Repository, cancel: &Cancel) -> GitResult<Vec<Ref>> {
     let Some(reflog) = stash_reflog(repo)? else {
         return Ok(Vec::new());
     };
     let mut refs = Vec::with_capacity(reflog.len());
-    for (index, entry) in reflog.iter().enumerate() {
+    for (index, entry) in stash_entries(&reflog) {
         cancel.check()?;
         let oid = entry.id_new();
-        repo.find_object(oid, Some(ObjectType::Commit))
-            .map_err(|error| GitError::object(&oid.to_string(), error))?;
+        match repo.find_object(oid, Some(ObjectType::Commit)) {
+            Ok(_) => {}
+            Err(error)
+                if error.code() == ErrorCode::NotFound && super::object_missing(repo, oid) =>
+            {
+                tracing::warn!(object = %oid, "ignoring a stash whose commit is missing");
+                continue;
+            }
+            Err(error) => return Err(GitError::object(&oid.to_string(), error)),
+        }
         let message = entry.message().ok().flatten().map(str::to_owned);
         refs.push(plain(
             &format!("stash@{{{index}}}"),
