@@ -49,6 +49,25 @@ fn without_git_on_path_the_status_and_the_working_tree_diff_come_from_libgit2() 
         .expect("status through libgit2");
     assert_eq!(fallback, through_git);
     assert!(!fallback.is_empty());
+    // A restricted diff walks the whole tree too and keeps what its paths cover.
+    for (target, listed) in targets.iter().zip(&diffs_through_git) {
+        let requested: Vec<String> = listed.iter().map(|(path, ..)| path.clone()).collect();
+        let restricted = engine
+            .diff_paths(
+                target,
+                &DiffOptions::default(),
+                &requested,
+                &Cancel::never(),
+            )
+            .expect("restricted diff")
+            .expect("within the cap");
+        let restricted: Vec<_> = restricted
+            .files
+            .into_iter()
+            .map(|file| (file.path, file.status, file.old_id, file.new_id))
+            .collect();
+        assert_eq!(&restricted, listed, "{target:?}");
+    }
     // Without git's paths the diff walks the whole tree, and lists the same files.
     assert_eq!(diffs(&engine), diffs_through_git);
     assert!(diffs_through_git.iter().all(|files| !files.is_empty()));

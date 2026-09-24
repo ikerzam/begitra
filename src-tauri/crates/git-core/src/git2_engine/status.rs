@@ -63,7 +63,7 @@ pub(super) fn list(
             "--no-renames"
         },
     ];
-    match porcelain(engine, &extra, cancel)? {
+    match porcelain(engine, &extra, &[], cancel)? {
         Some(output) => Ok(status_porcelain::parse(&output, options.include_untracked)),
         // git could not be started (not installed, not on PATH): libgit2 answers instead.
         None => {
@@ -78,11 +78,14 @@ pub(super) fn list(
 
 /// The paths git's status names as changed, in the index or in the working tree (untracked
 /// files when `untracked`), a rename as both its paths: what a working-tree diff has to read.
-/// `None` when git cannot be started, and the diff then walks the whole tree.
-#[tracing::instrument(level = "debug", skip_all, fields(untracked = untracked))]
+/// With `pathspecs`, only at those paths and below them, read literally (a `[` is a
+/// character, not a pattern). `None` when git cannot be started, and the diff then walks the
+/// whole tree.
+#[tracing::instrument(level = "debug", skip_all, fields(untracked = untracked, pathspecs = pathspecs.len()))]
 pub(super) fn changed_paths(
     engine: &Git2Engine,
     untracked: bool,
+    pathspecs: &[String],
     cancel: &Cancel,
 ) -> GitResult<Option<Vec<status_porcelain::NamedPath>>> {
     let mut extra = vec![
@@ -100,7 +103,8 @@ pub(super) fn changed_paths(
     if !untracked && engine.with_repo(|repo| Ok(diff_shows_untracked_submodules(repo)))? {
         extra.push("--ignore-submodules=none");
     }
-    Ok(porcelain(engine, &extra, cancel)?.map(|output| status_porcelain::changed_paths(&output)))
+    Ok(porcelain(engine, &extra, pathspecs, cancel)?
+        .map(|output| status_porcelain::changed_paths(&output)))
 }
 
 /// Whether the repository's configuration sets `diff.ignoreSubmodules` to `none`.
@@ -111,8 +115,14 @@ fn diff_shows_untracked_submodules(repo: &git2::Repository) -> bool {
 }
 
 /// `git status --porcelain=v2 -z` with `extra` options, on the engine's repository named
-/// outright; its output, or `None` when git cannot be started.
-fn porcelain(engine: &Git2Engine, extra: &[&str], cancel: &Cancel) -> GitResult<Option<Vec<u8>>> {
+/// outright, restricted to `pathspecs` read literally when there are any; its output, or
+/// `None` when git cannot be started.
+fn porcelain(
+    engine: &Git2Engine,
+    extra: &[&str],
+    pathspecs: &[String],
+    cancel: &Cancel,
+) -> GitResult<Option<Vec<u8>>> {
     cancel.check()?;
     // A HEAD whose commit cannot be read is `repo.corrupt_object` with its hash, as every
     // read reports it, on a handle that has not read the commit yet; once libgit2's object
@@ -134,15 +144,16 @@ fn porcelain(engine: &Git2Engine, extra: &[&str], cancel: &Cancel) -> GitResult<
     );
     // `--no-optional-locks`: a status refresh must never take `index.lock` or rewrite the
     // index of the user's repository; it is a read.
-    let mut args = vec![
-        "--no-optional-locks",
-        git_dir.as_str(),
-        work_tree.as_str(),
-        "status",
-        "--porcelain=v2",
-        "-z",
-    ];
+    let mut args = vec!["--no-optional-locks", git_dir.as_str(), work_tree.as_str()];
+    if !pathspecs.is_empty() {
+        args.push("--literal-pathspecs");
+    }
+    args.extend(["status", "--porcelain=v2", "-z"]);
     args.extend_from_slice(extra);
+    if !pathspecs.is_empty() {
+        args.push("--");
+        args.extend(pathspecs.iter().map(String::as_str));
+    }
     match run_git_cancellable(&root, &args, cancel) {
         Ok(exit) if exit.status == Some(0) => {
             // git exits 0 and lists nothing for a folder it could not read (a path over the

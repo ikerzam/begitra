@@ -27,9 +27,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use super::{diff, reopen_gitdir, Git2Engine};
-use crate::engine::{Cancel, DiffWalk};
+use crate::engine::{Cancel, DiffWalk, RESTRICTED_FILES};
 use crate::error::{GitError, GitResult};
-use crate::types::{ChangeSetPage, DiffOptions, DiffTarget, FileChange};
+use crate::types::{ChangeSet, ChangeSetPage, DiffOptions, DiffTarget, FileChange};
 
 /// Idle workers kept per engine, each holding a repository handle and its loaded index.
 const IDLE_WORKERS: usize = 2;
@@ -50,6 +50,8 @@ pub(super) struct Job {
     options: DiffOptions,
     /// The paths a working-tree diff reads, or `None` for the whole tree.
     paths: Option<Vec<Vec<u8>>>,
+    /// A restriction: the files these paths cover, or `None` for the whole change set.
+    only: Option<Vec<Vec<u8>>>,
     generated_attributes: bool,
     ready: Sender<GitResult<usize>>,
     requests: Receiver<Request>,
@@ -86,7 +88,48 @@ pub(super) fn start(
     page_size: usize,
     cancel: &Cancel,
 ) -> GitResult<Box<dyn DiffWalk>> {
+    Ok(Box::new(open(
+        engine, target, options, page_size, None, cancel,
+    )?))
+}
+
+/// The diff restricted to `paths`, whole; see [`crate::engine::GitEngine::diff_paths`].
+#[tracing::instrument(level = "debug", skip_all, fields(paths = paths.len()))]
+pub(super) fn restricted(
+    engine: &Git2Engine,
+    target: &DiffTarget,
+    options: &DiffOptions,
+    paths: &[String],
+    cancel: &Cancel,
+) -> GitResult<Option<ChangeSet>> {
+    let mut pages = open(engine, target, options, usize::MAX, Some(paths), cancel)?;
+    // The count is known once the list is prepared, before any patch is read.
+    if pages.total > RESTRICTED_FILES {
+        return Ok(None);
+    }
+    let page = pages.next_page(cancel)?;
+    Ok(Some(ChangeSet {
+        files: page.files,
+        additions: page.additions,
+        deletions: page.deletions,
+    }))
+}
+
+/// Prepares a paged diff, restricted to `only` when given (with the repositories above those
+/// paths, see [`diff::with_repositories_above`]).
+fn open(
+    engine: &Git2Engine,
+    target: &DiffTarget,
+    options: &DiffOptions,
+    page_size: usize,
+    only: Option<&[String]>,
+    cancel: &Cancel,
+) -> GitResult<Pages> {
     cancel.check()?;
+    let only = match only {
+        Some(only) => Some(diff::with_repositories_above(engine, only)?),
+        None => None,
+    };
     // Revisions and the merge base resolve on the engine's warm handle; the worker only
     // diffs trees.
     let (gitdir, target): (PathBuf, DiffTarget) = engine.with_repo(|repo| {
@@ -97,7 +140,7 @@ pub(super) fn start(
     })?;
     // git's status names the working tree's changed paths on this thread, where a cancel
     // reaches the git it runs; the worker then reads only those.
-    let paths = diff::working_tree_paths(engine, &target, cancel)?;
+    let paths = diff::working_tree_paths(engine, &target, only.as_deref(), cancel)?;
     let generated_attributes = engine.generated_attributes_present();
     let pool = engine.diff_workers();
     let worker = take_worker(&pool, &gitdir)?;
@@ -109,6 +152,7 @@ pub(super) fn start(
         target,
         options: options.clone(),
         paths,
+        only: only.map(|only| only.into_iter().map(String::into_bytes).collect()),
         generated_attributes,
         ready: ready_tx,
         requests: worker_requests,
@@ -129,7 +173,7 @@ pub(super) fn start(
         Ok(result) => result?,
         Err(_) => return Err(GitError::Git("the diff thread ended early".to_owned())),
     };
-    Ok(Box::new(Pages {
+    Ok(Pages {
         requests: Some(requests),
         replies,
         worker: Some(worker),
@@ -140,7 +184,7 @@ pub(super) fn start(
         additions: 0,
         deletions: 0,
         finished: false,
-    }))
+    })
 }
 
 /// An idle worker of the pool, or a new one on its own repository handle.
@@ -186,6 +230,7 @@ fn serve(gitdir: &std::path::Path, inbox: &Receiver<Job>) {
             &job.options,
             job.generated_attributes,
             job.paths.as_deref(),
+            job.only.as_deref(),
         ) {
             Ok(prepared) => prepared,
             Err(error) => {
@@ -340,6 +385,7 @@ mod tests {
                 target,
                 options: DiffOptions::default(),
                 paths: None,
+                only: None,
                 generated_attributes: false,
                 ready: ready_tx,
                 requests: worker_requests,

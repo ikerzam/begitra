@@ -12,6 +12,7 @@ mod count;
 mod diff;
 mod diff_pages;
 mod filter;
+pub mod index_snapshot;
 pub mod patch;
 mod refs;
 mod remotes;
@@ -32,11 +33,11 @@ use git2::{ErrorClass, ErrorCode, Oid, Repository};
 use crate::engine::{Cancel, CommitWalk, DiffWalk, GitEngine};
 use crate::error::{GitError, GitResult};
 use crate::types::{
-    BlobAt, BlobContent, CommitContext, CommitCount, CommitRequest, Comparison, Conflict,
-    DiffOptions, DiffTarget, MergeMode, MergePreview, NetworkResult, OperationState, Outcome,
-    PatchSelection, PullRequest, PushRequest, Ref, Remote, Repo, ResetMode, SelectionTarget,
-    SequencerAction, StashPush, StatusEntry, StatusOptions, SwitchTarget, WalkOptions, WalkScope,
-    Worktree, WorktreeAdd,
+    BlobAt, BlobContent, ChangeSet, CommitContext, CommitCount, CommitRequest, Comparison,
+    Conflict, DiffOptions, DiffTarget, MergeMode, MergePreview, NetworkResult, OperationState,
+    Outcome, PatchSelection, PullRequest, PushRequest, Ref, Remote, Repo, ResetMode,
+    SelectionTarget, SequencerAction, StashPush, StatusEntry, StatusOptions, SwitchTarget,
+    WalkOptions, WalkScope, Worktree, WorktreeAdd,
 };
 
 /// A repository opened with libgit2.
@@ -327,6 +328,16 @@ impl GitEngine for Git2Engine {
         cancel: &Cancel,
     ) -> GitResult<Box<dyn DiffWalk>> {
         diff_pages::start(self, target, options, page_size, cancel)
+    }
+
+    fn diff_paths(
+        &self,
+        target: &DiffTarget,
+        options: &DiffOptions,
+        paths: &[String],
+        cancel: &Cancel,
+    ) -> GitResult<Option<ChangeSet>> {
+        diff_pages::restricted(self, target, options, paths, cancel)
     }
 
     fn merge_base(&self, a: &str, b: &str) -> GitResult<String> {

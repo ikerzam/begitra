@@ -2095,3 +2095,216 @@ fn pages_carry_the_files_in_order_with_running_totals() {
         "op.cancelled"
     );
 }
+
+/// `diff_paths` of `target` at `paths`; `None` when it lists too many files.
+fn restricted(f: &Fixture, target: &DiffTarget, paths: &[&str]) -> Option<ChangeSet> {
+    let paths: Vec<String> = paths.iter().map(|path| (*path).to_owned()).collect();
+    engine(f)
+        .diff_paths(target, &DiffOptions::default(), &paths, &Cancel::never())
+        .expect("restricted diff")
+}
+
+/// Whether a requested path covers a listed one: the same path, one below it, or an entry
+/// above it (a folder entry or a submodule, which a change inside it moves).
+fn covers(requested: &str, listed: &str) -> bool {
+    let listed = listed.strip_suffix('/').unwrap_or(listed);
+    listed == requested
+        || listed
+            .strip_prefix(requested)
+            .is_some_and(|rest| rest.starts_with('/'))
+        || requested
+            .strip_prefix(listed)
+            .is_some_and(|rest| rest.starts_with('/'))
+}
+
+/// The files of the full diff that `paths` cover, which the restricted diff lists as they are.
+fn full_at(f: &Fixture, target: &DiffTarget, paths: &[&str]) -> Vec<FileChange> {
+    diff(f, target)
+        .files
+        .into_iter()
+        .filter(|file| {
+            paths.iter().any(|path| {
+                covers(path, &file.path)
+                    || file
+                        .old_path
+                        .as_deref()
+                        .is_some_and(|old| covers(path, old))
+            })
+        })
+        .collect()
+}
+
+/// The targets a restricted diff serves: the working tree against the index, HEAD and a
+/// revision, and the index against HEAD.
+fn restricted_targets() -> [DiffTarget; 4] {
+    [
+        against_index(),
+        DiffTarget::WorkingTree {
+            base: WorkingTreeBase::Head,
+        },
+        DiffTarget::WorkingTree {
+            base: WorkingTreeBase::Revision {
+                rev: "v1".to_owned(),
+            },
+        },
+        DiffTarget::Index,
+    ]
+}
+
+fn assert_restricted_as_full(f: &Fixture, paths: &[&str]) {
+    for target in restricted_targets() {
+        let listed = restricted(f, &target, paths).expect("within the cap");
+        let expected = full_at(f, &target, paths);
+        assert_eq!(listed.files, expected, "{target:?} at {paths:?}");
+        let additions: u32 = expected.iter().map(|file| file.additions).sum();
+        let deletions: u32 = expected.iter().map(|file| file.deletions).sum();
+        assert_eq!(
+            (listed.additions, listed.deletions),
+            (additions, deletions),
+            "{target:?} at {paths:?}"
+        );
+    }
+}
+
+#[test]
+fn a_restricted_diff_lists_what_the_full_one_lists_at_its_paths() {
+    let f = Fixture::basic();
+    f.append("README.md", "edited\n");
+    f.append("src/lib.rs", "// staged\n");
+    f.git(&["add", "src/lib.rs"]);
+    f.append("src/lib.rs", "// and again\n");
+    fs::remove_file(f.root.join("docs/guide.md")).expect("remove");
+    f.write("notes/new.txt", "new\n");
+    let cases: [&[&str]; 6] = [
+        &["src/lib.rs"],
+        &["README.md", "docs/guide.md"],
+        &["notes"],
+        &["src"],
+        &["docs"],
+        &["missing.txt"],
+    ];
+    for paths in cases {
+        assert_restricted_as_full(&f, paths);
+    }
+    assert_eq!(
+        paths(&restricted(&f, &against_index(), &["src"]).expect("cap")),
+        ["src/lib.rs"]
+    );
+}
+
+#[test]
+fn a_file_restored_to_the_index_leaves_the_restricted_diff() {
+    let f = Fixture::basic();
+    let original = fs::read_to_string(f.root.join("README.md")).expect("read");
+    f.append("README.md", "edited\n");
+    let listed = restricted(&f, &against_index(), &["README.md"]).expect("cap");
+    assert_eq!(paths(&listed), ["README.md"]);
+    fs::write(f.root.join("README.md"), original).expect("restore");
+    let listed = restricted(&f, &against_index(), &["README.md"]).expect("cap");
+    assert!(listed.files.is_empty());
+}
+
+#[test]
+fn a_folder_covers_its_files_and_not_its_namesakes() {
+    let f = Fixture::basic();
+    f.write("docs/a.txt", "a\n");
+    f.write("docs2/b.txt", "b\n");
+    let listed = restricted(&f, &against_index(), &["docs"]).expect("cap");
+    assert_eq!(paths(&listed), ["docs/a.txt"]);
+}
+
+#[test]
+fn a_path_that_reads_as_a_pattern_is_matched_literally() {
+    let mut f = Fixture::basic();
+    f.write("lib[v2]/a.txt", "a\n");
+    f.write("libv/a.txt", "a\n");
+    f.commit("brackets");
+    f.append("lib[v2]/a.txt", "edited\n");
+    f.append("libv/a.txt", "edited\n");
+    for target in restricted_targets() {
+        let listed = restricted(&f, &target, &["lib[v2]"]).expect("cap");
+        let expected: &[&str] = if matches!(target, DiffTarget::Index) {
+            &[]
+        } else {
+            &["lib[v2]/a.txt"]
+        };
+        assert_eq!(paths(&listed), expected, "{target:?}");
+    }
+}
+
+#[test]
+fn more_files_than_the_cap_is_too_many() {
+    let f = Fixture::basic();
+    for i in 0..201 {
+        f.write(&format!("many/{i:03}.txt"), "x\n");
+    }
+    assert!(restricted(&f, &against_index(), &["many"]).is_none());
+    fs::remove_file(f.root.join("many/200.txt")).expect("remove");
+    let listed = restricted(&f, &against_index(), &["many"]).expect("at the cap");
+    assert_eq!(listed.files.len(), 200);
+}
+
+#[test]
+fn a_change_inside_a_submodule_or_a_nested_repository_lists_its_folder() {
+    let (f, _) = with_submodules(&["sub"]);
+    fs::write(f.root.join("sub/s.txt"), "edited inside\n").expect("write");
+    let nested = f.root.join("nested");
+    fs::create_dir_all(&nested).expect("nested folder");
+    f.git_in(&nested, &["init", "-q", "-b", "main"]);
+    fs::write(nested.join("x.txt"), "x\n").expect("write");
+    let head = DiffTarget::WorkingTree {
+        base: WorkingTreeBase::Head,
+    };
+    for (target, requested, listed) in [
+        (against_index(), "sub/s.txt", &["sub"][..]),
+        (head, "sub/s.txt", &["sub"]),
+        (against_index(), "nested/x.txt", &["nested/"]),
+    ] {
+        let restricted_files = restricted(&f, &target, &[requested]).expect("cap");
+        assert_eq!(
+            restricted_files.files,
+            full_at(&f, &target, &[requested]),
+            "{target:?}"
+        );
+        assert_eq!(paths(&restricted_files), listed, "{target:?}");
+    }
+}
+
+#[test]
+fn pathspecs_longer_than_a_command_line_still_restrict_the_diff() {
+    let f = Fixture::basic();
+    f.append("README.md", "edited\n");
+    f.append("src/lib.rs", "// edited\n");
+    // Two hundred long names that exist nowhere, and one that changed.
+    let long: Vec<String> = (0..200)
+        .map(|i| format!("missing/{}/{i}.txt", "x".repeat(100)))
+        .collect();
+    let mut requested: Vec<&str> = long.iter().map(String::as_str).collect();
+    requested.push("src/lib.rs");
+    for target in restricted_targets() {
+        let listed = restricted(&f, &target, &requested).expect("cap");
+        assert_eq!(
+            listed.files,
+            full_at(&f, &target, &["src/lib.rs"]),
+            "{target:?}"
+        );
+    }
+}
+
+#[test]
+fn a_rename_is_found_when_both_sides_are_requested() {
+    let f = Fixture::basic();
+    f.git(&["mv", "src/lib.rs", "src/core.rs"]);
+    f.append("src/core.rs", "// edited\n");
+    let both = ["src/lib.rs", "src/core.rs"];
+    for target in [
+        DiffTarget::WorkingTree {
+            base: WorkingTreeBase::Head,
+        },
+        DiffTarget::Index,
+    ] {
+        let listed = restricted(&f, &target, &both).expect("cap");
+        assert_eq!(listed.files, full_at(&f, &target, &both), "{target:?}");
+        assert_eq!(listed.files[0].status, ChangeKind::Renamed, "{target:?}");
+    }
+}

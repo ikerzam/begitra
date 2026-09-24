@@ -76,14 +76,16 @@ impl Prepared<'_> {
 }
 
 /// Builds the delta list of `target` and finds its renames, without reading any patch. A
-/// working-tree target reads only `paths` when given (see [`working_tree_paths`]).
-#[tracing::instrument(level = "debug", skip_all, fields(paths = paths.map(<[Vec<u8>]>::len)))]
+/// working-tree target reads only `paths` when given (see [`working_tree_paths`]). With
+/// `only`, the list keeps the files those paths cover (see [`covers`]): a restricted diff.
+#[tracing::instrument(level = "debug", skip_all, fields(paths = paths.map(<[Vec<u8>]>::len), only = only.map(<[Vec<u8>]>::len)))]
 pub(super) fn prepare<'r>(
     repo: &'r Repository,
     target: &DiffTarget,
     options: &DiffOptions,
     generated_attributes: bool,
     paths: Option<&[Vec<u8>]>,
+    only: Option<&[Vec<u8>]>,
 ) -> GitResult<Prepared<'r>> {
     // Working tree files are not objects, so their ids never resolve in the object store.
     let probe_new_side = !matches!(target, DiffTarget::WorkingTree { .. });
@@ -94,7 +96,7 @@ pub(super) fn prepare<'r>(
             base: WorkingTreeBase::Index
         }
     );
-    let mut diff = build_diff(repo, target, options, paths)?;
+    let mut diff = build_diff(repo, target, options, paths, only)?;
     if options.renames {
         let threshold = u16::from(options.similarity.min(100));
         let mut find = DiffFindOptions::new();
@@ -124,6 +126,18 @@ pub(super) fn prepare<'r>(
         .collect();
     let mut order: Vec<usize> = (0..listed_paths.len()).collect();
     order.sort_by(|&left, &right| listed_paths.get(left).cmp(&listed_paths.get(right)));
+    // A restricted diff keeps what its paths cover, whatever libgit2 read to find it: a
+    // fallback that walked the whole tree lists the same files as the list of paths.
+    if let Some(only) = only {
+        order.retain(|&index| {
+            diff.get_delta(index).is_some_and(|delta| {
+                [delta.new_file(), delta.old_file()].iter().any(|file| {
+                    file.path_bytes()
+                        .is_some_and(|path| only.iter().any(|requested| covers(requested, path)))
+                })
+            })
+        });
+    }
     // The index flags git honours and libgit2 does not: a sparse checkout's absent files
     // (`skip-worktree`) are not deletions, and `git add -N` stages nothing.
     let index_file = if working_tree || matches!(target, DiffTarget::Index) {
@@ -240,13 +254,17 @@ pub(super) fn resolve_target(
     })
 }
 
-/// Creates the libgit2 diff for `target`, resolving revisions and trees.
+/// Creates the libgit2 diff for `target`, resolving revisions and trees. A restriction
+/// (`only`) that libgit2 can match literally limits the sides that read no working tree.
 fn build_diff<'r>(
     repo: &'r Repository,
     target: &DiffTarget,
     options: &DiffOptions,
     paths: Option<&[Vec<u8>]>,
+    only: Option<&[Vec<u8>]>,
 ) -> GitResult<Diff<'r>> {
+    // A requested path may be a folder or a submodule: matched as one.
+    let only = only.filter(|only| only.iter().all(|requested| literal(requested, true)));
     let mut git_options = base_options(options);
     let diff = match target {
         DiffTarget::Commit { hash } => {
@@ -299,8 +317,11 @@ fn build_diff<'r>(
             base: WorkingTreeBase::Revision { rev },
         } => {
             let tree = commit_tree(&resolve_commit(repo, rev)?)?;
-            let staged = match (paths, head_tree(repo)?) {
-                (Some(paths), Some(head)) => revision_paths(repo, &tree, &head, paths)?,
+            // Restricted, the tree side reads the requested paths themselves: it needs no
+            // working tree and no status.
+            let staged = match (only, paths, head_tree(repo)?) {
+                (Some(only), _, _) => Some(only.to_vec()),
+                (None, Some(paths), Some(head)) => revision_paths(repo, &tree, &head, paths)?,
                 _ => None,
             };
             tree_to_workdir(repo, Some(&tree), options, staged.as_deref(), paths)
@@ -325,6 +346,9 @@ fn build_diff<'r>(
         }
         DiffTarget::Index => {
             let head = head_tree(repo)?;
+            if let Some(only) = only {
+                limit_to(&mut git_options, only);
+            }
             repo.diff_tree_to_index(head.as_ref(), None, Some(&mut git_options))
                 .map_err(GitError::from)
         }
@@ -415,6 +439,10 @@ const PRUNE_LIMIT: usize = 2_000;
 /// while giving it up adds the whole walk to the status already paid.
 const STATUS_PATH_LIMIT: usize = 250_000;
 
+/// The bytes of pathspecs a restricted status takes on its command line; Windows caps a
+/// command line at 32,767 characters, the repository's paths included.
+const PATHSPEC_BYTES: usize = 16_384;
+
 /// The paths the working-tree side of a diff reads: those git's status names (untracked
 /// files for the diff against the index only, the others leaving them out); against HEAD
 /// they cover the tree's side too, and a revision adds its own (`revision_paths`). `None`
@@ -422,18 +450,29 @@ const STATUS_PATH_LIMIT: usize = 250_000;
 /// damaged repository that libgit2 still reads), past [`STATUS_PATH_LIMIT`], or when a path
 /// cannot be matched literally (see [`literal`]): the diff then walks the whole working
 /// tree, as libgit2 does on its own. An untracked path under a folder that holds a `.git` is
-/// that folder instead (see [`repository_above`]).
+/// that folder instead (see [`repository_above`]). With `only`, git's status runs at those
+/// paths alone, which the caller extends with the repositories above them (see
+/// [`with_repositories_above`]).
 #[tracing::instrument(level = "debug", skip_all)]
 pub(super) fn working_tree_paths(
     engine: &super::Git2Engine,
     target: &DiffTarget,
+    only: Option<&[String]>,
     cancel: &Cancel,
 ) -> GitResult<Option<Vec<Vec<u8>>>> {
     let DiffTarget::WorkingTree { base } = target else {
         return Ok(None);
     };
+    let pathspecs = match only {
+        Some([]) => return Ok(Some(Vec::new())),
+        // Past what a command line safely holds, git's status runs over the whole tree and
+        // the restriction applies to what it names (see [`prepare`]).
+        Some(only) if only.iter().map(|path| path.len() + 1).sum::<usize>() > PATHSPEC_BYTES => &[],
+        Some(only) => only,
+        None => &[],
+    };
     let untracked = matches!(base, WorkingTreeBase::Index);
-    let named = match super::status::changed_paths(engine, untracked, cancel) {
+    let named = match super::status::changed_paths(engine, untracked, pathspecs, cancel) {
         Ok(Some(named)) => named,
         Ok(None) => {
             tracing::debug!("git could not be started: the diff walks the whole working tree");
@@ -508,6 +547,73 @@ pub(super) fn working_tree_paths(
         }
     }
     Ok(within_limit(paths, STATUS_PATH_LIMIT))
+}
+
+/// The requested paths with a path inside a submodule or a nested repository replaced by
+/// that repository's folder: git's status names such a folder for the folder itself, where a
+/// full status names it (a submodule's modified content, a repository cloned into the tree),
+/// and not for a path inside it (a pathspec inside an untracked nested repository lists
+/// nothing at all); a tree compared with the index finds a submodule only at its own path.
+/// The folder covers the path it replaces (see [`covers`]).
+pub(super) fn with_repositories_above(
+    engine: &super::Git2Engine,
+    only: &[String],
+) -> GitResult<Vec<String>> {
+    let root = GitEngine::repo(engine).root.clone();
+    let mut repositories: Vec<String> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    engine.with_repo(|repo| {
+        let mut index = repo.index()?;
+        if let Err(error) = index.read(false) {
+            tracing::debug!(%error, "the index could not be read again from disk");
+        }
+        for requested in only {
+            let mut end = 0;
+            while let Some(slash) = requested.get(end..).and_then(|rest| rest.find('/')) {
+                let folder = requested.get(..end + slash).unwrap_or_default();
+                end += slash + 1;
+                if folder.is_empty() || !seen.insert(folder.to_owned()) {
+                    continue;
+                }
+                let submodule = index
+                    .get_path(Path::new(folder), 0)
+                    .is_some_and(|entry| entry.mode == u32::from(FileMode::Commit));
+                if submodule || root.join(folder).join(".git").exists() {
+                    repositories.push(folder.to_owned());
+                }
+            }
+        }
+        Ok(())
+    })?;
+    let inside = |path: &str| {
+        repositories.iter().any(|folder| {
+            path.strip_prefix(folder.as_str())
+                .is_some_and(|rest| rest.starts_with('/'))
+        })
+    };
+    let mut pathspecs: Vec<String> = only.iter().filter(|path| !inside(path)).cloned().collect();
+    // The outermost repository stands for the ones inside it.
+    pathspecs.extend(
+        repositories
+            .iter()
+            .filter(|folder| !inside(folder))
+            .cloned(),
+    );
+    Ok(pathspecs)
+}
+
+/// Whether a requested path covers a listed one: the same path, one below it, or an entry
+/// above it (a folder entry, a submodule, a file turned into a folder), whose listing a
+/// change inside it can move. The frontend applies the same rule to the files it replaces.
+pub(super) fn covers(requested: &[u8], listed: &[u8]) -> bool {
+    let requested = requested.strip_suffix(b"/").unwrap_or(requested);
+    let listed = listed.strip_suffix(b"/").unwrap_or(listed);
+    let below = |path: &[u8], folder: &[u8]| {
+        path.len() > folder.len()
+            && path.starts_with(folder)
+            && path.get(folder.len()) == Some(&b'/')
+    };
+    listed == requested || below(listed, requested) || below(requested, listed)
 }
 
 /// Whether libgit2 matches `path` literally under `disable_pathspec_match`, and the rest of
@@ -1359,6 +1465,19 @@ fn locate_unreadable_blob<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_requested_path_covers_itself_what_is_below_and_the_entries_above() {
+        assert!(covers(b"src/a.rs", b"src/a.rs"));
+        assert!(covers(b"src", b"src/a.rs"));
+        assert!(covers(b"src/", b"src/a.rs"));
+        assert!(covers(b"nested/x.txt", b"nested/"), "a folder entry above");
+        assert!(covers(b"sub/s.txt", b"sub"), "a submodule above");
+        assert!(!covers(b"docs", b"docs2/b.txt"));
+        assert!(!covers(b"docs2", b"docs/a.txt"));
+        assert!(!covers(b"src/a.rs", b"src/a.rs.bak"));
+        assert!(!covers(b"src/a", b"src/ab/c.rs"));
+    }
 
     #[test]
     fn a_path_libgit2_reads_as_a_pattern_is_not_literal() {

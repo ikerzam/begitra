@@ -67,6 +67,10 @@ pub trait CommitWalk: Send {
     fn next_page(&mut self, cancel: &Cancel) -> GitResult<Page>;
 }
 
+/// Most files a restricted diff ([`GitEngine::diff_paths`]) returns, the size of a page of
+/// the streamed diff.
+pub const RESTRICTED_FILES: usize = 200;
+
 /// A change set computed page by page.
 ///
 /// The handle keeps the delta list (renames found once) between pages and computes the
@@ -123,6 +127,19 @@ pub trait GitEngine: Send + Sync {
         page_size: usize,
         cancel: &Cancel,
     ) -> GitResult<Box<dyn DiffWalk>>;
+
+    /// The diff of a working-tree target, or of the index against HEAD, restricted to
+    /// `paths`: the files the full diff lists that a path covers (itself, what lies below it,
+    /// and a folder entry or a submodule above it, which a change inside it moves), with the
+    /// same lines and ids. git's status runs at those paths alone. `None` when that is more
+    /// than [`RESTRICTED_FILES`] files: the caller computes the full diff instead.
+    fn diff_paths(
+        &self,
+        target: &DiffTarget,
+        options: &DiffOptions,
+        paths: &[String],
+        cancel: &Cancel,
+    ) -> GitResult<Option<ChangeSet>>;
 
     /// Computes the diff described by `target` whole, with hunks, intra-line spans and flags.
     fn diff(
