@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CommitNode, Ref as GitRef, Repo } from "@/ipc/schemas";
 
 import { useOperationsStore } from "./operations";
-import { tipsSignature, useRepoStore } from "./repo";
+import { headState, tipsSignature, useRepoStore } from "./repo";
 import { useSettingsStore } from "./settings";
 
 const repo: Repo = {
@@ -505,6 +505,32 @@ describe("repo store, after the review", () => {
     store.restartWalk(store.walkScope, store.walkFilter);
     expect(store.recentlyRestarted()).toBe(true);
     expect(store.recentlyRestarted(0)).toBe(false);
+  });
+
+  it("follows HEAD's branch through the refs listing, keeping an unborn branch's name", async () => {
+    mockBackend();
+    const store = useRepoStore();
+    await store.open("/r");
+    const main = store.refs[0]!;
+    const head: GitRef = { ...main, name: "HEAD", fullName: "HEAD", kind: "head" };
+    const develop: GitRef = { ...main, name: "develop", fullName: "refs/heads/develop" };
+    expect(store.repo).toMatchObject({ currentBranch: "main", detached: false });
+    // `git switch develop` in a terminal.
+    clearMocks();
+    mockBackend({ refs: [{ ...develop, isCurrent: true }, { ...main, isCurrent: false }, head] });
+    await store.refreshRefs();
+    expect(store.repo).toMatchObject({ currentBranch: "develop", detached: false });
+    // `git switch --detach`.
+    clearMocks();
+    mockBackend({ refs: [{ ...develop, isCurrent: false }, { ...main, isCurrent: false }, head] });
+    await store.refreshRefs();
+    expect(store.repo).toMatchObject({ currentBranch: null, detached: true });
+    // An unborn branch lists neither HEAD nor a current branch: what is known stays.
+    clearMocks();
+    mockBackend({ refs: [] });
+    await store.refreshRefs();
+    expect(store.repo).toMatchObject({ currentBranch: null, detached: true });
+    expect(headState([])).toBeNull();
   });
 
   it("marks the refs as loaded once they arrive", async () => {

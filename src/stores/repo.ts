@@ -56,6 +56,20 @@ export function headTarget(refs: GitRef[]): string | null {
   return refs.find((entry) => entry.kind === "head")?.target ?? null;
 }
 
+/**
+ * HEAD's branch and whether it is detached, as the refs listing tells: the local branch
+ * marked current, else detached when HEAD resolves; null for an unborn branch, which lists
+ * no ref (the name the open read stays).
+ */
+export function headState(
+  refs: GitRef[],
+): { currentBranch: string | null; detached: boolean } | null {
+  const branch = refs.find((entry) => entry.kind === "local-branch" && entry.isCurrent);
+  if (branch) return { currentBranch: branch.name, detached: false };
+  if (refs.some((entry) => entry.kind === "head")) return { currentBranch: null, detached: true };
+  return null;
+}
+
 /** Where the tips point: every ref but the stash entries, as `fullName=target` sorted. */
 export function tipsSignature(refs: GitRef[]): string {
   return refs
@@ -424,12 +438,22 @@ export const useRepoStore = defineStore("repo", () => {
       refs.value = listed;
       refsLoaded.value = true;
       refsError.value = null;
+      followHead(listed);
       return { tipsMoved: tipsSignature(listed) !== before };
     } catch (error) {
       // The refs shown stay until the next change; the picker reports the failure.
       if (myGeneration === generation) refsError.value = toAppError(error);
       return { tipsMoved: false };
     }
+  }
+
+  /** A switch (here or in a terminal) names the new branch wherever the open's did. */
+  function followHead(listed: GitRef[]): void {
+    const head = headState(listed);
+    const current = repo.value;
+    if (!head || !current) return;
+    if (current.currentBranch === head.currentBranch && current.detached === head.detached) return;
+    repo.value = { ...current, ...head };
   }
 
   /** Whether the walk was listed again within `withinMs` (the app's own writes do it). */

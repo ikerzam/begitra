@@ -3,7 +3,7 @@ import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { CommitNode, WalkFilter, WalkScope } from "@/ipc/schemas";
+import type { CommitNode, Ref, WalkFilter, WalkScope } from "@/ipc/schemas";
 
 import { useGraphStore } from "./graph";
 import { useRepoStore } from "./repo";
@@ -35,7 +35,8 @@ interface Call {
 }
 
 /** A backend whose walk honours the scope and the filter the way the engine does. */
-function mockBackend(): Call[] {
+/** `refs` is read on every listing, so a test can move HEAD between two. */
+function mockBackend(refs: Ref[] = []): Call[] {
   const calls: Call[] = [];
   const all = Array.from({ length: 30 }, (_, i) => commit(i));
   const send = (channel: Channel<unknown>, messages: unknown[]) => {
@@ -56,7 +57,7 @@ function mockBackend(): Call[] {
           isLinkedWorktree: false,
         };
       case "list_refs":
-        return [];
+        return refs.map((entry) => ({ ...entry }));
       case "walk_commits": {
         const scope = args["scope"] as WalkScope;
         const filter = (args["options"] as { filter?: WalkFilter }).filter ?? {};
@@ -194,6 +195,46 @@ describe("graph store", () => {
     await settled();
     expect(walks()).toBe(before + 1);
     expect(calls.filter((c) => c.cmd === "count_commits")).toHaveLength(3);
+  });
+
+  it("walks the new branch when HEAD switches while the scope is the current branch", async () => {
+    const branch = (name: string, isCurrent: boolean): Ref => ({
+      name,
+      fullName: `refs/heads/${name}`,
+      kind: "local-branch",
+      target: commit(0).hash,
+      isCurrent,
+      upstream: null,
+      ahead: null,
+      behind: null,
+      worktree: null,
+      message: null,
+    });
+    const refs = [branch("develop", false), branch("main", true)];
+    const calls = mockBackend(refs);
+    const repo = useRepoStore();
+    const graph = useGraphStore();
+    await repo.open("/r");
+    await settled();
+    const walks = () => calls.filter((c) => c.cmd === "walk_commits");
+    graph.setScope({ kind: "current" });
+    await settled();
+    const before = walks().length;
+    // `git switch develop` in a terminal (both branches on one commit: no tip moves).
+    refs.splice(0, refs.length, branch("develop", true), branch("main", false));
+    await repo.refreshRefs();
+    await settled();
+    expect(graph.walkScope).toEqual({ kind: "ref", name: "develop" });
+    expect(walks()).toHaveLength(before + 1);
+    expect(walks().at(-1)?.args["scope"]).toEqual({ kind: "ref", name: "develop" });
+    // With every branch shown, a switch lists nothing again.
+    graph.setScope({ kind: "all" });
+    await settled();
+    const all = walks().length;
+    refs.splice(0, refs.length, branch("develop", false), branch("main", true));
+    await repo.refreshRefs();
+    await settled();
+    expect(walks()).toHaveLength(all);
   });
 
   it("clear resets every control and restarts once", async () => {

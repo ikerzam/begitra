@@ -221,6 +221,20 @@ export const useGraphStore = defineStore("graph", () => {
     { immediate: true },
   );
 
+  // HEAD switched branch (here or in a terminal) while the graph shows the current branch:
+  // the walk lists the new one. Another repository resets the filters instead.
+  watch(
+    () =>
+      [
+        repo.repo?.root,
+        filters.value.scope.kind === "current" ? scopeKey(walkScope.value) : null,
+      ] as const,
+    ([root, key], [rootBefore, keyBefore]) => {
+      if (root !== rootBefore || key === null || keyBefore === null || key === keyBefore) return;
+      apply();
+    },
+  );
+
   // Another repository: every filter, the authors, the count and the pins start over.
   watch(
     () => repo.repo?.root,
