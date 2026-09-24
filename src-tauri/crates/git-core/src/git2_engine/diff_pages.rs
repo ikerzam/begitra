@@ -125,10 +125,6 @@ fn open(
     cancel: &Cancel,
 ) -> GitResult<Pages> {
     cancel.check()?;
-    let only = match only {
-        Some(only) => Some(diff::restriction(engine, target, only)?),
-        None => None,
-    };
     // Revisions and the merge base resolve on the engine's warm handle; the worker only
     // diffs trees.
     let (location, target): (Location, DiffTarget) = engine.with_repo(|repo| {
@@ -137,6 +133,11 @@ fn open(
             diff::resolve_target(engine, repo, target)?,
         ))
     })?;
+    // After the target resolves, so the restriction reads the tree the diff compares.
+    let only = match only {
+        Some(only) => Some(diff::restriction(engine, &target, only)?),
+        None => None,
+    };
     // git's status names the working tree's changed paths on this thread, where a cancel
     // reaches the git it runs; the worker then reads only those.
     let pathspecs = only.as_ref().map(|only| only.pathspecs.as_slice());
