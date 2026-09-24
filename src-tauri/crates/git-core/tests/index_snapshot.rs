@@ -13,7 +13,7 @@ fn snapshot(f: &Fixture) -> IndexSnapshot {
 
 /// The paths `after` differs from `before` in, and whether an unmerged entry moved.
 fn changes(before: &IndexSnapshot, after: &IndexSnapshot) -> (Vec<String>, bool) {
-    let changes = before.changes(after);
+    let changes = before.changes(after, usize::MAX);
     (changes.paths.expect("UTF-8 paths"), changes.conflicts)
 }
 
@@ -104,6 +104,13 @@ fn removed_and_added_entries_are_named_in_order() {
         changes(&before, &snapshot(&f)),
         (owned(&["added.txt", "docs/guide.md", "intent.txt"]), false)
     );
+}
+
+#[test]
+fn a_split_index_is_refused_cleanly() {
+    let f = Fixture::basic();
+    f.git(&["update-index", "--split-index"]);
+    assert!(IndexSnapshot::read(&f.git_dir().join("index")).is_err());
 }
 
 #[test]

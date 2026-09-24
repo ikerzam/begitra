@@ -529,6 +529,33 @@ fn a_staged_file_names_its_index_entry() {
 }
 
 #[test]
+fn each_index_change_names_what_it_moved_since_the_last() {
+    let repo = Repo::new();
+    repo.write("a.txt", "two\n");
+    repo.write("b.txt", "b\n");
+    let session = Session::start(WatchBases::main(&repo.root));
+    let names = |events: &[RepoChanged], path: &str| {
+        index_changes(events)
+            .iter()
+            .any(|event| event.index_paths.as_deref() == Some(&[path.to_owned()][..]))
+    };
+    repo.git(&["add", "a.txt"]);
+    let first = session.collect(|events| names(events, "a.txt"), QUIET, PATIENCE);
+    assert!(names(&first, "a.txt"), "{first:?}");
+    // The snapshot moved on: the next change names its own entry, not the one before.
+    repo.git(&["add", "b.txt"]);
+    let second = session.collect(|events| names(events, "b.txt"), QUIET, PATIENCE);
+    assert!(names(&second, "b.txt"), "{second:?}");
+    assert!(
+        index_changes(&second).iter().all(|event| event
+            .index_paths
+            .as_ref()
+            .is_some_and(|paths| !paths.iter().any(|path| path == "a.txt"))),
+        "{second:?}"
+    );
+}
+
+#[test]
 fn a_refresh_of_the_stat_data_names_no_index_entry() {
     let repo = Repo::new();
     // Written again with its own content before the watch: only its stat data changed, which

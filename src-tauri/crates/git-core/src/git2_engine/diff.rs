@@ -549,49 +549,84 @@ pub(super) fn working_tree_paths(
     Ok(within_limit(paths, STATUS_PATH_LIMIT))
 }
 
-/// The requested paths with a path inside a submodule or a nested repository replaced by
-/// that repository's folder: git's status names such a folder for the folder itself, where a
-/// full status names it (a submodule's modified content, a repository cloned into the tree),
-/// and not for a path inside it (a pathspec inside an untracked nested repository lists
-/// nothing at all); a tree compared with the index finds a submodule only at its own path.
-/// The folder covers the path it replaces (see [`covers`]).
+/// The requested paths as git's status and libgit2 must read them to list what a full diff
+/// lists there: without a trailing slash (a folder that became a file lists under its bare
+/// name); with the index's own spelling beside one a case-insensitive file system names
+/// otherwise (`README.md` on disk for `Readme.md` in the index); with a tracked file that
+/// became a folder beside a path inside it (its deletion lists under its own name); and with a
+/// path inside a submodule or an untracked repository replaced by that folder, since git's
+/// status names such a folder for the folder itself, where a full status names it, and not
+/// for a path inside it (a pathspec inside an untracked nested repository lists nothing at
+/// all), and a tree compared with the index finds a submodule only at its own path. The
+/// folder covers the path it replaces (see [`covers`]).
 pub(super) fn with_repositories_above(
     engine: &super::Git2Engine,
     only: &[String],
 ) -> GitResult<Vec<String>> {
     let root = GitEngine::repo(engine).root.clone();
-    let mut repositories: Vec<String> = Vec::new();
+    let requested: Vec<String> = only
+        .iter()
+        .map(|path| path.trim_end_matches('/').to_owned())
+        .filter(|path| !path.is_empty())
+        .collect();
+    let mut submodules: Vec<String> = Vec::new();
+    // Folders with nothing tracked below them, which a `.git` makes a repository.
+    let mut untracked: Vec<String> = Vec::new();
+    let mut extra: Vec<String> = Vec::new();
     let mut seen = std::collections::HashSet::new();
     engine.with_repo(|repo| {
         let mut index = repo.index()?;
         if let Err(error) = index.read(false) {
             tracing::debug!(%error, "the index could not be read again from disk");
         }
-        for requested in only {
+        // git2's `get_path` panics on what `index_path` refuses (a path starting with `.`).
+        let entry = |path: &str| super::index_path(path).and_then(|path| index.get_path(path, 0));
+        for path in &requested {
+            if let Some(stored) = entry(path).filter(|stored| stored.path != path.as_bytes()) {
+                if let Ok(spelling) = String::from_utf8(stored.path) {
+                    extra.push(spelling);
+                }
+            }
             let mut end = 0;
-            while let Some(slash) = requested.get(end..).and_then(|rest| rest.find('/')) {
-                let folder = requested.get(..end + slash).unwrap_or_default();
+            while let Some(slash) = path.get(end..).and_then(|rest| rest.find('/')) {
+                let folder = path.get(..end + slash).unwrap_or_default();
                 end += slash + 1;
                 if folder.is_empty() || !seen.insert(folder.to_owned()) {
                     continue;
                 }
-                let submodule = index
-                    .get_path(Path::new(folder), 0)
-                    .is_some_and(|entry| entry.mode == u32::from(FileMode::Commit));
-                if submodule || root.join(folder).join(".git").exists() {
-                    repositories.push(folder.to_owned());
+                match entry(folder) {
+                    Some(tracked) if tracked.mode == u32::from(FileMode::Commit) => {
+                        submodules.push(folder.to_owned());
+                    }
+                    Some(_) => extra.push(folder.to_owned()),
+                    None if index.find_prefix(format!("{folder}/")).is_err() => {
+                        untracked.push(folder.to_owned());
+                    }
+                    None => {}
                 }
             }
         }
         Ok(())
     })?;
+    // The stats run once the engine's lock is released.
+    let mut repositories = submodules;
+    repositories.extend(
+        untracked
+            .into_iter()
+            .filter(|folder| root.join(folder).join(".git").exists()),
+    );
     let inside = |path: &str| {
         repositories.iter().any(|folder| {
             path.strip_prefix(folder.as_str())
                 .is_some_and(|rest| rest.starts_with('/'))
         })
     };
-    let mut pathspecs: Vec<String> = only.iter().filter(|path| !inside(path)).cloned().collect();
+    let mut pathspecs: Vec<String> = requested
+        .iter()
+        .chain(&extra)
+        .filter(|path| !inside(path))
+        .cloned()
+        .collect();
     // The outermost repository stands for the ones inside it.
     pathspecs.extend(
         repositories
@@ -599,6 +634,8 @@ pub(super) fn with_repositories_above(
             .filter(|folder| !inside(folder))
             .cloned(),
     );
+    pathspecs.sort_unstable();
+    pathspecs.dedup();
     Ok(pathspecs)
 }
 

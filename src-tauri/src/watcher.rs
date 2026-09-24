@@ -255,7 +255,7 @@ fn debounce_loop(
                         let newer = read_index(&index_file);
                         (payload.index_paths, payload.conflicts_changed) = match (&index, &newer) {
                             (Some(before), Some(after)) => {
-                                let changes = before.changes(after);
+                                let changes = before.changes(after, MAX_PATHS);
                                 (changes.paths, changes.conflicts)
                             }
                             _ => (None, true),
@@ -389,7 +389,8 @@ enum Classified {
     Index,
     Worktrees,
     Status(String),
-    /// The ignore or sparse rules changed: any working file may show or hide.
+    /// A status change no path names: the ignore or sparse rules changed (any working file
+    /// may show or hide), or a name that is not Unicode, which the frontend could not read at.
     StatusRules,
     /// The configuration: the remotes and upstreams, and settings that change the status.
     Config,
@@ -453,6 +454,9 @@ fn classify(bases: &WatchBases, path: &Path) -> Option<Classified> {
     let last = inside.last()?;
     if inside.len() == 1 && (last == "index.lock" || last == ".gitmodules.lock") {
         return None;
+    }
+    if path.to_str().is_none() {
+        return Some(Classified::StatusRules);
     }
     Some(Classified::Status(inside.join("/")))
 }

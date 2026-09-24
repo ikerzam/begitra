@@ -240,6 +240,11 @@ mod tests {
             code(validate_restriction(&working, &["../outside".to_owned()])),
             refused
         );
+        // git2 panics looking up a path that starts with `.`.
+        assert_eq!(
+            code(validate_restriction(&working, &["./src/a.rs".to_owned()])),
+            refused
+        );
     }
 
     #[test]

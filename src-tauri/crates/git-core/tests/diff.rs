@@ -2107,6 +2107,7 @@ fn restricted(f: &Fixture, target: &DiffTarget, paths: &[&str]) -> Option<Change
 /// Whether a requested path covers a listed one: the same path, one below it, or an entry
 /// above it (a folder entry or a submodule, which a change inside it moves).
 fn covers(requested: &str, listed: &str) -> bool {
+    let requested = requested.strip_suffix('/').unwrap_or(requested);
     let listed = listed.strip_suffix('/').unwrap_or(listed);
     listed == requested
         || listed
@@ -2288,6 +2289,87 @@ fn pathspecs_longer_than_a_command_line_still_restrict_the_diff() {
             full_at(&f, &target, &["src/lib.rs"]),
             "{target:?}"
         );
+    }
+}
+
+#[test]
+fn a_path_git2_cannot_look_up_does_not_panic() {
+    let f = Fixture::basic();
+    f.append("README.md", "edited\n");
+    // The bridge refuses such paths; the engine must not panic on them either.
+    let odd = ["./README.md".to_owned(), "./".to_owned(), ".".to_owned()];
+    for target in restricted_targets() {
+        let _ = engine(&f).diff_paths(&target, &DiffOptions::default(), &odd, &Cancel::never());
+    }
+}
+
+#[test]
+fn a_tracked_file_turned_into_a_folder_lists_from_inside_it() {
+    let mut f = Fixture::basic();
+    f.write("a", "a\n");
+    f.commit("a file");
+    fs::remove_file(f.root.join("a")).expect("remove");
+    f.write("a/b.txt", "b\n");
+    let head = DiffTarget::WorkingTree {
+        base: WorkingTreeBase::Head,
+    };
+    for target in [against_index(), head] {
+        let listed = restricted(&f, &target, &["a/b.txt"]).expect("cap");
+        assert_eq!(
+            listed.files,
+            full_at(&f, &target, &["a/b.txt"]),
+            "{target:?}"
+        );
+    }
+    let listed = restricted(&f, &against_index(), &["a/b.txt"]).expect("cap");
+    assert_eq!(paths(&listed), ["a", "a/b.txt"]);
+}
+
+#[test]
+fn a_trailing_slash_names_what_the_path_is_now() {
+    let f = Fixture::basic();
+    // `docs/` held a file; `docs` is a file now.
+    fs::remove_dir_all(f.root.join("docs")).expect("remove");
+    f.write("docs", "now a file\n");
+    let head = DiffTarget::WorkingTree {
+        base: WorkingTreeBase::Head,
+    };
+    for target in [against_index(), head] {
+        let listed = restricted(&f, &target, &["docs/"]).expect("cap");
+        assert_eq!(listed.files, full_at(&f, &target, &["docs"]), "{target:?}");
+    }
+}
+
+#[test]
+fn a_git_folder_inside_a_tracked_folder_does_not_widen_the_restriction() {
+    let f = Fixture::basic();
+    fs::create_dir_all(f.root.join("src/.git")).expect("empty .git");
+    f.append("src/lib.rs", "// edited\n");
+    f.append("src/dev.rs", "// edited\n");
+    let listed = restricted(&f, &against_index(), &["src/lib.rs"]).expect("cap");
+    assert_eq!(paths(&listed), ["src/lib.rs"]);
+}
+
+#[cfg(windows)]
+#[test]
+fn a_path_spelled_otherwise_than_the_index_is_read_as_the_index_spells_it() {
+    let f = Fixture::basic();
+    // Renamed on disk to another case only, as an editor can: git and libgit2 still read it as
+    // the index names it, and the watcher reports the disk's spelling.
+    fs::rename(f.root.join("README.md"), f.root.join("readme.tmp")).expect("rename");
+    fs::rename(f.root.join("readme.tmp"), f.root.join("Readme.md")).expect("rename");
+    f.append("Readme.md", "edited\n");
+    let head = DiffTarget::WorkingTree {
+        base: WorkingTreeBase::Head,
+    };
+    for target in [against_index(), head] {
+        let listed = restricted(&f, &target, &["Readme.md"]).expect("cap");
+        assert_eq!(
+            listed.files,
+            full_at(&f, &target, &["README.md"]),
+            "{target:?}"
+        );
+        assert_eq!(paths(&listed), ["README.md"], "{target:?}");
     }
 }
 

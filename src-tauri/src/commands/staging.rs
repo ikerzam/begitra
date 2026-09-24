@@ -82,8 +82,11 @@ fn validate_path(field: &str, path: &str) -> Result<(), AppError> {
     {
         return Err(AppError::invalid_argument(field, "an absolute path"));
     }
-    if path.split(['/', '\\']).any(|segment| segment == "..") {
-        return Err(AppError::invalid_argument(field, "a path with `..`"));
+    if path
+        .split(['/', '\\'])
+        .any(|segment| segment == ".." || segment == ".")
+    {
+        return Err(AppError::invalid_argument(field, "a path with `.` or `..`"));
     }
     if path.contains('\0') {
         return Err(AppError::invalid_argument(field, "a path with a NUL"));

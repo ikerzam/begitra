@@ -35,7 +35,7 @@ const INTENT_TO_ADD: u8 = 4;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct IndexChanges {
     /// The paths whose entries differ, sorted and each once; `None` when one of them is not
-    /// UTF-8, which the frontend could not name.
+    /// UTF-8, which the frontend could not name, or past the limit asked for.
     pub paths: Option<Vec<String>>,
     /// Whether an entry of stage 1 to 3 came, went or changed: the conflicts moved.
     pub conflicts: bool,
@@ -46,37 +46,37 @@ impl IndexSnapshot {
     /// index. Fails on an index libgit2 cannot read (a split or sparse index).
     pub fn read(path: &Path) -> GitResult<Self> {
         let index = Index::open(path).map_err(GitError::from)?;
-        let mut entries: Vec<Entry> = index
-            .iter()
-            .map(|entry| {
-                let flags = IndexEntryFlag::from_bits_truncate(entry.flags);
-                let extended = IndexEntryExtendedFlag::from_bits_truncate(entry.flags_extended);
-                let mut kept = 0;
-                if flags.contains(IndexEntryFlag::VALID) {
-                    kept |= ASSUME_UNCHANGED;
-                }
-                if extended.contains(IndexEntryExtendedFlag::SKIP_WORKTREE) {
-                    kept |= SKIP_WORKTREE;
-                }
-                if extended.contains(IndexEntryExtendedFlag::INTENT_TO_ADD) {
-                    kept |= INTENT_TO_ADD;
-                }
-                Entry {
-                    stage: (entry.flags >> 12) & 0x3,
-                    path: entry.path,
-                    id: entry.id,
-                    mode: entry.mode,
-                    flags: kept,
-                }
-            })
-            .collect();
+        let mut entries: Vec<Entry> = Vec::with_capacity(index.len());
+        entries.extend(index.iter().map(|entry| {
+            let flags = IndexEntryFlag::from_bits_truncate(entry.flags);
+            let extended = IndexEntryExtendedFlag::from_bits_truncate(entry.flags_extended);
+            let mut kept = 0;
+            if flags.contains(IndexEntryFlag::VALID) {
+                kept |= ASSUME_UNCHANGED;
+            }
+            if extended.contains(IndexEntryExtendedFlag::SKIP_WORKTREE) {
+                kept |= SKIP_WORKTREE;
+            }
+            if extended.contains(IndexEntryExtendedFlag::INTENT_TO_ADD) {
+                kept |= INTENT_TO_ADD;
+            }
+            Entry {
+                stage: (entry.flags >> 12) & 0x3,
+                path: entry.path,
+                id: entry.id,
+                mode: entry.mode,
+                flags: kept,
+            }
+        }));
         // The index keeps this order already; sorting costs little when it holds.
         entries.sort_unstable_by(|a, b| key(a).cmp(&key(b)));
         Ok(Self { entries })
     }
 
-    /// The paths whose entries differ in `newer`, and whether the conflicts moved.
-    pub fn changes(&self, newer: &Self) -> IndexChanges {
+    /// The paths whose entries differ in `newer`, at most `limit` of them (past it the paths
+    /// are unknown, and no string is built for a checkout that moved thousands), and whether
+    /// the conflicts moved.
+    pub fn changes(&self, newer: &Self, limit: usize) -> IndexChanges {
         let mut changed: Vec<&Entry> = Vec::new();
         let mut olds = self.entries.iter().peekable();
         let mut news = newer.entries.iter().peekable();
@@ -114,6 +114,12 @@ impl IndexSnapshot {
         // Merged in path order, so a path's stages are next to each other.
         let mut paths: Vec<&[u8]> = changed.iter().map(|entry| entry.path.as_slice()).collect();
         paths.dedup();
+        if paths.len() > limit {
+            return IndexChanges {
+                paths: None,
+                conflicts,
+            };
+        }
         let paths = paths
             .into_iter()
             .map(|path| String::from_utf8(path.to_vec()).ok())
@@ -153,7 +159,7 @@ mod tests {
             entry(b"a.txt", 3, 3),
             entry(b"b.txt", 0, 1),
         ]);
-        let changes = before.changes(&after);
+        let changes = before.changes(&after, usize::MAX);
         assert_eq!(changes.paths, Some(vec!["a.txt".to_owned()]));
         assert!(changes.conflicts);
     }
@@ -162,8 +168,8 @@ mod tests {
     fn a_name_that_is_not_utf8_leaves_the_paths_unknown() {
         let before = snapshot(vec![entry(b"caf\xe9.txt", 0, 1)]);
         let after = snapshot(vec![entry(b"caf\xe9.txt", 0, 2)]);
-        assert_eq!(before.changes(&after).paths, None);
-        assert_eq!(before.changes(&before).paths, Some(Vec::new()));
+        assert_eq!(before.changes(&after, usize::MAX).paths, None);
+        assert_eq!(before.changes(&before, usize::MAX).paths, Some(Vec::new()));
     }
 
     #[test]
@@ -175,8 +181,10 @@ mod tests {
         assumed.flags = ASSUME_UNCHANGED;
         let after = snapshot(vec![executable, assumed]);
         assert_eq!(
-            before.changes(&after).paths,
+            before.changes(&after, usize::MAX).paths,
             Some(vec!["a.sh".to_owned(), "b.txt".to_owned()])
         );
+        // Past the limit the paths are unknown.
+        assert_eq!(before.changes(&after, 1).paths, None);
     }
 }

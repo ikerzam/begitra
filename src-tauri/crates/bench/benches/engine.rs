@@ -861,7 +861,10 @@ fn index_reload(c: &mut Criterion) {
             });
             b.iter(|| {
                 let after = IndexSnapshot::read(&index_file).expect("index");
-                let paths = before.changes(&after).paths.expect("UTF-8 paths");
+                let paths = before
+                    .changes(&after, usize::MAX)
+                    .paths
+                    .expect("UTF-8 paths");
                 for list in [&staged, &unstaged] {
                     e.diff_paths(list, &DiffOptions::default(), &paths, &Cancel::never())
                         .expect("restricted diff")

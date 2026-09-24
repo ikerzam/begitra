@@ -41,7 +41,8 @@ pub struct RepoChanged {
     #[serde(default)]
     pub index_paths: Option<Vec<String>>,
     /// With [`RepoChangeKind::Index`], whether an unmerged entry came, went or changed (true
-    /// when that is unknown); false without that kind.
+    /// when that is unknown); false without that kind, and when the debug command leaves it
+    /// out.
     #[serde(default)]
     pub conflicts_changed: bool,
 }
