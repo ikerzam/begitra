@@ -32,6 +32,9 @@ pub fn budget(id: &str) -> Option<Duration> {
         // The changes screen's first page, 1,000 files modified against the index: a full
         // status scan followed by the diff of the paths it names, the full rescan's budget.
         ("diff_working_tree_first_page", _) => 2_000,
+        // A reload after one edit or one stage, the incremental status's budget: the diff
+        // restricted to the paths that changed (and the index comparison for a stage).
+        ("diff_working_tree_reload", _) | ("index_reload", _) => 300,
         // The merge preview runs in the background under its own banner (delegated).
         ("merge_preview", _) => 2_000,
         ("status", _) => 2_000,

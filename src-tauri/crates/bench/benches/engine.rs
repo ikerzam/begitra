@@ -13,6 +13,7 @@ use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criteri
 use git_core::cli::run_git;
 use git_core::engine::{Cancel, GitEngine};
 use git_core::error::GitError;
+use git_core::git2_engine::index_snapshot::IndexSnapshot;
 use git_core::git2_engine::Git2Engine;
 use git_core::types::{
     BlobAt, DiffOptions, DiffTarget, PatchSelection, PushRequest, SelectedHunk, SelectedLine,
@@ -781,6 +782,103 @@ fn diff_working_tree_first_page(c: &mut Criterion) {
     group.finish();
 }
 
+/// One more edit among 1,000 modified files: the diff restricted to its path, what the
+/// changes screen reads when the watcher names it (the first page was read whole before).
+fn diff_working_tree_reload(c: &mut Criterion) {
+    let mut group = c.benchmark_group("diff_working_tree_reload");
+    group.sample_size(10);
+    for target in present() {
+        let engine = engine(&target.path);
+        let files = tracked_files(&target.path, 1_001);
+        let Some(edited) = files.get(1_000).cloned() else {
+            eprintln!(
+                "skipping diff_working_tree_reload on {}: fewer than 1,001 tracked files",
+                target.name
+            );
+            continue;
+        };
+        let unstaged = DiffTarget::WorkingTree {
+            base: WorkingTreeBase::Index,
+        };
+        let edited = [edited];
+        let touched = OnceCell::new();
+        group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+            touched.get_or_init(|| {
+                refresh_index(&target.path);
+                touch_files(&target.path, &files);
+                let mut walk = e
+                    .diff_pages(&unstaged, &DiffOptions::default(), 200, &Cancel::never())
+                    .expect("diff");
+                walk.next_page(&Cancel::never()).expect("page");
+            });
+            b.iter(|| {
+                e.diff_paths(
+                    &unstaged,
+                    &DiffOptions::default(),
+                    &edited,
+                    &Cancel::never(),
+                )
+                .expect("restricted diff")
+                .expect("within the cap")
+            });
+        });
+        if touched.get().is_some() {
+            restore(&engine, &target.path, &files);
+        }
+    }
+    group.finish();
+}
+
+/// One file staged among 1,000 modified: the index comparison the watcher runs, then both
+/// lists of the changes screen restricted to the paths it names.
+fn index_reload(c: &mut Criterion) {
+    let mut group = c.benchmark_group("index_reload");
+    group.sample_size(10);
+    for target in present() {
+        let engine = engine(&target.path);
+        let files = tracked_files(&target.path, 1_000);
+        if files.len() < 1_000 {
+            eprintln!(
+                "skipping index_reload on {}: fewer than 1,000 tracked files",
+                target.name
+            );
+            continue;
+        }
+        let index_file = target.path.join(".git").join("index");
+        let stage = files[..1].to_vec();
+        let unstaged = DiffTarget::WorkingTree {
+            base: WorkingTreeBase::Index,
+        };
+        let staged = DiffTarget::Index;
+        let prepared = OnceCell::new();
+        group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+            let before = prepared.get_or_init(|| {
+                refresh_index(&target.path);
+                touch_files(&target.path, &files);
+                let before = IndexSnapshot::read(&index_file).expect("index");
+                e.stage_paths(&stage, &Cancel::never()).expect("stage");
+                before
+            });
+            b.iter(|| {
+                let after = IndexSnapshot::read(&index_file).expect("index");
+                let paths = before.changes(&after).paths.expect("UTF-8 paths");
+                for list in [&staged, &unstaged] {
+                    e.diff_paths(list, &DiffOptions::default(), &paths, &Cancel::never())
+                        .expect("restricted diff")
+                        .expect("within the cap");
+                }
+            });
+        });
+        if prepared.get().is_some() {
+            engine
+                .unstage_paths(&stage, &Cancel::never())
+                .expect("unstage");
+            restore(&engine, &target.path, &files);
+        }
+    }
+    group.finish();
+}
+
 /// Staging and unstaging ten thousand modified files: the pathspec list travels on stdin,
 /// git hashes every file on the add. Restores the tree afterwards. No budget.
 fn stage_unstage_10k(c: &mut Criterion) {
@@ -995,6 +1093,8 @@ criterion_group!(
     worktree_dashboard,
     worktree_add_remove,
     diff_working_tree_first_page,
+    diff_working_tree_reload,
+    index_reload,
     stage_unstage_10k,
     apply_selection_5k,
     fetch_push_bare
