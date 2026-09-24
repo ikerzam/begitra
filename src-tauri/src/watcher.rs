@@ -36,6 +36,9 @@ pub struct WatchBases {
     /// A path that cannot be resolved (it is gone, or the platform does not do this) keeps
     /// its given form, and the given form is always tried first.
     real: Real,
+    /// The noisy folders ([`NOISY`]) that hold tracked files, reported like any other folder:
+    /// a committed `dist/` changes what git lists. Read from the index when the watch starts.
+    tracked: Vec<String>,
 }
 
 /// The bases as the platform names them; see [`WatchBases::real`].
@@ -67,7 +70,11 @@ pub trait WatchBasesExt {
 impl WatchBasesExt for git_core::git2_engine::Git2Engine {
     fn watch_bases(&self) -> WatchBases {
         let (gitdir, commondir) = self.git_dirs();
-        WatchBases::new(self.repo().root.clone(), gitdir, commondir)
+        let tracked = self.tracked_folders(&NOISY).unwrap_or_else(|error| {
+            tracing::warn!(%error, "the index could not tell which build folders are tracked");
+            Vec::new()
+        });
+        WatchBases::new(self.repo().root.clone(), gitdir, commondir).with_tracked(tracked)
     }
 }
 
@@ -80,7 +87,15 @@ impl WatchBases {
             gitdir,
             commondir,
             real,
+            tracked: Vec::new(),
         }
+    }
+
+    /// The same bases with the noisy folders that hold tracked files, which are then
+    /// reported like any other folder.
+    pub fn with_tracked(mut self, tracked: Vec<String>) -> Self {
+        self.tracked = tracked;
+        self
     }
 
     /// Bases of a main repository at `root`.
@@ -163,6 +178,9 @@ fn debounce_loop(
             d.saturating_duration_since(Instant::now())
         });
         match raw.recv_timeout(wait) {
+            // A read is not a change: inotify reports every open and close, and the app's own
+            // reloads read the repository, so counting reads makes each reload start the next.
+            Ok(Ok(event)) if matches!(event.kind, notify::EventKind::Access(_)) => {}
             Ok(Ok(event)) => {
                 if event.need_rescan() {
                     // The platform lost events (a buffer overflow during a huge checkout):
@@ -177,7 +195,17 @@ fn debounce_loop(
                     deadline = Some(Instant::now() + DEBOUNCE);
                 }
             }
-            Ok(Err(error)) => tracing::warn!(error = %error, "watcher error"),
+            Ok(Err(error)) => {
+                tracing::warn!(error = %error, "watcher error");
+                // A folder created past the platform's limit is not watched: what changes in
+                // it is lost, so everything may have changed.
+                if matches!(error.kind, notify::ErrorKind::MaxFilesWatch) {
+                    batch.add_everything();
+                    if deadline.is_none() {
+                        deadline = Some(Instant::now() + DEBOUNCE);
+                    }
+                }
+            }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => return,
         }
@@ -238,6 +266,10 @@ impl Batch {
                 self.kinds.insert(Kind::Status);
                 self.dropped = true;
             }
+            Classified::Config => {
+                self.kinds.extend([Kind::Refs, Kind::Status]);
+                self.dropped = true;
+            }
         }
     }
 
@@ -292,10 +324,13 @@ enum Classified {
     Status(String),
     /// The ignore or sparse rules changed: any working file may show or hide.
     StatusRules,
+    /// The configuration: the remotes and upstreams, and settings that change the status.
+    Config,
 }
 
-/// Folder names whose content is never reported as a working tree change: build outputs
-/// and caches churn while nothing the user reviews changed.
+/// Folder names whose content is not reported as a working tree change: build outputs and
+/// caches churn while nothing the user reviews changed. One that holds tracked files is
+/// reported all the same ([`WatchBases::with_tracked`]).
 const NOISY: [&str; 6] = [
     "node_modules",
     "target",
@@ -306,12 +341,15 @@ const NOISY: [&str; 6] = [
 ];
 
 /// Where a changed path sits. Inside a git directory (the repository's own or the shared
-/// one): `HEAD`, `ORIG_HEAD`, `FETCH_HEAD`, `packed-refs`, `refs/**`, `logs/**`, an operation's
-/// state (`MERGE_HEAD` and the other pseudo-refs, `rebase-merge/`, `rebase-apply/`,
-/// `sequencer/`, `BISECT_*`) and the configuration are refs; `index` is the index;
-/// `worktrees/**` is worktrees; `info/exclude`, `info/sparse-checkout` and a submodule's
-/// `HEAD` or `index` under `modules/` are a status change without a path; lock files and everything else there (objects, hooks) are ignored. Under
-/// the working tree: a repository-relative path, except noisy folders and lock files.
+/// one): `HEAD`, `ORIG_HEAD`, `FETCH_HEAD`, `packed-refs`, `refs/**`, `logs/**` and an
+/// operation's state (`MERGE_HEAD` and the other pseudo-refs, `rebase-merge/`,
+/// `rebase-apply/`, `sequencer/`, `BISECT_*`) are refs; the configuration is refs and a
+/// status change; `index` is the index; `worktrees/**` is worktrees; `info/exclude`,
+/// `info/sparse-checkout`, `info/attributes` and what a submodule has checked out under
+/// `modules/` are a status change without a path; lock files and the rest (objects, hooks)
+/// are ignored. Under the working tree: a repository-relative path, except the noisy
+/// folders that hold no tracked file and git's lock files; a nested repository's `.git`
+/// counts only for what it has checked out, as a change of its folder.
 fn classify(bases: &WatchBases, path: &Path) -> Option<Classified> {
     let under = |base: &Path, real: &Path| strip(path, base).or_else(|| strip(path, real));
     if let Some(inside) = under(&bases.gitdir, &bases.real.gitdir)
@@ -321,16 +359,28 @@ fn classify(bases: &WatchBases, path: &Path) -> Option<Classified> {
     }
     let inside = under(&bases.root, &bases.real.root)?;
     if inside.first().is_some_and(|first| first == ".git") {
-        return classify_git(&inside[1..]);
+        return classify_git(inside.get(1..).unwrap_or_default());
     }
-    let last = inside.last()?;
-    if last.ends_with(".lock") && inside.len() == 1 && last == "index.lock" {
+    if inside.first().is_some_and(|first| {
+        NOISY.contains(&first.as_str()) && !bases.tracked.iter().any(|name| name == first)
+    }) {
         return None;
     }
-    if inside
-        .first()
-        .is_some_and(|first| NOISY.contains(&first.as_str()))
-    {
+    // A repository nested in the tree keeps its own `.git` (a clone, a submodule that is not
+    // absorbed). What it has checked out changes what git lists for its folder (a gitlink's
+    // new commit, a folder that becomes a repository or stops being one); the rest of its
+    // churn (objects, reflogs, fetches) does not.
+    if let Some(at) = inside.iter().position(|component| component == ".git") {
+        let folder = inside.get(..at).unwrap_or_default().join("/");
+        return match inside.get(at + 1..).unwrap_or_default() {
+            [] => Some(Classified::Status(folder)),
+            [.., last] if last.ends_with(".lock") => None,
+            below if submodule_checkout(below) => Some(Classified::Status(folder)),
+            _ => None,
+        };
+    }
+    let last = inside.last()?;
+    if inside.len() == 1 && (last == "index.lock" || last == ".gitmodules.lock") {
         return None;
     }
     Some(Classified::Status(inside.join("/")))
@@ -364,26 +414,47 @@ fn classify_git(inside: &[String]) -> Option<Classified> {
         "MERGE_HEAD" | "CHERRY_PICK_HEAD" | "REVERT_HEAD" | "REBASE_HEAD" | "AUTO_MERGE"
         | "rebase-merge" | "rebase-apply" | "sequencer" => Some(Classified::Refs),
         name if name.starts_with("BISECT_") => Some(Classified::Refs),
-        // The remotes and the upstreams, which the refs listing reads.
-        "config" | "config.worktree" => Some(Classified::Refs),
+        // The remotes and the upstreams, which the refs listing reads, and settings that
+        // change the status (`core.excludesFile`, `status.showUntrackedFiles`).
+        "config" | "config.worktree" => Some(Classified::Config),
         "index" => Some(Classified::Index),
         "worktrees" => Some(Classified::Worktrees),
-        // The rules that decide which working files are ignored or checked out.
+        // The rules that decide which working files are ignored or checked out, and the
+        // attributes that mark files generated or binary in the lists.
         "info"
             if matches!(
                 inside.get(1).map(String::as_str),
-                Some("exclude" | "sparse-checkout")
+                Some("exclude" | "sparse-checkout" | "attributes")
             ) =>
         {
             Some(Classified::StatusRules)
         }
-        // A submodule's own HEAD or index: the parent lists the submodule as changed even
-        // when none of its files moved (a `git -C sub reset --soft`).
-        "modules" if matches!(inside.last().map(String::as_str), Some("HEAD" | "index")) => {
-            Some(Classified::StatusRules)
-        }
+        // What a submodule has checked out (its HEAD, its index, its branches): the parent
+        // lists the submodule as changed even when none of its files moved (a
+        // `git -C sub reset --soft`). Its reflogs, remote-tracking refs and objects are not.
+        "modules" if submodule_checkout(inside) => Some(Classified::StatusRules),
         _ => None,
     }
+}
+
+/// Whether a path in a submodule's git directory is what it has checked out: a branch, or
+/// its `HEAD`, `index` or `packed-refs` outside its remote-tracking refs and tags. Read from
+/// the path's pairs, not from its first components, because a submodule's name may hold
+/// `logs` or `refs` itself. Its reflog of HEAD counts too, written with HEAD.
+fn submodule_checkout(inside: &[String]) -> bool {
+    let through = |kind: &str| {
+        inside
+            .windows(2)
+            .any(|pair| matches!(pair, [refs, next] if refs == "refs" && next == kind))
+    };
+    if through("heads") {
+        return true;
+    }
+    matches!(
+        inside.last().map(String::as_str),
+        Some("HEAD" | "index" | "packed-refs")
+    ) && !through("remotes")
+        && !through("tags")
 }
 
 #[cfg(test)]
@@ -430,6 +501,16 @@ mod tests {
     }
 
     #[test]
+    fn a_build_folder_that_holds_tracked_files_is_reported() {
+        let bases = WatchBases::main(Path::new("/r")).with_tracked(vec!["dist".to_owned()]);
+        let mut batch = Batch::default();
+        batch.add(&bases, Path::new("/r/dist/index.js"));
+        batch.add(&bases, Path::new("/r/node_modules/dep/index.js"));
+        let payload = batch.take(&bases.root).expect("payload");
+        assert_eq!(payload.paths, vec!["dist/index.js"]);
+    }
+
+    #[test]
     fn an_operations_state_the_configuration_and_the_rules_are_classified() {
         let bases = WatchBases::main(Path::new("/r"));
         let refs = [
@@ -442,7 +523,6 @@ mod tests {
             "/r/.git/rebase-apply/next",
             "/r/.git/sequencer/todo",
             "/r/.git/BISECT_LOG",
-            "/r/.git/config",
         ];
         for path in refs {
             let mut batch = Batch::default();
@@ -453,8 +533,12 @@ mod tests {
         for path in [
             "/r/.git/info/exclude",
             "/r/.git/info/sparse-checkout",
+            "/r/.git/info/attributes",
             "/r/.git/modules/sub/HEAD",
+            "/r/.git/modules/sub/refs/heads/main",
             "/r/.git/modules/sub/modules/nested/index",
+            "/r/.git/modules/services/logs/HEAD",
+            "/r/.git/modules/docs/refs/index",
         ] {
             let mut batch = Batch::default();
             batch.add(&bases, Path::new("/r/src/app.ts"));
@@ -469,14 +553,43 @@ mod tests {
             "/r/.git/COMMIT_EDITMSG",
             "/r/.git/MERGE_MSG",
             "/r/.git/hooks/pre-commit",
-            "/r/.git/info/attributes",
             "/r/.git/config.lock",
             "/r/.git/modules/sub/objects/ab/cdef",
-            "/r/.git/modules/sub/refs/remotes/origin/main",
+            "/r/.git/modules/sub/refs/remotes/origin/HEAD",
+            "/r/.git/modules/sub/refs/tags/v1",
+            "/r/.git/modules/sub/logs/refs/remotes/origin/main",
+            "/r/vendor/lib/.git/objects/ab/cdef",
+            "/r/vendor/lib/.git/index.lock",
+            "/r/vendor/lib/.git/FETCH_HEAD",
+            "/r/node_modules/dep/.git/index",
+            "/r/.gitmodules.lock",
         ] {
             batch.add(&bases, Path::new(path));
         }
         assert!(batch.take(&bases.root).is_none());
+        // The configuration names the remotes and upstreams, and settings that change the
+        // status.
+        let mut batch = Batch::default();
+        batch.add(&bases, Path::new("/r/.git/config"));
+        let payload = batch.take(&bases.root).expect("config");
+        assert_eq!(
+            payload.kinds,
+            vec![RepoChangeKind::Refs, RepoChangeKind::Status]
+        );
+        // A nested repository's checkout is a change of its folder: a commit there moves the
+        // gitlink, and `git init` turns its files into one entry.
+        for path in [
+            "/r/vendor/lib/.git",
+            "/r/vendor/lib/.git/index",
+            "/r/vendor/lib/.git/HEAD",
+            "/r/vendor/lib/.git/refs/heads/main",
+        ] {
+            let mut batch = Batch::default();
+            batch.add(&bases, Path::new(path));
+            let payload = batch.take(&bases.root).expect(path);
+            assert_eq!(payload.kinds, vec![RepoChangeKind::Status], "{path}");
+            assert_eq!(payload.paths, vec!["vendor/lib".to_owned()], "{path}");
+        }
     }
 
     #[test]
