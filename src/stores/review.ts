@@ -11,7 +11,7 @@ import { isLockfile, type FileFilters } from "@/detail/groupFiles";
 import * as ipc from "@/ipc/commands";
 import { toAppError, type AppError } from "@/ipc/errors";
 import { newOpId } from "@/ipc/invoke";
-import type { DiffLine, DiffPage, DiffTarget, FileChange, Hunk } from "@/ipc/schemas";
+import type { DiffLine, DiffPage, DiffTarget, FileChange, Hunk, Ref } from "@/ipc/schemas";
 import type { StreamHandle } from "@/ipc/stream";
 import { fileSides } from "@/review/sides";
 import { shortHash } from "@/shell/format";
@@ -82,6 +82,38 @@ export function targetLabel(target: ReviewTarget): string {
       return "";
     case "revisionToWorktree":
       return `${shortRev(target.revision)}..`;
+  }
+}
+
+/** A hash or a prefix of one: what a revision is when no ref carries its name. */
+const HASH_LIKE = /^[0-9a-f]{4,64}$/i;
+
+/** What `rev` points at as far as the refs listing tells (see `refsBehind`). */
+function revisionBehind(rev: string, refs: Ref[]): string {
+  const named = refs.filter((entry) => entry.name === rev || entry.fullName === rev);
+  if (named.length > 0) return named.map((entry) => `${entry.fullName}=${entry.target}`).join(",");
+  if (HASH_LIKE.test(rev)) return rev;
+  return refs.map((entry) => `${entry.fullName}=${entry.target}`).join("|");
+}
+
+/**
+ * What the refs a target names point at, as the refs listing tells, so that a change means
+ * the change set may have changed: HEAD for the index, each end of a range, the revision
+ * against the working tree. A ref's name or full name gives the targets of every ref so
+ * named (git picks one of them), a hash gives itself, anything else (`main~2`) every ref's
+ * target. Empty for the targets no ref moves: a commit, the working tree against the index.
+ */
+export function refsBehind(target: ReviewTarget, refs: Ref[]): string {
+  switch (target.kind) {
+    case "commit":
+    case "worktree":
+      return "";
+    case "index":
+      return revisionBehind("HEAD", refs);
+    case "range":
+      return `${revisionBehind(target.from, refs)};${revisionBehind(target.to, refs)}`;
+    case "revisionToWorktree":
+      return revisionBehind(target.revision, refs);
   }
 }
 
@@ -451,6 +483,18 @@ export const useReviewStore = defineStore("review", () => {
     const index = current.kind === "index" || current.kind === "worktree";
     if ((worktree && kinds.includes("status")) || (index && kinds.includes("index"))) reload();
   }
+
+  // A target named by refs (the index against HEAD, `base..HEAD`, a revision against the
+  // working tree) follows them: when the refs listing moves what the same target names, the
+  // change set is computed again. A branch moving elsewhere leaves it alone, and choosing
+  // another target loads that one already.
+  const behind = computed(() =>
+    target.value && repo.refsLoaded ? refsBehind(target.value, repo.refs) : null,
+  );
+  watch([key, behind], ([nowKey, now], [beforeKey, before]) => {
+    if (nowKey !== beforeKey || now === null || before === null || now === before) return;
+    reload();
+  });
 
   async function setLayout(next: DiffLayout): Promise<void> {
     await settings.update("diffLayout", next);

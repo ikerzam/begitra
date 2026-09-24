@@ -51,6 +51,11 @@ export interface Detail {
 /** Pages requested per walk call; 4 pages of 500 keep the first paint fast and memory bounded. */
 export const PAGES_PER_REQUEST = 4;
 
+/** The commit HEAD points at as the refs listing tells; null while HEAD is unborn. */
+export function headTarget(refs: GitRef[]): string | null {
+  return refs.find((entry) => entry.kind === "head")?.target ?? null;
+}
+
 /** Where the tips point: every ref but the stash entries, as `fullName=target` sorted. */
 export function tipsSignature(refs: GitRef[]): string {
   return refs

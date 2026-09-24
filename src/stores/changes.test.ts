@@ -2,10 +2,11 @@ import { clearMocks } from "@tauri-apps/api/mocks";
 import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { PatchSelection } from "@/ipc/schemas";
+import type { DiffTarget, PatchSelection, Ref } from "@/ipc/schemas";
 import {
   FAKE_COMMIT_HASH,
   fakeBackend,
+  fakeCommit,
   settled,
   type Call,
   type FakeBackendOptions,
@@ -297,6 +298,43 @@ describe("changes store", () => {
     changes.onRepoChanged(["refs"]);
     await settled();
     expect(of(calls, "commit_context")).toHaveLength(1);
+  });
+
+  it("streams the staged list again when HEAD moves, not when another branch does", async () => {
+    const branch = (name: string, commit: number): Ref => ({
+      name,
+      fullName: name === "HEAD" ? "HEAD" : `refs/heads/${name}`,
+      kind: name === "HEAD" ? "head" : "local-branch",
+      target: fakeCommit(commit).hash,
+      isCurrent: name !== "agent",
+      upstream: null,
+      ahead: null,
+      behind: null,
+      worktree: name === "agent" ? "/r-agent" : null,
+      message: null,
+    });
+    const refs = [branch("agent", 3), branch("main", 0), branch("HEAD", 0)];
+    const { changes, calls } = await openChanges({ refs });
+    const repo = useRepoStore();
+    const lists = () => of(calls, "diff").map((call) => (call.args["target"] as DiffTarget).kind);
+    const before = lists().length;
+    // A commit in a linked worktree moves its branch, not HEAD: the lists stay.
+    refs[0] = branch("agent", 4);
+    await repo.refreshRefs();
+    await settled();
+    expect(lists()).toHaveLength(before);
+    // A soft reset in a terminal moves HEAD and leaves the index: the staged list follows.
+    refs[1] = branch("main", 1);
+    refs[2] = branch("HEAD", 1);
+    await repo.refreshRefs();
+    await settled();
+    expect(lists().slice(before)).toEqual(["index"]);
+    expect(changes.staged.loading).toBe(false);
+    expect(changes.unstaged.files.map((file) => file.path)).toEqual([
+      "src/a.ts",
+      "src/b.ts",
+      "docs/new.md",
+    ]);
   });
 
   it("clears everything when the repository closes and starts afresh on another", async () => {

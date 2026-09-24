@@ -2,13 +2,14 @@ import { clearMocks } from "@tauri-apps/api/mocks";
 import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { FileChange, Hunk } from "@/ipc/schemas";
+import type { FileChange, Hunk, Ref } from "@/ipc/schemas";
 import { fakeBackend, fakeCommit, settled } from "@/test/backend";
 
 import { useRepoStore } from "./repo";
 import {
   contentOf,
   hunkKey,
+  refsBehind,
   targetKey,
   targetLabel,
   useReviewStore,
@@ -74,6 +75,45 @@ describe("review targets", () => {
       expect(targetKey(target)).toBe(key);
       expect(targetLabel(target)).toBe(label);
     }
+  });
+
+  it("tells what the refs a target names point at", () => {
+    const hash = fakeCommit(0).hash;
+    const other = fakeCommit(1).hash;
+    const at = (name: string, fullName: string, kind: Ref["kind"], target: string): Ref => ({
+      name,
+      fullName,
+      kind,
+      target,
+      isCurrent: false,
+      upstream: null,
+      ahead: null,
+      behind: null,
+      worktree: null,
+      message: null,
+    });
+    const refs = [
+      at("v1", "refs/heads/v1", "local-branch", hash),
+      at("v1", "refs/tags/v1", "tag", other),
+      at("HEAD", "HEAD", "head", hash),
+    ];
+    expect(refsBehind({ kind: "commit", hash }, refs)).toBe("");
+    expect(refsBehind({ kind: "worktree" }, refs)).toBe("");
+    expect(refsBehind({ kind: "index" }, refs)).toBe(`HEAD=${hash}`);
+    // A name git could read either way gives both targets; a hash (or a prefix) gives itself.
+    expect(refsBehind({ kind: "revisionToWorktree", revision: "v1" }, refs)).toBe(
+      `refs/heads/v1=${hash},refs/tags/v1=${other}`,
+    );
+    expect(
+      refsBehind(
+        { kind: "range", from: hash.slice(0, 7), to: "refs/tags/v1", threeDot: true },
+        refs,
+      ),
+    ).toBe(`${hash.slice(0, 7)};refs/tags/v1=${other}`);
+    // An expression, or a name no ref carries, depends on every ref.
+    const every = `refs/heads/v1=${hash}|refs/tags/v1=${other}|HEAD=${hash}`;
+    expect(refsBehind({ kind: "revisionToWorktree", revision: "v1~2" }, refs)).toBe(every);
+    expect(refsBehind({ kind: "revisionToWorktree", revision: "gone" }, refs)).toBe(every);
   });
 });
 
@@ -325,6 +365,60 @@ describe("review store", () => {
     expect(diffs()).toBe(indexed);
     review.onRepoChanged(["index"]);
     expect(diffs()).toBe(indexed + 1);
+  });
+
+  it("computes a target named by refs again when they move, and only then", async () => {
+    const at = (name: string, fullName: string, kind: Ref["kind"], commit: number): Ref => ({
+      name,
+      fullName,
+      kind,
+      target: fakeCommit(commit).hash,
+      isCurrent: kind === "head",
+      upstream: null,
+      ahead: null,
+      behind: null,
+      worktree: null,
+      message: null,
+    });
+    const refs = [
+      at("agent", "refs/heads/agent", "local-branch", 3),
+      at("main", "refs/heads/main", "local-branch", 0),
+      at("HEAD", "HEAD", "head", 0),
+    ];
+    const calls = fakeBackend({ refs });
+    const repo = await openRepository();
+    const review = useReviewStore();
+    const diffs = () => calls.filter((c) => c.cmd === "diff").length;
+    const moved = async (index: number, ref: Ref) => {
+      refs[index] = ref;
+      await repo.refreshRefs();
+      await settled();
+    };
+    review.setTarget({ kind: "range", from: fakeCommit(5).hash, to: "HEAD", threeDot: false });
+    await settled();
+    let before = diffs();
+    // Another branch moves (a commit in a linked worktree): `base..HEAD` stays.
+    await moved(0, at("agent", "refs/heads/agent", "local-branch", 4));
+    expect(diffs()).toBe(before);
+    // A commit from a terminal moves HEAD: the range follows it.
+    await moved(2, at("HEAD", "HEAD", "head", 1));
+    expect(diffs()).toBe(before + 1);
+    // The index against HEAD follows HEAD too.
+    review.setTarget({ kind: "index" });
+    await settled();
+    before = diffs();
+    await moved(2, at("HEAD", "HEAD", "head", 2));
+    expect(diffs()).toBe(before + 1);
+    // A revision named by a branch follows the branch; the selection (a commit) never moves.
+    review.setTarget({ kind: "revisionToWorktree", revision: "agent" });
+    await settled();
+    before = diffs();
+    await moved(0, at("agent", "refs/heads/agent", "local-branch", 5));
+    expect(diffs()).toBe(before + 1);
+    review.setTarget(null);
+    before = diffs();
+    await moved(2, at("HEAD", "HEAD", "head", 3));
+    expect(diffs()).toBe(before);
   });
 
   it("marks files and hunks, persists them and counts a file whose hunks are all marked", async () => {

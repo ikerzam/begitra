@@ -2,12 +2,12 @@
 // tree as two lists, Unstaged (the working tree against the index, untracked files as added)
 // and Staged (the index against HEAD), the selected file, the commit draft and its context,
 // and every write of the screen through the staging commands. Both lists reload after each
-// write and when the watcher reports a status or index change; the selection survives by
-// path. The draft is kept here so that leaving the screen does not lose a half-written
-// message.
+// write and when the watcher reports a status or index change, the staged list alone when
+// HEAD moves; the selection survives by path. The draft is kept here so that leaving the
+// screen does not lose a half-written message.
 
 import { defineStore } from "pinia";
-import { computed, ref, shallowRef } from "vue";
+import { computed, ref, shallowRef, watch } from "vue";
 
 import * as ipc from "@/ipc/commands";
 import { toAppError, type AppError } from "@/ipc/errors";
@@ -23,7 +23,7 @@ import type {
 import type { StreamHandle } from "@/ipc/stream";
 
 import { useOperationsStore } from "./operations";
-import { useRepoStore } from "./repo";
+import { headTarget, useRepoStore } from "./repo";
 
 export type ChangeList = "unstaged" | "staged";
 
@@ -149,7 +149,8 @@ export const useChangesStore = defineStore("changes", () => {
     unstaged: null,
     staged: null,
   };
-  let serial = 0;
+  /** Bumped when a list's stream stops, so a superseded stream's pages and ending are dropped. */
+  const serials: Record<ChangeList, number> = { unstaged: 0, staged: 0 };
   let loadedRoot: string | null = null;
   /** Where the selection was when a write started, so its place is kept once the file left. */
   let anchor: { list: ChangeList; index: number } | null = null;
@@ -180,12 +181,15 @@ export const useChangesStore = defineStore("changes", () => {
   );
 
   function stop(list: ChangeList): void {
+    serials[list] += 1;
     void handles[list]?.cancel();
     handles[list] = null;
   }
 
-  function stream(list: ChangeList, root: string, mine: number): void {
+  function stream(list: ChangeList, root: string): void {
     stop(list);
+    const mine = serials[list];
+    const current = () => mine === serials[list];
     const target = listOf(list);
     target.value = { ...target.value, loading: true, error: undefined };
     const opId = newOpId(`changes-${list}`);
@@ -196,7 +200,7 @@ export const useChangesStore = defineStore("changes", () => {
       root,
       diffTargetOfList(list),
       (page: DiffPage, seq: number) => {
-        if (mine !== serial) return;
+        if (!current()) return;
         const previous = seq === 0 ? [] : target.value.files;
         target.value = {
           ...target.value,
@@ -211,16 +215,16 @@ export const useChangesStore = defineStore("changes", () => {
     handles[list] = handle;
     void handle.done
       .then(() => {
-        if (mine === serial) target.value = { ...target.value, loading: false };
+        if (current()) target.value = { ...target.value, loading: false };
       })
       .catch((failure: unknown) => {
-        if (mine === serial) {
+        if (current()) {
           target.value = { ...target.value, loading: false, error: toAppError(failure) };
         }
       })
       .finally(() => {
         operations.finish(opId);
-        if (mine === serial) settleSelection();
+        if (current()) settleSelection();
       });
   }
 
@@ -256,7 +260,6 @@ export const useChangesStore = defineStore("changes", () => {
   /** Streams both lists again. */
   function load(): void {
     const root = repo.repo?.root;
-    serial += 1;
     if (!root) {
       stop("unstaged");
       stop("staged");
@@ -274,8 +277,8 @@ export const useChangesStore = defineStore("changes", () => {
       loadedRoot = root;
     }
     loaded.value = true;
-    stream("unstaged", root, serial);
-    stream("staged", root, serial);
+    stream("unstaged", root);
+    stream("staged", root);
   }
 
   function select(list: ChangeList, path: string): void {
@@ -438,12 +441,24 @@ export const useChangesStore = defineStore("changes", () => {
     failed.value = null;
   }
 
-  /** The watcher's kinds: a status or index change reloads the lists and the context. */
+  /** The watcher's kinds: a status or index change reloads the lists, a refs change the context. */
   function onRepoChanged(kinds: string[]): void {
     if (!loaded.value || busy.value !== null) return;
     if (kinds.includes("status") || kinds.includes("index")) load();
     if (kinds.includes("refs")) void loadContext();
   }
+
+  // The staged list is HEAD against the index, so HEAD moving without the index (a soft reset
+  // in a terminal) streams it again once the refs listing shows the move. A branch moving
+  // elsewhere (a commit in a linked worktree) leaves HEAD, and both lists, alone.
+  watch(
+    () => (repo.refsLoaded ? headTarget(repo.refs) : undefined),
+    (now, before) => {
+      const root = repo.repo?.root;
+      if (now === undefined || before === undefined || !root || root !== loadedRoot) return;
+      if (loaded.value && busy.value === null) stream("staged", root);
+    },
+  );
 
   return {
     unstaged,
