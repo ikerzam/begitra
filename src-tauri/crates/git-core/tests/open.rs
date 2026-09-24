@@ -110,6 +110,41 @@ fn opens_through_a_symlink() {
 }
 
 #[test]
+fn names_the_build_folders_the_index_holds_now() {
+    let mut f = Fixture::basic();
+    let engine = Git2Engine::open(&f.root).expect("open");
+    assert!(engine.tracked_names(&["dist"]).expect("index").is_empty());
+    // Committed after the engine read the index.
+    f.write("dist/index.js", "built\n");
+    f.commit("committed build output");
+    assert_eq!(
+        engine.tracked_names(&["dist"]).expect("index"),
+        vec!["dist".to_owned()]
+    );
+}
+
+#[test]
+fn names_a_tracked_file_named_like_a_build_folder() {
+    let mut f = Fixture::basic();
+    f.write(
+        "build",
+        "#!/bin/sh
+",
+    );
+    f.write(
+        "target.md",
+        "not a file named target
+",
+    );
+    f.commit("a build script");
+    let engine = Git2Engine::open(&f.root).expect("open");
+    assert_eq!(
+        engine.tracked_names(&["build", "target"]).expect("index"),
+        vec!["build".to_owned()]
+    );
+}
+
+#[test]
 fn names_the_build_folders_that_hold_tracked_files() {
     let mut f = Fixture::basic();
     f.write("dist/index.js", "built\n");
@@ -124,7 +159,7 @@ fn names_the_build_folders_that_hold_tracked_files() {
     let engine = Git2Engine::open(&f.root).expect("open");
     let names = ["node_modules", "target", "dist", "build", ".cache"];
     assert_eq!(
-        engine.tracked_folders(&names).expect("index"),
+        engine.tracked_names(&names).expect("index"),
         vec!["dist".to_owned(), "build".to_owned()]
     );
 }

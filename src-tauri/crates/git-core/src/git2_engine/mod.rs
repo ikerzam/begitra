@@ -218,15 +218,30 @@ impl Git2Engine {
             })
     }
 
-    /// Which of the top-level folders `names` hold a tracked path in the index, in the order
-    /// given: the watcher ignores build and cache folders except those whose files are
+    /// Which of the top-level `names` hold a tracked path in the index, in the order given: a
+    /// tracked file of that name (a `build` script), or tracked files under a folder of that
+    /// name. The watcher ignores build and cache folders except those whose files are
     /// committed (the `dist/` of an action, a vendored `node_modules/`).
-    pub fn tracked_folders(&self, names: &[&str]) -> GitResult<Vec<String>> {
+    pub fn tracked_names(&self, names: &[&str]) -> GitResult<Vec<String>> {
         self.with_repo(|repo| {
-            let index = repo.index()?;
+            let mut index = repo.index()?;
+            // The handle keeps the index it loaded first; `read` reloads it when the file
+            // changed since (a `dist/` committed after the repository was opened).
+            index.read(false)?;
+            // Entries sort by path bytes, so the first one that starts with a name is the file
+            // of that name when there is one (`build` sorts before `build.sh` and `build/…`).
+            let file = |name: &str| {
+                index
+                    .find_prefix(name.as_bytes())
+                    .ok()
+                    .and_then(|position| index.get(position))
+                    .is_some_and(|entry| entry.path == name.as_bytes())
+            };
             Ok(names
                 .iter()
-                .filter(|name| index.find_prefix(format!("{name}/").as_bytes()).is_ok())
+                .filter(|name| {
+                    file(name) || index.find_prefix(format!("{name}/").as_bytes()).is_ok()
+                })
                 .map(|name| (*name).to_owned())
                 .collect())
         })

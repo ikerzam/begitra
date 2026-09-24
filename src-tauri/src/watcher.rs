@@ -70,7 +70,7 @@ pub trait WatchBasesExt {
 impl WatchBasesExt for git_core::git2_engine::Git2Engine {
     fn watch_bases(&self) -> WatchBases {
         let (gitdir, commondir) = self.git_dirs();
-        let tracked = self.tracked_folders(&NOISY).unwrap_or_else(|error| {
+        let tracked = self.tracked_names(&NOISY).unwrap_or_else(|error| {
             tracing::warn!(%error, "the index could not tell which build folders are tracked");
             Vec::new()
         });
