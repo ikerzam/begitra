@@ -24,6 +24,8 @@ export type Locale = "en" | "es";
 export type Theme = "system" | "dark" | "light";
 /** A font weight as a step from the design's: -1, 0, +1 and +2 hundreds. */
 export type FontWeight = "light" | "regular" | "medium" | "semibold";
+/** The order of the Branches tab: by the last commit, or by name. */
+export type BranchSort = "recent" | "name";
 /** The zoom levels of the window, in percent. */
 export const zoomLevels = [80, 90, 100, 110, 125, 150, 175, 200] as const;
 export type ZoomLevel = (typeof zoomLevels)[number];
@@ -107,6 +109,8 @@ export interface Settings {
   codeWeight: FontWeight;
   /** The window's zoom in percent: every size of the interface scales with it. */
   zoom: ZoomLevel;
+  /** The order of the Branches tab. */
+  branchSort: BranchSort;
 }
 
 export type DiffLayout = "unified" | "side-by-side";
@@ -154,6 +158,7 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   codeFont: v.pipe(v.string(), v.maxLength(64)),
   codeWeight: v.picklist(fontWeights),
   zoom: v.picklist(zoomLevels),
+  branchSort: v.picklist(["recent", "name"]),
 };
 
 export const settingsKeys = Object.keys(schemas) as (keyof Settings)[];
@@ -215,6 +220,7 @@ export function defaultSettings(platform: Platform): Settings {
     codeFont: "",
     codeWeight: "regular",
     zoom: 100,
+    branchSort: "recent",
   };
 }
 

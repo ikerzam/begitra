@@ -18,8 +18,10 @@ import { matchesQuery } from "@/palette/usePalette";
 import { useListNavigation } from "@/shortcuts/useListNavigation";
 import { useGraphStore } from "@/stores/graph";
 import { useRepoStore } from "@/stores/repo";
+import { useSettingsStore } from "@/stores/settings";
 
 import { branchLanes } from "./branchLanes";
+import { sortRefs } from "./branchOrder";
 
 const props = defineProps<{ filter: string }>();
 const emit = defineEmits<{ action: [kind: BranchAction, ref: GitRef] }>();
@@ -27,6 +29,7 @@ const emit = defineEmits<{ action: [kind: BranchAction, ref: GitRef] }>();
 const { t } = useI18n();
 const repo = useRepoStore();
 const graph = useGraphStore();
+const settings = useSettingsStore();
 const listbox = ref<HTMLElement | null>(null);
 const menu = ref<{ ref: GitRef; x: number; y: number } | null>(null);
 const currentName = computed(() => repo.currentBranch?.name ?? null);
@@ -46,9 +49,10 @@ const groups = computed<BranchGroup[]>(() => {
   const lanes = branchLanes(repo.refs);
   const matching = repo.refs.filter((r) => matchesQuery(r.name, props.filter));
   const pick = (kind: GitRef["kind"]) =>
-    matching
-      .filter((r) => r.kind === kind)
-      .map((r) => ({ ref: r, lane: lanes.get(r.fullName) ?? 0 }));
+    sortRefs(
+      matching.filter((r) => r.kind === kind),
+      settings.values.branchSort,
+    ).map((r) => ({ ref: r, lane: lanes.get(r.fullName) ?? 0 }));
   const all: BranchGroup[] = [
     { id: "local", label: t("sidebar.local"), rows: pick("local-branch") },
     { id: "remote", label: t("sidebar.remote"), rows: pick("remote-branch") },

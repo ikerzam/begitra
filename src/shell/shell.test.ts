@@ -891,6 +891,41 @@ describe("Sidebar", () => {
     return wrapper;
   }
 
+  it("sorts the branches by their last commit or by name from the toggle beside the filter", async () => {
+    const wrapper = await openShell();
+    const local = (name: string, committedAt: number) => ({
+      name,
+      fullName: `refs/heads/${name}`,
+      kind: "local-branch" as const,
+      target: commit(0).hash,
+      isCurrent: false,
+      upstream: null,
+      ahead: null,
+      behind: null,
+      worktree: null,
+      message: null,
+      committedAt,
+    });
+    useRepoStore().refs = [local("alpha", 100), local("beta", 900), local("gamma", 500)];
+    await settle();
+    const names = () =>
+      wrapper
+        .get('[data-testid="branch-list"]')
+        .findAll('[data-testid="list-row"]')
+        .map((row) => row.text());
+    expect(names()).toEqual(["beta", "gamma", "alpha"]);
+    const toggle = wrapper.get('[data-testid="branch-sort"]');
+    expect(toggle.attributes("aria-label")).toBe("Sort by name");
+    await toggle.trigger("click");
+    await settle();
+    expect(names()).toEqual(["alpha", "beta", "gamma"]);
+    expect(useSettingsStore().values.branchSort).toBe("name");
+    expect(wrapper.get('[data-testid="branch-sort"]').attributes("aria-label")).toBe(
+      "Sort by last commit",
+    );
+    wrapper.unmount();
+  });
+
   it("selects no branch on load and moves the selection and the focus with j and k", async () => {
     const wrapper = await openShell();
     const rows = wrapper.get('[data-testid="branch-list"]').findAll('[data-testid="list-row"]');

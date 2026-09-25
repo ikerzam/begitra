@@ -122,6 +122,8 @@
     "branches": "Ramas",
     "worktrees": "Worktrees",
     "filterRepos": "Filtrar repositorios",
+    "sortByName": "Ordenar por nombre",
+    "sortByRecent": "Ordenar por el último commit",
     "filterBranches": "Filtrar ramas",
     "filterWorktrees": "Filtrar worktrees",
     "local": "Locales",
