@@ -16,6 +16,7 @@ import {
   type FakeBackendOptions,
 } from "@/test/backend";
 import { mountWithI18n } from "@/test/mount";
+import { chooseOption, shownLabel } from "@/test/select";
 
 import NetworkDialog from "./NetworkDialog.vue";
 import RemotesSheet from "./RemotesSheet.vue";
@@ -170,9 +171,7 @@ describe("NetworkDialog", () => {
     const dialog = wrapper.get('[data-testid="push-dialog"]');
     expect(dialog.text()).toContain("Push main");
     expect(dialog.text()).toContain("2 commits ahead of origin/main.");
-    expect(
-      dialog.get<HTMLSelectElement>('[data-testid="network-remote"] select').element.value,
-    ).toBe("origin");
+    expect(shownLabel(dialog.get('[data-testid="network-remote"]'))).toBe("origin");
     expect(dialog.text()).toContain("Set upstream (origin/main already is)");
     await dialog.get('[data-testid="network-force"] input').setValue(true);
     await dialog.get('[data-testid="dialog-confirm"]').trigger("click");
@@ -198,9 +197,7 @@ describe("NetworkDialog", () => {
     await flushPromises();
     const dialog = wrapper.get('[data-testid="pull-dialog"]');
     expect(dialog.text()).toContain("Pull main");
-    await dialog
-      .get<HTMLSelectElement>('[data-testid="network-branch"] select')
-      .setValue("develop");
+    await chooseOption(dialog.get('[data-testid="network-branch"]'), "develop");
     await dialog.get('[data-testid="network-rebase"] input').setValue(true);
     await dialog.get('[data-testid="dialog-confirm"]').trigger("click");
     await settled();

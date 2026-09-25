@@ -15,6 +15,7 @@ import {
   type FakeBackendOptions,
 } from "@/test/backend";
 import { mountWithI18n } from "@/test/mount";
+import { chooseOption } from "@/test/select";
 
 import AddWorktreeDialog from "./AddWorktreeDialog.vue";
 
@@ -82,8 +83,7 @@ describe("AddWorktreeDialog", () => {
   it("keeps the dialog open with git's output when the add fails, and refuses an existing folder", async () => {
     const { wrapper } = await mountDialog({ failWorktreeAdd: true, existingPaths: ["/taken"] });
     const dialog = wrapper.get('[role="dialog"]');
-    const branch = dialog.get<HTMLSelectElement>("select");
-    await branch.setValue("develop");
+    await chooseOption(dialog.get('[data-testid="add-worktree-branch"]'), "develop");
     await nextTick();
     expect(dialog.find('[data-testid="add-worktree-start"]').exists()).toBe(false);
     const path = dialog.get<HTMLInputElement>(

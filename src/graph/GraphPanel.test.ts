@@ -7,6 +7,7 @@ import { nextTick } from "vue";
 import { fakeBackend, fakeCommit } from "@/test/backend";
 import { changedFile } from "@/test/changes";
 import { mountWithI18n } from "@/test/mount";
+import { chooseOption, optionLabels } from "@/test/select";
 import { useBranchesStore } from "@/stores/branches";
 import { useGraphStore } from "@/stores/graph";
 import { useRepoStore } from "@/stores/repo";
@@ -80,21 +81,21 @@ describe("GraphPanel filters", () => {
     fakeBackend();
     await openRepository();
     const wrapper = await mountPanel();
-    const author = wrapper.get('[data-testid="filter-author"] select');
-    const options = author.findAll("option").map((o) => o.text());
-    expect(options).toEqual(["Anyone", "ane", "claude", "iker"]);
-    expect(author.attributes("data-active")).toBeUndefined();
-    await author.setValue("claude");
+    const author = wrapper.get('[data-testid="filter-author"]');
+    expect(await optionLabels(author)).toEqual(["Anyone", "ane", "claude", "iker"]);
+    const authorButton = author.get('[data-testid="select-button"]');
+    expect(authorButton.attributes("data-active")).toBeUndefined();
+    await chooseOption(author, "claude");
     await settled();
-    expect(author.attributes("data-active")).toBe("true");
+    expect(authorButton.attributes("data-active")).toBe("true");
     expect(wrapper.findAll('[data-testid="graph-row"]')).toHaveLength(10);
-    const scope = wrapper.get('[data-testid="filter-scope"] select');
-    await scope.setValue("current");
+    const scope = wrapper.get('[data-testid="filter-scope"]');
+    await chooseOption(scope, "current");
     await settled();
-    expect(scope.attributes("data-active")).toBe("true");
+    expect(scope.get('[data-testid="select-button"]').attributes("data-active")).toBe("true");
     expect(useGraphStore().walkScope).toEqual({ kind: "ref", name: "main" });
-    const date = wrapper.get('[data-testid="filter-date"] select');
-    expect(date.findAll("option").map((o) => o.text())).toEqual([
+    const date = wrapper.get('[data-testid="filter-date"]');
+    expect(await optionLabels(date)).toEqual([
       "Any date",
       "Last 7 days",
       "Last 30 days",

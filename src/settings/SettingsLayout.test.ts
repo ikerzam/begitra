@@ -13,6 +13,7 @@ import { useSettingsScreenStore } from "@/stores/settingsScreen";
 import { useUpdaterStore } from "@/stores/updater";
 import { fakeBackend, settled, type FakeBackendOptions } from "@/test/backend";
 import { mountWithI18n } from "@/test/mount";
+import { chooseOption, optionLabels, shownLabel } from "@/test/select";
 
 import SettingsLayout from "./SettingsLayout.vue";
 
@@ -165,7 +166,7 @@ describe("SettingsLayout", () => {
     expect(settings.values.diffLayout).toBe("side-by-side");
     await wrapper.get('[data-testid="diff-wrap"]').trigger("click");
     expect(settings.values.diffWrap).toBe(true);
-    await wrapper.get('[data-testid="tab-width"] select').setValue("8");
+    await chooseOption(wrapper.get('[data-testid="tab-width"]'), "8");
     expect(settings.values.tabWidth).toBe(8);
     expect(review.tabWidth).toBe(8);
     await wrapper.get('[data-testid="hide-tests"] input').setValue(true);
@@ -258,12 +259,23 @@ describe("SettingsLayout", () => {
     const settings = useSettingsStore();
     const code = input(wrapper, "code-font");
     expect(code.attributes("placeholder")).toBe("Geist Mono");
-    const suggestions = document.getElementById(code.attributes("list") ?? "");
-    expect(suggestions?.querySelectorAll("option").length).toBeGreaterThan(3);
-    await code.setValue("  Cascadia Code ");
+    expect(code.attributes("role")).toBe("combobox");
+    // Typing opens the platform's suggestions that contain it, in the app's list.
+    await code.setValue("cas");
+    await code.trigger("input");
+    const shown = wrapper.findAll('[data-testid="option"]').map((option) => option.text());
+    expect(shown).toEqual(["Cascadia Code", "Cascadia Mono"]);
+    await code.trigger("keydown", { key: "ArrowDown" });
+    expect(code.attributes("aria-activedescendant")).toMatch(/-0$/);
     await code.trigger("keydown", { key: "Enter" });
     await flushPromises();
     expect(settings.values.codeFont).toBe("Cascadia Code");
+    expect(wrapper.find('[data-testid="option-list"]').exists()).toBe(false);
+    // A typed name is taken as it is on Enter.
+    await code.setValue("  Consolas ");
+    await code.trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    expect(settings.values.codeFont).toBe("Consolas");
     const ui = input(wrapper, "ui-font");
     await ui.setValue("Segoe UI");
     await ui.trigger("blur");
@@ -289,13 +301,13 @@ describe("SettingsLayout", () => {
   it("sets the zoom from its select and names the keys that change it anywhere", async () => {
     const wrapper = await mountSettings();
     const settings = useSettingsStore();
-    const select = wrapper.get<HTMLSelectElement>('[data-testid="zoom"] select');
-    expect(select.element.value).toBe("100");
-    expect(select.findAll("option").map((o) => o.text())).toContain("125%");
+    const zoom = wrapper.get('[data-testid="zoom"]');
+    expect(shownLabel(zoom)).toBe("100%");
+    expect(await optionLabels(zoom)).toContain("125%");
     expect(wrapper.text()).toContain(
       "Scales the whole window. Ctrl = and Ctrl - change it anywhere.",
     );
-    await select.setValue("125");
+    await chooseOption(zoom, "125");
     expect(settings.values.zoom).toBe(125);
   });
 

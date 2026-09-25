@@ -1,22 +1,21 @@
 <script setup lang="ts">
 // The settings' Appearance section: the theme as three radios, the zoom as a select, then the
-// interface and code fonts, each a typed family with suggestions committed on Enter or blur,
+// interface and code fonts, each a typed family with the app's suggestion list (FontField),
 // and their weights as four radios; all applied at once (useTheme, useZoom, useFonts).
 
-import { computed, useId } from "vue";
+import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
-import Input from "@/components/Input.vue";
 import RadioGroup from "@/components/RadioGroup.vue";
 import Select from "@/components/Select.vue";
 import type { RadioOption, SelectOption } from "@/components/types";
 import { useShortcutHint } from "@/shortcuts/useShortcut";
 import { fontWeights, useSettingsStore, zoomLevels, type FontWeight } from "@/stores/settings";
 
+import FontField from "./FontField.vue";
 import { fontSuggestions } from "./fontSuggestions";
 import SettingsField from "./SettingsField.vue";
 import SettingsSection from "./SettingsSection.vue";
-import { useCommittedText } from "./useCommittedText";
 
 const { t } = useI18n();
 const settings = useSettingsStore();
@@ -51,17 +50,6 @@ const zoomIn = useShortcutHint("zoom-in");
 const zoomOut = useShortcutHint("zoom-out");
 
 const suggestions = computed(() => fontSuggestions(settings.platform));
-const uiFontsId = useId();
-const codeFontsId = useId();
-
-const uiFont = useCommittedText(
-  () => settings.values.uiFont,
-  (value) => settings.update("uiFont", value.trim().slice(0, 64)),
-);
-const codeFont = useCommittedText(
-  () => settings.values.codeFont,
-  (value) => settings.update("codeFont", value.trim().slice(0, 64)),
-);
 
 const weights = computed<RadioOption[]>(() =>
   fontWeights.map((weight) => ({
@@ -117,19 +105,15 @@ const codeWeight = computed({
       for="settings-ui-font"
       :hint="t('settings.appearance.uiFontHint')"
     >
-      <Input
+      <FontField
         id="settings-ui-font"
-        v-model="uiFont.draft.value"
+        :stored="settings.values.uiFont"
+        :suggestions="suggestions.ui"
         placeholder="Geist"
-        :list="uiFontsId"
-        spellcheck="false"
-        data-testid="ui-font"
-        @blur="uiFont.commit"
-        @keydown="uiFont.onKeydown"
+        testid="ui-font"
+        :label="t('settings.appearance.uiFont')"
+        @apply="(value) => void settings.update('uiFont', value)"
       />
-      <datalist :id="uiFontsId">
-        <option v-for="font in suggestions.ui" :key="font" :value="font" />
-      </datalist>
     </SettingsField>
     <SettingsField :label="t('settings.appearance.uiWeight')">
       <RadioGroup
@@ -145,19 +129,15 @@ const codeWeight = computed({
       for="settings-code-font"
       :hint="t('settings.appearance.codeFontHint')"
     >
-      <Input
+      <FontField
         id="settings-code-font"
-        v-model="codeFont.draft.value"
+        :stored="settings.values.codeFont"
+        :suggestions="suggestions.code"
         placeholder="Geist Mono"
-        :list="codeFontsId"
-        spellcheck="false"
-        data-testid="code-font"
-        @blur="codeFont.commit"
-        @keydown="codeFont.onKeydown"
+        testid="code-font"
+        :label="t('settings.appearance.codeFont')"
+        @apply="(value) => void settings.update('codeFont', value)"
       />
-      <datalist :id="codeFontsId">
-        <option v-for="font in suggestions.code" :key="font" :value="font" />
-      </datalist>
     </SettingsField>
     <SettingsField :label="t('settings.appearance.codeWeight')">
       <RadioGroup
