@@ -78,6 +78,10 @@ export function findInstallers(bundleDir, version) {
         `${name} has no updater signature (${name}.sig): was the key in the environment?`,
       );
     }
+    // A build without the updater's artifacts leaves the last signature beside a new installer.
+    if (statSync(`${path}.sig`).mtimeMs < statSync(path).mtimeMs) {
+      throw new Error(`${name}.sig is older than ${name}: build the release again with the key`);
+    }
     return { kind, name, path, size: statSync(path).size, signature };
   });
 }

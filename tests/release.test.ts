@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -113,6 +113,14 @@ describe("the installers a build left", () => {
 
   it("stop the release when a signature is missing", () => {
     expect(() => findInstallers(bundles(false), "0.1.0")).toThrow("no updater signature");
+  });
+
+  it("stop the release when a signature is older than its installer", () => {
+    const dir = bundles(true);
+    // An unsigned build replaced the installer and left the last signature.
+    const old = new Date(Date.now() - 60 * 60 * 1000);
+    utimesSync(join(dir, "nsis", "Begitra_0.1.0_x64-setup.exe.sig"), old, old);
+    expect(() => findInstallers(dir, "0.1.0")).toThrow("older than");
   });
 
   it("stop the release when the version was not built", () => {
