@@ -1,13 +1,15 @@
 // The folder view: the repositories and worktrees the scan found in one folder
-// (the index entries whose scan folder it is), a changes model each (`changesModel.ts`) loaded
-// two at a time, the sections of those with changes, the group of those without, and the
-// repository the selection is in. While the view shows, its repositories have watchers
-// (`watch_folder`, up to 20), whose changes reach each model at most once a second (`pace.ts`),
-// and the window's focus reads every model again, at most every 5 seconds. A repository's engine
-// closes once its lists are read, but the one the selection is in and the open repository's
-// (an engine keeps the index loaded, and twenty large ones would hold gigabytes). Leaving the
-// view stops the watchers and closes the engines of the repositories
-// that are not the open one; the models, their drafts included, stay while the folder does.
+// (the index entries whose scan folder it is), a changes model each (`changesModel.ts`), the
+// open repository's being the changes screen's store, the sections of those with changes, the
+// group of those without, and the repository the selection is in. The reads wait in one queue
+// and run two at a time: the first loads, the refresh button, the window's focus (at most every
+// 5 seconds) and each return to the view. While the view shows, its repositories have watchers
+// (`watch_folder`, up to 20), whose changes reach each model at most once a second (`pace.ts`).
+// A repository's engine closes once its lists are read, but the one the selection is in and the
+// open repository's (an engine keeps the index loaded, and twenty large ones would hold
+// gigabytes). Leaving the view stops the watchers and closes the engines of the
+// repositories that are not the open one; the models, their drafts included, stay while the
+// folder does.
 
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { defineStore } from "pinia";
@@ -24,9 +26,11 @@ import {
 
 import * as ipc from "@/ipc/commands";
 import { onRepoChanged } from "@/ipc/events";
+import type { AppError } from "@/ipc/errors";
 import type { IndexEntry, RepoChanged } from "@/ipc/schemas";
 import { sameFolder } from "@/shell/format";
 
+import { useChangesStore } from "./changes";
 import { createChangesModel, type ChangesView } from "./changesModel";
 import { useIndexStore } from "./index";
 import { Pacer } from "./pace";
@@ -35,9 +39,9 @@ import { useSettingsStore } from "./settings";
 import { useShellStore } from "./shell";
 
 /**
- * Repositories whose lists load at once. Each working-tree list runs a `git status` that walks
- * the tree, so large repositories contend for the disk: two at a time show the first one twice
- * as soon as four do, and all of them as soon.
+ * Repositories whose lists are read at once. Each working-tree list runs a `git status` that
+ * walks the tree, so large repositories contend for the disk: two at a time show the first one
+ * twice as soon as four do, and all of them as soon.
  */
 export const LOADS_AT_ONCE = 2;
 /** A repository's watcher changes reach its lists at most this often. */
@@ -52,17 +56,28 @@ export interface FolderRepository {
   name: string;
   /** Its branch as the index knows it; null when detached or unknown. */
   branch: string | null;
+  /** Whether its HEAD is detached, as the index knows it. */
+  detached: boolean;
   view: ChangesView;
 }
 
-/** What the view shows: the scan looking, no repository, the first reads, sections, or none. */
-export type FolderState = "scanning" | "empty" | "loading" | "changes" | "clean";
+/**
+ * What the view shows: the scan (or the index) looking, no repository, the index or the
+ * folder's scan failing, the first reads, sections, or nothing to commit.
+ */
+export type FolderState = "scanning" | "empty" | "error" | "loading" | "changes" | "clean";
+
+/** Why the view shows no repository: the index did not load, or the folder's scan failed. */
+export type FolderProblem = { kind: "index"; error: AppError } | { kind: "folder"; reason: string };
 
 interface Member {
   root: string;
   view: ChangesView;
   scope: EffectScope;
 }
+
+/** A read waiting its turn: a first load, or both lists again. */
+type Read = "load" | "reload";
 
 /** `path` under `folder`, with `/` separators; the whole path when it is not under it. */
 export function pathUnder(folder: string, path: string): string {
@@ -77,6 +92,7 @@ export const useFolderStore = defineStore("folder", () => {
   const index = useIndexStore();
   const repo = useRepoStore();
   const shell = useShellStore();
+  const openChanges = useChangesStore();
 
   const folder = computed(() => settings.values.folderView);
   /** Whether the view is on screen: the watchers, the events and the focus follow it. */
@@ -89,6 +105,11 @@ export const useFolderStore = defineStore("folder", () => {
   const groupOpen = ref(false);
   /** The roots the folder watchers watch, as `watch_folder` answered. */
   const watched = ref<string[]>([]);
+
+  const isOpen = (root: string) => {
+    const open = repo.repo?.root;
+    return open !== undefined && sameFolder(open, root);
+  };
 
   /** The folder's index entries, missing ones left out, in path order. */
   const entries = computed<IndexEntry[]>(() => {
@@ -110,7 +131,9 @@ export const useFolderStore = defineStore("folder", () => {
           root: entry.path,
           name: pathUnder(folder.value ?? "", entry.path),
           branch: entry.summary.currentBranch,
-          view: member.view,
+          detached: entry.summary.detached,
+          // One draft and one read of the open repository: the changes screen's.
+          view: isOpen(entry.path) ? openChanges : member.view,
         },
       ];
     }),
@@ -133,7 +156,7 @@ export const useFolderStore = defineStore("folder", () => {
     ),
   );
 
-  /** Whether the scan is walking the folder or waits to. */
+  /** Whether the scan walks the folder or waits to. */
   const scanning = computed(() => {
     const scan = index.scan;
     const current = folder.value;
@@ -144,10 +167,22 @@ export const useFolderStore = defineStore("folder", () => {
     );
   });
 
+  const problem = computed<FolderProblem | null>(() => {
+    if (index.loadError) return { kind: "index", error: index.loadError };
+    const current = folder.value;
+    if (current === null) return null;
+    const failed = Object.entries(index.folderErrors).find(([known]) => sameFolder(known, current));
+    return failed ? { kind: "folder", reason: failed[1].reason } : null;
+  });
+
   const state = computed<FolderState>(() => {
-    if (entries.value.length === 0) return scanning.value ? "scanning" : "empty";
+    if (entries.value.length === 0) {
+      if (!index.loaded || scanning.value) return "scanning";
+      return problem.value ? "error" : "empty";
+    }
     if (sections.value.length > 0) return "changes";
-    return checking.value.length > 0 ? "loading" : "clean";
+    if (checking.value.length > 0) return "loading";
+    return scanning.value ? "scanning" : "clean";
   });
 
   /** The repository the selection is in, else the first section's. */
@@ -177,11 +212,8 @@ export const useFolderStore = defineStore("folder", () => {
       reactive(
         createChangesModel({
           root: () => root,
-          onCommitted: () => {
-            // The index learns the new tip; the open repository's graph lists it.
-            void index.refresh(root, false);
-            if (repo.repo?.root === root) repo.restartWalk(repo.walkScope, repo.walkFilter);
-          },
+          // The index learns the new tip.
+          onCommitted: () => void index.refresh(root, false),
         }),
       ),
     );
@@ -189,38 +221,61 @@ export const useFolderStore = defineStore("folder", () => {
     return { root, view, scope };
   }
 
-  const isOpen = (root: string) => {
-    const open = repo.repo?.root;
-    return open !== undefined && sameFolder(open, root);
-  };
-
   /**
-   * Closes the engine of `target` once its lists are read, unless the selection is in it or it
-   * is the open repository: an engine keeps its repository's index loaded (about a hundred
-   * megabytes on a tree of 50,000 files), and the next read opens it again.
+   * Closes the engine of `target` once its lists are read and no write runs, unless it is the
+   * open repository or, while the view shows it, the one the selection is in: an engine keeps
+   * its repository's index loaded (about a hundred megabytes on a tree of 50,000 files), and
+   * the next read opens it again. A model the view dropped (another folder shows) or a view that
+   * left closes it too.
    */
   async function release(target: Member): Promise<void> {
     await target.view.settled();
     // The counts, and with them the sections and the active repository, follow the lists.
     await nextTick();
-    if (!shown.value || members.get(target.root) !== target) return;
-    if (target.view.busy !== null || active.value?.root === target.root || isOpen(target.root)) {
+    if (isOpen(target.root)) return;
+    const current = members.get(target.root) === target;
+    if (shown.value && current && active.value?.root === target.root) return;
+    if (target.view.busy !== null) {
+      // The write reads its lists again: the engine goes once they are read.
+      const stop = watch(
+        () => target.view.busy,
+        (busy) => {
+          if (busy !== null) return;
+          stop();
+          void release(target);
+        },
+      );
       return;
     }
     await ipc.closeRepository(target.root).catch(() => undefined);
   }
 
-  const queue: string[] = [];
+  /** The reads waiting their turn, in the order asked, a repository once. */
+  const queue = new Map<string, Read>();
   let running = 0;
 
-  /** Loads the models that wait, four at a time, the first in path order first. */
+  function enqueue(root: string, read: Read): void {
+    // A first load reads both lists anyway.
+    if (queue.get(root) !== "load") queue.set(root, read);
+    pump();
+  }
+
+  /** Runs the reads that wait, two at a time, the first asked first. */
   function pump(): void {
-    while (running < LOADS_AT_ONCE && queue.length > 0) {
-      const root = queue.shift();
-      const next = root === undefined ? undefined : members.get(root);
-      if (!next) continue;
+    while (shown.value && running < LOADS_AT_ONCE && queue.size > 0) {
+      const [root, read] = queue.entries().next().value ?? [];
+      if (root === undefined || read === undefined) return;
+      queue.delete(root);
+      const next = members.get(root);
+      // The open repository's lists are the changes screen's, read there.
+      if (!next || isOpen(root)) continue;
       running += 1;
-      next.view.load();
+      if (read === "load" || !next.view.loaded) {
+        next.view.load();
+      } else {
+        next.view.requestReload("unstaged", { kind: "full" });
+        next.view.requestReload("staged", { kind: "full" });
+      }
       void next.view.settled().finally(() => {
         running -= 1;
         void release(next);
@@ -234,33 +289,40 @@ export const useFolderStore = defineStore("folder", () => {
     const roots = new Set(entries.value.map((entry) => entry.path));
     for (const [root, gone] of members) {
       if (roots.has(root)) continue;
-      gone.scope.stop();
-      members.delete(root);
+      drop(gone);
     }
     for (const entry of entries.value) {
       if (members.has(entry.path)) continue;
       members.set(entry.path, member(entry.path));
-      queue.push(entry.path);
+      enqueue(entry.path, "load");
     }
-    pump();
+  }
+
+  /** Drops the model of `gone`; its engine closes once its reads end. */
+  function drop(gone: Member): void {
+    members.delete(gone.root);
+    queue.delete(gone.root);
+    void release(gone);
+    gone.scope.stop();
   }
 
   /** Drops every model: another folder shows. */
   function disposeAll(): void {
-    for (const gone of members.values()) gone.scope.stop();
-    members.clear();
-    queue.length = 0;
+    for (const gone of [...members.values()]) drop(gone);
     activeRoot.value = null;
     collapsed.clear();
     groupOpen.value = false;
   }
 
-  /** Reads every repository's lists again (the refresh button, the window's focus). */
+  /** Reads every repository's lists again (the refresh button, the window's focus, a return). */
   function refresh(): void {
     for (const current of members.values()) {
-      current.view.requestReload("unstaged", { kind: "full" });
-      current.view.requestReload("staged", { kind: "full" });
-      void release(current);
+      if (isOpen(current.root)) {
+        openChanges.requestReload("unstaged", { kind: "full" });
+        openChanges.requestReload("staged", { kind: "full" });
+      } else {
+        enqueue(current.root, "reload");
+      }
     }
   }
 
@@ -278,8 +340,12 @@ export const useFolderStore = defineStore("folder", () => {
 
   const pacer = new Pacer(PACE_MS, (change) => {
     const target = memberOf(change);
-    if (!target) return;
+    if (!target || isOpen(target.root)) return;
     target.view.onRepoChanged(change);
+    // The section's branch and the box's line come from the index entry.
+    if (change.kinds.includes("refs") || change.kinds.includes("worktrees")) {
+      void index.refresh(target.root, false);
+    }
     void release(target);
   });
   let unlisten: UnlistenFn | null = null;
@@ -294,8 +360,9 @@ export const useFolderStore = defineStore("folder", () => {
   async function listen(): Promise<void> {
     let stop: UnlistenFn;
     try {
+      // The open repository's changes reach the changes screen's store, not this pacer.
       stop = await onRepoChanged((change) => {
-        if (memberOf(change)) pacer.push(change);
+        if (memberOf(change) && !isOpen(change.repo)) pacer.push(change);
       });
     } catch {
       // Outside Tauri there is nothing to listen to.
@@ -322,6 +389,7 @@ export const useFolderStore = defineStore("folder", () => {
     unlisten?.();
     unlisten = null;
     pacer.clear();
+    queue.clear();
     window.removeEventListener("focus", onFocus);
     watched.value = [];
     void ipc.unwatchFolder().catch(() => undefined);
@@ -339,9 +407,16 @@ export const useFolderStore = defineStore("folder", () => {
     await shell.setLayoutMode("folder");
   }
 
-  /** Looks for the folder's repositories again (the empty view's button). */
+  /** Opens the repository at `root` in graph focus (a section's "Open repository"). */
+  async function openRepository(root: string): Promise<void> {
+    await index.open(root);
+    await shell.setLayoutMode("graph");
+  }
+
+  /** Looks for the folder's repositories again, as a scan folder of Home once more if needed. */
   function scanAgain(): void {
-    if (folder.value !== null) index.startScan([folder.value]);
+    const current = folder.value;
+    if (current !== null && !index.addRoot(current)) index.startScan([current]);
   }
 
   // New and gone repositories while the view shows; the watchers follow them and the open
@@ -371,10 +446,24 @@ export const useFolderStore = defineStore("folder", () => {
   watch(folder, (now, before) => {
     if (before !== undefined && now !== before) disposeAll();
   });
-  // The repository the selection leaves lets its engine go.
+  // A repository that stops being the open one shows its own model again, read afresh.
+  watch(
+    () => repo.repo?.root ?? null,
+    (_now, before) => {
+      if (before === null) return;
+      const left = [...members.values()].find((candidate) => sameFolder(candidate.root, before));
+      if (left && shown.value) enqueue(left.root, "reload");
+    },
+  );
+  // The repository the selection enters gets its box's context; the one it leaves lets its
+  // engine go.
   watch(
     () => active.value?.root ?? null,
-    (_now, before) => {
+    (now, before) => {
+      const entered = active.value;
+      if (now !== null && entered && entered.view.context === null) {
+        void entered.view.loadContext();
+      }
       const left = before === null ? undefined : members.get(before);
       if (left) void release(left);
     },
@@ -387,6 +476,8 @@ export const useFolderStore = defineStore("folder", () => {
     sections,
     clean,
     checking,
+    scanning,
+    problem,
     state,
     active,
     collapsed,
@@ -399,6 +490,7 @@ export const useFolderStore = defineStore("folder", () => {
     show,
     hide,
     open,
+    openRepository,
     scanAgain,
   };
 });

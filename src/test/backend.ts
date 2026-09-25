@@ -84,6 +84,8 @@ export interface FakeBackendOptions {
   changesByRepo?: Record<string, { unstaged: FileChange[]; staged: FileChange[] }>;
   /** What `list_repositories` answers; none by default. */
   repositories?: IndexEntry[];
+  /** `list_repositories` rejects with `index.database`. */
+  failIndex?: boolean;
   /** Tauri's events go through the mock, so `emit` reaches the app's listeners. */
   mockEvents?: boolean;
   /** Folders `open_repository` refuses with `repo.not_found` (folders of repositories). */
@@ -920,7 +922,10 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
         case "refresh_repository": {
           const path = args["path"] as string;
           const summary = options.summaries?.[path];
-          return summary ? entryFor(path, summary) : null;
+          if (!summary) return null;
+          // A listed repository keeps its row, as the index does; the summary is new.
+          const known = options.repositories?.find((entry) => entry.path === path);
+          return known ? { ...known, summary } : entryFor(path, summary);
         }
         case "watch_repository":
         case "record_repository_open":
@@ -933,6 +938,10 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
             .filter((root) => root !== opened)
             .sort();
         case "list_repositories":
+          if (options.failIndex) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({ code: "index.database", message: "database is locked" });
+          }
           return (options.repositories ?? []).map((entry) => ({ ...entry }));
         case "open_external":
           return null;

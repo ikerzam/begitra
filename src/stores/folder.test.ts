@@ -9,6 +9,7 @@ import { changedFile } from "@/test/changes";
 
 import { pathUnder, useFolderStore } from "./folder";
 import { useIndexStore } from "./index";
+import { useChangesStore } from "./changes";
 import { useRepoStore } from "./repo";
 import { memoryStorage, useSettingsStore } from "./settings";
 import { useShellStore } from "./shell";
@@ -127,7 +128,12 @@ describe("useFolderStore", () => {
     fakeBackend({ rootIsPath: true });
     await useRepoStore().open("/code/infra");
     const { folder, calls } = await openFolder();
-    const closed = () => of(calls, "close_repository").map((call) => call.args["root"]);
+    // The closes of this folder's repositories (a model of an earlier test may end late).
+    const ours = new Set(["/code/api", "/code/infra", "/code/web"]);
+    const closed = () =>
+      of(calls, "close_repository")
+        .map((call) => call.args["root"])
+        .filter((root) => typeof root === "string" && ours.has(root));
     // api holds the selection, infra is the open repository: web alone lets its engine go.
     expect(folder.active?.root).toBe("/code/api");
     await vi.waitFor(() => expect(closed()).toEqual(["/code/web"]));
@@ -199,6 +205,90 @@ describe("useFolderStore", () => {
     await emit("repo:changed", { repo: "/code/web", kinds: ["status"], paths: ["tiles.ts"] });
     await settled();
     expect(of(calls, "diff_paths")).toHaveLength(before);
+  });
+
+  it("reads the repositories again two at a time when the view comes back", async () => {
+    const names = ["a", "b", "c", "d", "e", "f"];
+    const calls = fakeBackend({ repositories: names.map((name) => entry(name)), diffDelayMs: 40 });
+    await useIndexStore().load();
+    const folder = useFolderStore();
+    await folder.open(CODE);
+    folder.show();
+    await vi.waitFor(() => expect(folder.checking).toHaveLength(0), { timeout: 2000 });
+    const before = of(calls, "diff").length;
+    folder.hide();
+    folder.show();
+    await settled();
+    // Two repositories, two lists each; the others wait their turn.
+    expect(of(calls, "diff").length - before).toBe(4);
+  });
+
+  it("closes the engines of the folder it leaves for another", async () => {
+    const { folder, calls } = await openFolder();
+    const before = of(calls, "close_repository").length;
+    await folder.open("/nothing");
+    await vi.waitFor(() => {
+      const closed = of(calls, "close_repository")
+        .slice(before)
+        .map((call) => call.args["root"]);
+      expect(new Set(closed)).toEqual(new Set(["/code/api", "/code/infra", "/code/web"]));
+    });
+  });
+
+  it("gives the box of the repository the selection is in its context", async () => {
+    const { folder, calls } = await openFolder();
+    const asked = () => of(calls, "commit_context").map((call) => call.args["repo"]);
+    await vi.waitFor(() => expect(folder.active?.view.context?.author).toBe("Iker Z. <iker@x>"));
+    expect(asked()).toEqual(["/code/api"]);
+    folder.activate("/code/web");
+    await vi.waitFor(() => expect(asked()).toEqual(["/code/api", "/code/web"]));
+  });
+
+  it("follows a branch switched in a repository of the view", async () => {
+    const { folder, calls } = await openFolder({
+      summaries: { "/code/web": { ...entry("web").summary, currentBranch: "main" } },
+    });
+    await emit("repo:changed", { repo: "/code/web", kinds: ["refs"], paths: [] });
+    await vi.waitFor(() =>
+      expect(of(calls, "refresh_repository").map((call) => call.args["path"])).toContain(
+        "/code/web",
+      ),
+    );
+    await vi.waitFor(() =>
+      expect(folder.sections.find((section) => section.root === "/code/web")?.branch).toBe("main"),
+    );
+  });
+
+  it("shares the open repository's lists and draft with the changes screen", async () => {
+    fakeBackend({ rootIsPath: true });
+    await useRepoStore().open("/code/web");
+    const { folder } = await openFolder();
+    const web = folder.repositories.find((repository) => repository.root === "/code/web");
+    expect(web?.view).toBe(useChangesStore());
+    useChangesStore().setDraft({ subject: "fix: tiles" });
+    expect(web?.view.draft.subject).toBe("fix: tiles");
+  });
+
+  it("waits for the index, and names its failure", async () => {
+    fakeBackend({ failIndex: true });
+    const folder = useFolderStore();
+    await folder.open(CODE);
+    folder.show();
+    expect(folder.state).toBe("scanning");
+    await useIndexStore().load();
+    expect(folder.state).toBe("error");
+    expect(folder.problem?.kind).toBe("index");
+  });
+
+  it("scans a folder again as a scan folder of Home when it was removed", async () => {
+    const calls = fakeBackend({});
+    await useIndexStore().load();
+    const folder = useFolderStore();
+    await folder.open("/gone");
+    folder.scanAgain();
+    await settled();
+    expect(useSettingsStore().values.scanRoots).toContain("/gone");
+    expect(of(calls, "scan_folders").at(-1)?.args["folders"]).toEqual(["/gone"]);
   });
 
   it("shows the scan looking, then an empty folder with no repository", async () => {
