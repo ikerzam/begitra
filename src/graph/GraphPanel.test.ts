@@ -282,7 +282,9 @@ describe("GraphPanel broken history", () => {
     expect(calls.some((c) => c.cmd === "open_external")).toBe(true);
     wrapper.unmount();
   });
+});
 
+describe("GraphPanel working tree row", () => {
   it("shows the working tree's row above the commits and opens the changes screen from it", async () => {
     fakeBackend({
       changes: { unstaged: [changedFile("a.ts")], staged: [changedFile("b.ts")] },
@@ -291,7 +293,12 @@ describe("GraphPanel broken history", () => {
     const wrapper = await mountPanel();
     await settled();
     const row = wrapper.get('[data-testid="working-tree-row"]');
-    expect(wrapper.get('[data-testid="working-tree-counts"]').text()).toBe("1 unstaged · 1 staged");
+    expect(
+      wrapper
+        .get('[data-testid="working-tree-counts"]')
+        .findAll("span")
+        .map((part) => part.text()),
+    ).toEqual(["1 unstaged", "1 staged"]);
     // Above the list, not in it: the rows and the selection are the commits'.
     const position = row.element.compareDocumentPosition(
       wrapper.get('[data-testid="commit-rows"]').element,

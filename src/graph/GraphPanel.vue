@@ -164,7 +164,10 @@ defineExpose({ focus: () => rows.value?.focus() });
     </div>
 
     <template v-else>
-      <WorkingTreeRow @open="() => void shell.setLayoutMode('changes')" />
+      <WorkingTreeRow
+        @open="() => void shell.setLayoutMode('changes')"
+        @leave="() => rows?.focus()"
+      />
       <EmptyState
         v-if="showEmpty && graph.isActive"
         :message="t('graph.noMatches')"
