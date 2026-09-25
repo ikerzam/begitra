@@ -92,6 +92,8 @@ export interface FakeBackendOptions {
    * the working tree. The answer is the lists as they were when it was asked.
    */
   diffPathsDelayMs?: { index?: number; workingTree?: number };
+  /** `open_repository` answers with the path it is given as the root, not `/r`. */
+  rootIsPath?: boolean;
   /** The network commands end after this many milliseconds (the progress, by eye). */
   networkDelayMs?: number;
   /** The refs `list_refs` answers; the two local branches by default. */
@@ -360,14 +362,16 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
     const args = (rawArgs ?? {}) as Record<string, unknown>;
     calls.push({ cmd, args });
     switch (cmd) {
-      case "open_repository":
+      case "open_repository": {
+        const root = options.rootIsPath ? (args["path"] as string) : "/r";
         return {
-          root: "/r",
-          commonDir: "/r/.git",
+          root,
+          commonDir: `${root}/.git`,
           currentBranch: "main",
           detached: false,
           isLinkedWorktree: false,
         };
+      }
       case "list_refs":
         if (options.refs) return options.refs.map((entry) => ({ ...entry }));
         return [

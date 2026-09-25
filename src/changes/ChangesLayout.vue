@@ -146,9 +146,10 @@ useShortcut("mark-resolved", () => {
 // No key of its own: the palette's "Discard all…" runs it through the registry.
 useShortcut("discard-all", () => askDiscard({ kind: "files", files: changes.unstaged.files }));
 
-// The lists load on entry and the context with them; a later entry only reloads.
+// The lists load once the repository shows its history; an entry loads them only when they are
+// not loaded (or failed), and the commit context with them.
 onMounted(() => {
-  changes.load();
+  changes.ensureLoaded();
   void changes.loadContext();
 });
 

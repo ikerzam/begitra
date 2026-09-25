@@ -194,6 +194,12 @@ export const useChangesStore = defineStore("changes", () => {
   const listOf = (list: ChangeList) => (list === "unstaged" ? unstaged : staged);
   const unstagedCount = computed(() => unstaged.value.files.length);
   const stagedCount = computed(() => staged.value.files.length);
+  /** Files with a change in either list, a file in both counted once: the top bar's count. */
+  const changedCount = computed(() => {
+    const paths = new Set(unstaged.value.files.map((file) => file.path));
+    for (const file of staged.value.files) paths.add(file.path);
+    return paths.size;
+  });
   const loading = computed(() => unstaged.value.loading || staged.value.loading);
   const error = computed(() => unstaged.value.error ?? staged.value.error ?? null);
   const isEmpty = computed(
@@ -368,32 +374,47 @@ export const useChangesStore = defineStore("changes", () => {
     selected.value = first;
   }
 
+  /** Empties both lists and stops what reads them; the draft and its repository stay. */
+  function clearLists(): void {
+    stop("unstaged");
+    stop("staged");
+    reloaders.unstaged.clear();
+    reloaders.staged.clear();
+    unstaged.value = emptyList();
+    staged.value = emptyList();
+    selected.value = null;
+    loaded.value = false;
+  }
+
+  /** Forgets the lists and what belongs to their repository: the draft, the commit context. */
+  function reset(): void {
+    clearLists();
+    draft.value = { subject: "", body: "", amend: false, signoff: false };
+    context.value = null;
+    loadedRoot = null;
+  }
+
   /** Streams both lists again. */
   function load(): void {
     const root = repo.repo?.root;
     if (!root) {
-      stop("unstaged");
-      stop("staged");
-      reloaders.unstaged.clear();
-      reloaders.staged.clear();
-      unstaged.value = emptyList();
-      staged.value = emptyList();
-      selected.value = null;
-      loaded.value = false;
-      loadedRoot = null;
+      clearLists();
       return;
     }
     if (loadedRoot !== root) {
-      reloaders.unstaged.clear();
-      reloaders.staged.clear();
-      selected.value = null;
-      draft.value = { subject: "", body: "", amend: false, signoff: false };
-      context.value = null;
+      reset();
       loadedRoot = root;
     }
     loaded.value = true;
     reloaders.unstaged.request({ kind: "full" });
     reloaders.staged.request({ kind: "full" });
+  }
+
+  /** Loads both lists unless they are loaded for the open repository and did not fail. */
+  function ensureLoaded(): void {
+    const root = repo.repo?.root;
+    if (root && loaded.value && loadedRoot === root && !error.value) return;
+    load();
   }
 
   function select(list: ChangeList, path: string): void {
@@ -599,6 +620,27 @@ export const useChangesStore = defineStore("changes", () => {
     if (change.kinds.includes("refs")) void loadContext();
   }
 
+  // An open or a close empties the lists at once, so no count of the last repository shows
+  // meanwhile; the draft goes only when another repository opens, and waits in case the same
+  // one comes back. The lists load again once the repository shows its first page of history
+  // (or fails to), whatever the layout, after the open's own work, so the top bar and the
+  // graph know the counts before the screen opens.
+  watch(
+    () => repo.repo?.root ?? null,
+    (root) => {
+      if (root === null) clearLists();
+      else if (root !== loadedRoot) reset();
+    },
+  );
+  watch(
+    () => repo.repo !== null && (repo.walk !== null || repo.walkError !== null),
+    (shown) => {
+      if (shown) ensureLoaded();
+    },
+    // A store made after the history showed loads at once too.
+    { immediate: true },
+  );
+
   // The staged list is HEAD against the index, so HEAD moving without the index (a soft reset
   // in a terminal) streams it again once the refs listing shows the move. A branch moving
   // elsewhere (a commit in a linked worktree) leaves HEAD, and both lists, alone.
@@ -625,11 +667,13 @@ export const useChangesStore = defineStore("changes", () => {
     loaded,
     unstagedCount,
     stagedCount,
+    changedCount,
     loading,
     error,
     isEmpty,
     canCommit,
     load,
+    ensureLoaded,
     select,
     stage,
     unstage,

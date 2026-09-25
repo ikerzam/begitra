@@ -1,6 +1,7 @@
 import { clearMocks } from "@tauri-apps/api/mocks";
 import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { nextTick } from "vue";
 
 import type { DiffTarget, PatchSelection, Ref } from "@/ipc/schemas";
 import {
@@ -41,10 +42,9 @@ async function openChanges(options: FakeBackendOptions = {}): Promise<{
     changes: { unstaged: unstagedFiles(), staged: stagedFiles() },
     ...options,
   });
-  await useRepoStore().open("/r");
-  await settled();
+  // Made before the open, as the shell makes it: the lists load once the history shows.
   const changes = useChangesStore();
-  changes.load();
+  await useRepoStore().open("/r");
   await settled();
   return { changes, calls };
 }
@@ -423,5 +423,62 @@ describe("changes store", () => {
     expect(changes.selected).toBeNull();
     // The draft survives a reload of the same repository but not another one.
     expect(changes.draft.subject).toBe("draft");
+  });
+});
+
+describe("the lists before the screen", () => {
+  const lists = {
+    unstaged: [changedFile("a.ts"), changedFile("b.ts")],
+    staged: [changedFile("b.ts"), changedFile("c.ts")],
+  };
+
+  it("load once the repository shows its first page of history, a file in both lists counted once", async () => {
+    const calls = fakeBackend({ changes: lists });
+    const changes = useChangesStore();
+    await useRepoStore().open("/r");
+    await settled();
+    expect(changes.loaded).toBe(true);
+    expect([changes.unstagedCount, changes.stagedCount, changes.changedCount]).toEqual([2, 2, 3]);
+    // After the open's own work: the first page of history streams first.
+    const order = calls.map((call) => call.cmd);
+    expect(order.indexOf("diff")).toBeGreaterThan(order.indexOf("walk_commits"));
+  });
+
+  it("are emptied at once by another open, the draft kept only for the same repository", async () => {
+    fakeBackend({ changes: lists, rootIsPath: true });
+    const changes = useChangesStore();
+    const repo = useRepoStore();
+    await repo.open("/r");
+    await settled();
+    changes.setDraft({ subject: "draft" });
+    const again = repo.open("/r");
+    await nextTick();
+    expect(changes.changedCount).toBe(0);
+    await again;
+    await settled();
+    expect(changes.draft.subject).toBe("draft");
+    expect(changes.changedCount).toBe(3);
+    const other = repo.open("/other");
+    await nextTick();
+    expect(changes.changedCount).toBe(0);
+    await other;
+    await settled();
+    expect(changes.draft.subject).toBe("");
+    expect(changes.changedCount).toBe(3);
+  });
+
+  it("stream nothing again when the screen opens on lists already loaded", async () => {
+    const calls = fakeBackend({ changes: lists });
+    const changes = useChangesStore();
+    await useRepoStore().open("/r");
+    await settled();
+    const diffs = of(calls, "diff").length;
+    changes.ensureLoaded();
+    await settled();
+    expect(of(calls, "diff")).toHaveLength(diffs);
+    // A load that did not happen, or failed, is done on the screen's entry.
+    changes.load();
+    await settled();
+    expect(of(calls, "diff")).toHaveLength(diffs + 2);
   });
 });
