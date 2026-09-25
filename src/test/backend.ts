@@ -79,6 +79,15 @@ export interface FakeBackendOptions {
    * the file in both), discard removes them, a commit empties the staged list.
    */
   changes?: { unstaged: FileChange[]; staged: FileChange[] };
+  /** The changes of other repositories, by root (the folder view); stage, unstage and
+   * discard move their files as they do the open repository's. */
+  changesByRepo?: Record<string, { unstaged: FileChange[]; staged: FileChange[] }>;
+  /** What `list_repositories` answers; none by default. */
+  repositories?: IndexEntry[];
+  /** Tauri's events go through the mock, so `emit` reaches the app's listeners. */
+  mockEvents?: boolean;
+  /** Folders `open_repository` refuses with `repo.not_found` (folders of repositories). */
+  notRepositories?: string[];
   /** Every staging write rejects with `git.cli_failed` (a stale hunk). */
   failStaging?: boolean;
   /** `commit` rejects with `git.cli_failed` (a hook's output). */
@@ -290,11 +299,30 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
   let remotes: Remote[] = (options.remotes ?? []).map((remote) => ({ ...remote }));
   let unstaged: FileChange[] = [...(options.changes?.unstaged ?? [])];
   let staged: FileChange[] = [...(options.changes?.staged ?? [])];
+  const byRepo = new Map(
+    Object.entries(options.changesByRepo ?? {}).map(([root, lists]) => [
+      root,
+      { unstaged: [...lists.unstaged], staged: [...lists.staged] },
+    ]),
+  );
   /**
    * What a diff of `target` answers: the changes lists when given, else the fake files; the
    * lists in the engine's order, by path.
    */
-  const filesOf = (target: DiffTarget): FileChange[] =>
+  const filesOf = (target: DiffTarget, repo?: unknown): FileChange[] => {
+    const own = typeof repo === "string" ? byRepo.get(repo) : undefined;
+    if (own) {
+      const listed =
+        target.kind === "index"
+          ? own.staged
+          : target.kind === "working-tree" && target.base === "index"
+            ? own.unstaged
+            : [];
+      return [...listed].sort((a, b) => comparePaths(a.path, b.path));
+    }
+    return filesOfOpen(target);
+  };
+  const filesOfOpen = (target: DiffTarget): FileChange[] =>
     !options.changes
       ? fakeFiles(target)
       : [
@@ -360,538 +388,570 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
   };
   /** The repository the slot watches, which `watch_folder` leaves out, as the backend does. */
   let opened: string | null = null;
-  mockIPC((cmd, rawArgs) => {
-    const args = (rawArgs ?? {}) as Record<string, unknown>;
-    calls.push({ cmd, args });
-    switch (cmd) {
-      case "open_repository": {
-        const root = options.rootIsPath ? (args["path"] as string) : "/r";
-        opened = root;
-        return {
-          root,
-          commonDir: `${root}/.git`,
-          currentBranch: "main",
-          detached: false,
-          isLinkedWorktree: false,
-        };
-      }
-      case "list_refs":
-        if (options.refs) return options.refs.map((entry) => ({ ...entry }));
-        return [
-          {
-            name: "main",
-            fullName: "refs/heads/main",
-            kind: "local-branch",
-            target: fakeCommit(0).hash,
-            isCurrent: true,
-            upstream: null,
-            ahead: null,
-            behind: null,
-            worktree: "/r",
-            message: null,
-            committedAt: fakeCommit(0).committer.time,
-          },
-          {
-            name: "develop",
-            fullName: "refs/heads/develop",
-            kind: "local-branch",
-            target: fakeCommit(3).hash,
-            isCurrent: false,
-            upstream: null,
-            ahead: null,
-            behind: null,
-            worktree: null,
-            message: null,
-            committedAt: fakeCommit(3).committer.time,
-          },
-        ];
-      case "walk_commits":
-      case "walk_continue": {
-        const scope = (args["scope"] as WalkScope | undefined) ?? { kind: "all" };
-        const filter = (args["options"] as { filter?: WalkFilter } | undefined)?.filter ?? {};
-        const listed = listFor(scope, filter);
-        const first = cmd === "walk_commits" ? 0 : (args["nextIndex"] as number);
-        const maxPages = args["maxPages"] as number;
-        const messages: unknown[] = [];
-        let seq = 0;
-        if (listed.length === 0) {
-          messages.push({
-            kind: "page",
-            seq,
-            data: { walkId: "w", index: 0, commits: [], done: true },
-          });
-          seq += 1;
-        }
-        for (let index = first; index < first + maxPages; index += 1) {
-          if (options.failAfterPages !== undefined && index >= options.failAfterPages) {
-            messages.push({
-              kind: "error",
-              error: {
-                code: "repo.corrupt_object",
-                message: "object 6c1f0ab is missing or corrupt: loose object is corrupt",
-                detail: "error: object file .git/objects/6c/1f0ab is empty",
-              },
-            });
-            send(args["onPage"] as Channel<unknown>, messages);
-            return null;
+  mockIPC(
+    (cmd, rawArgs) => {
+      const args = (rawArgs ?? {}) as Record<string, unknown>;
+      calls.push({ cmd, args });
+      switch (cmd) {
+        case "open_repository": {
+          if (options.notRepositories?.includes(args["path"] as string)) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({ code: "repo.not_found", message: "not a git repository" });
           }
-          const start = index * pageSize;
-          if (start >= listed.length) break;
-          const commits = listed.slice(start, start + pageSize);
-          const done = start + commits.length >= listed.length;
-          messages.push({ kind: "page", seq, data: { walkId: "w", index, commits, done } });
-          seq += 1;
-          if (done) break;
+          const root = options.rootIsPath ? (args["path"] as string) : "/r";
+          opened = root;
+          return {
+            root,
+            commonDir: `${root}/.git`,
+            currentBranch: "main",
+            detached: false,
+            isLinkedWorktree: false,
+          };
         }
-        messages.push({ kind: "done" });
-        send(args["onPage"] as Channel<unknown>, messages);
-        return null;
-      }
-      case "count_commits": {
-        const scope = args["scope"] as WalkScope;
-        return { count: listFor(scope, {}).length, capped: false };
-      }
-      case "diff": {
-        if (options.failDiff) {
-          send(args["onPage"] as Channel<unknown>, [
+        case "list_refs":
+          if (options.refs) return options.refs.map((entry) => ({ ...entry }));
+          return [
             {
-              kind: "error",
-              error: {
-                code: "diff.blob_missing",
-                message: "blob 4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e is missing",
-                detail: "fatal: unable to read 4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e",
-              },
+              name: "main",
+              fullName: "refs/heads/main",
+              kind: "local-branch",
+              target: fakeCommit(0).hash,
+              isCurrent: true,
+              upstream: null,
+              ahead: null,
+              behind: null,
+              worktree: "/r",
+              message: null,
+              committedAt: fakeCommit(0).committer.time,
             },
-          ]);
+            {
+              name: "develop",
+              fullName: "refs/heads/develop",
+              kind: "local-branch",
+              target: fakeCommit(3).hash,
+              isCurrent: false,
+              upstream: null,
+              ahead: null,
+              behind: null,
+              worktree: null,
+              message: null,
+              committedAt: fakeCommit(3).committer.time,
+            },
+          ];
+        case "walk_commits":
+        case "walk_continue": {
+          const scope = (args["scope"] as WalkScope | undefined) ?? { kind: "all" };
+          const filter = (args["options"] as { filter?: WalkFilter } | undefined)?.filter ?? {};
+          const listed = listFor(scope, filter);
+          const first = cmd === "walk_commits" ? 0 : (args["nextIndex"] as number);
+          const maxPages = args["maxPages"] as number;
+          const messages: unknown[] = [];
+          let seq = 0;
+          if (listed.length === 0) {
+            messages.push({
+              kind: "page",
+              seq,
+              data: { walkId: "w", index: 0, commits: [], done: true },
+            });
+            seq += 1;
+          }
+          for (let index = first; index < first + maxPages; index += 1) {
+            if (options.failAfterPages !== undefined && index >= options.failAfterPages) {
+              messages.push({
+                kind: "error",
+                error: {
+                  code: "repo.corrupt_object",
+                  message: "object 6c1f0ab is missing or corrupt: loose object is corrupt",
+                  detail: "error: object file .git/objects/6c/1f0ab is empty",
+                },
+              });
+              send(args["onPage"] as Channel<unknown>, messages);
+              return null;
+            }
+            const start = index * pageSize;
+            if (start >= listed.length) break;
+            const commits = listed.slice(start, start + pageSize);
+            const done = start + commits.length >= listed.length;
+            messages.push({ kind: "page", seq, data: { walkId: "w", index, commits, done } });
+            seq += 1;
+            if (done) break;
+          }
+          messages.push({ kind: "done" });
+          send(args["onPage"] as Channel<unknown>, messages);
           return null;
         }
-        const target = args["target"] as DiffTarget;
-        const files = filesOf(target);
-        const additions = files.reduce((n, f) => n + f.additions, 0);
-        const deletions = files.reduce((n, f) => n + f.deletions, 0);
-        send(
-          args["onPage"] as Channel<unknown>,
-          [
-            {
-              kind: "page",
-              seq: 0,
-              data: { additions, deletions, totalFiles: files.length, files },
-            },
-            { kind: "done" },
-          ],
-          options.diffDelayMs,
-        );
-        return null;
-      }
-      case "diff_paths": {
-        // The full diff's files that the paths cover, as the engine restricts it.
-        const requested = args["paths"] as string[];
-        const target = args["target"] as DiffTarget;
-        const files = filesOf(target).filter((file) =>
-          requested.some(
-            (path) =>
-              covers(path, file.path) || (file.oldPath !== null && covers(path, file.oldPath)),
-          ),
-        );
-        const answer =
-          files.length > 200
-            ? null
-            : {
-                files,
-                additions: files.reduce((n, f) => n + f.additions, 0),
-                deletions: files.reduce((n, f) => n + f.deletions, 0),
-              };
-        const delay =
-          target.kind === "index"
-            ? options.diffPathsDelayMs?.index
-            : options.diffPathsDelayMs?.workingTree;
-        return delay === undefined
-          ? answer
-          : new Promise((resolve) => setTimeout(() => resolve(answer), delay));
-      }
-      case "read_blob": {
-        const path = args["path"] as string;
-        if (path.endsWith(".png")) {
-          return { size: 5, isBinary: true, bytes: "iVBORwA=" };
+        case "count_commits": {
+          const scope = args["scope"] as WalkScope;
+          return { count: listFor(scope, {}).length, capped: false };
         }
-        return { size: 12, isBinary: false, text: "fn main() {\n    new();\n    more();\n}\n" };
-      }
-      case "highlight_file":
-        return {
-          syntax: "Rust",
-          lines: [
-            [{ start: 0, end: 2, class: "keyword" }],
-            [],
-            [{ start: 4, end: 8, class: "function" }],
-            [],
-          ],
-          complete: true,
-        };
-      case "file_symbols":
-        return [{ kind: "function", name: "main", startLine: 1, endLine: 4 }];
-      case "list_annotations":
-        return annotations[args["target"] as string] ?? [];
-      case "set_annotation": {
-        if (options.failAnnotations) {
-          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
-          return Promise.reject({ code: "index.database", message: "database locked" });
-        }
-        const target = args["target"] as string;
-        const write = args["annotation"] as AnnotationWrite;
-        const list = (annotations[target] ??= []);
-        const index = list.findIndex(
-          (a) => a.path === write.path && a.hunk === write.hunk && a.kind === write.kind,
-        );
-        const stored: Annotation = {
-          ...write,
-          hunk: write.hunk ?? "",
-          value: write.value ?? "",
-          updatedAt: 1,
-        };
-        if (index >= 0) list[index] = stored;
-        else list.push(stored);
-        return null;
-      }
-      case "delete_annotation": {
-        if (options.failAnnotations) {
-          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
-          return Promise.reject({ code: "index.database", message: "database locked" });
-        }
-        const target = args["target"] as string;
-        const write = args["annotation"] as AnnotationWrite;
-        const list = annotations[target] ?? [];
-        const index = list.findIndex(
-          (a) => a.path === write.path && a.hunk === write.hunk && a.kind === write.kind,
-        );
-        if (index >= 0) list.splice(index, 1);
-        return index >= 0;
-      }
-      case "compare": {
-        if (options.failCompare) {
-          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
-          return Promise.reject({
-            code: "refs.unrelated_histories",
-            message: "main and orphan have unrelated histories",
-          });
-        }
-        const a = args["a"] as string;
-        const b = args["b"] as string;
-        const hashOf = (rev: string) =>
-          /^[0-9a-f]{40}$/.test(rev) ? rev : fakeCommit(rev.length % 7).hash;
-        const same = hashOf(a) === hashOf(b);
-        return {
-          a: { rev: a, hash: hashOf(a) },
-          b: { rev: b, hash: hashOf(b) },
-          base: { hash: fakeCommit(9).hash, time: fakeCommit(9).author.time },
-          onlyInA: same ? 0 : 4,
-          onlyInB: same ? 0 : 3,
-          relation: same ? "same" : "diverged",
-        };
-      }
-      case "merge_preview":
-        if (options.failPreview) {
-          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
-          return Promise.reject({
-            code: "git.cli_failed",
-            message: "git merge-tree failed",
-            detail: "fatal: not a tree object: 7f8e9d0",
-          });
-        }
-        return (
-          options.preview ?? {
-            kind: "conflicts",
-            conflicts: ["src/lib.ts", "src/other.ts"],
+        case "diff": {
+          if (options.failDiff) {
+            send(args["onPage"] as Channel<unknown>, [
+              {
+                kind: "error",
+                error: {
+                  code: "diff.blob_missing",
+                  message: "blob 4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e is missing",
+                  detail: "fatal: unable to read 4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e",
+                },
+              },
+            ]);
+            return null;
           }
-        );
-      case "list_worktrees":
-        return worktrees.map((worktree) => ({ ...worktree }));
-      case "worktree_add": {
-        if (options.failWorktreeAdd) {
-          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
-          return Promise.reject({
-            code: "git.cli_failed",
-            message: "git worktree add failed",
-            detail: "fatal: 'develop' is already used by worktree at '/wt/develop'",
-          });
-        }
-        const request = args["request"] as WorktreeAdd;
-        const branch = request.branch;
-        const added: Worktree = {
-          path: request.path,
-          name: request.path.slice(request.path.lastIndexOf("/") + 1),
-          head: fakeCommit(2).hash,
-          branch: branch.kind === "detached" ? null : branch.name,
-          detached: branch.kind === "detached",
-          isMain: false,
-          locked: false,
-          lockReason: null,
-          prunable: false,
-        };
-        worktrees = [...worktrees, added];
-        return { ...added };
-      }
-      case "worktree_remove": {
-        const path = args["path"] as string;
-        if (!args["force"] && options.dirtyWorktrees?.includes(path)) {
-          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
-          return Promise.reject({
-            code: "worktree.dirty",
-            message: `the worktree ${path} has uncommitted changes`,
-          });
-        }
-        worktrees = worktrees.filter((worktree) => worktree.path !== path);
-        return null;
-      }
-      case "worktree_prune": {
-        const pruned = worktrees.filter((worktree) => worktree.prunable).map((w) => w.path);
-        worktrees = worktrees.filter((worktree) => !worktree.prunable);
-        return pruned;
-      }
-      case "worktree_lock": {
-        const path = args["path"] as string;
-        worktrees = worktrees.map((worktree) =>
-          worktree.path === path
-            ? { ...worktree, locked: true, lockReason: (args["reason"] as string | null) ?? null }
-            : worktree,
-        );
-        return null;
-      }
-      case "worktree_unlock": {
-        const path = args["path"] as string;
-        worktrees = worktrees.map((worktree) =>
-          worktree.path === path ? { ...worktree, locked: false, lockReason: null } : worktree,
-        );
-        return null;
-      }
-      case "detect_git":
-        if (options.gitDetection === false) {
-          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
-          return Promise.reject({
-            code: "git.cli_failed",
-            message: "no git found",
-            detail: "could not start git: program not found",
-          });
-        }
-        return options.gitDetection ?? { path: "/usr/bin/git", version: "git version 2.46.0" };
-      case "set_git_executable": {
-        const path = args["path"] as string;
-        const known = ["", "git", ...(options.gitExecutables ?? ["/usr/bin/git"])];
-        if (!known.includes(path)) {
-          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
-          return Promise.reject({
-            code: "git.cli_failed",
-            message: `${path} is not git`,
-            detail: `could not start ${path}: program not found`,
-          });
-        }
-        return { path: path === "" ? "git" : path, version: "git version 2.46.0" };
-      }
-      case "path_exists":
-        return options.existingPaths?.includes(args["path"] as string) ?? false;
-      case "stage_paths": {
-        if (options.failStaging) return stagingFailure();
-        [unstaged, staged] = move(args["paths"] as string[], unstaged, staged);
-        return null;
-      }
-      case "unstage_paths": {
-        if (options.failStaging) return stagingFailure();
-        [staged, unstaged] = move(args["paths"] as string[], staged, unstaged);
-        return null;
-      }
-      case "discard_paths": {
-        if (options.failStaging) return stagingFailure();
-        const gone = [...(args["tracked"] as string[]), ...(args["untracked"] as string[])];
-        unstaged = unstaged.filter((file) => !gone.includes(file.path));
-        return null;
-      }
-      case "apply_selection": {
-        if (options.failStaging) return stagingFailure();
-        const selection = args["selection"] as PatchSelection;
-        const target = args["target"] as SelectionTarget;
-        const paths = [selection.path];
-        if (selectsWhole(selection)) {
-          if (target === "stage") [unstaged, staged] = move(paths, unstaged, staged);
-          else if (target === "unstage") [staged, unstaged] = move(paths, staged, unstaged);
-          else unstaged = unstaged.filter((file) => file.path !== selection.path);
-        } else if (target !== "discard") {
-          // Part of the file crosses: it is now in both lists.
-          const source = target === "stage" ? unstaged : staged;
-          const file = source.find((entry) => entry.path === selection.path);
-          if (file && target === "stage" && !staged.some((f) => f.path === file.path)) {
-            staged = [...staged, file];
-          } else if (file && target === "unstage" && !unstaged.some((f) => f.path === file.path)) {
-            unstaged = [...unstaged, file];
-          }
-        }
-        return null;
-      }
-      case "commit": {
-        if (options.failCommit) {
-          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
-          return Promise.reject({
-            code: "git.cli_failed",
-            message: "git commit failed",
-            detail:
-              "husky - commit-msg hook exited with code 1 (error)\nsubject must start with a type",
-          });
-        }
-        staged = [];
-        return { hash: FAKE_COMMIT_HASH };
-      }
-      case "branch_create":
-      case "branch_rename":
-      case "tag_create":
-      case "tag_delete":
-      case "set_upstream":
-      case "reset":
-      case "mark_resolved":
-        return null;
-      case "switch":
-        if (options.dirtySwitch) {
-          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
-          return Promise.reject({
-            code: "git.cli_failed",
-            message: "git switch failed",
-            detail:
-              "error: Your local changes to the following files would be overwritten by checkout:\n\tsrc/a.ts\nPlease commit your changes or stash them before you switch branches.\nAborting",
-          });
-        }
-        return null;
-      case "branch_delete":
-        if (options.unmergedBranch && !args["force"]) {
-          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
-          return Promise.reject({
-            code: "git.cli_failed",
-            message: "git branch -d failed",
-            detail: `error: the branch '${args["name"] as string}' is not fully merged`,
-          });
-        }
-        return null;
-      case "merge":
-      case "rebase":
-      case "cherry_pick":
-      case "revert":
-      case "sequencer":
-      case "stash_apply":
-      case "stash_pop":
-        if (options.stashGone) return stashGone(args);
-        return (
-          options.outcome ?? { kind: "done", hash: FAKE_OUTCOME_HASH, conflicts: [] as Conflict[] }
-        );
-      case "operation_state":
-        return options.operation ?? "none";
-      case "conflicts":
-        return options.conflicts ?? [];
-      case "remotes":
-        return remotes.map((remote) => ({ ...remote }));
-      case "remote_add":
-        remotes = [
-          ...remotes,
-          {
-            name: args["name"] as string,
-            fetchUrl: args["url"] as string,
-            fetchedAt: null,
-            pushUrl: args["url"] as string,
-          },
-        ];
-        return null;
-      case "remote_remove":
-        remotes = remotes.filter((remote) => remote.name !== args["name"]);
-        return null;
-      case "fetch":
-      case "pull":
-      case "push": {
-        const messages: unknown[] = FAKE_PROGRESS.map((line, seq) => ({
-          kind: "page",
-          seq,
-          data: { kind: "progress", line },
-        }));
-        if (options.failNetwork) {
-          messages.push({
-            kind: "error",
-            error: {
-              code: "git.cli_failed",
-              message: "git push failed",
-              detail:
-                " ! [rejected]        main -> main (fetch first)\nerror: failed to push some refs",
-            },
-          });
-        } else {
-          const data =
-            cmd === "pull"
-              ? {
-                  kind: "outcome",
-                  outcome: options.outcome ?? {
-                    kind: "fast-forward",
-                    hash: FAKE_OUTCOME_HASH,
-                    conflicts: [],
-                  },
-                }
-              : { kind: "result", summary: ["   0000000..beef000  main -> main"] };
-          messages.push({ kind: "page", seq: FAKE_PROGRESS.length, data }, { kind: "done" });
-        }
-        if (options.networkDelayMs) {
-          // The progress lines arrive at once; the result waits, as a slow link would.
-          const progress = messages.slice(0, FAKE_PROGRESS.length);
-          send(args["onPage"] as Channel<unknown>, progress);
+          const target = args["target"] as DiffTarget;
+          const files = filesOf(target, args["repo"]);
+          const additions = files.reduce((n, f) => n + f.additions, 0);
+          const deletions = files.reduce((n, f) => n + f.deletions, 0);
           send(
             args["onPage"] as Channel<unknown>,
-            messages.slice(FAKE_PROGRESS.length),
-            options.networkDelayMs,
+            [
+              {
+                kind: "page",
+                seq: 0,
+                data: { additions, deletions, totalFiles: files.length, files },
+              },
+              { kind: "done" },
+            ],
+            options.diffDelayMs,
           );
           return null;
         }
-        send(args["onPage"] as Channel<unknown>, messages);
-        return null;
+        case "diff_paths": {
+          // The full diff's files that the paths cover, as the engine restricts it.
+          const requested = args["paths"] as string[];
+          const target = args["target"] as DiffTarget;
+          const files = filesOf(target, args["repo"]).filter((file) =>
+            requested.some(
+              (path) =>
+                covers(path, file.path) || (file.oldPath !== null && covers(path, file.oldPath)),
+            ),
+          );
+          const answer =
+            files.length > 200
+              ? null
+              : {
+                  files,
+                  additions: files.reduce((n, f) => n + f.additions, 0),
+                  deletions: files.reduce((n, f) => n + f.deletions, 0),
+                };
+          const delay =
+            target.kind === "index"
+              ? options.diffPathsDelayMs?.index
+              : options.diffPathsDelayMs?.workingTree;
+          return delay === undefined
+            ? answer
+            : new Promise((resolve) => setTimeout(() => resolve(answer), delay));
+        }
+        case "read_blob": {
+          const path = args["path"] as string;
+          if (path.endsWith(".png")) {
+            return { size: 5, isBinary: true, bytes: "iVBORwA=" };
+          }
+          return { size: 12, isBinary: false, text: "fn main() {\n    new();\n    more();\n}\n" };
+        }
+        case "highlight_file":
+          return {
+            syntax: "Rust",
+            lines: [
+              [{ start: 0, end: 2, class: "keyword" }],
+              [],
+              [{ start: 4, end: 8, class: "function" }],
+              [],
+            ],
+            complete: true,
+          };
+        case "file_symbols":
+          return [{ kind: "function", name: "main", startLine: 1, endLine: 4 }];
+        case "list_annotations":
+          return annotations[args["target"] as string] ?? [];
+        case "set_annotation": {
+          if (options.failAnnotations) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({ code: "index.database", message: "database locked" });
+          }
+          const target = args["target"] as string;
+          const write = args["annotation"] as AnnotationWrite;
+          const list = (annotations[target] ??= []);
+          const index = list.findIndex(
+            (a) => a.path === write.path && a.hunk === write.hunk && a.kind === write.kind,
+          );
+          const stored: Annotation = {
+            ...write,
+            hunk: write.hunk ?? "",
+            value: write.value ?? "",
+            updatedAt: 1,
+          };
+          if (index >= 0) list[index] = stored;
+          else list.push(stored);
+          return null;
+        }
+        case "delete_annotation": {
+          if (options.failAnnotations) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({ code: "index.database", message: "database locked" });
+          }
+          const target = args["target"] as string;
+          const write = args["annotation"] as AnnotationWrite;
+          const list = annotations[target] ?? [];
+          const index = list.findIndex(
+            (a) => a.path === write.path && a.hunk === write.hunk && a.kind === write.kind,
+          );
+          if (index >= 0) list.splice(index, 1);
+          return index >= 0;
+        }
+        case "compare": {
+          if (options.failCompare) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({
+              code: "refs.unrelated_histories",
+              message: "main and orphan have unrelated histories",
+            });
+          }
+          const a = args["a"] as string;
+          const b = args["b"] as string;
+          const hashOf = (rev: string) =>
+            /^[0-9a-f]{40}$/.test(rev) ? rev : fakeCommit(rev.length % 7).hash;
+          const same = hashOf(a) === hashOf(b);
+          return {
+            a: { rev: a, hash: hashOf(a) },
+            b: { rev: b, hash: hashOf(b) },
+            base: { hash: fakeCommit(9).hash, time: fakeCommit(9).author.time },
+            onlyInA: same ? 0 : 4,
+            onlyInB: same ? 0 : 3,
+            relation: same ? "same" : "diverged",
+          };
+        }
+        case "merge_preview":
+          if (options.failPreview) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({
+              code: "git.cli_failed",
+              message: "git merge-tree failed",
+              detail: "fatal: not a tree object: 7f8e9d0",
+            });
+          }
+          return (
+            options.preview ?? {
+              kind: "conflicts",
+              conflicts: ["src/lib.ts", "src/other.ts"],
+            }
+          );
+        case "list_worktrees":
+          return worktrees.map((worktree) => ({ ...worktree }));
+        case "worktree_add": {
+          if (options.failWorktreeAdd) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({
+              code: "git.cli_failed",
+              message: "git worktree add failed",
+              detail: "fatal: 'develop' is already used by worktree at '/wt/develop'",
+            });
+          }
+          const request = args["request"] as WorktreeAdd;
+          const branch = request.branch;
+          const added: Worktree = {
+            path: request.path,
+            name: request.path.slice(request.path.lastIndexOf("/") + 1),
+            head: fakeCommit(2).hash,
+            branch: branch.kind === "detached" ? null : branch.name,
+            detached: branch.kind === "detached",
+            isMain: false,
+            locked: false,
+            lockReason: null,
+            prunable: false,
+          };
+          worktrees = [...worktrees, added];
+          return { ...added };
+        }
+        case "worktree_remove": {
+          const path = args["path"] as string;
+          if (!args["force"] && options.dirtyWorktrees?.includes(path)) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({
+              code: "worktree.dirty",
+              message: `the worktree ${path} has uncommitted changes`,
+            });
+          }
+          worktrees = worktrees.filter((worktree) => worktree.path !== path);
+          return null;
+        }
+        case "worktree_prune": {
+          const pruned = worktrees.filter((worktree) => worktree.prunable).map((w) => w.path);
+          worktrees = worktrees.filter((worktree) => !worktree.prunable);
+          return pruned;
+        }
+        case "worktree_lock": {
+          const path = args["path"] as string;
+          worktrees = worktrees.map((worktree) =>
+            worktree.path === path
+              ? { ...worktree, locked: true, lockReason: (args["reason"] as string | null) ?? null }
+              : worktree,
+          );
+          return null;
+        }
+        case "worktree_unlock": {
+          const path = args["path"] as string;
+          worktrees = worktrees.map((worktree) =>
+            worktree.path === path ? { ...worktree, locked: false, lockReason: null } : worktree,
+          );
+          return null;
+        }
+        case "detect_git":
+          if (options.gitDetection === false) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({
+              code: "git.cli_failed",
+              message: "no git found",
+              detail: "could not start git: program not found",
+            });
+          }
+          return options.gitDetection ?? { path: "/usr/bin/git", version: "git version 2.46.0" };
+        case "set_git_executable": {
+          const path = args["path"] as string;
+          const known = ["", "git", ...(options.gitExecutables ?? ["/usr/bin/git"])];
+          if (!known.includes(path)) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({
+              code: "git.cli_failed",
+              message: `${path} is not git`,
+              detail: `could not start ${path}: program not found`,
+            });
+          }
+          return { path: path === "" ? "git" : path, version: "git version 2.46.0" };
+        }
+        case "path_exists":
+          return options.existingPaths?.includes(args["path"] as string) ?? false;
+        case "stage_paths": {
+          if (options.failStaging) return stagingFailure();
+          const own = byRepo.get(args["repo"] as string);
+          if (own) {
+            [own.unstaged, own.staged] = move(args["paths"] as string[], own.unstaged, own.staged);
+            return null;
+          }
+          [unstaged, staged] = move(args["paths"] as string[], unstaged, staged);
+          return null;
+        }
+        case "unstage_paths": {
+          if (options.failStaging) return stagingFailure();
+          const own = byRepo.get(args["repo"] as string);
+          if (own) {
+            [own.staged, own.unstaged] = move(args["paths"] as string[], own.staged, own.unstaged);
+            return null;
+          }
+          [staged, unstaged] = move(args["paths"] as string[], staged, unstaged);
+          return null;
+        }
+        case "discard_paths": {
+          if (options.failStaging) return stagingFailure();
+          const gone = [...(args["tracked"] as string[]), ...(args["untracked"] as string[])];
+          const own = byRepo.get(args["repo"] as string);
+          if (own) {
+            own.unstaged = own.unstaged.filter((file) => !gone.includes(file.path));
+            return null;
+          }
+          unstaged = unstaged.filter((file) => !gone.includes(file.path));
+          return null;
+        }
+        case "apply_selection": {
+          if (options.failStaging) return stagingFailure();
+          const selection = args["selection"] as PatchSelection;
+          const target = args["target"] as SelectionTarget;
+          const paths = [selection.path];
+          if (selectsWhole(selection)) {
+            if (target === "stage") [unstaged, staged] = move(paths, unstaged, staged);
+            else if (target === "unstage") [staged, unstaged] = move(paths, staged, unstaged);
+            else unstaged = unstaged.filter((file) => file.path !== selection.path);
+          } else if (target !== "discard") {
+            // Part of the file crosses: it is now in both lists.
+            const source = target === "stage" ? unstaged : staged;
+            const file = source.find((entry) => entry.path === selection.path);
+            if (file && target === "stage" && !staged.some((f) => f.path === file.path)) {
+              staged = [...staged, file];
+            } else if (
+              file &&
+              target === "unstage" &&
+              !unstaged.some((f) => f.path === file.path)
+            ) {
+              unstaged = [...unstaged, file];
+            }
+          }
+          return null;
+        }
+        case "commit": {
+          if (options.failCommit) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({
+              code: "git.cli_failed",
+              message: "git commit failed",
+              detail:
+                "husky - commit-msg hook exited with code 1 (error)\nsubject must start with a type",
+            });
+          }
+          const committed = byRepo.get(args["repo"] as string);
+          if (committed) committed.staged = [];
+          else staged = [];
+          return { hash: FAKE_COMMIT_HASH };
+        }
+        case "branch_create":
+        case "branch_rename":
+        case "tag_create":
+        case "tag_delete":
+        case "set_upstream":
+        case "reset":
+        case "mark_resolved":
+          return null;
+        case "switch":
+          if (options.dirtySwitch) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({
+              code: "git.cli_failed",
+              message: "git switch failed",
+              detail:
+                "error: Your local changes to the following files would be overwritten by checkout:\n\tsrc/a.ts\nPlease commit your changes or stash them before you switch branches.\nAborting",
+            });
+          }
+          return null;
+        case "branch_delete":
+          if (options.unmergedBranch && !args["force"]) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({
+              code: "git.cli_failed",
+              message: "git branch -d failed",
+              detail: `error: the branch '${args["name"] as string}' is not fully merged`,
+            });
+          }
+          return null;
+        case "merge":
+        case "rebase":
+        case "cherry_pick":
+        case "revert":
+        case "sequencer":
+        case "stash_apply":
+        case "stash_pop":
+          if (options.stashGone) return stashGone(args);
+          return (
+            options.outcome ?? {
+              kind: "done",
+              hash: FAKE_OUTCOME_HASH,
+              conflicts: [] as Conflict[],
+            }
+          );
+        case "operation_state":
+          return options.operation ?? "none";
+        case "conflicts":
+          return options.conflicts ?? [];
+        case "remotes":
+          return remotes.map((remote) => ({ ...remote }));
+        case "remote_add":
+          remotes = [
+            ...remotes,
+            {
+              name: args["name"] as string,
+              fetchUrl: args["url"] as string,
+              fetchedAt: null,
+              pushUrl: args["url"] as string,
+            },
+          ];
+          return null;
+        case "remote_remove":
+          remotes = remotes.filter((remote) => remote.name !== args["name"]);
+          return null;
+        case "fetch":
+        case "pull":
+        case "push": {
+          const messages: unknown[] = FAKE_PROGRESS.map((line, seq) => ({
+            kind: "page",
+            seq,
+            data: { kind: "progress", line },
+          }));
+          if (options.failNetwork) {
+            messages.push({
+              kind: "error",
+              error: {
+                code: "git.cli_failed",
+                message: "git push failed",
+                detail:
+                  " ! [rejected]        main -> main (fetch first)\nerror: failed to push some refs",
+              },
+            });
+          } else {
+            const data =
+              cmd === "pull"
+                ? {
+                    kind: "outcome",
+                    outcome: options.outcome ?? {
+                      kind: "fast-forward",
+                      hash: FAKE_OUTCOME_HASH,
+                      conflicts: [],
+                    },
+                  }
+                : { kind: "result", summary: ["   0000000..beef000  main -> main"] };
+            messages.push({ kind: "page", seq: FAKE_PROGRESS.length, data }, { kind: "done" });
+          }
+          if (options.networkDelayMs) {
+            // The progress lines arrive at once; the result waits, as a slow link would.
+            const progress = messages.slice(0, FAKE_PROGRESS.length);
+            send(args["onPage"] as Channel<unknown>, progress);
+            send(
+              args["onPage"] as Channel<unknown>,
+              messages.slice(FAKE_PROGRESS.length),
+              options.networkDelayMs,
+            );
+            return null;
+          }
+          send(args["onPage"] as Channel<unknown>, messages);
+          return null;
+        }
+        case "stash_push":
+          return !options.stashNothing;
+        case "stash_drop":
+          if (options.stashGone) return stashGone(args);
+          return null;
+        case "commit_context":
+          return {
+            author: "Iker Z. <iker@x>",
+            template: null,
+            headMessage: "fix(auth): commit 0",
+            unborn: false,
+            operation: "none",
+            preparedMessage: null,
+            ...options.commitContext,
+          } satisfies CommitContext;
+        case "refresh_repository": {
+          const path = args["path"] as string;
+          const summary = options.summaries?.[path];
+          return summary ? entryFor(path, summary) : null;
+        }
+        case "watch_repository":
+        case "record_repository_open":
+        case "unwatch_folder":
+          return null;
+        case "watch_folder":
+          // The first 20 distinct roots but the open repository's, sorted, as the backend answers.
+          return [...new Set(args["roots"] as string[])]
+            .slice(0, 20)
+            .filter((root) => root !== opened)
+            .sort();
+        case "list_repositories":
+          return (options.repositories ?? []).map((entry) => ({ ...entry }));
+        case "open_external":
+          return null;
+        case "app_info":
+          return {
+            version: "0.1.0",
+            logFile: "/home/iker/.local/share/dev.begitra.app/logs/begitra-2026-09-22.log",
+            logDir: "/home/iker/.local/share/dev.begitra.app/logs",
+          };
+        case "close_repository":
+        case "close_walk":
+        case "cancel_operation":
+          return true;
+        default:
+          throw new Error(`unexpected command ${cmd}`);
       }
-      case "stash_push":
-        return !options.stashNothing;
-      case "stash_drop":
-        if (options.stashGone) return stashGone(args);
-        return null;
-      case "commit_context":
-        return {
-          author: "Iker Z. <iker@x>",
-          template: null,
-          headMessage: "fix(auth): commit 0",
-          unborn: false,
-          operation: "none",
-          preparedMessage: null,
-          ...options.commitContext,
-        } satisfies CommitContext;
-      case "refresh_repository": {
-        const path = args["path"] as string;
-        const summary = options.summaries?.[path];
-        return summary ? entryFor(path, summary) : null;
-      }
-      case "watch_repository":
-      case "record_repository_open":
-      case "unwatch_folder":
-        return null;
-      case "watch_folder":
-        // The first 20 distinct roots but the open repository's, sorted, as the backend answers.
-        return [...new Set(args["roots"] as string[])]
-          .slice(0, 20)
-          .filter((root) => root !== opened)
-          .sort();
-      case "list_repositories":
-        return [];
-      case "open_external":
-        return null;
-      case "app_info":
-        return {
-          version: "0.1.0",
-          logFile: "/home/iker/.local/share/dev.begitra.app/logs/begitra-2026-09-22.log",
-          logDir: "/home/iker/.local/share/dev.begitra.app/logs",
-        };
-      case "close_repository":
-      case "close_walk":
-      case "cancel_operation":
-        return true;
-      default:
-        throw new Error(`unexpected command ${cmd}`);
-    }
-  });
+    },
+    { shouldMockEvents: options.mockEvents ?? false },
+  );
   return calls;
 }
 

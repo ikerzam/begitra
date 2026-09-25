@@ -10,7 +10,8 @@ import { computed, ref } from "vue";
 import { defaultSkipFolders } from "@/ipc/commands";
 import { detectPlatform, type Platform } from "@/shortcuts/platform";
 
-export type LayoutMode = "graph" | "review" | "compare" | "worktrees" | "settings" | "changes";
+export type LayoutMode =
+  "graph" | "review" | "compare" | "worktrees" | "settings" | "changes" | "folder";
 export type TabWidth = 2 | 4 | 8;
 
 /** The filters a new review starts with (the settings' Diff section, "Hide by default"). */
@@ -77,6 +78,8 @@ export interface Settings {
   maxDepth: number;
   /** Root of the repository to reopen at launch; null starts on the home screen. */
   lastRepository: string | null;
+  /** The folder the folder view shows; null until one was shown. */
+  folderView: string | null;
   /** Unix seconds of the last finished or stopped scan; null when none ran. */
   lastScanAt: number | null;
   /** The diff viewer's layout. */
@@ -135,13 +138,22 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
     worktrees: v.object({ path: px, branch: px, state: px, ahead: px }),
   }),
   sidebarCollapsed: v.boolean(),
-  layoutMode: v.picklist(["graph", "review", "compare", "worktrees", "settings", "changes"]),
+  layoutMode: v.picklist([
+    "graph",
+    "review",
+    "compare",
+    "worktrees",
+    "settings",
+    "changes",
+    "folder",
+  ]),
   locale: v.picklist(["en", "es"]),
   paletteRecents: v.array(v.string()),
   scanRoots: v.array(path),
   skipFolders: v.array(path),
   maxDepth: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(32)),
   lastRepository: v.nullable(path),
+  folderView: v.nullable(path),
   lastScanAt: v.nullable(v.pipe(v.number(), v.minValue(0))),
   diffLayout: v.picklist(["unified", "side-by-side"]),
   diffWrap: v.boolean(),
@@ -204,6 +216,7 @@ export function defaultSettings(platform: Platform): Settings {
     skipFolders: [...defaultSkipFolders],
     maxDepth: 2,
     lastRepository: null,
+    folderView: null,
     lastScanAt: null,
     diffLayout: "unified",
     diffWrap: false,
