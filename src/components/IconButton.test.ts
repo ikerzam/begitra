@@ -51,6 +51,24 @@ describe("IconButton", () => {
     expect(on.attributes("aria-pressed")).toBe("true");
     expect(on.classes()).toContain("bg-selected");
     expect(on.classes()).toContain("text-fg");
+    // The pressed fill stays under the pointer; only a released toggle takes the hover fill.
+    expect(on.classes()).not.toContain("enabled:hover:bg-hover");
+    expect(off.classes()).toContain("enabled:hover:bg-hover");
+  });
+
+  it("shows a count after the icon, formatted, capped at 999+ and absent at zero", async () => {
+    const wrapper = mountWithI18n(IconButton, {
+      props: { label: "Changes", icon: Settings, count: 0 },
+    });
+    expect(wrapper.find('[data-testid="icon-button-count"]').exists()).toBe(false);
+    expect(wrapper.classes()).toContain("size-5");
+    await wrapper.setProps({ count: 42 });
+    expect(wrapper.get('[data-testid="icon-button-count"]').text()).toBe("42");
+    expect(wrapper.classes()).toContain("min-w-5");
+    await wrapper.setProps({ count: 999 });
+    expect(wrapper.get('[data-testid="icon-button-count"]').text()).toBe("999");
+    await wrapper.setProps({ count: 12_345 });
+    expect(wrapper.get('[data-testid="icon-button-count"]').text()).toBe("999+");
   });
 
   it("disables the button and stops clicks", async () => {

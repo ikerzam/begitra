@@ -23,7 +23,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ openFolder: []; openPalette: []; setLayoutMode: [mode: LayoutMode] }>();
 
-const { t } = useI18n();
+const { t, n } = useI18n();
 const paletteHint = useShortcutHint("palette");
 const settingsHint = useShortcutHint("settings");
 const graphHint = useShortcutHint("graph-focus");
@@ -57,6 +57,7 @@ const changesHint = useShortcutHint("changes-focus");
     <div class="flex flex-1 items-center justify-end gap-2">
       <Tooltip
         v-slot="{ id }"
+        align="end"
         :label="t('topBar.settings')"
         :keys="settingsHint"
         data-testid="tooltip-settings"
@@ -73,6 +74,7 @@ const changesHint = useShortcutHint("changes-focus");
       </Tooltip>
       <Tooltip
         v-slot="{ id }"
+        align="end"
         :label="t('topBar.graphFocus')"
         :keys="graphHint"
         data-testid="tooltip-graph"
@@ -89,6 +91,7 @@ const changesHint = useShortcutHint("changes-focus");
       </Tooltip>
       <Tooltip
         v-slot="{ id }"
+        align="end"
         :label="t('topBar.reviewFocus')"
         :keys="reviewHint"
         data-testid="tooltip-review"
@@ -105,6 +108,7 @@ const changesHint = useShortcutHint("changes-focus");
       </Tooltip>
       <Tooltip
         v-slot="{ id }"
+        align="end"
         :label="t('topBar.changes')"
         :keys="changesHint"
         data-testid="tooltip-changes"
@@ -112,7 +116,7 @@ const changesHint = useShortcutHint("changes-focus");
         <IconButton
           :label="
             props.changedCount > 0
-              ? t('topBar.changesCount', { n: props.changedCount }, props.changedCount)
+              ? t('topBar.changesCount', { n: n(props.changedCount) }, props.changedCount)
               : t('topBar.changes')
           "
           :icon="FilePen"

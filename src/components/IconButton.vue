@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import type { Component } from "vue";
+import { computed, type Component } from "vue";
+import { useI18n } from "vue-i18n";
 
 const props = withDefaults(
   defineProps<{
@@ -25,6 +26,11 @@ const props = withDefaults(
     count: 0,
   },
 );
+
+const { n } = useI18n();
+
+/** Formatted in the locale; past three digits the exact number stops mattering. */
+const countText = computed(() => (props.count > 999 ? `${n(999)}+` : n(props.count)));
 </script>
 
 <template>
@@ -34,10 +40,13 @@ const props = withDefaults(
     :aria-label="props.label"
     :aria-pressed="props.pressed"
     :title="props.nativeTitle ? props.label : undefined"
-    class="inline-flex shrink-0 items-center justify-center rounded-sm enabled:hover:bg-hover enabled:hover:text-fg enabled:active:bg-active disabled:text-fg-disabled"
+    class="inline-flex shrink-0 items-center justify-center rounded-sm enabled:active:bg-active disabled:text-fg-disabled"
     :class="[
       props.count > 0 ? 'h-5 min-w-5 gap-1 px-1' : props.size === 'lg' ? 'size-6' : 'size-5',
-      props.pressed ? 'bg-selected text-fg' : 'text-fg-secondary',
+      // A pressed toggle keeps its fill under the pointer instead of turning into a hover.
+      props.pressed
+        ? 'bg-selected text-fg'
+        : 'text-fg-secondary enabled:hover:bg-hover enabled:hover:text-fg',
     ]"
   >
     <component
@@ -48,7 +57,7 @@ const props = withDefaults(
       aria-hidden="true"
     />
     <span v-if="props.count > 0" class="text-sm tabular-nums" data-testid="icon-button-count">
-      {{ props.count }}
+      {{ countText }}
     </span>
     <slot />
   </button>
