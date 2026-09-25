@@ -1,17 +1,20 @@
 // The folder view: the repositories and worktrees the scan found in one folder
 // (the index entries whose scan folder it is), a changes model each (`changesModel.ts`) loaded
-// four at a time, the sections of those with changes, the group of those without, and the
+// two at a time, the sections of those with changes, the group of those without, and the
 // repository the selection is in. While the view shows, its repositories have watchers
 // (`watch_folder`, up to 20), whose changes reach each model at most once a second (`pace.ts`),
-// and the window's focus reads every model again, at most every 5 seconds. Leaving the view
-// stops the watchers and closes the engines of the repositories that are not the open one; the
-// models, their drafts included, stay while the folder does.
+// and the window's focus reads every model again, at most every 5 seconds. A repository's engine
+// closes once its lists are read, but the one the selection is in and the open repository's
+// (an engine keeps the index loaded, and twenty large ones would hold gigabytes). Leaving the
+// view stops the watchers and closes the engines of the repositories
+// that are not the open one; the models, their drafts included, stay while the folder does.
 
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { defineStore } from "pinia";
 import {
   computed,
   effectScope,
+  nextTick,
   reactive,
   ref,
   shallowReactive,
@@ -31,8 +34,12 @@ import { useRepoStore } from "./repo";
 import { useSettingsStore } from "./settings";
 import { useShellStore } from "./shell";
 
-/** Repositories whose lists load at once, as the scan's summaries. */
-export const LOADS_AT_ONCE = 4;
+/**
+ * Repositories whose lists load at once. Each working-tree list runs a `git status` that walks
+ * the tree, so large repositories contend for the disk: two at a time show the first one twice
+ * as soon as four do, and all of them as soon.
+ */
+export const LOADS_AT_ONCE = 2;
 /** A repository's watcher changes reach its lists at most this often. */
 export const PACE_MS = 1000;
 /** The window's focus reads every repository again at most this often. */
@@ -52,6 +59,7 @@ export interface FolderRepository {
 export type FolderState = "scanning" | "empty" | "loading" | "changes" | "clean";
 
 interface Member {
+  root: string;
   view: ChangesView;
   scope: EffectScope;
 }
@@ -178,7 +186,28 @@ export const useFolderStore = defineStore("folder", () => {
       ),
     );
     if (!view) throw new Error("the changes model was not made");
-    return { view, scope };
+    return { root, view, scope };
+  }
+
+  const isOpen = (root: string) => {
+    const open = repo.repo?.root;
+    return open !== undefined && sameFolder(open, root);
+  };
+
+  /**
+   * Closes the engine of `target` once its lists are read, unless the selection is in it or it
+   * is the open repository: an engine keeps its repository's index loaded (about a hundred
+   * megabytes on a tree of 50,000 files), and the next read opens it again.
+   */
+  async function release(target: Member): Promise<void> {
+    await target.view.settled();
+    // The counts, and with them the sections and the active repository, follow the lists.
+    await nextTick();
+    if (!shown.value || members.get(target.root) !== target) return;
+    if (target.view.busy !== null || active.value?.root === target.root || isOpen(target.root)) {
+      return;
+    }
+    await ipc.closeRepository(target.root).catch(() => undefined);
   }
 
   const queue: string[] = [];
@@ -194,6 +223,7 @@ export const useFolderStore = defineStore("folder", () => {
       next.view.load();
       void next.view.settled().finally(() => {
         running -= 1;
+        void release(next);
         pump();
       });
     }
@@ -230,6 +260,7 @@ export const useFolderStore = defineStore("folder", () => {
     for (const current of members.values()) {
       current.view.requestReload("unstaged", { kind: "full" });
       current.view.requestReload("staged", { kind: "full" });
+      void release(current);
     }
   }
 
@@ -245,7 +276,12 @@ export const useFolderStore = defineStore("folder", () => {
     return undefined;
   }
 
-  const pacer = new Pacer(PACE_MS, (change) => memberOf(change)?.view.onRepoChanged(change));
+  const pacer = new Pacer(PACE_MS, (change) => {
+    const target = memberOf(change);
+    if (!target) return;
+    target.view.onRepoChanged(change);
+    void release(target);
+  });
   let unlisten: UnlistenFn | null = null;
   let lastFocusRefresh = Number.NEGATIVE_INFINITY;
 
@@ -289,9 +325,8 @@ export const useFolderStore = defineStore("folder", () => {
     window.removeEventListener("focus", onFocus);
     watched.value = [];
     void ipc.unwatchFolder().catch(() => undefined);
-    const open = repo.repo?.root ?? null;
     for (const root of members.keys()) {
-      if (root !== open) void ipc.closeRepository(root).catch(() => undefined);
+      if (!isOpen(root)) void ipc.closeRepository(root).catch(() => undefined);
     }
   }
 
@@ -336,6 +371,14 @@ export const useFolderStore = defineStore("folder", () => {
   watch(folder, (now, before) => {
     if (before !== undefined && now !== before) disposeAll();
   });
+  // The repository the selection leaves lets its engine go.
+  watch(
+    () => active.value?.root ?? null,
+    (_now, before) => {
+      const left = before === null ? undefined : members.get(before);
+      if (left) void release(left);
+    },
+  );
 
   return {
     folder,

@@ -1,7 +1,7 @@
 import { emit } from "@tauri-apps/api/event";
 import { clearMocks } from "@tauri-apps/api/mocks";
 import { createPinia, setActivePinia } from "pinia";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { IndexEntry } from "@/ipc/schemas";
 import { fakeBackend, settled, type Call, type FakeBackendOptions } from "@/test/backend";
@@ -105,7 +105,7 @@ describe("useFolderStore", () => {
     });
   });
 
-  it("reads four repositories at a time", async () => {
+  it("reads two repositories at a time", async () => {
     const names = ["a", "b", "c", "d", "e", "f"];
     const calls = fakeBackend({
       repositories: names.map((name) => entry(name)),
@@ -117,12 +117,29 @@ describe("useFolderStore", () => {
     folder.show();
     await settled();
     // Two lists a repository.
-    expect(of(calls, "diff")).toHaveLength(8);
+    expect(of(calls, "diff")).toHaveLength(4);
     expect(folder.state).toBe("loading");
     expect(folder.checking).toHaveLength(6);
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    await settled();
-    expect(of(calls, "diff")).toHaveLength(12);
+    await vi.waitFor(() => expect(of(calls, "diff")).toHaveLength(12), { timeout: 2000 });
+  });
+
+  it("closes the engine of a repository once its lists are read, but the active one's and the open one's", async () => {
+    fakeBackend({ rootIsPath: true });
+    await useRepoStore().open("/code/infra");
+    const { folder, calls } = await openFolder();
+    const closed = () => of(calls, "close_repository").map((call) => call.args["root"]);
+    // api holds the selection, infra is the open repository: web alone lets its engine go.
+    expect(folder.active?.root).toBe("/code/api");
+    await vi.waitFor(() => expect(closed()).toEqual(["/code/web"]));
+    // The selection moves to web: api's engine goes once it is left.
+    folder.activate("/code/web");
+    await vi.waitFor(() => expect(closed()).toEqual(["/code/web", "/code/api"]));
+    // A change read in a repository the selection is not in lets its engine go again.
+    await emit("repo:changed", { repo: "/code/api", kinds: ["status"], paths: ["src/a.ts"] });
+    await vi.waitFor(() => expect(closed()).toEqual(["/code/web", "/code/api", "/code/api"]), {
+      timeout: 3000,
+    });
+    expect(closed()).not.toContain("/code/infra");
   });
 
   it("follows the changes each repository's watcher names, and nothing of other folders", async () => {
@@ -167,15 +184,16 @@ describe("useFolderStore", () => {
     fakeBackend({});
     await useRepoStore().open("/r");
     const { folder, calls } = await openFolder();
+    const closedBefore = of(calls, "close_repository").length;
     folder.hide();
     await settled();
     expect(of(calls, "unwatch_folder")).toHaveLength(1);
     // The open repository, /r, is not the folder's: every engine the view opened closes.
-    expect(of(calls, "close_repository").map((call) => call.args["root"])).toEqual([
-      "/code/api",
-      "/code/infra",
-      "/code/web",
-    ]);
+    expect(
+      of(calls, "close_repository")
+        .slice(closedBefore)
+        .map((call) => call.args["root"]),
+    ).toEqual(["/code/api", "/code/infra", "/code/web"]);
     // Events after leaving reach nothing.
     const before = of(calls, "diff_paths").length;
     await emit("repo:changed", { repo: "/code/web", kinds: ["status"], paths: ["tiles.ts"] });
