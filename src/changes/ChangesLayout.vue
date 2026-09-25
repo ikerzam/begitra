@@ -6,13 +6,10 @@
 // the discard dialog, naming the files or the lines and that nothing can
 // be recovered.
 
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Dialog from "@/components/Dialog.vue";
-import type { FileChange } from "@/ipc/schemas";
-import { hunkRange } from "@/review/diffRows";
-import { baseName } from "@/shell/format";
 import PaneResizer from "@/shell/PaneResizer.vue";
 import { useShortcut } from "@/shortcuts/useShortcut";
 import { useChangesStore } from "@/stores/changes";
@@ -23,102 +20,26 @@ import ChangeLists from "./ChangeLists.vue";
 import ChangesViewer from "./ChangesViewer.vue";
 import CommitBox from "./CommitBox.vue";
 import type { DiscardRequest } from "./discard";
+import { useDiscardDialog } from "./useDiscardDialog";
 
-const { t, n } = useI18n();
+const { t } = useI18n();
 const shell = useShellStore();
 const changes = useChangesStore();
 const sequencer = useSequencerStore();
-const lists = ref<{ focus(): void; moveFile(step: 1 | -1): void } | null>(null);
+const lists = ref<{ focus(): void; moveFile(step: 1 | -1): boolean } | null>(null);
 const viewer = ref<{ actOnSelection(action: "stage" | "unstage" | "discard"): boolean } | null>(
   null,
 );
-const pending = ref<DiscardRequest | null>(null);
+const discard = useDiscardDialog();
 const listsWidth = computed(() => `${shell.paneSizes.files}px`);
 
-/** The dialog's title, body and confirm label for the pending discard. */
-const dialog = computed(() => {
-  const request = pending.value;
-  if (!request) return null;
-  if (request.kind === "files") {
-    // "The unstaged changes to a and b are lost, and b is deleted: it is not tracked yet."
-    // (b untracked); untracked files alone read "b is deleted: it is not tracked yet."
-    const tracked = request.files.filter((file) => file.status !== "added");
-    const untracked = request.files.filter((file) => file.status === "added");
-    const count = request.files.length;
-    const names = joinNames(untracked.map((file) => baseName(file.path)));
-    let body: string;
-    if (tracked.length === 0) {
-      body = t("changes.discardDialog.bodyUntracked", { names }, untracked.length);
-    } else {
-      body = t("changes.discardDialog.bodyFiles", { paths: joinPaths(request.files) });
-      body +=
-        untracked.length > 0
-          ? t("changes.discardDialog.bodyUntrackedClause", { names }, untracked.length)
-          : ".";
-    }
-    return {
-      title: t("changes.discardDialog.title", { n: n(count) }, count),
-      body: `${body} ${t("changes.discardDialog.cannotRecover")}`,
-      confirm: t("changes.discardDialog.confirm", { n: n(count) }, count),
-    };
-  }
-  if (request.kind === "hunk") {
-    const hunk = request.file.hunks[request.hunkIndex];
-    return {
-      title: t("changes.discardDialog.hunkTitle"),
-      body: `${t("changes.discardDialog.bodyHunk", {
-        range: hunk ? hunkRange(hunk) : "",
-        path: request.file.path,
-      })} ${t("changes.discardDialog.cannotRecover")}`,
-      confirm: t("changes.discardDialog.confirmHunk"),
-    };
-  }
-  const count = request.keys.size;
-  return {
-    title: t("changes.discardDialog.linesTitle", { n: n(count) }, count),
-    body: `${t(
-      "changes.discardDialog.bodyLines",
-      { n: n(count), path: request.file.path },
-      count,
-    )} ${t("changes.discardDialog.cannotRecover")}`,
-    confirm: t("changes.discardDialog.confirmLines", { n: n(count) }, count),
-  };
-});
-
-/** Up to three paths in full ("a, b and c"), then "a, b, c and N more". */
-function joinPaths(files: FileChange[]): string {
-  return joinNames(files.map((file) => file.path));
-}
-
-function joinNames(names: string[]): string {
-  if (names.length <= 1) return names[0] ?? "";
-  if (names.length <= 3) {
-    return `${names.slice(0, -1).join(", ")} ${t("changes.discardDialog.and")} ${names.at(-1)}`;
-  }
-  return t("changes.discardDialog.andMore", {
-    names: names.slice(0, 3).join(", "),
-    n: n(names.length - 3),
-  });
-}
-
 function askDiscard(request: DiscardRequest): void {
-  if (changes.busy !== null || pending.value !== null) return;
-  if (request.kind === "files" && request.files.length === 0) return;
-  if (request.kind !== "files" && request.keys.size === 0) return;
-  pending.value = request;
-}
-
-function confirmDiscard(): void {
-  const request = pending.value;
-  pending.value = null;
-  if (!request) return;
-  if (request.kind === "files") void changes.discard(request.files);
-  else void changes.applySelection("discard", request.file, request.keys);
+  discard.ask(changes, request);
 }
 
 /** s, u, Backspace: the picked lines first, else the selected file of the matching list. */
 function actOnSelected(action: "stage" | "unstage" | "discard"): void {
-  if (changes.busy !== null || pending.value !== null) return;
+  if (changes.busy !== null || discard.pending.value !== null) return;
   if (viewer.value?.actOnSelection(action)) return;
   const current = changes.selected;
   const file = changes.selectedFile;
@@ -153,19 +74,6 @@ onMounted(() => {
   void changes.loadContext();
 });
 
-// A clean tree that gets its first change, or the lists after a reload: nothing to do here;
-// the store keeps the selection. The dialog closes if its file left the lists.
-watch(
-  () => changes.unstaged.files,
-  () => {
-    const request = pending.value;
-    if (!request || changes.loading) return;
-    const listed = new Set(changes.unstaged.files.map((file) => file.path));
-    const paths = request.kind === "files" ? request.files.map((f) => f.path) : [request.file.path];
-    if (!paths.every((path) => listed.has(path))) pending.value = null;
-  },
-);
-
 defineExpose({
   focusLists: () => {
     void nextTick(() => lists.value?.focus());
@@ -193,14 +101,14 @@ defineExpose({
     />
     <ChangesViewer ref="viewer" @discard="askDiscard" />
     <Dialog
-      v-if="dialog"
-      :title="dialog.title"
-      :body="dialog.body"
-      :confirm-label="dialog.confirm"
+      v-if="discard.dialog.value"
+      :title="discard.dialog.value.title"
+      :body="discard.dialog.value.body"
+      :confirm-label="discard.dialog.value.confirm"
       variant="destructive"
       data-testid="discard-dialog"
-      @confirm="confirmDiscard"
-      @cancel="pending = null"
+      @confirm="discard.confirm()"
+      @cancel="discard.cancel()"
     />
   </div>
 </template>
