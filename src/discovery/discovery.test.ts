@@ -210,6 +210,10 @@ describe("HomeScreen", () => {
       "ascending",
     );
     expect(wrapper.get('[data-testid="sort-name"]').attributes("aria-sort")).toBe("none");
+    // The hint puts the column inside a sentence, for the eye and for assistive technology.
+    const sortName = wrapper.get('[data-testid="sort-name"]');
+    expect(sortName.attributes("data-tooltip")).toBe("Sort by name");
+    expect(sortName.attributes("aria-description")).toBe("Sort by name");
     wrapper.unmount();
   });
 

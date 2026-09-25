@@ -146,6 +146,7 @@ defineExpose({ focus: navigation.focus, collapseAll });
           :tab-stop="entry.file.path === tabStopPath"
           :data-path="entry.file.path"
           :data-tooltip="entry.file.path"
+          :aria-description="entry.file.path"
           @select="emit('select', entry.file, 'pointer')"
           @activate="emit('activate', entry.file)"
           @contextmenu="(event: MouseEvent) => onContextMenu(entry.file, event)"

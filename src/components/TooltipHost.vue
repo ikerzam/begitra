@@ -3,10 +3,12 @@
 // with the keyboard's focus, that names a hint in `data-tooltip` (and a shortcut in
 // `data-tooltip-keys`). It shows once the pointer has rested on the element, or the focus a
 // key moved has stayed there, for half a second; the pointer moving on while a bubble shows,
-// or just after one hid, shows the next at once, while keys always wait, so walking a list
-// does not flash a bubble per row. It hides when the pointer or the focus leaves, on a press
-// (and stays hidden until the pointer leaves that element), on any key, on a scroll and on a
-// resize. It is fixed to the window and placed by hangFrom, so no container clips it, and
+// or just after one hid, shows the next at once, while keys always wait; a list's rows, which
+// the keys walk, show nothing on focus, so no bubble covers the row the next key lands on.
+// Nothing shows while a button is held (a drag) or for an element whose popup is open. It
+// hides when the pointer or the focus leaves, on a press (and stays hidden until the pointer
+// leaves that element), on any key, on a scroll, on a resize and when the window loses the
+// focus. It is fixed to the window and placed by hangFrom, so no container clips it, and
 // aria-hidden: every element carries its hint for assistive technology itself.
 
 import { nextTick, onBeforeUnmount, onMounted, ref } from "vue";
@@ -35,10 +37,17 @@ let hiddenAt = Number.NEGATIVE_INFINITY;
 /** Whether the last input was a key, so a focus it moved may show a bubble. */
 let keyboard = false;
 
+/** The rows of the lists the keys walk: their focus shows no bubble. */
+const LIST_ROWS = '[role="treeitem"], [role="option"], [role="row"]';
+
+/** The element with a hint that `target` is in, unless its own popup is open. */
 function hintOf(target: EventTarget | null): HTMLElement | null {
   if (!(target instanceof Element)) return null;
   const element = target.closest<HTMLElement>("[data-tooltip]");
-  return element?.dataset.tooltip ? element : null;
+  if (!element?.dataset.tooltip || element.getAttribute("aria-expanded") === "true") {
+    return null;
+  }
+  return element;
 }
 
 function cancel(): void {
@@ -88,6 +97,11 @@ function schedule(element: HTMLElement, pointer: boolean): void {
 }
 
 function onPointerOver(event: PointerEvent): void {
+  // A held button is a drag (a divider, a selection): nothing shows under it.
+  if (event.buttons !== 0) {
+    hide();
+    return;
+  }
   const element = hintOf(event.target);
   if (element === null) hide();
   else if (element !== pressed) schedule(element, true);
@@ -115,7 +129,13 @@ function onKeyDown(): void {
 function onFocusIn(event: FocusEvent): void {
   if (!keyboard) return;
   const element = hintOf(event.target);
-  if (element) schedule(element, false);
+  if (element && !element.matches(LIST_ROWS)) schedule(element, false);
+}
+
+/* The window gives the focus away (Alt+Tab): its return is no key of the app's. */
+function onWindowBlur(): void {
+  keyboard = false;
+  hide();
 }
 
 function onFocusOut(event: FocusEvent): void {
@@ -135,12 +155,14 @@ const listeners: [string, EventListener][] = [
 onMounted(() => {
   for (const [type, listener] of listeners) document.addEventListener(type, listener, true);
   window.addEventListener("resize", hide);
+  window.addEventListener("blur", onWindowBlur);
 });
 
 onBeforeUnmount(() => {
   cancel();
   for (const [type, listener] of listeners) document.removeEventListener(type, listener, true);
   window.removeEventListener("resize", hide);
+  window.removeEventListener("blur", onWindowBlur);
 });
 </script>
 
@@ -150,7 +172,7 @@ onBeforeUnmount(() => {
     ref="bubble"
     role="tooltip"
     aria-hidden="true"
-    class="tooltip-bubble pointer-events-none fixed z-50 inline-flex w-max items-center gap-2 rounded-md border border-line-strong bg-raised px-2 py-1 text-sm text-fg shadow-overlay"
+    class="tooltip-bubble pointer-events-none fixed z-50 inline-flex w-max items-center gap-2 rounded-sm border border-line-strong bg-raised px-2 py-1 text-sm text-fg shadow-overlay"
     :style="{
       left: `${place.left}px`,
       top: `${place.top}px`,

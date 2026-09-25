@@ -42,6 +42,10 @@ describe("ReviewFilesPanel", () => {
       wrapper.findAll('[data-testid="tree-row"][data-path]').map((r) => r.attributes("data-path"));
     // The generated lockfile is hidden by default; the first file opened.
     expect(names()).toEqual(["src/00.rs", "src/lib.ts", "docs/tiles-worker.png"]);
+    // A row shows its file's name; its whole path is its tooltip and its description.
+    const image = wrapper.get('[data-testid="tree-row"][data-path="docs/tiles-worker.png"]');
+    expect(image.attributes("data-tooltip")).toBe("docs/tiles-worker.png");
+    expect(image.attributes("aria-description")).toBe("docs/tiles-worker.png");
     expect(review.selectedPath).toBe("src/00.rs");
     expect(wrapper.get('[data-testid="panel-header-count"]').text()).toBe("3");
     await wrapper.get('[data-testid="files-filter"]').trigger("click");

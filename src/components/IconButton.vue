@@ -44,6 +44,7 @@ const countText = computed(() => (props.count > 999 ? `${n(999)}+` : n(props.cou
     :aria-pressed="props.pressed"
     :data-tooltip="props.tooltip ?? props.label"
     :data-tooltip-keys="props.keys || undefined"
+    :aria-description="props.keys || undefined"
     class="inline-flex shrink-0 items-center justify-center rounded-sm enabled:active:bg-active disabled:text-fg-disabled"
     :class="[
       props.count > 0 ? 'h-5 min-w-5 gap-1 px-1' : props.size === 'lg' ? 'size-6' : 'size-5',

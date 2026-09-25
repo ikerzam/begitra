@@ -891,6 +891,16 @@ describe("Sidebar", () => {
     return wrapper;
   }
 
+  it("leaves no native tooltip in the shell: every hint is the app's", async () => {
+    const wrapper = await openShell();
+    for (const tab of ["repos", "branches", "worktrees"]) {
+      await wrapper.get(`[data-testid="tab-${tab}"]`).trigger("click");
+      expect(wrapper.findAll("[title], svg title")).toHaveLength(0);
+    }
+    expect(wrapper.findAll("[data-tooltip]").length).toBeGreaterThan(0);
+    wrapper.unmount();
+  });
+
   it("sorts the branches by their last commit or by name from the toggle beside the filter", async () => {
     const wrapper = await openShell();
     const local = (name: string, committedAt: number) => ({

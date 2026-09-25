@@ -150,6 +150,47 @@ describe("TooltipHost", () => {
     host.unmount();
   });
 
+  it("shows nothing under a held button, for a control whose popup is open, or on a focused list row", async () => {
+    const host = mountHost();
+    const divider = hinted("Resize the sidebar");
+    const switcher = hinted("Switch repository");
+    switcher.setAttribute("aria-expanded", "true");
+    const row = hinted("apps/web/src/map/tile-cache.ts");
+    row.setAttribute("role", "treeitem");
+    divider.dispatchEvent(new MouseEvent("pointerover", { bubbles: true, buttons: 1 }));
+    await wait(600);
+    expect(bubble()).toBeNull();
+    move(divider, switcher);
+    await wait(600);
+    expect(bubble()).toBeNull();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "j" }));
+    row.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    await wait(600);
+    expect(bubble()).toBeNull();
+    // The pointer still shows a row's path.
+    move(switcher, row);
+    await wait(500);
+    expect(bubble()?.textContent).toContain("tile-cache.ts");
+    host.unmount();
+  });
+
+  it("hides when the window loses the focus, and its return shows nothing", async () => {
+    const host = mountHost();
+    const button = hinted("Fetch");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab" }));
+    button.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    await wait(500);
+    expect(bubble()).not.toBeNull();
+    window.dispatchEvent(new Event("blur"));
+    await wait(0);
+    expect(bubble()).toBeNull();
+    // The platform gives the focus back to the button: no key of the app's moved it.
+    button.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    await wait(600);
+    expect(bubble()).toBeNull();
+    host.unmount();
+  });
+
   it("hides on a scroll, on a resize and over an element without a hint", async () => {
     const host = mountHost();
     const button = hinted("Fetch");
@@ -220,6 +261,8 @@ describe("TooltipHost", () => {
     // Near the window's right edge the room would squeeze a bubble measured there.
     expect(measuredAt).toEqual(["0px 0px", "0px 0px"]);
     expect(bubble()?.classList).toContain("w-max");
+    // The bubble's 4px radius.
+    expect(bubble()?.classList).toContain("rounded-sm");
     host.unmount();
   });
 });

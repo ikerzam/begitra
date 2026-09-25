@@ -1,11 +1,10 @@
 <script setup lang="ts">
 // The 48px graph strip of review focus: the lanes of the commits around the selected one,
 // drawn with the same geometry as the graph panel on a narrower layout, the selected commit
-// pinned with the 14px accent ring. Clicking a row selects that commit; clicking the strip's
-// background returns to graph focus.
+// pinned with the 14px accent ring. Clicking a row selects that commit, whose subject is its
+// tooltip; clicking the strip's background returns to graph focus.
 
 import { computed } from "vue";
-import { useI18n } from "vue-i18n";
 
 import GraphCanvas from "@/graph/GraphCanvas.vue";
 import { laneX, ROW_HEIGHT, type LaneLayout } from "@/graph/useGraphGeometry";
@@ -14,7 +13,6 @@ import type { CommitNode } from "@/ipc/schemas";
 const props = defineProps<{ commits: CommitNode[]; selectedIndex: number; flat?: boolean }>();
 const emit = defineEmits<{ select: [index: number]; back: [] }>();
 
-const { t } = useI18n();
 const WINDOW = 14;
 /** Three 12px lanes from x = 10 inside the 48px rail. */
 const RAIL_LAYOUT: LaneLayout = { laneWidth: 12, offset: 10, drawn: 3 };
@@ -41,7 +39,6 @@ const ring = computed(() => {
   <div
     class="relative flex w-rail shrink-0 flex-col overflow-hidden border-r border-line"
     data-testid="graph-rail"
-    :data-tooltip="t('topBar.graphFocus')"
     @click.self="emit('back')"
   >
     <GraphCanvas
@@ -61,6 +58,7 @@ const ring = computed(() => {
       type="button"
       class="h-row-graph w-full shrink-0"
       :aria-label="commit.subject"
+      :data-tooltip="commit.subject"
       :aria-current="window.start + offset === props.selectedIndex ? 'true' : undefined"
       @click="emit('select', window.start + offset)"
     />

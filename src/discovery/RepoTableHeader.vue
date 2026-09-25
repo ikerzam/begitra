@@ -10,7 +10,12 @@ import ColumnResizer from "@/shell/ColumnResizer.vue";
 import { useIndexStore, type SortColumn } from "@/stores/index";
 import { columnLimits, useShellStore } from "@/stores/shell";
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
+
+/** "Sort by name": the column's label inside a sentence. */
+function sortHint(label: string): string {
+  return t("home.sortBy", { column: t(label).toLocaleLowerCase(locale.value) });
+}
 const index = useIndexStore();
 const shell = useShellStore();
 
@@ -46,8 +51,8 @@ function sortBy(column: SortColumn | undefined): void {
         class="flex items-center gap-1 rounded-sm text-left hover:text-fg"
         :class="{ 'text-fg': index.sort.column === column.sort }"
         :aria-sort="ariaSort(column.sort)"
-        :data-tooltip="t('home.sortBy', { column: t(column.label) })"
-        :aria-description="t('home.sortBy', { column: t(column.label) })"
+        :data-tooltip="sortHint(column.label)"
+        :aria-description="sortHint(column.label)"
         :data-testid="`sort-${column.id}`"
         @click="sortBy(column.sort)"
       >

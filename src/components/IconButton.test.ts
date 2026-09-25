@@ -37,6 +37,8 @@ describe("IconButton", () => {
     expect(wrapper.attributes("aria-label")).toBe("Changes, 5 files");
     expect(wrapper.attributes("data-tooltip")).toBe("Changes");
     expect(wrapper.attributes("data-tooltip-keys")).toBe("Ctrl 3");
+    // The bubble is aria-hidden: the shortcut reaches assistive technology this way.
+    expect(wrapper.attributes("aria-description")).toBe("Ctrl 3");
   });
 
   it("renders slot content when no icon prop is given", () => {
