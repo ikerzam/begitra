@@ -64,6 +64,7 @@ export const shortcutRows: readonly ShortcutRow[] = [
   { key: "openEditor", groups: [["open-editor"]] },
   { key: "addWorktree", groups: [["add-worktree"]] },
   { key: "settings", groups: [["settings"]] },
+  { key: "zoom", groups: [["zoom-in"], ["zoom-out"], ["zoom-reset"]] },
 ];
 
 export type CaptureRefusal =

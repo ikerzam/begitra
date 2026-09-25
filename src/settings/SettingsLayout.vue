@@ -54,16 +54,31 @@ onMounted(() => {
   if (screen.gitState === "idle") void screen.probe();
 });
 
-/** j/k walk the page's controls when no text field has the focus ("j/k fields"). */
+/** The control j/k walk on from once a field has let go of the focus (Escape). */
+let anchor: HTMLElement | null = null;
+
+/**
+ * j/k walk the page's controls when no text field has the focus ("j/k fields"). Escape in a
+ * field or a select hands the focus to the page (a text field has restored its value), so
+ * the keys reach this handler again and walk on from that field.
+ */
 function onKeydown(event: KeyboardEvent): void {
-  if (screen.capturing || isEditableTarget(event.target as HTMLElement | null)) return;
+  if (screen.capturing) return;
+  const origin = event.target as HTMLElement | null;
+  if (event.key === "Escape" && origin?.matches("input, select, textarea")) {
+    anchor = origin;
+    page.value?.focus();
+    return;
+  }
+  if (isEditableTarget(origin)) return;
   if (event.key !== "j" && event.key !== "k") return;
   const controls = [
     ...(page.value?.querySelectorAll<HTMLElement>("input, select, button") ?? []),
   ].filter((control) => !control.hasAttribute("disabled"));
   if (controls.length === 0) return;
   const active = document.activeElement;
-  const current = controls.findIndex((control) => control === active);
+  let current = controls.findIndex((control) => control === active);
+  if (current < 0 && anchor) current = controls.indexOf(anchor);
   const next = event.key === "j" ? current + 1 : current - 1;
   const target = controls[Math.min(Math.max(next, 0), controls.length - 1)];
   event.preventDefault();
@@ -82,7 +97,8 @@ defineExpose({
 <template>
   <div
     ref="page"
-    class="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto px-6 pb-6 pt-5"
+    tabindex="-1"
+    class="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto px-6 pb-6 pt-5 outline-none"
     data-testid="settings-layout"
     @keydown="onKeydown"
   >

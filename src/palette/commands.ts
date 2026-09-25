@@ -115,6 +115,13 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       enabled: always,
       run: actions.toggleSidebar,
     },
+    ...["zoom-in", "zoom-out", "zoom-reset"].map((id) => ({
+      id,
+      labelKey: `palette.commandsById.${id}`,
+      shortcutId: id,
+      enabled: always,
+      run: () => actions.runShortcut(id),
+    })),
     {
       id: "open-terminal",
       labelKey: "palette.commandsById.open-terminal",

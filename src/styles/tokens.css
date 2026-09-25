@@ -74,8 +74,11 @@
   --ref-stash: #94a3b8;
 
   /* Typography */
-  --font-ui: "Geist Variable", "Geist", system-ui, sans-serif;
-  --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+  /* A font chosen in the settings goes first (useFonts writes the -custom properties with
+     their trailing comma); unset, the stacks are the design's. */
+  --font-ui: var(--font-ui-custom,) "Geist Variable", "Geist", system-ui, sans-serif;
+  --font-mono:
+    var(--font-mono-custom,) "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
   --text-sm: 12px;
   --text-md: 13px;
   --text-lg: 14px;

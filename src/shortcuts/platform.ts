@@ -83,6 +83,12 @@ export interface KeyLike {
   altKey: boolean;
 }
 
+/**
+ * Keys another key stands for whatever Shift says: `=` and `+` share a key on US layouts
+ * (Shift makes the `+`) and `+` has a key of its own on others, such as the Spanish one.
+ */
+const SAME_KEY: Record<string, readonly string[]> = { "=": ["=", "+"] };
+
 /** Whether `event` is the chord described by `keys` on `platform`. */
 export function matchesKeys(keys: string, event: KeyLike, platform: Platform): boolean {
   const { modifiers, key } = parseKeys(keys);
@@ -90,7 +96,9 @@ export function matchesKeys(keys: string, event: KeyLike, platform: Platform): b
   const otherMod = platform === "macos" ? event.ctrlKey : event.metaKey;
   if (otherMod) return false;
   if (mod !== modifiers.has("mod")) return false;
-  if (event.shiftKey !== modifiers.has("shift")) return false;
   if (event.altKey !== modifiers.has("alt")) return false;
+  const same = SAME_KEY[key];
+  if (same && !modifiers.has("shift")) return same.includes(event.key);
+  if (event.shiftKey !== modifiers.has("shift")) return false;
   return event.key.toLowerCase() === key;
 }

@@ -67,6 +67,16 @@ describe("platform", () => {
     expect(matchesKeys("j", key("j"), "linux")).toBe(true);
     expect(matchesKeys("j", key("j", { ctrl: true }), "linux")).toBe(false);
   });
+
+  it("takes = and + as one key for the zoom, whatever Shift or the layout says", () => {
+    // US: Ctrl = and Ctrl Shift = (which types +); Spanish: the + key without Shift.
+    expect(matchesKeys("mod+=", key("=", { ctrl: true }), "windows")).toBe(true);
+    expect(matchesKeys("mod+=", key("+", { ctrl: true, shift: true }), "windows")).toBe(true);
+    expect(matchesKeys("mod+=", key("+", { ctrl: true }), "windows")).toBe(true);
+    expect(matchesKeys("mod+=", key("-", { ctrl: true }), "windows")).toBe(false);
+    expect(matchesKeys("mod+-", key("-", { ctrl: true }), "windows")).toBe(true);
+    expect(formatShortcut("mod+=", "windows")).toBe("Ctrl =");
+  });
 });
 
 describe("ShortcutRegistry", () => {

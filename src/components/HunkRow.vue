@@ -21,7 +21,7 @@ const { t } = useI18n();
 <template>
   <div
     data-testid="hunk-row"
-    class="flex h-row-hunk items-center gap-3 border-y border-line bg-hover pr-3 pl-3 text-md whitespace-nowrap"
+    class="flex h-row-hunk items-center gap-3 border-y border-line bg-hover pr-3 pl-3 font-ui text-md font-normal whitespace-nowrap"
   >
     <span class="shrink-0 font-mono text-mono-sm text-fg-muted" data-testid="hunk-row-range">
       {{ props.range }}

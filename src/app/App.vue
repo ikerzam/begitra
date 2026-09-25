@@ -1,17 +1,19 @@
 <script setup lang="ts">
-// Root: loads the settings (falling back to memory outside Tauri), applies the locale and
-// the theme, then renders the shell.
+// Root: loads the settings (falling back to memory outside Tauri), applies the locale, the
+// theme and the fonts, then renders the shell.
 
 import { onMounted, ref } from "vue";
 
 import { setLocale } from "@/i18n";
 import AppShell from "@/shell/AppShell.vue";
+import { useFonts } from "@/shell/useFonts";
 import { useTheme } from "@/shell/useTheme";
 import { memoryStorage, tauriStorage, useSettingsStore } from "@/stores/settings";
 
 const settings = useSettingsStore();
 const ready = ref(false);
 useTheme();
+useFonts();
 
 onMounted(async () => {
   try {

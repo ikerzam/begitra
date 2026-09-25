@@ -53,6 +53,41 @@ describe("settings store", () => {
     expect(defaults.lastScanAt).toBeNull();
   });
 
+  it("starts with the design's fonts at their weights, and keeps valid stored fonts only", async () => {
+    const defaults = defaultSettings("windows");
+    expect([defaults.uiFont, defaults.uiWeight, defaults.codeFont, defaults.codeWeight]).toEqual([
+      "",
+      "regular",
+      "",
+      "regular",
+    ]);
+    const store = useSettingsStore();
+    await store.init(
+      memoryStorage({
+        uiFont: "Segoe UI",
+        uiWeight: "heavy",
+        codeFont: "x".repeat(65),
+        codeWeight: "semibold",
+      }),
+      "windows",
+    );
+    expect(store.values.uiFont).toBe("Segoe UI");
+    expect(store.values.uiWeight).toBe("regular");
+    expect(store.values.codeFont).toBe("");
+    expect(store.values.codeWeight).toBe("semibold");
+  });
+
+  it("starts at 100% zoom and keeps a stored level only when it is one of the steps", async () => {
+    expect(defaultSettings("windows").zoom).toBe(100);
+    const store = useSettingsStore();
+    await store.init(memoryStorage({ zoom: 133 }), "windows");
+    expect(store.values.zoom).toBe(100);
+    setActivePinia(createPinia());
+    const again = useSettingsStore();
+    await again.init(memoryStorage({ zoom: 125 }), "windows");
+    expect(again.values.zoom).toBe(125);
+  });
+
   it("keeps stored discovery keys that are valid and drops the rest", async () => {
     const store = useSettingsStore();
     await store.init(

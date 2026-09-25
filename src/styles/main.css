@@ -18,10 +18,17 @@
     background: var(--bg-app);
     color: var(--text);
     font-family: var(--font-ui);
+    /* Tailwind's normal weight, which the interface weight of the settings moves. */
+    font-weight: var(--font-weight-normal, 400);
     font-size: var(--text-md);
     line-height: var(--leading);
     -webkit-font-smoothing: antialiased;
     overflow: hidden;
+  }
+
+  /* The code of the viewers takes the code weight of the settings, 400 unless set. */
+  .text-code {
+    font-weight: var(--code-weight, 400);
   }
 
   /* Focus ring is always visible on keyboard focus and never removed. */

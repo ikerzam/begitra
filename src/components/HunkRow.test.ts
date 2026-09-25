@@ -6,10 +6,12 @@ import HunkRow from "./HunkRow.vue";
 
 describe("HunkRow", () => {
   it("shows the range in mono, the symbol, and the Mark reviewed control", () => {
+    // Inside the code body, the row is interface text in the interface's font and weight.
     const wrapper = mountWithI18n(HunkRow, {
       props: { range: "@@ -12,7 +12,9 @@", symbol: "class TileCache" },
     });
     expect(wrapper.classes()).toContain("h-row-hunk");
+    expect(wrapper.classes()).toEqual(expect.arrayContaining(["font-ui", "font-normal"]));
     expect(wrapper.classes()).toContain("bg-hover");
     expect(wrapper.classes()).toContain("border-y");
     expect(wrapper.classes()).toContain("border-line");

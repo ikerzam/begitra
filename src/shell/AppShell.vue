@@ -52,6 +52,7 @@ import TopBar from "./TopBar.vue";
 import { useExternal } from "./useExternal";
 import { useOpenFolder } from "./useOpenFolder";
 import { useRepoWatcher } from "./useRepoWatcher";
+import { useZoom } from "./useZoom";
 
 const { t } = useI18n();
 const shell = useShellStore();
@@ -124,6 +125,7 @@ function compareWith(): void {
   if (other) picker.open({ kind: "compare", side: "b", other });
 }
 
+useZoom();
 useShortcut("palette", () => shell.togglePalette());
 useShortcut("graph-focus", () => void shell.setLayoutMode("graph"));
 useShortcut("review-focus", () => void shell.setLayoutMode("review"));

@@ -22,6 +22,11 @@ export interface HideByDefault {
 export type Locale = "en" | "es";
 /** The theme: `system` follows `prefers-color-scheme`. */
 export type Theme = "system" | "dark" | "light";
+/** A font weight as a step from the design's: -1, 0, +1 and +2 hundreds. */
+export type FontWeight = "light" | "regular" | "medium" | "semibold";
+/** The zoom levels of the window, in percent. */
+export const zoomLevels = [80, 90, 100, 110, 125, 150, 175, 200] as const;
+export type ZoomLevel = (typeof zoomLevels)[number];
 
 /** One side of a comparison: a revision, or a worktree meaning its checked-out commit. */
 export interface CompareEndpoint {
@@ -85,9 +90,22 @@ export interface Settings {
   shortcuts: Record<string, string>;
   /** The theme of the window. */
   theme: Theme;
+  /** An installed font for the interface, before Geist; empty for Geist. */
+  uiFont: string;
+  /** The interface's weight step. */
+  uiWeight: FontWeight;
+  /** An installed font for monospace text, before Geist Mono; empty for Geist Mono. */
+  codeFont: string;
+  /** The weight of the code in the viewers. */
+  codeWeight: FontWeight;
+  /** The window's zoom in percent: every size of the interface scales with it. */
+  zoom: ZoomLevel;
 }
 
 export type DiffLayout = "unified" | "side-by-side";
+
+/** The weight steps in the order the settings screen offers them. */
+export const fontWeights: readonly FontWeight[] = ["light", "regular", "medium", "semibold"];
 
 const px = v.pipe(v.number(), v.minValue(0), v.maxValue(10_000));
 const path = v.pipe(v.string(), v.minLength(1));
@@ -120,6 +138,11 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   hideByDefault: v.object({ generated: v.boolean(), lockfiles: v.boolean(), tests: v.boolean() }),
   shortcuts: v.record(v.string(), v.pipe(v.string(), v.minLength(1), v.maxLength(40))),
   theme: v.picklist(["system", "dark", "light"]),
+  uiFont: v.pipe(v.string(), v.maxLength(64)),
+  uiWeight: v.picklist(fontWeights),
+  codeFont: v.pipe(v.string(), v.maxLength(64)),
+  codeWeight: v.picklist(fontWeights),
+  zoom: v.picklist(zoomLevels),
 };
 
 export const settingsKeys = Object.keys(schemas) as (keyof Settings)[];
@@ -167,6 +190,11 @@ export function defaultSettings(platform: Platform): Settings {
     hideByDefault: { generated: true, lockfiles: true, tests: false },
     shortcuts: {},
     theme: "system",
+    uiFont: "",
+    uiWeight: "regular",
+    codeFont: "",
+    codeWeight: "regular",
+    zoom: 100,
   };
 }
 

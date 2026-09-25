@@ -43,7 +43,7 @@ let frame = 0;
 let scheduled = false;
 let observer: MutationObserver | null = null;
 
-/** Reads the lane tokens; called once and again when the theme attribute changes. */
+/** Reads the lane tokens and the text font; again when the theme or the root's style changes. */
 function readTokens(): void {
   const style = getComputedStyle(document.documentElement);
   colours = Array.from({ length: LANE_COUNT }, (_, i) =>
@@ -52,7 +52,7 @@ function readTokens(): void {
   mutedText = style.getPropertyValue("--text-muted").trim();
   const size = style.getPropertyValue("--text-sm").trim() || "12px";
   const body = getComputedStyle(document.body);
-  font = `${size} ${body.fontFamily || "sans-serif"}`;
+  font = `${body.fontWeight || "400"} ${size} ${body.fontFamily || "sans-serif"}`;
 }
 
 function colourOf(lane: number): string {
@@ -142,7 +142,11 @@ onMounted(() => {
     readTokens();
     schedule();
   });
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  // The theme's attribute, and the root's style where the settings put the fonts.
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-theme", "style"],
+  });
   draw();
 });
 

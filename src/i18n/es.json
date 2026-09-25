@@ -441,6 +441,9 @@
       "graph-focus": "Cambiar a la vista de grafo",
       "review-focus": "Cambiar a la vista de revisión",
       "toggle-sidebar": "Mostrar u ocultar la barra lateral",
+      "zoom-in": "Acercar",
+      "zoom-out": "Alejar",
+      "zoom-reset": "Restablecer el zoom",
       "open-terminal": "Abrir en la terminal",
       "open-editor": "Abrir en el editor",
       "pin-repository": "Fijar el repositorio",
@@ -892,6 +895,20 @@
         "system": "Sistema",
         "dark": "Oscuro",
         "light": "Claro"
+      },
+      "uiFont": "Fuente de la interfaz",
+      "uiFontHint": "Una fuente instalada en este equipo. Vacío para Geist.",
+      "uiWeight": "Grosor de la interfaz",
+      "codeFont": "Fuente del código",
+      "codeFontHint": "Para el código, las rutas y los hashes. Vacío para Geist Mono.",
+      "codeWeight": "Grosor del código",
+      "zoom": "Zoom",
+      "zoomHint": "Escala toda la ventana. {in} y {out} lo cambian desde cualquier sitio.",
+      "weights": {
+        "light": "Fina",
+        "regular": "Normal",
+        "medium": "Media",
+        "semibold": "Seminegrita"
       }
     },
     "discovery": {
@@ -964,7 +981,8 @@
         "discardFile": "Descartar el fichero o las líneas",
         "commit": "Commit",
         "push": "Push",
-        "markResolved": "Marcar como resuelto"
+        "markResolved": "Marcar como resuelto",
+        "zoom": "Acercar / alejar / restablecer"
       }
     },
     "about": {

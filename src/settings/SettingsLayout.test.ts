@@ -63,7 +63,7 @@ describe("SettingsLayout", () => {
     expect(input(wrapper, "skip-folders").element.value).toBe(defaultSkipFolders.join(", "));
     expect(input(wrapper, "max-depth").element.value).toBe("2");
     const rows = wrapper.findAll('[data-testid="shortcut-rows"] li');
-    expect(rows).toHaveLength(19);
+    expect(rows).toHaveLength(20);
     expect(rows[0]?.text()).toContain("Command palette");
     expect(rows[0]?.find("kbd").text()).toBe("Ctrl K");
     const pair = wrapper.get('[data-testid="shortcut-nextPreviousCommitOrFile"]');
@@ -71,6 +71,8 @@ describe("SettingsLayout", () => {
     const staging = wrapper.get('[data-testid="shortcut-stageUnstageFile"]');
     expect(staging.findAll("kbd").map((k) => k.text())).toEqual(["s", "u"]);
     expect(wrapper.get('[data-testid="shortcut-commit"]').find("kbd").text()).toBe("Ctrl ↵");
+    const zoom = wrapper.get('[data-testid="shortcut-zoom"]');
+    expect(zoom.findAll("kbd").map((k) => k.text())).toEqual(["Ctrl =", "Ctrl -", "Ctrl 0"]);
     expect(wrapper.text()).toContain(
       "Shortcuts follow the platform: ⌘ is Ctrl on Windows and Linux.",
     );
@@ -115,6 +117,17 @@ describe("SettingsLayout", () => {
     await terminal.setValue("garbage");
     await terminal.trigger("keydown", { key: "Escape" });
     expect(terminal.element.value).toBe("wezterm start --cwd {path}");
+  });
+
+  it("lets go of a field on Escape so j and k walk on from it", async () => {
+    const wrapper = await mountSettings();
+    const terminal = input(wrapper, "terminal-command");
+    terminal.element.focus();
+    await terminal.trigger("keydown", { key: "Escape" });
+    const page = wrapper.get('[data-testid="settings-layout"]');
+    expect(document.activeElement).toBe(page.element);
+    await page.trigger("keydown", { key: "j" });
+    expect(document.activeElement).toBe(input(wrapper, "editor-command").element);
   });
 
   it("detects git with the loading line, then shows the version", async () => {
@@ -238,6 +251,52 @@ describe("SettingsLayout", () => {
     await nextTick();
     // `useTheme` (mounted by App) writes it on the document root.
     expect(settings.values.theme).toBe("light");
+  });
+
+  it("takes the fonts on Enter or blur with suggestions, and the weights from their radios", async () => {
+    const wrapper = await mountSettings();
+    const settings = useSettingsStore();
+    const code = input(wrapper, "code-font");
+    expect(code.attributes("placeholder")).toBe("Geist Mono");
+    const suggestions = document.getElementById(code.attributes("list") ?? "");
+    expect(suggestions?.querySelectorAll("option").length).toBeGreaterThan(3);
+    await code.setValue("  Cascadia Code ");
+    await code.trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    expect(settings.values.codeFont).toBe("Cascadia Code");
+    const ui = input(wrapper, "ui-font");
+    await ui.setValue("Segoe UI");
+    await ui.trigger("blur");
+    await flushPromises();
+    expect(settings.values.uiFont).toBe("Segoe UI");
+
+    const weights = wrapper.get('[data-testid="ui-weight"]');
+    expect(weights.findAll("label").map((l) => l.text())).toEqual([
+      "Light",
+      "Regular",
+      "Medium",
+      "Semibold",
+    ]);
+    await weights.get('[data-testid="radio-medium"] input').setValue(true);
+    await wrapper
+      .get('[data-testid="code-weight"] [data-testid="radio-semibold"] input')
+      .setValue(true);
+    await nextTick();
+    expect(settings.values.uiWeight).toBe("medium");
+    expect(settings.values.codeWeight).toBe("semibold");
+  });
+
+  it("sets the zoom from its select and names the keys that change it anywhere", async () => {
+    const wrapper = await mountSettings();
+    const settings = useSettingsStore();
+    const select = wrapper.get<HTMLSelectElement>('[data-testid="zoom"] select');
+    expect(select.element.value).toBe("100");
+    expect(select.findAll("option").map((o) => o.text())).toContain("125%");
+    expect(wrapper.text()).toContain(
+      "Scales the whole window. Ctrl = and Ctrl - change it anywhere.",
+    );
+    await select.setValue("125");
+    expect(settings.values.zoom).toBe(125);
   });
 
   it("shows the version and the log file, and opens the folder with the file manager", async () => {

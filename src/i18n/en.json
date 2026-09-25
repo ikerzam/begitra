@@ -441,6 +441,9 @@
       "graph-focus": "Switch to graph focus",
       "review-focus": "Switch to review focus",
       "toggle-sidebar": "Toggle sidebar",
+      "zoom-in": "Zoom in",
+      "zoom-out": "Zoom out",
+      "zoom-reset": "Reset zoom",
       "open-terminal": "Open in terminal",
       "open-editor": "Open in editor",
       "pin-repository": "Pin repository",
@@ -892,6 +895,20 @@
         "system": "System",
         "dark": "Dark",
         "light": "Light"
+      },
+      "uiFont": "Interface font",
+      "uiFontHint": "A font installed on this computer. Empty for Geist.",
+      "uiWeight": "Interface weight",
+      "codeFont": "Code font",
+      "codeFontHint": "For code, paths and hashes. Empty for Geist Mono.",
+      "codeWeight": "Code weight",
+      "zoom": "Zoom",
+      "zoomHint": "Scales the whole window. {in} and {out} change it anywhere.",
+      "weights": {
+        "light": "Light",
+        "regular": "Regular",
+        "medium": "Medium",
+        "semibold": "Semibold"
       }
     },
     "discovery": {
@@ -964,7 +981,8 @@
         "discardFile": "Discard file or lines",
         "commit": "Commit",
         "push": "Push",
-        "markResolved": "Mark resolved"
+        "markResolved": "Mark resolved",
+        "zoom": "Zoom in / out / reset"
       }
     },
     "about": {
