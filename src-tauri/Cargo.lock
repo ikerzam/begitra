@@ -132,7 +132,7 @@ checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "begitra"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "git-core",
  "notify",
@@ -157,7 +157,7 @@ dependencies = [
 
 [[package]]
 name = "begitra-cli"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "git-core",
  "serde",
@@ -167,7 +167,7 @@ dependencies = [
 
 [[package]]
 name = "bench"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "criterion",
  "git-core",
@@ -1391,7 +1391,7 @@ dependencies = [
 
 [[package]]
 name = "git-core"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "git2",
  "serde",
@@ -3137,7 +3137,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "repo-index"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "rusqlite",
  "serde",
@@ -3916,7 +3916,7 @@ dependencies = [
 
 [[package]]
 name = "syntax"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "serde",
  "syntect",
