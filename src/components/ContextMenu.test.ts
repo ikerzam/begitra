@@ -14,6 +14,8 @@ let wrapper: VueWrapper | undefined;
 afterEach(() => {
   wrapper?.unmount();
   wrapper = undefined;
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 function mountMenu(onCopy = vi.fn(), onRemove = vi.fn()) {
@@ -144,8 +146,36 @@ describe("ContextMenu", () => {
     expect(wrapper.attributes("style")).toContain("top: 240px");
   });
 
+  it("opens on the other side of its point where it would leave the window", async () => {
+    // jsdom's window is 1024 x 768 and lays nothing out: the menu measures 200 x 160 here.
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+      DOMRect.fromRect({ x: 0, y: 0, width: 200, height: 160 }),
+    );
+    wrapper = mountWithI18n(ContextMenu, { props: { x: 1000, y: 700 } });
+    await wrapper.vm.$nextTick();
+    expect(wrapper.attributes("style")).toContain("left: 800px");
+    expect(wrapper.attributes("style")).toContain("top: 540px");
+    await wrapper.setProps({ x: 100, y: 100 });
+    await wrapper.vm.$nextTick();
+    expect(wrapper.attributes("style")).toContain("left: 100px");
+    expect(wrapper.attributes("style")).toContain("top: 100px");
+  });
+
   it("translates its default name", () => {
     wrapper = mountWithI18n(ContextMenu, {}, { locale: "es" });
     expect(wrapper.attributes("aria-label")).toBe("Menú contextual");
+  });
+
+  it("is placed again when the window is resized", async () => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+      DOMRect.fromRect({ x: 0, y: 0, width: 200, height: 160 }),
+    );
+    wrapper = mountWithI18n(ContextMenu, { props: { x: 700, y: 500 } });
+    await wrapper.vm.$nextTick();
+    expect(wrapper.attributes("style")).toContain("left: 700px");
+    vi.stubGlobal("innerWidth", 800);
+    window.dispatchEvent(new Event("resize"));
+    await wrapper.vm.$nextTick();
+    expect(wrapper.attributes("style")).toContain("left: 500px");
   });
 });

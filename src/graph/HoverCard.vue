@@ -10,6 +10,7 @@ import { useI18n } from "vue-i18n";
 
 import Button from "@/components/Button.vue";
 import IconButton from "@/components/IconButton.vue";
+import { EDGE } from "@/components/placement";
 import RefBadge from "@/components/RefBadge.vue";
 import type { CommitNode, Ref as GitRef } from "@/ipc/schemas";
 import { absoluteDate, relativeDate, shortHash } from "@/shell/format";
@@ -60,7 +61,10 @@ const left = computed(() => {
 onMounted(() => {
   const height = card.value?.offsetHeight ?? 0;
   const viewport = typeof window === "undefined" ? Number.POSITIVE_INFINITY : window.innerHeight;
-  if (props.anchor.bottom + GAP + height > viewport && props.anchor.top - GAP - height >= 0) {
+  if (
+    props.anchor.bottom + GAP + height > viewport - EDGE &&
+    props.anchor.top - GAP - height >= EDGE
+  ) {
     flipped.value = true;
     top.value = props.anchor.top - GAP - height;
   }

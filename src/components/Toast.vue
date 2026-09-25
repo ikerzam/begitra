@@ -36,7 +36,7 @@ const actionLabel = computed(() => props.action || (props.output ? t("toast.show
   <div
     :role="props.kind === 'error' ? 'alert' : 'status'"
     :data-kind="props.kind"
-    class="inline-flex items-center gap-3 rounded-lg border border-line-strong bg-raised px-3 py-2 text-md text-fg shadow-overlay"
+    class="toast inline-flex items-center gap-3 rounded-lg border border-line-strong bg-raised px-3 py-2 text-md text-fg shadow-overlay"
   >
     <component
       :is="icons[props.kind]"
@@ -46,7 +46,7 @@ const actionLabel = computed(() => props.action || (props.output ? t("toast.show
       class="shrink-0"
       :class="iconClasses[props.kind]"
     />
-    <span class="whitespace-nowrap">{{ props.message }}</span>
+    <span class="min-w-0 break-words" data-testid="toast-message">{{ props.message }}</span>
     <!-- The action is 12px secondary text without button chrome; it is still a real button. -->
     <button
       v-if="actionLabel"
@@ -59,3 +59,10 @@ const actionLabel = computed(() => props.action || (props.output ? t("toast.show
     </button>
   </div>
 </template>
+
+<style scoped>
+/* A long message wraps before the toast reaches half a wide window; the host keeps it inside a narrow one. */
+.toast {
+  max-width: 560px;
+}
+</style>

@@ -39,7 +39,7 @@ function actionOf(toast: ToastEntry): string {
 
 <template>
   <div
-    class="pointer-events-none absolute right-4 bottom-6 z-50 flex flex-col items-end gap-2"
+    class="pointer-events-none absolute right-4 bottom-6 left-4 z-50 flex flex-col items-end gap-2"
     data-testid="toast-host"
   >
     <div

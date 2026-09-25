@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, useTemplateRef } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
+
+import { placeAtPoint, viewportSize } from "./placement";
 
 const props = withDefaults(
   defineProps<{
@@ -23,6 +25,24 @@ const { t } = useI18n();
 const root = useTemplateRef<HTMLElement>("root");
 
 const positioned = computed(() => props.x !== undefined && props.y !== undefined);
+
+/* Opened at its point, then moved inside the window once measured (placeAtPoint): the move
+   lands before the browser paints. */
+const place = ref<{ left: number; top: number } | null>(null);
+
+function measure(): void {
+  if (!root.value || props.x === undefined || props.y === undefined) return;
+  const { width, height } = root.value.getBoundingClientRect();
+  place.value = placeAtPoint({ x: props.x, y: props.y }, { width, height }, viewportSize());
+}
+
+watch(
+  () => [props.x, props.y],
+  () => {
+    place.value = null;
+    void nextTick(measure);
+  },
+);
 
 function items(): HTMLElement[] {
   const nodes = root.value?.querySelectorAll<HTMLElement>(
@@ -84,13 +104,24 @@ function onPointerDownOutside(event: PointerEvent): void {
   emit("close");
 }
 
+/* A menu whose content changes while open (a refresh relabels an item) is placed again. */
+let resized: ResizeObserver | null = null;
+
 onMounted(() => {
   document.addEventListener("pointerdown", onPointerDownOutside, true);
+  window.addEventListener("resize", measure);
+  if (positioned.value && root.value && typeof ResizeObserver !== "undefined") {
+    resized = new ResizeObserver(() => measure());
+    resized.observe(root.value);
+  }
+  measure();
   focusItem(0);
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener("pointerdown", onPointerDownOutside, true);
+  window.removeEventListener("resize", measure);
+  resized?.disconnect();
 });
 </script>
 
@@ -102,7 +133,11 @@ onBeforeUnmount(() => {
     :aria-label="props.label || t('contextMenu.label')"
     class="context-menu flex flex-col rounded-lg border border-line-strong bg-raised p-1 shadow-overlay"
     :class="{ 'fixed z-10': positioned }"
-    :style="positioned ? { left: `${props.x}px`, top: `${props.y}px` } : undefined"
+    :style="
+      positioned
+        ? { left: `${place?.left ?? props.x}px`, top: `${place?.top ?? props.y}px` }
+        : undefined
+    "
     @keydown="onKeydown"
     @click="onClick"
   >

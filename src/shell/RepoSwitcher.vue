@@ -134,8 +134,11 @@ function goToRepositories(): void {
 </template>
 
 <style scoped>
-/* Wide enough for a name and its path (menus are at least 220px; 360 fits "~/code/…"). */
+/* Wide enough for a name and its path (menus are at least 220px; 360 fits "~/code/…"),
+   and scrolling inside the window under the top bar when many repositories are pinned. */
 .switcher-menu {
   width: 360px;
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;
 }
 </style>
