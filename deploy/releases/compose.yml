@@ -1,0 +1,32 @@
+# Begitra's downloads and update manifest: nginx serving the folder the release
+# script uploads, routed by Dokploy's Traefik for begitra.ikerzam.tech with its Let's Encrypt
+# resolver. On the VPS, in the folder holding this file and nginx.conf: `docker compose up -d`.
+name: begitra-releases
+
+services:
+  web:
+    image: nginx:stable-alpine
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+    volumes:
+      - ./site:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - dokploy-network
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.routers.begitra-releases-web.rule=Host(`begitra.ikerzam.tech`)
+      - traefik.http.routers.begitra-releases-web.entrypoints=web
+      - traefik.http.routers.begitra-releases-web.middlewares=redirect-to-https@file
+      - traefik.http.routers.begitra-releases.rule=Host(`begitra.ikerzam.tech`)
+      - traefik.http.routers.begitra-releases.entrypoints=websecure
+      - traefik.http.routers.begitra-releases.tls.certresolver=letsencrypt
+      - traefik.http.services.begitra-releases.loadbalancer.server.port=80
+
+networks:
+  dokploy-network:
+    external: true
