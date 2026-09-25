@@ -267,7 +267,7 @@ impl AppState {
     }
 
     /// Begins a watcher start for `root`: the ticket installs it through
-    /// [`AppState::install_watcher`] unless a later start, or a close of `root`, came first.
+    /// [`AppState::finish_watch`] unless a later start, or a close of `root`, came first.
     pub fn begin_watch(&self, root: &Path) -> u64 {
         let mut slot = self.watch_slot();
         slot.generation += 1;
@@ -275,36 +275,47 @@ impl AppState {
         slot.generation
     }
 
-    /// Installs `watcher` for `root` when `ticket` is still the latest start. Returns the
-    /// watcher to drop off the async runtime: the one replaced, or `watcher` itself when it
-    /// came too late.
-    pub fn install_watcher(
+    /// Ends the slot's start that `ticket` began for `root`: `started` is what the platform
+    /// answered, and `taken` the folder view's watcher of `root`, taken out for the start
+    /// ([`AppState::take_folder_watcher`]). A watcher that started runs in the slot and the
+    /// view's goes. A refused start falls back on the view's watcher, whose index changes read
+    /// the lists whole, and reports the refusal only without one, taking the watcher of the
+    /// repository shown before with it, since the app ignores its events. A start that another
+    /// start or a close superseded reports nothing and gives the view's watcher back to the
+    /// view. Returns the refusal to report and the watchers to drop off the async runtime.
+    pub fn finish_watch(
         &self,
         ticket: u64,
-        root: PathBuf,
-        watcher: RepoWatcher,
-    ) -> Option<RepoWatcher> {
+        root: &Path,
+        started: Result<RepoWatcher, notify::Error>,
+        taken: Option<RepoWatcher>,
+    ) -> (Option<notify::Error>, Vec<RepoWatcher>) {
+        let mut dropped = Vec::new();
         let mut slot = self.watch_slot();
         if slot.generation != ticket {
-            return Some(watcher);
+            drop(slot);
+            dropped.extend(started.ok());
+            dropped.extend(taken.and_then(|watcher| self.keep_for_folder(root, watcher)));
+            return (None, dropped);
         }
         slot.pending = None;
-        slot.running
-            .replace((root, watcher))
-            .map(|(_, previous)| previous)
-    }
-
-    /// Ends the start that `ticket` began when the platform refused it. Returns whether it
-    /// was still the latest start (a superseded one concerns nothing the app shows) and, when
-    /// it was, the watcher of the repository shown before, which goes too since the app
-    /// ignores its events: to be dropped off the async runtime.
-    pub fn abandon_watch(&self, ticket: u64) -> (bool, Option<RepoWatcher>) {
-        let mut slot = self.watch_slot();
-        if slot.generation != ticket {
-            return (false, None);
-        }
-        slot.pending = None;
-        (true, slot.running.take().map(|(_, previous)| previous))
+        let (running, refusal) = match (started, taken) {
+            (Ok(watcher), taken) => {
+                dropped.extend(taken);
+                (Some(watcher), None)
+            }
+            (Err(error), Some(fallback)) => {
+                tracing::warn!(root = %root.display(), %error, "the open repository keeps the folder view's watcher: its own did not start");
+                (Some(fallback), None)
+            }
+            (Err(error), None) => (None, Some(error)),
+        };
+        let previous = match running {
+            Some(watcher) => slot.running.replace((root.to_path_buf(), watcher)),
+            None => slot.running.take(),
+        };
+        dropped.extend(previous.map(|(_, watcher)| watcher));
+        (refusal, dropped)
     }
 
     /// Removes the watcher of `root`, if that is the one running, and supersedes a start in
@@ -344,11 +355,11 @@ impl AppState {
 
     /// Makes the folder watchers follow `roots`: the first [`FOLDER_WATCH_LIMIT`] distinct
     /// roots are listed, and each gets a watcher but the one the open repository's slot
-    /// watches; the one a start of the slot runs for keeps the folder's watcher it has, which
-    /// the slot takes over, and gets no new one. The watchers of roots no longer listed are
-    /// taken out, and the roots with neither a watcher nor a start in flight are claimed.
+    /// watches; the one a start of the slot runs for keeps the folder's watcher it has until
+    /// that start ends ([`AppState::finish_watch`]) and gets no new one. The watchers of roots
+    /// no longer listed are taken out, and the roots with neither a watcher nor a start in
+    /// flight are claimed.
     pub fn begin_folder_sync(&self, roots: &[PathBuf]) -> FolderSync {
-        let (open, pending) = self.slot_roots();
         let mut listed: Vec<PathBuf> = Vec::with_capacity(FOLDER_WATCH_LIMIT);
         for root in roots {
             if listed.len() == FOLDER_WATCH_LIMIT {
@@ -358,6 +369,11 @@ impl AppState {
                 listed.push(root.clone());
             }
         }
+        // The slot's lock is held until the set is in step, so a watcher the slot gives back
+        // meanwhile is not dropped as the open repository's.
+        let slot = self.watch_slot();
+        let open = slot.running.as_ref().map(|(root, _)| root.clone());
+        let pending = slot.pending.clone();
         let mut folders = self.folder_watchers();
         let mut dropped = Vec::new();
         for (root, watcher) in std::mem::take(&mut folders.running) {
@@ -487,23 +503,35 @@ impl AppState {
             .collect()
     }
 
-    /// Takes the folder watcher of `root` out when the open repository's slot starts its own,
-    /// which keeps the index snapshot the folder's lacks; dropped once the slot's runs.
+    /// Takes the folder watcher of `root` out while the open repository's slot starts its own,
+    /// which keeps the index snapshot the folder's lacks; [`AppState::finish_watch`] drops it
+    /// once that start ends, or keeps it.
     pub fn take_folder_watcher(&self, root: &Path) -> Option<RepoWatcher> {
         self.folder_watchers().running.remove(root)
     }
 
-    /// Gives the folder view the watcher the open repository's slot let go of, when its latest
-    /// sync lists that root; returns it otherwise, to be dropped.
-    fn keep_for_folder(&self, root: &Path, watcher: RepoWatcher) -> Option<RepoWatcher> {
+    /// Gives the folder view `watcher` of `root` (the open repository's, when it closes, or the
+    /// view's own that a superseded start took out) while the view's latest sync lists `root`
+    /// and the slot neither watches it nor starts to; it keeps a digest of the index from then
+    /// on, as the view's watchers do. Returns it otherwise, to be dropped off the async
+    /// runtime. The slot's lock is held first, as everywhere the two are taken.
+    pub fn keep_for_folder(&self, root: &Path, watcher: RepoWatcher) -> Option<RepoWatcher> {
+        let slot = self.watch_slot();
+        let slot_has_it = slot
+            .running
+            .as_ref()
+            .is_some_and(|(watched, _)| watched == root)
+            || slot.pending.as_deref() == Some(root);
         let mut folders = self.folder_watchers();
-        if folders.listed.iter().any(|listed| listed == root) && !folders.running.contains_key(root)
+        if slot_has_it
+            || !folders.listed.iter().any(|listed| listed == root)
+            || folders.running.contains_key(root)
         {
-            folders.running.insert(root.to_path_buf(), watcher);
-            None
-        } else {
-            Some(watcher)
+            return Some(watcher);
         }
+        watcher.forget_index();
+        folders.running.insert(root.to_path_buf(), watcher);
+        None
     }
 
     /// Opens the repository containing `path`, or returns the engine already open for its
@@ -711,39 +739,41 @@ mod tests {
         let (a, b) = (dir.path().join("a"), dir.path().join("b"));
         std::fs::create_dir_all(&a).expect("a");
         std::fs::create_dir_all(&b).expect("b");
-        let start = |root: &Path| {
-            RepoWatcher::start(crate::watcher::WatchBases::main(root), |_| {}).expect("watcher")
-        };
+        let start = |root: &Path| Ok(watcher_of(root));
+        let refusal = || Err(notify::Error::new(notify::ErrorKind::MaxFilesWatch));
         let state = AppState::default();
         // A opens, then B while A's start still walks its tree: B's ends first and stays.
         let slow = state.begin_watch(&a);
         let fast = state.begin_watch(&b);
-        assert!(state.install_watcher(fast, b.clone(), start(&b)).is_none());
-        assert!(state.install_watcher(slow, a.clone(), start(&a)).is_some());
+        let (refused, dropped) = state.finish_watch(fast, &b, start(&b), None);
+        assert!(refused.is_none() && dropped.is_empty());
+        let (refused, dropped) = state.finish_watch(slow, &a, start(&a), None);
+        assert!(refused.is_none());
+        assert_eq!(dropped.len(), 1, "A's watcher came too late");
         assert!(state.is_watching(&b));
         assert!(!state.is_watching(&a));
         // B closes while a start for it is in flight: that start installs nothing.
         let restart = state.begin_watch(&b);
         assert!(!state.is_watching(&b), "a start is in flight");
         assert!(state.take_watcher(&b).is_some());
-        assert!(state
-            .install_watcher(restart, b.clone(), start(&b))
-            .is_some());
+        let (_, dropped) = state.finish_watch(restart, &b, start(&b), None);
+        assert_eq!(dropped.len(), 1);
         assert!(!state.is_watching(&b));
         // A close of another repository (an abandoned open) leaves the start alone.
         let current = state.begin_watch(&b);
         assert!(state.take_watcher(&a).is_none());
-        assert!(state
-            .install_watcher(current, b.clone(), start(&b))
-            .is_none());
+        let (_, dropped) = state.finish_watch(current, &b, start(&b), None);
+        assert!(dropped.is_empty());
         assert!(state.is_watching(&b));
         // A refused start takes the watcher of the repository shown before with it; one
         // that a later start superseded concerns nothing.
         let superseded = state.begin_watch(&b);
-        let refused = state.begin_watch(&a);
-        assert!(matches!(state.abandon_watch(superseded), (false, None)));
-        let (latest, previous) = state.abandon_watch(refused);
-        assert!(latest && previous.is_some());
+        let latest = state.begin_watch(&a);
+        let (refused, dropped) = state.finish_watch(superseded, &b, refusal(), None);
+        assert!(refused.is_none() && dropped.is_empty());
+        let (refused, dropped) = state.finish_watch(latest, &a, refusal(), None);
+        assert!(refused.is_some());
+        assert_eq!(dropped.len(), 1, "B's watcher");
         assert!(!state.is_watching(&b));
     }
 
@@ -850,11 +880,11 @@ mod tests {
         let ticket = state.begin_watch(&b);
         let during = state.begin_folder_sync(&roots);
         assert!(during.start.is_empty() && during.dropped.is_empty());
-        let folder_b = state.take_folder_watcher(&b).expect("b's folder watcher");
-        assert!(state
-            .install_watcher(ticket, b.clone(), watcher_of(&b))
-            .is_none());
-        drop(folder_b);
+        let folder_b = state.take_folder_watcher(&b);
+        assert!(folder_b.is_some(), "b's folder watcher");
+        let (refusal, dropped) = state.finish_watch(ticket, &b, Ok(watcher_of(&b)), folder_b);
+        assert!(refusal.is_none());
+        assert_eq!(dropped.len(), 1, "the view's watcher of b goes");
         assert!(state.is_watching(&b));
         assert_eq!(state.folder_watched(), vec![a.clone(), c.clone()]);
         // While b is open, the view leaves it to the slot.
@@ -867,12 +897,75 @@ mod tests {
         // Once the view left, the slot's watcher goes with its repository, as before.
         drop(state.stop_folder_watchers());
         let ticket = state.begin_watch(&b);
-        assert!(state
-            .install_watcher(ticket, b.clone(), watcher_of(&b))
-            .is_none());
+        let (_, dropped) = state.finish_watch(ticket, &b, Ok(watcher_of(&b)), None);
+        assert!(dropped.is_empty());
         assert!(state
             .close(&b)
             .is_some_and(|closed| closed.watcher.is_some()));
+    }
+
+    #[test]
+    fn a_refused_superseded_or_closed_start_keeps_the_view_s_watcher() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let roots = folders(dir.path(), &["a", "b", "c"]);
+        let (a, b, c) = (roots[0].clone(), roots[1].clone(), roots[2].clone());
+        let outside = folders(dir.path(), &["outside"]).remove(0);
+        let refused = || Err(notify::Error::new(notify::ErrorKind::MaxFilesWatch));
+        let state = AppState::default();
+        sync(&state, &roots);
+        let ticket = state.begin_watch(&b);
+        let taken = state.take_folder_watcher(&b);
+        drop(state.finish_watch(ticket, &b, Ok(watcher_of(&b)), taken));
+        // a opens, then c before a's start ends: a's watcher never runs, and the view gets its
+        // own watcher of a back.
+        let slow = state.begin_watch(&a);
+        let taken_a = state.take_folder_watcher(&a);
+        let fast = state.begin_watch(&c);
+        let taken_c = state.take_folder_watcher(&c);
+        let (refusal, dropped) = state.finish_watch(slow, &a, Ok(watcher_of(&a)), taken_a);
+        assert!(refusal.is_none());
+        assert_eq!(dropped.len(), 1, "a's own watcher");
+        assert_eq!(state.folder_watched(), vec![a.clone()]);
+        // The platform refuses c's watcher: the view's keeps watching c in the slot, and b's
+        // goes with b.
+        let (refusal, dropped) = state.finish_watch(fast, &c, refused(), taken_c);
+        assert!(refusal.is_none());
+        assert_eq!(dropped.len(), 1, "b's watcher");
+        assert!(state.is_watching(&c));
+        // A repository the view does not list reports its refusal, and nothing is watched.
+        let ticket = state.begin_watch(&outside);
+        let (refusal, dropped) = state.finish_watch(ticket, &outside, refused(), None);
+        assert!(refusal.is_some());
+        assert_eq!(dropped.len(), 1, "c's watcher");
+        assert!(!state.is_watching(&outside) && !state.is_watching(&c));
+        // The next sync watches b and c again.
+        assert_eq!(sync(&state, &roots), 0);
+        assert_eq!(
+            state.folder_watched(),
+            vec![a.clone(), b.clone(), c.clone()]
+        );
+        // a opens and closes before its start ends: the view keeps its watcher of a.
+        let ticket = state.begin_watch(&a);
+        let taken = state.take_folder_watcher(&a);
+        assert!(state.close(&a).is_none());
+        let (refusal, dropped) = state.finish_watch(ticket, &a, Ok(watcher_of(&a)), taken);
+        assert!(refusal.is_none());
+        assert_eq!(dropped.len(), 1, "a's own watcher");
+        assert_eq!(
+            state.folder_watched(),
+            vec![a.clone(), b.clone(), c.clone()]
+        );
+        // a opens twice in a row: the first start, which the second supersedes, gives the
+        // view nothing back while the slot starts a.
+        let first = state.begin_watch(&a);
+        let taken = state.take_folder_watcher(&a);
+        let second = state.begin_watch(&a);
+        let (_, dropped) = state.finish_watch(first, &a, Ok(watcher_of(&a)), taken);
+        assert_eq!(dropped.len(), 2, "a's first watcher and the view's");
+        let (_, dropped) = state.finish_watch(second, &a, Ok(watcher_of(&a)), None);
+        assert!(dropped.is_empty());
+        assert!(state.is_watching(&a));
+        assert_eq!(state.folder_watched(), vec![b, c]);
     }
 
     #[test]

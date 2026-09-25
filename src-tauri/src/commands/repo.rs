@@ -55,7 +55,9 @@ pub async fn open_repository(
 /// Starts the filesystem watcher of the open repository at `root` (replacing the watcher of
 /// any other repository); `watcher.unavailable` when the platform refuses, in which case the
 /// repository stays open without change detection. A start that a later one, or a close of
-/// `root`, superseded while it walked the tree is dropped instead of installed.
+/// `root`, superseded while it walked the tree is dropped instead of installed. A repository of
+/// the folder view keeps the view's watcher until its own start ends
+/// ([`AppState::finish_watch`]), and falls back on it when the platform refuses.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state, app))]
 pub async fn watch_repository(
@@ -68,57 +70,49 @@ pub async fn watch_repository(
         return Ok(());
     }
     let ticket = shared.begin_watch(&root);
-    // A repository of the folder view: its folder watcher keeps no index snapshot, so the
-    // slot starts one of its own, and the folder's stops once that one runs.
-    let folder_watcher = shared.take_folder_watcher(&root);
-    let (outcome, mut superseded) = tokio::task::spawn_blocking(move || {
+    let taken = shared.take_folder_watcher(&root);
+    let (refusal, dropped) = tokio::task::spawn_blocking(move || {
         let handle = app.clone();
         let bases = match shared.engine_for(&root) {
             Some(engine) => engine.watch_bases(),
-            None => crate::watcher::WatchBases::main(&root),
+            // An engine opened for the bases alone, as the folder view's starts do, so a linked
+            // worktree watches its own git directory; the main layout when it does not open.
+            None => match git_core::git2_engine::Git2Engine::open(&root) {
+                Ok(engine) => engine.watch_bases(),
+                Err(_) => crate::watcher::WatchBases::main(&root),
+            },
         };
         let started = RepoWatcher::start(bases, move |payload| {
             if let Err(error) = crate::events::emit_repo_changed(&handle, &payload) {
                 tracing::warn!(error = %error, "repo:changed could not be emitted");
             }
         });
-        match started {
-            Ok(watcher) => (
-                Ok(()),
-                shared
-                    .install_watcher(ticket, root, watcher)
-                    .into_iter()
-                    .collect(),
-            ),
-            Err(error) => {
-                // notify names the inotify limit as its own kind (ENOSPC included).
-                let detail = match error.kind {
-                    notify::ErrorKind::MaxFilesWatch => {
-                        "too many watched folders for this system (inotify limit)".to_owned()
-                    }
-                    _ => error.to_string(),
-                };
-                let failure = AppError::new(
-                    crate::error::codes::WATCHER_UNAVAILABLE,
-                    "Changes in this repository will not be detected automatically",
-                )
-                .with_detail(detail);
-                // A refused start that a later one superseded concerns nothing shown.
-                let (latest, previous) = shared.abandon_watch(ticket);
-                let dropped: Vec<RepoWatcher> = previous.into_iter().collect();
-                (if latest { Err(failure) } else { Ok(()) }, dropped)
-            }
-        }
+        shared.finish_watch(ticket, &root, started, taken)
     })
     .await
     .map_err(|join| AppError::internal(format!("watcher task failed: {join}")))?;
-    superseded.extend(folder_watcher);
-    if !superseded.is_empty() {
-        tokio::task::spawn_blocking(move || drop(superseded))
+    if !dropped.is_empty() {
+        tokio::task::spawn_blocking(move || drop(dropped))
             .await
             .map_err(|join| AppError::internal(format!("watcher task failed: {join}")))?;
     }
-    outcome
+    match refusal {
+        None => Ok(()),
+        Some(error) => {
+            // notify names the inotify limit as its own kind (ENOSPC included).
+            let detail = match error.kind {
+                notify::ErrorKind::MaxFilesWatch => {
+                    "too many watched folders for this system (inotify limit)".to_owned()
+                }
+                _ => error.to_string(),
+            };
+            Err(AppError::new(
+                crate::error::codes::WATCHER_UNAVAILABLE,
+                "Changes in this repository will not be detected automatically",
+            )
+            .with_detail(detail))
+        }
+    }
 }
 
 /// Makes the folder view's watchers follow `roots`: the first
