@@ -979,7 +979,7 @@
       "installed": "La versión {version} está instalada. Reinicia para usarla.",
       "restart": "Reiniciar",
       "failed": "No se pudo completar la actualización.",
-      "endpointHint": "Las versiones se consultan en GitHub solo al pulsar este botón.",
+      "endpointHint": "Las versiones se consultan en begitra.ikerzam.tech solo al pulsar este botón.",
       "showDetails": "Mostrar detalles",
       "versionUnavailable": "Versión no disponible"
     }

@@ -68,8 +68,8 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "REPLACE_WITH_THE_PUBLIC_KEY_OF_tauri_signer_generate",
-      "endpoints": ["https://github.com/ikerzam/begitra/releases/latest/download/latest.json"]
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJBQUJCQzY2RjQ1RkI4MzYKUldRMnVGLzBacnlyS2xCcUlXc1BHRjQ2MHFHQTVTL05XaDJodnV2LzFMS0hhMWNPWTFKZkZPRGkK",
+      "endpoints": ["https://begitra.ikerzam.tech/latest.json"]
     }
   }
 }
