@@ -863,7 +863,10 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
       }
       case "watch_repository":
       case "record_repository_open":
+      case "unwatch_folder":
         return null;
+      case "watch_folder":
+        return (args["roots"] as string[]).slice(0, 20);
       case "list_repositories":
         return [];
       case "open_external":

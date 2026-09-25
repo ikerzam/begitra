@@ -507,6 +507,19 @@ export function watchRepository(root: string) {
   return call("watch_repository", { root }, v.null());
 }
 
+/**
+ * Makes the folder view's watchers follow `roots`: the first 20, but the open
+ * repository, get one. Answers the roots they watch once their starts ended.
+ */
+export function watchFolder(roots: string[]) {
+  return call("watch_folder", { roots }, v.array(v.string()));
+}
+
+/** Stops the folder view's watchers. */
+export function unwatchFolder() {
+  return call("unwatch_folder", {}, v.null());
+}
+
 export function listRepositories() {
   return call("list_repositories", {}, v.array(IndexEntrySchema));
 }

@@ -939,6 +939,8 @@ export const commandArgs = {
   }),
   open_external: v.object({ templates: v.pipe(v.array(v.string()), v.minLength(1)), path }),
   watch_repository: v.object({ root: path }),
+  watch_folder: v.object({ roots: v.array(path) }),
+  unwatch_folder: v.object({}),
   list_repositories: v.object({}),
   pin_repository: v.object({ path, pinned: v.boolean() }),
   forget_repository: v.object({ path }),

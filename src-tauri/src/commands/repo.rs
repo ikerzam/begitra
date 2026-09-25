@@ -9,7 +9,7 @@ use tauri::State;
 use crate::error::AppError;
 use crate::ops::{run_blocking, DEFAULT_TIMEOUT};
 use crate::state::AppState;
-use crate::watcher::WatchBasesExt;
+use crate::watcher::{RepoWatcher, WatchBasesExt};
 
 /// Opens the repository containing `path` (or reuses the open engine) and describes it.
 #[tauri::command]
@@ -74,13 +74,23 @@ pub async fn watch_repository(
             Some(engine) => engine.watch_bases(),
             None => crate::watcher::WatchBases::main(&root),
         };
-        let started = crate::watcher::RepoWatcher::start(bases, move |payload| {
+        let started = RepoWatcher::start(bases, move |payload| {
             if let Err(error) = crate::events::emit_repo_changed(&handle, &payload) {
                 tracing::warn!(error = %error, "repo:changed could not be emitted");
             }
         });
         match started {
-            Ok(watcher) => (Ok(()), shared.install_watcher(ticket, root, watcher)),
+            Ok(watcher) => {
+                let replaced = shared.install_watcher(ticket, root.clone(), watcher);
+                // A repository of the folder view that opens: its own watcher takes over from
+                // the folder's, so its events come once.
+                let folder = if shared.is_watching(&root) {
+                    shared.take_folder_watcher(&root)
+                } else {
+                    None
+                };
+                (Ok(()), replaced.into_iter().chain(folder).collect())
+            }
             Err(error) => {
                 // notify names the inotify limit as its own kind (ENOSPC included).
                 let detail = match error.kind {
@@ -96,18 +106,76 @@ pub async fn watch_repository(
                 .with_detail(detail);
                 // A refused start that a later one superseded concerns nothing shown.
                 let (latest, previous) = shared.abandon_watch(ticket);
-                (if latest { Err(failure) } else { Ok(()) }, previous)
+                let dropped: Vec<RepoWatcher> = previous.into_iter().collect();
+                (if latest { Err(failure) } else { Ok(()) }, dropped)
             }
         }
     })
     .await
     .map_err(|join| AppError::internal(format!("watcher task failed: {join}")))?;
-    if let Some(watcher) = superseded {
-        tokio::task::spawn_blocking(move || drop(watcher))
+    if !superseded.is_empty() {
+        tokio::task::spawn_blocking(move || drop(superseded))
             .await
             .map_err(|join| AppError::internal(format!("watcher task failed: {join}")))?;
     }
     outcome
+}
+
+/// Makes the folder view's watchers follow `roots`: the first
+/// [`crate::state::FOLDER_WATCH_LIMIT`] of them get a watcher, but the open repository, which keeps its
+/// own, and the watchers of roots no longer listed stop. The starts run one after another, so
+/// the first repositories follow their changes while the rest start. Answers the roots the
+/// folder watchers watch once the starts ended; a root whose repository or watcher cannot
+/// start is left out and logged, and the view reads it again on the window's focus.
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip(state, app, roots), fields(roots = roots.len()))]
+pub async fn watch_folder(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    roots: Vec<PathBuf>,
+) -> Result<Vec<PathBuf>, AppError> {
+    let shared = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        let sync = shared.begin_folder_sync(&roots);
+        drop(sync.dropped);
+        for root in sync.start {
+            if !shared.folder_sync_current(sync.ticket) {
+                break;
+            }
+            let bases = match shared.open(&root) {
+                Ok(engine) => engine.watch_bases(),
+                Err(error) => {
+                    tracing::warn!(root = %root.display(), error = %error, "folder watcher: the repository did not open");
+                    continue;
+                }
+            };
+            let handle = app.clone();
+            let started = RepoWatcher::start(bases, move |payload| {
+                if let Err(error) = crate::events::emit_repo_changed(&handle, &payload) {
+                    tracing::warn!(error = %error, "repo:changed could not be emitted");
+                }
+            });
+            match started {
+                Ok(watcher) => drop(shared.install_folder_watcher(sync.ticket, root, watcher)),
+                Err(error) => {
+                    tracing::warn!(root = %root.display(), error = %error, "folder watcher did not start");
+                }
+            }
+        }
+        shared.folder_watched()
+    })
+    .await
+    .map_err(|join| AppError::internal(format!("folder watcher task failed: {join}")))
+}
+
+/// Stops the folder view's watchers, leaving the view.
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip(state))]
+pub async fn unwatch_folder(state: State<'_, AppState>) -> Result<(), AppError> {
+    let dropped = state.stop_folder_watchers();
+    tokio::task::spawn_blocking(move || drop(dropped))
+        .await
+        .map_err(|join| AppError::internal(format!("folder watcher task failed: {join}")))
 }
 
 /// Closes the engine rooted at `root` and drops its walks off the async runtime; returns

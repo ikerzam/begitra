@@ -112,6 +112,8 @@ pub fn run() {
             commands::repo::open_repository,
             commands::repo::close_repository,
             commands::repo::watch_repository,
+            commands::repo::watch_folder,
+            commands::repo::unwatch_folder,
             commands::index::list_repositories,
             commands::index::pin_repository,
             commands::index::forget_repository,
