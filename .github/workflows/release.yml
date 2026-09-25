@@ -1,14 +1,11 @@
 name: Release
 
-# A tag `v*` runs the repository's checks, then builds the packages on the three platforms,
-# signs the updater artifacts with the repository's secrets and uploads everything, with
-# `latest.json`, to a draft release. Started by hand it builds the same bundles and keeps
-# them as artifacts of the run, releasing nothing: the way to exercise the packaging before
-# a tag exists.
+# Started by hand only: runs the repository's checks, then builds the packages of the three
+# platforms without the updater's artifacts and keeps them as artifacts of the run. A release is
+# signed and cut on Windows by scripts/release.mjs and served from the VPS, so no key lives in
+# GitHub and a tag starts nothing.
 
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
 
 env:
@@ -21,9 +18,6 @@ jobs:
   build:
     name: ${{ matrix.label }}
     needs: checks
-    # Only this job writes: it creates the draft release and uploads the bundles.
-    permissions:
-      contents: write
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -69,39 +63,14 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Refuse to release with the updater's placeholder key
-        if: github.event_name == 'push'
-        shell: bash
-        run: |
-          if grep -q "REPLACE_WITH" src-tauri/tauri.conf.json; then
-            echo "plugins.updater.pubkey is still the placeholder: run tauri signer generate" >&2
-            exit 1
-          fi
-
-      - name: Build and upload the bundles
-        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # The updater's signing key pair: `tauri signer generate`.
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          # No tag name on a manual run: the action builds and releases nothing.
-          tagName: ${{ github.event_name == 'push' && github.ref_name || '' }}
-          releaseName: ${{ github.event_name == 'push' && format('Begitra {0}', github.ref_name) || '' }}
-          releaseBody: "See the assets for the installers. The updater reads latest.json."
-          releaseDraft: true
-          prerelease: false
-          includeUpdaterJson: true
-          updaterJsonPreferNsis: true
-          projectPath: .
-          tauriScript: pnpm tauri
-          args: ${{ matrix.args }}
+      # Without the updater's artifacts: the key that signs them stays on the machine that cuts
+      # a release.
+      - name: Build the bundles
+        run: pnpm tauri build ${{ matrix.args }} --config src-tauri/tauri.unsigned.conf.json
 
       # The bundle folder of both layouts: `target/release/bundle` without a target triple,
       # `target/<triple>/release/bundle` with one (the two macOS builds).
-      - name: Keep the bundles of a manual build
-        if: github.event_name == 'workflow_dispatch'
+      - name: Keep the bundles
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: bundles-${{ matrix.label }}
