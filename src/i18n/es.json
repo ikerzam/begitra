@@ -253,7 +253,7 @@
     "sections": {
       "pinned": "Fijados",
       "recent": "Recientes",
-      "all": "Todos los repositorios"
+      "other": "Abiertos por separado"
     },
     "soFar": "{n} por ahora",
     "noneFound": "No se han encontrado repositorios en las carpetas a escanear. Escanea de nuevo o añade otra carpeta.",

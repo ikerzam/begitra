@@ -64,15 +64,16 @@ function source(all: IndexEntry[]) {
     pinned: [geoportal, orphan, review],
     recent: [begitra],
     all,
+    scanRoots: ["/code"],
     worktreesOf: (path: string) =>
       worktrees.filter((w) => w.parentPath === path).sort((a, b) => a.name.localeCompare(b.name)),
   };
 }
 
 describe("tableSections", () => {
-  it("nests worktrees under their repository, lists every entry once and counts the mains of All", () => {
+  it("nests worktrees under their repository, lists every entry once and counts each section's mains", () => {
     const sections = tableSections(source([begitra, geoportal, tiles]));
-    expect(sections.map((s) => s.id)).toEqual(["pinned", "recent", "all"]);
+    expect(sections.map((s) => s.id)).toEqual(["pinned", "recent", "folder:/code"]);
     const [pinned, recent, all] = sections;
     expect(pinned?.rows.map((r) => [r.entry.name, r.nested])).toEqual([
       ["geoportal", false],
@@ -96,10 +97,43 @@ describe("tableSections", () => {
       pinned: [],
       recent: [],
       all: [tiles],
+      scanRoots: ["/code", "/empty"],
       worktreesOf: () => [],
     });
-    expect(sections.map((s) => s.id)).toEqual(["all"]);
-    expect(tableSections({ pinned: [], recent: [], all: [], worktreesOf: () => [] })).toEqual([]);
+    expect(sections.map((s) => s.id)).toEqual(["folder:/code"]);
+    expect(
+      tableSections({
+        pinned: [],
+        recent: [],
+        all: [],
+        scanRoots: ["/code"],
+        worktreesOf: () => [],
+      }),
+    ).toEqual([]);
+  });
+
+  it("lists each scan folder's repositories under it in the folders' order, and the rest last", () => {
+    const api = entry("api", { path: String.raw`C:\Code\api`, scanRoot: String.raw`C:\Code` });
+    const web = entry("web", { path: String.raw`C:\Code\apps\web`, scanRoot: "c:/code/" });
+    const job = entry("job", { path: String.raw`D:\work\job`, scanRoot: String.raw`D:\work` });
+    const probe = entry("probe", { path: String.raw`E:\tmp\probe`, scanRoot: null });
+    const left = entry("left", { path: String.raw`F:\old\left`, scanRoot: String.raw`F:\old` });
+    const sections = tableSections({
+      pinned: [],
+      recent: [],
+      all: [api, job, left, probe, web],
+      scanRoots: [String.raw`D:\work`, String.raw`C:\Code`],
+      worktreesOf: () => [],
+    });
+    expect(
+      sections.map((s) => [s.kind, s.folder, s.count, s.rows.map((r) => r.entry.name)]),
+    ).toEqual([
+      ["folder", String.raw`D:\work`, 1, ["job"]],
+      // The same folder spelled with other case and separators.
+      ["folder", String.raw`C:\Code`, 2, ["api", "web"]],
+      // Opened on its own, or found in a folder no longer scanned.
+      ["other", null, 2, ["left", "probe"]],
+    ]);
   });
 });
 

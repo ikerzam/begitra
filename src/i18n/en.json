@@ -253,7 +253,7 @@
     "sections": {
       "pinned": "Pinned",
       "recent": "Recent",
-      "all": "All repositories"
+      "other": "Opened on their own"
     },
     "soFar": "{n} so far",
     "noneFound": "No repositories found under the scan folders. Scan again, or add another folder.",

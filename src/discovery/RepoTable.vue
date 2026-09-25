@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// The home table: the Pinned, Recent and All sections in one listbox with roving focus, the
-// row menu, and the loading, scanning, empty and error states of the index.
+// The home table: Pinned, Recent, one section per scan folder and one for the repositories
+// opened on their own, in one listbox with roving focus, the row menu, and the loading,
+// scanning, empty and error states of the index.
 
 import { computed, nextTick, ref } from "vue";
 import { useI18n } from "vue-i18n";
@@ -15,7 +16,7 @@ import { useIndexStore } from "@/stores/index";
 import RepoRowMenu from "./RepoRowMenu.vue";
 import RepoTableHeader from "./RepoTableHeader.vue";
 import RepoTableRow from "./RepoTableRow.vue";
-import { branchLanes, tableSections, type TableRow } from "./sections";
+import { branchLanes, tableSections, type TableRow, type TableSection } from "./sections";
 import { useDiscoveryFormat } from "./useDiscoveryFormat";
 import { useRepoActions } from "./useRepoActions";
 
@@ -26,6 +27,13 @@ const actions = useRepoActions();
 const listbox = ref<HTMLElement | null>(null);
 
 const sections = computed(() => tableSections(index));
+
+/** A section's label: the folder's path for a scan folder, its name otherwise. */
+function sectionLabel(section: TableSection): string {
+  return section.folder === null
+    ? t(`home.sections.${section.kind}`)
+    : format.displayPath(section.folder);
+}
 const rows = computed(() => sections.value.flatMap((section) => section.rows));
 const lanes = computed(() => branchLanes(rows.value));
 const rowCount = computed(() => rows.value.length);
@@ -102,11 +110,15 @@ defineExpose({ focus: navigation.focus });
     >
       <template v-for="section in sections" :key="section.id">
         <p
-          class="flex items-center gap-2 border-b border-line px-3 pt-3 pb-1 text-md font-medium text-fg"
-          :data-testid="`section-${section.id}`"
+          class="flex min-w-0 items-center gap-2 border-b border-line px-3 pt-3 pb-1 text-md font-medium text-fg"
+          :data-testid="`section-${section.kind}`"
+          :title="section.folder ?? undefined"
         >
-          {{ t(`home.sections.${section.id}`) }}
-          <span v-if="section.id === 'all'" class="text-sm font-normal text-fg-muted">
+          <span class="truncate">{{ sectionLabel(section) }}</span>
+          <span
+            v-if="section.kind === 'folder' || section.kind === 'other'"
+            class="shrink-0 text-sm font-normal text-fg-muted"
+          >
             {{ index.isScanning ? t("home.soFar", { n: section.count }) : section.count }}
           </span>
         </p>

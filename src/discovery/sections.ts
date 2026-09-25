@@ -1,10 +1,12 @@
-// The rows of the home table: Pinned, Recent and All repositories, every main repository
-// followed by its worktrees, each entry listed once. Pure, so the table stays a renderer.
+// The rows of the home table: Pinned, Recent, one section per scan folder and one for the
+// repositories opened on their own, every main repository followed by its worktrees, each
+// entry listed once. Pure, so the table stays a renderer.
 
 import { laneIndex } from "@/components/lanes";
 import type { IndexEntry } from "@/ipc/schemas";
+import { sameFolder } from "@/shell/format";
 
-export type SectionId = "pinned" | "recent" | "all";
+export type SectionKind = "pinned" | "recent" | "folder" | "other";
 
 export interface TableRow {
   /** Unique within the table (an entry appears once, so the path serves). */
@@ -12,13 +14,18 @@ export interface TableRow {
   entry: IndexEntry;
   /** A worktree listed under its repository: the row draws the connector. */
   nested: boolean;
-  section: SectionId;
+  /** The id of the section the row is listed in. */
+  section: string;
 }
 
 export interface TableSection {
-  id: SectionId;
+  /** Unique within the table: the kind, or `folder:<path>` for a scan folder's section. */
+  id: string;
+  kind: SectionKind;
+  /** The scan folder a folder section lists; null for the others. */
+  folder: string | null;
   rows: TableRow[];
-  /** Main repositories in the section, shown next to the "All repositories" label. */
+  /** Main repositories in the section, shown next to its label. */
   count: number;
 }
 
@@ -28,18 +35,26 @@ export interface SectionSource {
   recent: IndexEntry[];
   /** Every main repository in the order of the table sort. */
   all: IndexEntry[];
+  /** The scan folders in their order: one section each. */
+  scanRoots: string[];
   worktreesOf(path: string): IndexEntry[];
 }
 
 /**
  * Builds the sections. Pinned lists the pinned entries (a pinned worktree stays under its
- * pinned repository), Recent the last opened ones, All the repositories not shown above; a
- * main repository is always followed by the worktrees not listed yet. Empty sections are left
- * out.
+ * pinned repository), Recent the last opened ones; then each scan folder lists the
+ * repositories found in it and not shown above, and a last section the rest (opened on their
+ * own, or found in a folder no longer scanned). A main repository is always followed by the
+ * worktrees not listed yet. Empty sections are left out.
  */
 export function tableSections(source: SectionSource): TableSection[] {
   const shown = new Set<string>();
-  const build = (id: SectionId, entries: IndexEntry[]): TableSection => {
+  const build = (
+    kind: SectionKind,
+    entries: IndexEntry[],
+    folder: string | null = null,
+  ): TableSection => {
+    const id = folder === null ? kind : `folder:${folder}`;
     const rows: TableRow[] = [];
     let count = 0;
     for (const entry of entries) {
@@ -54,7 +69,7 @@ export function tableSections(source: SectionSource): TableSection[] {
         rows.push({ key: worktree.path, entry: worktree, nested: true, section: id });
       }
     }
-    return { id, rows, count };
+    return { id, kind, folder, rows, count };
   };
   // A pinned worktree whose repository is pinned too is listed under it, not on its own.
   const pinnedPaths = new Set(source.pinned.map((entry) => entry.path));
@@ -67,8 +82,15 @@ export function tableSections(source: SectionSource): TableSection[] {
   ];
   const pinned = build("pinned", pinnedFirst);
   const recent = build("recent", source.recent);
-  const all = build("all", source.all);
-  return [pinned, recent, all].filter((section) => section.rows.length > 0);
+  const folders = source.scanRoots.map((root) =>
+    build(
+      "folder",
+      source.all.filter((entry) => entry.scanRoot !== null && sameFolder(entry.scanRoot, root)),
+      root,
+    ),
+  );
+  const other = build("other", source.all);
+  return [pinned, recent, ...folders, other].filter((section) => section.rows.length > 0);
 }
 
 /**

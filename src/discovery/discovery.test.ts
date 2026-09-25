@@ -1,5 +1,5 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { flushPromises } from "@vue/test-utils";
+import { flushPromises, type VueWrapper } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defineComponent, h } from "vue";
@@ -131,8 +131,15 @@ afterEach(() => {
   dialogOpen.mockClear();
 });
 
+/** Each section header of the home table as its label and, for a folder, its count. */
+function sectionHeaders(wrapper: VueWrapper): string[][] {
+  return wrapper
+    .findAll('[data-testid^="section-"]')
+    .map((header) => header.findAll("span").map((part) => part.text()));
+}
+
 describe("HomeScreen", () => {
-  it("shows the counts, the folders with their counts and the three sections from the index", async () => {
+  it("shows the counts, the folders with their counts and the sections from the index", async () => {
     const { wrapper } = await mountHome();
     expect(wrapper.get('[data-testid="home-summary"]').text()).toBe(
       "4 repositories and 1 worktree in 2 folders. Last scan 2 minutes ago.",
@@ -143,10 +150,9 @@ describe("HomeScreen", () => {
     expect(wrapper.find('[data-testid="scan-stop"]').exists()).toBe(false);
     expect(wrapper.find('[data-testid="scan-progress"]').exists()).toBe(false);
 
-    const sections = ["pinned", "recent", "all"].map((id) =>
-      wrapper.get(`[data-testid="section-${id}"]`).text(),
-    );
-    expect(sections).toEqual(["Pinned", "Recent", "All repositories 2"]);
+    // Pinned, Recent, then the scan folder's own repositories under its path, with their count;
+    // the worktree folder has no section, its worktree hangs under its repository.
+    expect(sectionHeaders(wrapper)).toEqual([["Pinned"], ["Recent"], [CODE, "2"]]);
     const rows = wrapper.findAll('[data-testid="repo-row"]');
     expect(rows.map((row) => row.get('[data-testid="repo-row-name"]').text())).toEqual([
       "geoportal",
@@ -241,7 +247,7 @@ describe("HomeScreen", () => {
     expect(wrapper.get('[data-testid="scan-progress"]').text()).toBe(
       "312 folders scanned, 14 repositories found",
     );
-    expect(wrapper.get('[data-testid="section-all"]').text()).toBe("All repositories 2 so far");
+    expect(sectionHeaders(wrapper).at(-1)).toEqual([CODE, "2 so far"]);
     expect(wrapper.findAll('[data-testid="skeleton-row"]')).toHaveLength(4);
     wrapper.unmount();
   });
@@ -317,7 +323,7 @@ describe("HomeScreen", () => {
     expect(wrapper.get('[data-testid="home-summary"]').text()).toBe(
       "4 repositorios y 1 worktree en 2 carpetas. Último escaneo hace 2 minutos.",
     );
-    expect(wrapper.get('[data-testid="section-all"]').text()).toBe("Todos los repositorios 2");
+    expect(sectionHeaders(wrapper)).toEqual([["Fijados"], ["Recientes"], [CODE, "2"]]);
     wrapper.unmount();
   });
 });
