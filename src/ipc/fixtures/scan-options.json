@@ -19,7 +19,7 @@
       ".idea",
       ".vscode"
     ],
-    "maxDepth": 6
+    "maxDepth": 2
   },
   {
     "skip": [

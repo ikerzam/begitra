@@ -500,7 +500,7 @@ export const defaultSkipFolders = [
   ".idea",
   ".vscode",
 ];
-export const defaultScanOptions: ScanOptions = { skip: defaultSkipFolders, maxDepth: 6 };
+export const defaultScanOptions: ScanOptions = { skip: defaultSkipFolders, maxDepth: 2 };
 
 /** Starts the filesystem watcher of the open repository; rejects with `watcher.unavailable`. */
 export function watchRepository(root: string) {

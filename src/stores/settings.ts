@@ -154,7 +154,7 @@ export function defaultSettings(platform: Platform): Settings {
     paletteRecents: [],
     scanRoots: [],
     skipFolders: [...defaultSkipFolders],
-    maxDepth: 6,
+    maxDepth: 2,
     lastRepository: null,
     lastScanAt: null,
     diffLayout: "unified",

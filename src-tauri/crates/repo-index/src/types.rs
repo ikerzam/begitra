@@ -104,7 +104,7 @@ impl Default for ScanOptions {
     fn default() -> Self {
         Self {
             skip: DEFAULT_SKIP.iter().map(|s| (*s).to_owned()).collect(),
-            max_depth: 6,
+            max_depth: 2,
         }
     }
 }

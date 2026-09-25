@@ -64,7 +64,11 @@ fn finds_repositories_at_several_depths_and_never_enters_them() {
     init_repo(&root.join("team").join("deep").join("gamma"));
     // A repository inside a repository's working tree is not visited.
     init_repo(&root.join("alpha").join("vendor").join("nested"));
-    let events = run(std::slice::from_ref(&root), &ScanOptions::default());
+    let options = ScanOptions {
+        max_depth: 3,
+        ..ScanOptions::default()
+    };
+    let events = run(std::slice::from_ref(&root), &options);
     let mut names: Vec<&str> = found(&events).iter().map(|f| f.name.as_str()).collect();
     names.sort_unstable();
     assert_eq!(names, ["alpha", "beta", "gamma"]);
@@ -82,6 +86,19 @@ fn finds_repositories_at_several_depths_and_never_enters_them() {
     assert!(events
         .iter()
         .any(|e| matches!(e, ScanEvent::FolderStarted { .. })));
+}
+
+#[test]
+fn the_default_depth_stops_two_levels_below_the_folder() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path().join("code");
+    init_repo(&root.join("alpha"));
+    init_repo(&root.join("team").join("beta"));
+    init_repo(&root.join("team").join("deep").join("gamma"));
+    let events = run(std::slice::from_ref(&root), &ScanOptions::default());
+    let mut names: Vec<&str> = found(&events).iter().map(|f| f.name.as_str()).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["alpha", "beta"]);
 }
 
 #[test]

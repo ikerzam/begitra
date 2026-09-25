@@ -61,7 +61,7 @@ describe("SettingsLayout", () => {
       "No folders yet. Begitra scans these for repositories and worktrees.",
     );
     expect(input(wrapper, "skip-folders").element.value).toBe(defaultSkipFolders.join(", "));
-    expect(input(wrapper, "max-depth").element.value).toBe("6");
+    expect(input(wrapper, "max-depth").element.value).toBe("2");
     const rows = wrapper.findAll('[data-testid="shortcut-rows"] li');
     expect(rows).toHaveLength(19);
     expect(rows[0]?.text()).toContain("Command palette");
@@ -203,11 +203,11 @@ describe("SettingsLayout", () => {
     (depth.element as HTMLElement).focus();
     await depth.setValue("abc");
     await depth.trigger("blur");
-    expect(depth.element.value).toBe("6");
+    expect(depth.element.value).toBe("2");
     (depth.element as HTMLElement).focus();
     await depth.setValue("12");
     await depth.trigger("keydown", { key: "Escape" });
-    expect(depth.element.value).toBe("6");
+    expect(depth.element.value).toBe("2");
     expect(document.activeElement).not.toBe(depth.element);
   });
 

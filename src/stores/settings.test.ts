@@ -43,12 +43,12 @@ describe("settings store", () => {
     });
   });
 
-  it("starts discovery with no scan folders, the default skip list, depth 6 and no last repository", () => {
+  it("starts discovery with no scan folders, the default skip list, depth 2 and no last repository", () => {
     const defaults = defaultSettings("linux");
     expect(defaults.scanRoots).toEqual([]);
     expect(defaults.skipFolders).toEqual(defaultSkipFolders);
     expect(defaults.skipFolders).toContain("node_modules");
-    expect(defaults.maxDepth).toBe(6);
+    expect(defaults.maxDepth).toBe(2);
     expect(defaults.lastRepository).toBeNull();
     expect(defaults.lastScanAt).toBeNull();
   });
@@ -67,7 +67,7 @@ describe("settings store", () => {
     );
     expect(store.values.scanRoots).toEqual(["/home/iker/code", "/home/iker/wt"]);
     expect(store.values.skipFolders).toEqual(defaultSkipFolders);
-    expect(store.values.maxDepth).toBe(6);
+    expect(store.values.maxDepth).toBe(2);
     expect(store.values.lastRepository).toBe("/home/iker/code/geoportal");
     expect(store.values.lastScanAt).toBe(1_704_070_000);
 

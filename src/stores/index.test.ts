@@ -296,7 +296,7 @@ describe("index store", () => {
     expect(scan).toHaveLength(1);
     expect(scan[0]?.args).toMatchObject({
       folders: [CODE, WT],
-      options: { maxDepth: 6 },
+      options: { maxDepth: 2 },
     });
     expect((scan[0]?.args["options"] as { skip: string[] }).skip).toContain("node_modules");
     expect(store.scan.kind).toBe("idle");
