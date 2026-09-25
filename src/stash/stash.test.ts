@@ -131,4 +131,23 @@ describe("StashSheet", () => {
     expect(stash.sheetOpen).toBe(false);
     wrapper.unmount();
   });
+
+  it("closes on a press on its backdrop, one on the drop dialog's backdrop cancelling the dialog only", async () => {
+    await open();
+    const stash = useStashStore();
+    stash.openSheet();
+    const wrapper = mountWithI18n(StashSheet, { attachTo: document.body });
+    await flushPromises();
+    const sheet = wrapper.get('[data-testid="stash-sheet"]');
+    expect(sheet.classes()).toEqual(expect.arrayContaining(["fixed", "inset-0", "bg-shadow"]));
+    const rows = wrapper.findAll('[data-testid="stash-list"] [role="row"]');
+    await rows[0]!.get('[data-testid="stash-drop"]').trigger("click");
+    await nextTick();
+    await wrapper.get('[data-testid="stash-drop-dialog"]').trigger("pointerdown");
+    expect(stash.dropPrompt).toBeNull();
+    expect(stash.sheetOpen).toBe(true);
+    await sheet.trigger("pointerdown");
+    expect(stash.sheetOpen).toBe(false);
+    wrapper.unmount();
+  });
 });

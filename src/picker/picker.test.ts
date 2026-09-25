@@ -221,4 +221,39 @@ describe("PickerOverlay", () => {
     expect(picker.mode).toBeNull();
     wrapper.unmount();
   });
+
+  it("dims the window and closes on a press on it, not on a selection released there", async () => {
+    fakeBackend();
+    const repo = useRepoStore();
+    await repo.open("/r");
+    await settled();
+    const picker = usePickerStore();
+    picker.open({ kind: "diff-from" });
+    const wrapper = mountWithI18n(PickerOverlay, { attachTo: document.body });
+    await flushPromises();
+    const scrim = wrapper.get('[data-testid="picker-overlay"]');
+    expect(scrim.classes()).toEqual(expect.arrayContaining(["fixed", "inset-0", "bg-shadow"]));
+    await wrapper.get('[data-testid="picker-input"]').trigger("pointerdown");
+    await scrim.trigger("click");
+    expect(picker.mode).not.toBeNull();
+    await scrim.trigger("pointerdown");
+    expect(picker.mode).toBeNull();
+    wrapper.unmount();
+  });
+
+  it("closes on Esc from its close button, where the query's keys do not reach", async () => {
+    fakeBackend();
+    const repo = useRepoStore();
+    await repo.open("/r");
+    await settled();
+    const picker = usePickerStore();
+    picker.open({ kind: "diff-from" });
+    const wrapper = mountWithI18n(PickerOverlay, { attachTo: document.body });
+    await flushPromises();
+    expect(wrapper.get('[role="dialog"]').attributes("tabindex")).toBe("-1");
+    const close = wrapper.get('[role="dialog"] button');
+    await close.trigger("keydown", { key: "Escape" });
+    expect(picker.mode).toBeNull();
+    wrapper.unmount();
+  });
 });

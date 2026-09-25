@@ -27,7 +27,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Compon
 import { useI18n } from "vue-i18n";
 
 import Kbd from "@/components/Kbd.vue";
-import { useFocusTrap } from "@/components/useFocusTrap";
+import Scrim from "@/components/Scrim.vue";
+import { holdFocus, useFocusTrap } from "@/components/useFocusTrap";
 import { shortcutRegistry } from "@/shortcuts/registry";
 import { useSettingsStore } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
@@ -91,6 +92,15 @@ const list = ref<HTMLElement | null>(null);
 const dialog = ref<HTMLElement | null>(null);
 const trap = useFocusTrap(dialog);
 
+/* Esc closes from anywhere in the panel (the query handles its own first); Tab stays inside. */
+function onPanelKeydown(event: KeyboardEvent): void {
+  if (event.key === "Escape" && !event.defaultPrevented) {
+    palette.onKeydown(event);
+    return;
+  }
+  trap.onKeydown(event);
+}
+
 function optionId(index: number): string {
   return `palette-option-${index}`;
 }
@@ -139,18 +149,16 @@ watch(
 </script>
 
 <template>
-  <div
-    class="absolute inset-0 z-40 flex justify-center"
-    data-testid="palette-overlay"
-    @click.self="shell.closePalette()"
-  >
+  <Scrim align="top" class="z-40" data-testid="palette-overlay" @dismiss="shell.closePalette()">
     <div
       ref="dialog"
       role="dialog"
       aria-modal="true"
+      tabindex="-1"
       :aria-label="t('palette.placeholder')"
       class="palette flex max-h-full flex-col rounded-lg border border-line-strong bg-raised shadow-overlay"
-      @keydown="trap.onKeydown"
+      @keydown="onPanelKeydown"
+      @mousedown="holdFocus"
     >
       <div class="flex items-center gap-3 border-b border-line px-3 py-2">
         <Search :size="16" :stroke-width="1.5" aria-hidden="true" class="text-fg-secondary" />
@@ -229,7 +237,7 @@ watch(
         <span class="flex items-center gap-2"><Kbd keys="↵" /> {{ t("palette.run") }}</span>
       </div>
     </div>
-  </div>
+  </Scrim>
 </template>
 
 <style scoped>

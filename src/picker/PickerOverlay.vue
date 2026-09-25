@@ -21,9 +21,10 @@ import ErrorBanner from "@/components/ErrorBanner.vue";
 import IconButton from "@/components/IconButton.vue";
 import Input from "@/components/Input.vue";
 import Kbd from "@/components/Kbd.vue";
+import Scrim from "@/components/Scrim.vue";
 import { laneTextClass } from "@/components/lanes";
 import SkeletonRow from "@/components/SkeletonRow.vue";
-import { useFocusTrap } from "@/components/useFocusTrap";
+import { holdFocus, useFocusTrap } from "@/components/useFocusTrap";
 import { branchLanes } from "@/shell/branchLanes";
 import { errorText } from "@/shell/errorMessage";
 import { relativeDate } from "@/shell/format";
@@ -52,6 +53,16 @@ const input = ref<{ $el: HTMLElement } | null>(null);
 const list = ref<HTMLElement | null>(null);
 const dialog = ref<HTMLElement | null>(null);
 const trap = useFocusTrap(dialog);
+
+/* Esc closes from anywhere in the panel (the query handles its own first); Tab stays inside. */
+function onPanelKeydown(event: KeyboardEvent): void {
+  if (event.key === "Escape" && !event.defaultPrevented) {
+    event.preventDefault();
+    picker.close();
+    return;
+  }
+  trap.onKeydown(event);
+}
 
 const title = computed(() => {
   const mode = picker.mode;
@@ -215,18 +226,16 @@ watch(cursor, (index) => {
 </script>
 
 <template>
-  <div
-    class="absolute inset-0 z-40 flex justify-center"
-    data-testid="picker-overlay"
-    @click.self="picker.close()"
-  >
+  <Scrim align="top" class="z-40" data-testid="picker-overlay" @dismiss="picker.close()">
     <div
       ref="dialog"
       role="dialog"
       aria-modal="true"
+      tabindex="-1"
       :aria-label="title"
       class="picker flex max-h-full flex-col rounded-lg border border-line-strong bg-raised shadow-overlay"
-      @keydown="trap.onKeydown"
+      @keydown="onPanelKeydown"
+      @mousedown="holdFocus"
     >
       <div class="flex items-center justify-between gap-3 px-3 pt-3">
         <h2 class="text-md font-semibold text-fg" data-testid="picker-title">{{ title }}</h2>
@@ -333,15 +342,15 @@ watch(cursor, (index) => {
         <span class="flex items-center gap-2"><Kbd keys="esc" /> {{ t("picker.closeHint") }}</span>
       </div>
     </div>
-  </div>
+  </Scrim>
 </template>
 
 <style scoped>
-/* The palette's 640px overlay, 80px from the top; off the spacing scale. */
+/* The palette's 640px overlay, 40px from the top; off the spacing scale. */
 .picker {
   width: 640px;
-  margin-top: 80px;
-  max-height: calc(100% - 160px);
+  margin-top: 40px;
+  max-height: calc(100% - 80px);
 }
 
 .picker-section {

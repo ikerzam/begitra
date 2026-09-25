@@ -33,7 +33,10 @@ describe("Dialog", () => {
     expect(dialog.classes()).toContain("bg-raised");
     expect(dialog.classes()).toContain("rounded-lg");
     expect(dialog.classes()).toContain("shadow-overlay");
-    expect(wrapper.get("[data-testid='dialog-scrim']").classes()).toContain("bg-shadow");
+    const scrim = wrapper.get("[data-testid='dialog-scrim']");
+    expect(scrim.classes()).toContain("bg-shadow");
+    // Above a sheet's scrim (z-10) whichever opened first; under the palette's (z-40).
+    expect(scrim.classes()).toContain("z-20");
   });
 
   it("uses a red confirm button for the destructive variant and 32px buttons", () => {

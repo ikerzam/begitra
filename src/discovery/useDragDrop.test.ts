@@ -24,16 +24,21 @@ afterEach(() => {
   unlistenDrag.mockClear();
 });
 
+/** The drop target driven by `useDragDrop`, and the paths it hands on. */
+function mountHost() {
+  const dropped: string[] = [];
+  const Host = defineComponent({
+    setup() {
+      const { dragging } = useDragDrop((path) => dropped.push(path));
+      return () => h(DropTarget, { active: dragging.value });
+    },
+  });
+  return { wrapper: mountWithI18n(Host), dropped };
+}
+
 describe("drag and drop", () => {
   it("shows the target on enter, hides it on leave and opens the first dropped path", async () => {
-    const dropped: string[] = [];
-    const Host = defineComponent({
-      setup() {
-        const { dragging } = useDragDrop((path) => dropped.push(path));
-        return () => h(DropTarget, { active: dragging.value });
-      },
-    });
-    const wrapper = mountWithI18n(Host);
+    const { wrapper, dropped } = mountHost();
     await flushPromises();
     expect(dragHandlers).toHaveLength(1);
     const emit = (payload: unknown) => dragHandlers[0]?.({ payload });
@@ -56,5 +61,22 @@ describe("drag and drop", () => {
     expect(wrapper.find('[data-testid="drop-target"]').exists()).toBe(false);
     wrapper.unmount();
     expect(unlistenDrag).toHaveBeenCalledTimes(1);
+  });
+
+  it("neither shows the target nor opens a folder while a modal overlay is open", async () => {
+    const { wrapper, dropped } = mountHost();
+    await flushPromises();
+    const modal = document.createElement("div");
+    modal.setAttribute("aria-modal", "true");
+    document.body.append(modal);
+    const emit = (payload: unknown) => dragHandlers[0]?.({ payload });
+    emit({ type: "enter", paths: ["/home/iker/code/geoportal"], position: { x: 1, y: 1 } });
+    await flushPromises();
+    expect(wrapper.find('[data-testid="drop-target"]').exists()).toBe(false);
+    emit({ type: "drop", paths: ["/home/iker/code/geoportal"], position: { x: 1, y: 1 } });
+    await flushPromises();
+    expect(dropped).toEqual([]);
+    modal.remove();
+    wrapper.unmount();
   });
 });

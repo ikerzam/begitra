@@ -9,6 +9,7 @@ import { useI18n } from "vue-i18n";
 
 import Button from "./Button.vue";
 import IconButton from "./IconButton.vue";
+import Scrim from "./Scrim.vue";
 import { useFocusTrap } from "./useFocusTrap";
 
 const props = withDefaults(
@@ -54,11 +55,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div
-    data-testid="sheet-scrim"
-    class="sheet-scrim fixed z-10 flex items-center justify-center bg-shadow"
-    @pointerdown.self="emit('close')"
-  >
+  <Scrim class="z-10" data-testid="sheet-scrim" @dismiss="emit('close')">
     <div
       ref="panel"
       role="dialog"
@@ -107,15 +104,10 @@ onBeforeUnmount(() => {
         </Button>
       </footer>
     </div>
-  </div>
+  </Scrim>
 </template>
 
 <style scoped>
-/* The strict spacing scale generates no `inset-0`, so the scrim covers the window from here. */
-.sheet-scrim {
-  inset: 0;
-}
-
 /* The remotes and stash sheets are 640px wide; the body scrolls past 480px. */
 .sheet {
   width: 640px;

@@ -216,4 +216,39 @@ describe("PaletteOverlay", () => {
     expect(shell.paletteOpen).toBe(false);
     wrapper.unmount();
   });
+
+  it("dims the window and closes on a press on it, not on a selection released there", async () => {
+    const shell = useShellStore();
+    shell.openPalette();
+    const wrapper = mountWithI18n(PaletteOverlay, { attachTo: document.body });
+    await flushPromises();
+    const scrim = wrapper.get('[data-testid="palette-overlay"]');
+    expect(scrim.classes()).toEqual(expect.arrayContaining(["fixed", "inset-0", "bg-shadow"]));
+    // A selection dragged from the query past the panel ends as a click on the scrim.
+    await wrapper.get('[data-testid="palette-input"]').trigger("pointerdown");
+    await scrim.trigger("click");
+    expect(shell.paletteOpen).toBe(true);
+    await scrim.trigger("pointerdown");
+    expect(shell.paletteOpen).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("keeps the focus in the query when a label is pressed, and closes on Esc from the panel", async () => {
+    const shell = useShellStore();
+    shell.openPalette();
+    const wrapper = mountWithI18n(PaletteOverlay, { attachTo: document.body });
+    await flushPromises();
+    const panel = wrapper.get('[role="dialog"]');
+    expect(panel.attributes("tabindex")).toBe("-1");
+    const label = wrapper.get(".palette-section");
+    const press = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    label.element.dispatchEvent(press);
+    expect(press.defaultPrevented).toBe(true);
+    const onInput = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    wrapper.get('[data-testid="palette-input"]').element.dispatchEvent(onInput);
+    expect(onInput.defaultPrevented).toBe(false);
+    await panel.trigger("keydown", { key: "Escape" });
+    expect(shell.paletteOpen).toBe(false);
+    wrapper.unmount();
+  });
 });

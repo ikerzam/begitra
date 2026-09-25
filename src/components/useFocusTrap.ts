@@ -22,6 +22,19 @@ export function isRendered(element: HTMLElement, layout = hasLayout()): boolean 
   return element.getClientRects().length > 0;
 }
 
+/**
+ * For a panel whose focus lives in its query (the palette, the picker): a press on a part
+ * that takes no focus (a label, a row, the footer) keeps the focus where it is instead of
+ * sending it to the body, where keys would reach the window behind. A press on an
+ * element's own scrollbar is left alone.
+ */
+export function holdFocus(event: MouseEvent): void {
+  const target = event.target;
+  if (!(target instanceof HTMLElement) || target.closest(FOCUSABLE)) return;
+  if (event.offsetX > target.clientWidth || event.offsetY > target.clientHeight) return;
+  event.preventDefault();
+}
+
 export function useFocusTrap(panel: Ref<HTMLElement | null>) {
   /** The rendered focusable elements of the panel, in document order. */
   function focusables(): HTMLElement[] {

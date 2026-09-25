@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, useId, useTemplateRef, type Component } fro
 import { useI18n } from "vue-i18n";
 
 import Button from "./Button.vue";
+import Scrim from "./Scrim.vue";
 import { useFocusTrap } from "./useFocusTrap";
 
 const props = withDefaults(
@@ -63,11 +64,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div
-    data-testid="dialog-scrim"
-    class="dialog-scrim fixed z-10 flex items-center justify-center bg-shadow"
-    @pointerdown.self="emit('cancel')"
-  >
+  <Scrim class="z-20" data-testid="dialog-scrim" @dismiss="emit('cancel')">
     <div
       ref="panel"
       role="dialog"
@@ -98,15 +95,10 @@ onBeforeUnmount(() => {
         </Button>
       </div>
     </div>
-  </div>
+  </Scrim>
 </template>
 
 <style scoped>
-/* The strict spacing scale generates no `inset-0`, so the scrim covers the window from here. */
-.dialog-scrim {
-  inset: 0;
-}
-
 /* A dialog is 440px wide; it shrinks on narrow windows. */
 .dialog {
   width: 440px;
