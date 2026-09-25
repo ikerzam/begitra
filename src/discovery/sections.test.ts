@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import type { IndexEntry } from "@/ipc/schemas";
+import type { FolderScanState, ScanState } from "@/stores/index";
 
-import { branchLanes, tableSections } from "./sections";
+import { branchLanes, sectionScanState, skeletonAfter, tableSections } from "./sections";
 
 function entry(name: string, over: Partial<IndexEntry> = {}): IndexEntry {
   return {
@@ -134,6 +135,49 @@ describe("tableSections", () => {
       // Opened on its own, or found in a folder no longer scanned.
       ["other", null, 2, ["left", "probe"]],
     ]);
+  });
+});
+
+describe("sectionScanState and skeletonAfter", () => {
+  const work = String.raw`D:\work`;
+  const code = String.raw`C:\Code`;
+  const sections = tableSections({
+    pinned: [],
+    recent: [],
+    all: [
+      entry("job", { path: String.raw`D:\work\job`, scanRoot: work }),
+      entry("api", { path: String.raw`C:\Code\api`, scanRoot: code }),
+      entry("probe", { path: String.raw`E:\tmp\probe`, scanRoot: null }),
+    ],
+    scanRoots: [work, code],
+    worktreesOf: () => [],
+  });
+  const idle: ScanState = { kind: "idle" };
+  function scanning(folders: Record<string, FolderScanState>, current: string | null): ScanState {
+    return { kind: "scanning", folders, scanned: 0, found: 0, current };
+  }
+
+  it("tells what the running scan does with a folder section's folder, whatever its spelling", () => {
+    expect(sections.map((s) => s.kind)).toEqual(["folder", "folder", "other"]);
+    const scan = scanning({ [work]: "done", "c:/code/": "scanning" }, "c:/code/");
+    expect(sections.map((s) => sectionScanState(s, scan))).toEqual(["done", "scanning", undefined]);
+    expect(sections.map((s) => sectionScanState(s, idle))).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("puts the skeleton rows first while the index loads and under the folder a scan walks", () => {
+    expect(skeletonAfter([], false, idle)).toBe(-1);
+    expect(skeletonAfter(sections, true, idle)).toBeNull();
+    expect(skeletonAfter(sections, true, scanning({ [work]: "scanning" }, work))).toBe(0);
+    // A folder with nothing found yet, or no folder walked yet: before the rest.
+    const fresh = String.raw`F:\new`;
+    expect(skeletonAfter(sections, true, scanning({ [fresh]: "scanning" }, fresh))).toBe(1);
+    expect(skeletonAfter(sections, true, scanning({}, null))).toBe(1);
+    expect(skeletonAfter(sections.slice(0, 2), true, scanning({}, null))).toBe(1);
+    expect(skeletonAfter(sections.slice(2), true, scanning({}, null))).toBe(-1);
   });
 });
 

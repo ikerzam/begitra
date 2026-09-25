@@ -248,7 +248,17 @@ describe("HomeScreen", () => {
       "312 folders scanned, 14 repositories found",
     );
     expect(sectionHeaders(wrapper).at(-1)).toEqual([CODE, "2 so far"]);
+    // The skeleton rows stand in the group of the folder being walked, which its header names.
+    const walked = wrapper.findAll('[role="group"]').at(-1);
+    expect(walked?.findAll('[data-testid="skeleton-row"]')).toHaveLength(4);
     expect(wrapper.findAll('[data-testid="skeleton-row"]')).toHaveLength(4);
+    const label = document.getElementById(walked?.attributes("aria-labelledby") ?? "");
+    expect(label?.textContent).toContain(CODE);
+
+    // Once the folder is done its count is final, while the scan goes on elsewhere.
+    index.scan = { ...index.scan, folders: { [CODE]: "done", [WT]: "scanning" }, current: WT };
+    await flushPromises();
+    expect(sectionHeaders(wrapper).at(-1)).toEqual([CODE, "2"]);
     wrapper.unmount();
   });
 

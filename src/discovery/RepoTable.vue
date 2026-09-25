@@ -3,7 +3,7 @@
 // opened on their own, in one listbox with roving focus, the row menu, and the loading,
 // scanning, empty and error states of the index.
 
-import { computed, nextTick, ref } from "vue";
+import { computed, nextTick, ref, useId } from "vue";
 import { useI18n } from "vue-i18n";
 
 import EmptyState from "@/components/EmptyState.vue";
@@ -16,17 +16,25 @@ import { useIndexStore } from "@/stores/index";
 import RepoRowMenu from "./RepoRowMenu.vue";
 import RepoTableHeader from "./RepoTableHeader.vue";
 import RepoTableRow from "./RepoTableRow.vue";
-import { branchLanes, tableSections, type TableRow, type TableSection } from "./sections";
+import {
+  branchLanes,
+  sectionScanState,
+  skeletonAfter,
+  tableSections,
+  type TableRow,
+  type TableSection,
+} from "./sections";
 import { useDiscoveryFormat } from "./useDiscoveryFormat";
 import { useRepoActions } from "./useRepoActions";
 
-const { t } = useI18n();
+const { t, n } = useI18n();
 const index = useIndexStore();
 const format = useDiscoveryFormat();
 const actions = useRepoActions();
 const listbox = ref<HTMLElement | null>(null);
 
 const sections = computed(() => tableSections(index));
+const labelIds = useId();
 
 /** A section's label: the folder's path for a scan folder, its name otherwise. */
 function sectionLabel(section: TableSection): string {
@@ -34,6 +42,17 @@ function sectionLabel(section: TableSection): string {
     ? t(`home.sections.${section.kind}`)
     : format.displayPath(section.folder);
 }
+
+/** A section's count, "so far" while the scan walks its folder or has yet to. */
+function sectionCount(section: TableSection): string {
+  const state = sectionScanState(section, index.scan);
+  return state === "scanning" || state === "queued"
+    ? t("home.soFar", { n: n(section.count) })
+    : n(section.count);
+}
+
+/* The position of the section the skeleton rows follow (-1: before them all). */
+const skeletons = computed(() => skeletonAfter(sections.value, index.loaded, index.scan));
 const rows = computed(() => sections.value.flatMap((section) => section.rows));
 const lanes = computed(() => branchLanes(rows.value));
 const rowCount = computed(() => rows.value.length);
@@ -108,20 +127,34 @@ defineExpose({ focus: navigation.focus });
       data-testid="repo-rows"
       @keydown="onKeydown"
     >
-      <template v-for="section in sections" :key="section.id">
-        <p
+      <template v-if="skeletons === -1">
+        <SkeletonRow v-for="k in 4" :key="`skeleton-${k}`" :index="k" height="list" />
+      </template>
+      <!-- Groups of options, each labelled by its header (the ARIA grouped listbox). -->
+      <div
+        v-for="(section, at) in sections"
+        :key="section.id"
+        role="group"
+        :aria-labelledby="`${labelIds}-${at}`"
+        class="flex flex-col"
+      >
+        <div
+          :id="`${labelIds}-${at}`"
+          role="presentation"
           class="flex min-w-0 items-center gap-2 border-b border-line px-3 pt-3 pb-1 text-md font-medium text-fg"
           :data-testid="`section-${section.kind}`"
           :title="section.folder ?? undefined"
         >
-          <span class="truncate">{{ sectionLabel(section) }}</span>
+          <span class="truncate" :class="{ 'font-mono text-mono-sm': section.folder !== null }">
+            {{ sectionLabel(section) }}
+          </span>
           <span
             v-if="section.kind === 'folder' || section.kind === 'other'"
             class="shrink-0 text-sm font-normal text-fg-muted"
           >
-            {{ index.isScanning ? t("home.soFar", { n: section.count }) : section.count }}
+            {{ sectionCount(section) }}
           </span>
-        </p>
+        </div>
         <RepoTableRow
           v-for="row in section.rows"
           :key="row.key"
@@ -136,10 +169,10 @@ defineExpose({ focus: navigation.focus });
           @activate="() => void actions.open(row.entry)"
           @menu="(x, y) => openMenu(row, x, y)"
         />
-      </template>
-      <template v-if="index.isScanning || !index.loaded">
-        <SkeletonRow v-for="n in 4" :key="`skeleton-${n}`" :index="n" height="list" />
-      </template>
+        <template v-if="skeletons === at">
+          <SkeletonRow v-for="k in 4" :key="`skeleton-${k}`" :index="k" height="list" />
+        </template>
+      </div>
     </div>
 
     <div v-if="index.loadError" class="px-5 pt-3" data-testid="index-error">

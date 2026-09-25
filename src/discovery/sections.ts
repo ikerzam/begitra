@@ -5,6 +5,7 @@
 import { laneIndex } from "@/components/lanes";
 import type { IndexEntry } from "@/ipc/schemas";
 import { sameFolder } from "@/shell/format";
+import type { FolderScanState, ScanState } from "@/stores/index";
 
 export type SectionKind = "pinned" | "recent" | "folder" | "other";
 
@@ -97,6 +98,40 @@ export function tableSections(source: SectionSource): TableSection[] {
  * Lane colour per branch name, by first appearance among the rows, so the same branch keeps
  * one colour across repositories and worktrees. Detached and unborn entries get lane 0 (none).
  */
+/** What the running scan is doing with a folder section's folder; nothing for the others. */
+export function sectionScanState(
+  section: TableSection,
+  scan: ScanState,
+): FolderScanState | undefined {
+  const folder = section.folder;
+  if (scan.kind !== "scanning" || folder === null) return undefined;
+  return Object.entries(scan.folders).find(([known]) => sameFolder(known, folder))?.[1];
+}
+
+/**
+ * Where the skeleton rows stand, as the position of the section they follow: -1, before
+ * every section, while the index loads; during a scan, under the folder it walks, else after
+ * the last section before the repositories opened on their own; null when nothing loads.
+ */
+export function skeletonAfter(
+  sections: TableSection[],
+  loaded: boolean,
+  scan: ScanState,
+): number | null {
+  if (!loaded) return -1;
+  if (scan.kind !== "scanning") return null;
+  const current = scan.current;
+  const walked =
+    current === null
+      ? -1
+      : sections.findIndex(
+          (section) => section.folder !== null && sameFolder(section.folder, current),
+        );
+  if (walked >= 0) return walked;
+  const other = sections.findIndex((section) => section.kind === "other");
+  return (other >= 0 ? other : sections.length) - 1;
+}
+
 export function branchLanes(rows: TableRow[]): Map<string, number> {
   const lanes = new Map<string, number>();
   for (const row of rows) {
