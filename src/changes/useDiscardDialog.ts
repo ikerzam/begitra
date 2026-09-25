@@ -1,6 +1,7 @@
 // The discard confirmation of the changes screen and the folder view (the
 // dialog): its title, body and confirm label for files, a hunk or picked lines, naming what is
 // lost and that nothing can be recovered, and the discard itself on the repository's changes.
+// The folder view's title also names the repository, since several can hold the same paths.
 // The dialog closes when its files leave the lists.
 
 import { computed, shallowRef, watch } from "vue";
@@ -15,7 +16,11 @@ import type { DiscardRequest } from "./discard";
 
 export function useDiscardDialog() {
   const { t, n } = useI18n();
-  const pending = shallowRef<{ view: ChangesView; request: DiscardRequest } | null>(null);
+  const pending = shallowRef<{
+    view: ChangesView;
+    request: DiscardRequest;
+    repository: string | null;
+  } | null>(null);
 
   /** Up to three names in full ("a, b and c"), then "a, b, c and N more". */
   function joinNames(names: string[]): string {
@@ -37,6 +42,7 @@ export function useDiscardDialog() {
   const dialog = computed(() => {
     const request = pending.value?.request;
     if (!request) return null;
+    const repository = pending.value?.repository ?? null;
     if (request.kind === "files") {
       // "The unstaged changes to a and b are lost, and b is deleted: it is not tracked yet."
       // (b untracked); untracked files alone read "b is deleted: it is not tracked yet."
@@ -55,7 +61,10 @@ export function useDiscardDialog() {
             : ".";
       }
       return {
-        title: t("changes.discardDialog.title", { n: n(count) }, count),
+        title:
+          repository === null
+            ? t("changes.discardDialog.title", { n: n(count) }, count)
+            : t("changes.discardDialog.titleIn", { n: n(count), repository }, count),
         body: `${body} ${t("changes.discardDialog.cannotRecover")}`,
         confirm: t("changes.discardDialog.confirm", { n: n(count) }, count),
       };
@@ -63,7 +72,10 @@ export function useDiscardDialog() {
     if (request.kind === "hunk") {
       const hunk = request.file.hunks[request.hunkIndex];
       return {
-        title: t("changes.discardDialog.hunkTitle"),
+        title:
+          repository === null
+            ? t("changes.discardDialog.hunkTitle")
+            : t("changes.discardDialog.hunkTitleIn", { repository }),
         body: `${t("changes.discardDialog.bodyHunk", {
           range: hunk ? hunkRange(hunk) : "",
           path: request.file.path,
@@ -73,7 +85,10 @@ export function useDiscardDialog() {
     }
     const count = request.keys.size;
     return {
-      title: t("changes.discardDialog.linesTitle", { n: n(count) }, count),
+      title:
+        repository === null
+          ? t("changes.discardDialog.linesTitle", { n: n(count) }, count)
+          : t("changes.discardDialog.linesTitleIn", { n: n(count), repository }, count),
       body: `${t(
         "changes.discardDialog.bodyLines",
         { n: n(count), path: request.file.path },
@@ -83,12 +98,15 @@ export function useDiscardDialog() {
     };
   });
 
-  /** Asks to discard `request` in the repository `view` holds; nothing while a write runs. */
-  function ask(view: ChangesView, request: DiscardRequest): void {
+  /**
+   * Asks to discard `request` in the repository `view` holds, named `repository` in the title
+   * when given; nothing while a write runs.
+   */
+  function ask(view: ChangesView, request: DiscardRequest, repository: string | null = null): void {
     if (view.busy !== null || pending.value !== null) return;
     if (request.kind === "files" && request.files.length === 0) return;
     if (request.kind !== "files" && request.keys.size === 0) return;
-    pending.value = { view, request };
+    pending.value = { view, request, repository };
   }
 
   function confirm(): void {

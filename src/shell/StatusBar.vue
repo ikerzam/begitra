@@ -11,6 +11,7 @@ import { useIndexStore } from "@/stores/index";
 import { useOperationsStore } from "@/stores/operations";
 import { useRepoStore } from "@/stores/repo";
 import { useChangesStore } from "@/stores/changes";
+import { useFolderStore } from "@/stores/folder";
 import { useSequencerStore } from "@/stores/sequencer";
 import { useCompareStore } from "@/stores/compare";
 import { targetLabel, useReviewStore } from "@/stores/review";
@@ -28,6 +29,7 @@ const operations = useOperationsStore();
 const review = useReviewStore();
 const compare = useCompareStore();
 const changes = useChangesStore();
+const folderView = useFolderStore();
 const sequencer = useSequencerStore();
 const home = useHomeDir();
 
@@ -147,10 +149,21 @@ const hints = computed(() => {
     return [{ keys: registry.hint("palette"), label: t("statusBar.commands") }];
   }
   if (shell.layoutMode === "folder") {
+    // With nothing to stage (the scan, the first reads, no change), the way back and the
+    // palette, as on the changes screen.
+    if (folderView.state !== "changes") {
+      return [
+        { keys: registry.hint("graph-focus"), label: t("statusBar.graph") },
+        { keys: registry.hint("palette"), label: t("statusBar.commands") },
+      ];
+    }
     return [
       { keys: "j/k", label: t("statusBar.files") },
       { keys: registry.hint("stage-file"), label: t("statusBar.stage") },
-      { keys: registry.hint("commit"), label: t("statusBar.commit") },
+      {
+        keys: registry.hint("commit"),
+        label: folderView.active?.view.draft.amend ? t("statusBar.amend") : t("statusBar.commit"),
+      },
     ];
   }
   if (repo.state.kind !== "ready") {

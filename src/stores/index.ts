@@ -432,13 +432,9 @@ export const useIndexStore = defineStore("index", () => {
 
   /**
    * Opens a folder the user picked or dropped: the repository it lies in, or, when it lies in
-   * none, the folder as a scan folder (scanned again when it is one already), which the home
-   * screen shows being scanned. An indexed entry goes through `open`, where the same answer
-   * means that its folder is gone.
-   */
-  /**
-   * Opens `path` as a repository; a folder that is not one becomes a scan folder and is
-   * scanned. Resolves with what it was, so the caller can show a folder's view.
+   * none, the folder as a scan folder (scanned again when it is one already). Resolves with
+   * what it was, so the caller shows a folder's view. An indexed entry goes through `open`,
+   * where the same answer means that its folder is gone.
    */
   async function openFolder(path: string): Promise<"repository" | "folder"> {
     const repo = useRepoStore();

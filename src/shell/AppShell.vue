@@ -90,6 +90,7 @@ const compareLayout = ref<{ focusSides(): void } | null>(null);
 const worktreesLayout = ref<{ focusRows(): void } | null>(null);
 const settingsLayout = ref<{ focus(): void } | null>(null);
 const changesLayout = ref<{ focusLists(): void } | null>(null);
+const folderLayout = ref<{ focusLists(): void } | null>(null);
 
 const repositoryName = computed(() => (repo.repo ? baseName(repo.repo.root) : null));
 const reviewMode = computed(() => shell.layoutMode === "review" && repo.state.kind === "ready");
@@ -254,9 +255,12 @@ watch(settingsMode, (on) => {
   if (on) void nextTick(() => settingsLayout.value?.focus());
 });
 
-// The changes screen starts on its lists ("j/k files", "s stage").
+// The changes screen starts on its lists ("j/k files", "s stage"), and so does the folder view.
 watch(changesMode, (on) => {
   if (on) void nextTick(() => changesLayout.value?.focusLists());
+});
+watch(folderMode, (on) => {
+  if (on) void nextTick(() => folderLayout.value?.focusLists());
 });
 
 /** Switches to review focus, on `file` when the detail tree chose one. */
@@ -308,7 +312,7 @@ async function removeFromList(): Promise<void> {
       <WorktreesLayout v-else-if="worktreesMode" ref="worktreesLayout" />
       <SettingsLayout v-else-if="settingsMode" ref="settingsLayout" />
       <ChangesLayout v-else-if="changesMode" ref="changesLayout" />
-      <FolderLayout v-else-if="folderMode" />
+      <FolderLayout v-else-if="folderMode" ref="folderLayout" />
       <GraphFocusLayout
         v-else
         ref="graphLayout"

@@ -259,14 +259,21 @@ function menuAction(action: "stage" | "unstage" | "discard"): void {
  * embedded list's selection is at the end `step` points to, for the view to move on.
  */
 function moveFile(step: 1 | -1): boolean {
-  if (props.embedded && atEdge(step)) return false;
+  // A section whose lists failed draws no file row to move through.
+  if (props.embedded && (atEdge(step) || !showLists.value)) return false;
   navigation.moveBy(step);
   return true;
 }
 
-/** Selects and focuses the first or the last row (the view entering the section). */
-function selectEdge(edge: "first" | "last"): void {
-  navigation.select(edge === "first" ? 0 : count.value - 1);
+/**
+ * Selects and focuses the first or the last row (the view entering the section); false when
+ * no row is drawn to take it (the lists failed and no conflict is listed).
+ */
+function selectEdge(edge: "first" | "last"): boolean {
+  const drawn = showLists.value ? count.value : conflicts.value.length;
+  if (drawn === 0) return false;
+  navigation.select(edge === "first" ? 0 : drawn - 1);
+  return true;
 }
 
 function onFocusIn(): void {

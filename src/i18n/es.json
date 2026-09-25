@@ -282,7 +282,8 @@
     "unpin": "Desfijar",
     "removeFromList": "Quitar de la lista",
     "dropHere": "Suelta una carpeta para abrirla",
-    "showChanges": "Ver cambios"
+    "showChanges": "Ver cambios",
+    "showChangesIn": "Ver los cambios de {path}"
   },
   "graph": {
     "searchCommits": "Buscar commits",
@@ -710,6 +711,9 @@
       "title": "¿Descartar {n} fichero? | ¿Descartar {n} ficheros?",
       "linesTitle": "¿Descartar {n} línea? | ¿Descartar {n} líneas?",
       "hunkTitle": "¿Descartar el hunk?",
+      "titleIn": "¿Descartar {n} fichero en {repository}? | ¿Descartar {n} ficheros en {repository}?",
+      "linesTitleIn": "¿Descartar {n} línea en {repository}? | ¿Descartar {n} líneas en {repository}?",
+      "hunkTitleIn": "¿Descartar el hunk en {repository}?",
       "bodyFiles": "Los cambios sin preparar de {paths} se pierden",
       "bodyUntracked": "{names} se borra: aún no está en seguimiento. | {names} se borran: aún no están en seguimiento.",
       "bodyLines": "La {n} línea seleccionada de {path} se pierde. | Las {n} líneas seleccionadas de {path} se pierden.",
@@ -1034,15 +1038,18 @@
     "expand": "Mostrar {name}",
     "collapse": "Ocultar {name}",
     "openRepository": "Abrir repositorio",
+    "openRepositoryNamed": "Abrir {name}",
     "changedFiles": "{n} fichero cambiado | {n} ficheros cambiados",
     "clean": "{n} repositorio sin cambios | {n} repositorios sin cambios",
-    "reading": "{n} leyéndose",
+    "reading": "{n} en lectura",
     "readingLine": "Leyendo {n} repositorio… | Leyendo {n} repositorios…",
     "readingOne": "Leyendo…",
     "noChanges": "Sin cambios",
     "looking": "Buscando repositorios en {folder}…",
-    "empty": "No hay repositorios en {folder}",
-    "scanAgain": "Buscar de nuevo",
-    "allClean": "Nada que commitear en {n} repositorio | Nada que commitear en {n} repositorios"
+    "empty": "No hay repositorios en {folder}.",
+    "scanFailed": "No se ha podido escanear {folder}.",
+    "scanAgain": "Escanear de nuevo",
+    "allClean": "Nada que commitear en {n} repositorio. | Nada que commitear en {n} repositorios.",
+    "allCleanDetail": "Nada que commitear en {folder}. Edita ficheros, o deja que lo haga un agente, y aparecerán aquí."
   }
 }

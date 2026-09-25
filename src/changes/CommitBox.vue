@@ -22,10 +22,12 @@ import { useChanges, useOpenRepositoryChanges } from "./useChanges";
 
 const props = withDefaults(
   defineProps<{
-    /** The repository and branch the box commits, named above its fields. */
-    target?: string;
+    /** The repository the box commits, named above its fields with its branch. */
+    targetName?: string;
+    /** That repository's branch ("detached HEAD" when detached); none when unknown. */
+    targetBranch?: string;
   }>(),
-  { target: "" },
+  { targetName: "", targetBranch: "" },
 );
 
 /** Git wraps the subject at this width in its logs; the count shows past it. */
@@ -92,8 +94,16 @@ function onSubjectKeydown(event: KeyboardEvent): void {
     data-testid="commit-box"
     @submit.prevent="onSubmit"
   >
-    <span v-if="props.target" class="truncate text-sm text-fg-muted" data-testid="commit-target">
-      {{ props.target }}
+    <!-- No middle dot between the two: 16px apart, as metadata is. -->
+    <span
+      v-if="props.targetName"
+      class="flex min-w-0 items-center gap-4 text-sm"
+      data-testid="commit-target"
+    >
+      <span class="truncate text-fg-secondary">{{ props.targetName }}</span>
+      <span v-if="props.targetBranch" class="truncate text-fg-muted">
+        {{ props.targetBranch }}
+      </span>
     </span>
     <!-- Subject and description sit 8px apart, the rest 12px. -->
     <div class="flex flex-col gap-2">

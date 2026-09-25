@@ -78,6 +78,13 @@ function row(wrapper: ReturnType<typeof mountWithI18n>, root: string, path: stri
   return wrapper.get(`[data-root="${root}"] [data-path="${path}"]`);
 }
 
+/** The commit box's line: the repository, then its branch. */
+const target = (wrapper: ReturnType<typeof mountWithI18n>) =>
+  wrapper
+    .get('[data-testid="commit-target"]')
+    .findAll("span")
+    .map((part) => part.text());
+
 beforeEach(async () => {
   setActivePinia(createPinia());
   setShortcutRegistry(new ShortcutRegistry("windows"));
@@ -99,11 +106,15 @@ describe("FolderLayout", () => {
     expect(web.get('[data-testid="folder-section-count"]').text()).toBe("1");
     // A section shows the lists that hold files.
     expect(web.find('[data-testid="staged-list"]').exists()).toBe(false);
-    expect(wrapper.get('[data-testid="commit-target"]').text()).toBe("api · main");
+    // The box names the repository and its branch, 16px apart and without a middle dot.
+    expect(target(wrapper)).toEqual(["api", "main"]);
     const group = wrapper.get('[data-testid="folder-group"]');
     expect(group.text()).toContain("1 repository without changes");
-    expect(group.find('[data-testid="folder-group-list"]').exists()).toBe(false);
-    await wrapper.get('[data-testid="folder-group-toggle"]').trigger("click");
+    expect(group.get('[data-testid="folder-group-list"]').isVisible()).toBe(false);
+    const toggle = wrapper.get('[data-testid="folder-group-toggle"]');
+    expect(toggle.attributes("aria-expanded")).toBe("false");
+    await toggle.trigger("click");
+    expect(toggle.attributes("aria-expanded")).toBe("true");
     expect(wrapper.findAll('[data-testid="folder-group-row"]').map((item) => item.text())).toEqual([
       "infraNo changes",
     ]);
@@ -121,7 +132,7 @@ describe("FolderLayout", () => {
     const first = row(wrapper, "/code/web", "tiles.ts");
     expect(first.attributes("aria-selected")).toBe("true");
     expect(document.activeElement).toBe(first.element);
-    expect(wrapper.get('[data-testid="commit-target"]').text()).toBe("web · feat/tiles");
+    expect(target(wrapper)).toEqual(["web", "feat/tiles"]);
     // The section the selection left marks no row.
     expect(last.attributes("aria-selected")).toBe("false");
     await first.trigger("keydown", { key: "k" });
@@ -157,10 +168,11 @@ describe("FolderLayout", () => {
         "/code/zeta": { unstaged: [changedFile("z.ts")], staged: [] },
       },
     });
-    await wrapper
-      .get('[data-root="/code/web"] [data-testid="folder-section-toggle"]')
-      .trigger("click");
-    expect(wrapper.find('[data-root="/code/web"] [data-testid="change-lists"]').exists()).toBe(
+    const toggle = wrapper.get('[data-root="/code/web"] [data-testid="folder-section-toggle"]');
+    expect(toggle.attributes("aria-expanded")).toBe("true");
+    await toggle.trigger("click");
+    expect(toggle.attributes("aria-expanded")).toBe("false");
+    expect(wrapper.get('[data-root="/code/web"] [data-testid="change-lists"]').isVisible()).toBe(
       false,
     );
     const last = row(wrapper, "/code/api", "src/b.ts");
@@ -170,6 +182,45 @@ describe("FolderLayout", () => {
     await flushPromises();
     await nextTick();
     expect(row(wrapper, "/code/zeta", "z.ts").attributes("aria-selected")).toBe("true");
+    wrapper.unmount();
+  });
+
+  it("walks on from a closed section the selection is in, both ways", async () => {
+    const { wrapper } = await mountFolder({
+      repositories: [...folderRepositories, entry("zeta")],
+      changesByRepo: {
+        ...folderChanges,
+        "/code/zeta": { unstaged: [changedFile("z.ts")], staged: [] },
+      },
+    });
+    await row(wrapper, "/code/web", "tiles.ts").trigger("click");
+    await wrapper
+      .get('[data-root="/code/web"] [data-testid="folder-section-toggle"]')
+      .trigger("click");
+    const uninstall = installShortcuts();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "j" }));
+    await flushPromises();
+    await nextTick();
+    expect(row(wrapper, "/code/zeta", "z.ts").attributes("aria-selected")).toBe("true");
+    // Back past the closed section, onto the last row of the one before it.
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "k" }));
+    await flushPromises();
+    await nextTick();
+    uninstall();
+    expect(row(wrapper, "/code/api", "src/b.ts").attributes("aria-selected")).toBe("true");
+    wrapper.unmount();
+  });
+
+  it("names the repository in the discard confirmation", async () => {
+    const { wrapper } = await mountFolder();
+    await row(wrapper, "/code/web", "tiles.ts").trigger("click");
+    const uninstall = installShortcuts();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace" }));
+    uninstall();
+    await nextTick();
+    expect(wrapper.get('[data-testid="discard-dialog"]').text()).toContain(
+      "Discard 1 file in web?",
+    );
     wrapper.unmount();
   });
 

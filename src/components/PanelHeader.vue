@@ -5,8 +5,12 @@ const props = withDefaults(
   defineProps<{
     title: string;
     count?: number;
+    /** A path as the title, in the code-sm role (the folder view's folder). */
+    mono?: boolean;
+    /** The title's tooltip, such as the whole of a path the title shortens. */
+    tooltip?: string;
   }>(),
-  { count: undefined },
+  { count: undefined, mono: false, tooltip: undefined },
 );
 
 const { n } = useI18n();
@@ -17,7 +21,14 @@ const { n } = useI18n();
     data-testid="panel-header"
     class="flex h-panel-header shrink-0 items-center gap-2 border-b border-line px-3 text-md whitespace-nowrap"
   >
-    <h2 class="truncate font-medium text-fg" data-testid="panel-header-title">{{ props.title }}</h2>
+    <h2
+      class="truncate text-fg"
+      :class="props.mono ? 'font-mono text-mono-sm' : 'font-medium'"
+      :data-tooltip="props.tooltip"
+      data-testid="panel-header-title"
+    >
+      {{ props.title }}
+    </h2>
     <span
       v-if="props.count !== undefined"
       class="text-sm text-fg-muted"

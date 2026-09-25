@@ -282,7 +282,8 @@
     "unpin": "Unpin",
     "removeFromList": "Remove from list",
     "dropHere": "Drop a folder to open it",
-    "showChanges": "Show changes"
+    "showChanges": "Show changes",
+    "showChangesIn": "Show the changes in {path}"
   },
   "graph": {
     "searchCommits": "Search commits",
@@ -710,6 +711,9 @@
       "title": "Discard {n} file? | Discard {n} files?",
       "linesTitle": "Discard {n} line? | Discard {n} lines?",
       "hunkTitle": "Discard hunk?",
+      "titleIn": "Discard {n} file in {repository}? | Discard {n} files in {repository}?",
+      "linesTitleIn": "Discard {n} line in {repository}? | Discard {n} lines in {repository}?",
+      "hunkTitleIn": "Discard hunk in {repository}?",
       "bodyFiles": "The unstaged changes to {paths} are lost",
       "bodyUntracked": "{names} is deleted: it is not tracked yet. | {names} are deleted: they are not tracked yet.",
       "bodyLines": "The {n} selected line of {path} is lost. | The {n} selected lines of {path} are lost.",
@@ -1034,6 +1038,7 @@
     "expand": "Show {name}",
     "collapse": "Hide {name}",
     "openRepository": "Open repository",
+    "openRepositoryNamed": "Open {name}",
     "changedFiles": "{n} changed file | {n} changed files",
     "clean": "{n} repository without changes | {n} repositories without changes",
     "reading": "{n} being read",
@@ -1041,8 +1046,10 @@
     "readingOne": "Reading…",
     "noChanges": "No changes",
     "looking": "Looking for repositories in {folder}…",
-    "empty": "No repositories in {folder}",
+    "empty": "No repositories in {folder}.",
+    "scanFailed": "Couldn't scan {folder}.",
     "scanAgain": "Scan again",
-    "allClean": "Nothing to commit in {n} repository | Nothing to commit in {n} repositories"
+    "allClean": "Nothing to commit in {n} repository. | Nothing to commit in {n} repositories.",
+    "allCleanDetail": "Nothing to commit in {folder}. Edit files, or let an agent, and they show up here."
   }
 }

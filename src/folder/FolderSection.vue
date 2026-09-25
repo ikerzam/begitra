@@ -1,12 +1,12 @@
 <script setup lang="ts">
-// A repository of the folder view: its header (the chevron that closes and
-// opens the section, the repository's path under the folder, its branch, its number of
-// changed files and "Open repository") over its Unstaged and Staged lists as the changes
-// screen draws them, on the repository's own model. Only the section the selection is in
-// marks its row.
+// A repository of the folder view: its header, a disclosure that closes and
+// opens the section (the chevron, the repository's path under the folder in the section-title
+// role, and its branch and number of changed files 16px apart), with "Open {name}" in graph
+// focus after it; under it its Unstaged and Staged lists as the changes screen draws them, on
+// the repository's own model. Only the section the selection is in marks its row.
 
-import { ChevronDown, ChevronRight, FolderOpen } from "@lucide/vue";
-import { computed, ref } from "vue";
+import { ChevronDown, ChevronRight, FolderGit2 } from "@lucide/vue";
+import { computed, ref, useId } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ChangeLists from "@/changes/ChangeLists.vue";
@@ -14,6 +14,8 @@ import ChangesScope from "@/changes/ChangesScope.vue";
 import IconButton from "@/components/IconButton.vue";
 import type { FileChange } from "@/ipc/schemas";
 import type { FolderRepository } from "@/stores/folder";
+
+import type { SectionHandle } from "./useFolderKeys";
 
 const props = defineProps<{
   repository: FolderRepository;
@@ -33,17 +35,19 @@ const emit = defineEmits<{
 }>();
 
 const { t, n } = useI18n();
-const lists = ref<{
-  focus(): void;
-  moveFile(step: 1 | -1): boolean;
-  selectEdge(edge: "first" | "last"): void;
-} | null>(null);
-const count = computed(() => props.repository.view.counts?.changed ?? 0);
+const listsId = useId();
+const lists = ref<SectionHandle | null>(null);
+/** The changed files; unknown while the lists load or when they failed. */
+const count = computed(() => props.repository.view.counts?.changed ?? null);
+const branch = computed(() =>
+  props.repository.detached ? t("statusBar.detached") : props.repository.branch,
+);
 
 defineExpose({
+  focus: (): void => lists.value?.focus(),
   moveFile: (step: 1 | -1): boolean => lists.value?.moveFile(step) ?? false,
-  selectEdge: (edge: "first" | "last"): void => lists.value?.selectEdge(edge),
-});
+  selectEdge: (edge: "first" | "last"): boolean => lists.value?.selectEdge(edge) ?? false,
+} satisfies SectionHandle);
 </script>
 
 <template>
@@ -53,50 +57,57 @@ defineExpose({
     data-testid="folder-section"
     :data-root="props.repository.root"
   >
-    <div
-      class="flex h-control shrink-0 items-center gap-2 px-2"
-      data-testid="folder-section-header"
-    >
-      <IconButton
-        :icon="props.collapsed ? ChevronRight : ChevronDown"
-        :label="
-          props.collapsed
-            ? t('folder.expand', { name: props.repository.name })
-            : t('folder.collapse', { name: props.repository.name })
-        "
+    <div class="flex h-panel-header shrink-0 items-center gap-2 pr-2">
+      <button
+        type="button"
+        class="flex h-full min-w-0 flex-1 items-center gap-2 pl-3 text-left hover:bg-hover"
+        :aria-expanded="!props.collapsed"
+        :aria-controls="listsId"
         data-testid="folder-section-toggle"
         @click="emit('toggle')"
-      />
-      <span
-        class="min-w-0 truncate text-md font-medium text-fg"
-        :data-tooltip="props.repository.root"
-        data-testid="folder-section-name"
       >
-        {{ props.repository.name }}
-      </span>
-      <span
-        v-if="props.repository.branch"
-        class="min-w-0 truncate font-mono text-mono-sm text-fg-muted"
-        data-testid="folder-section-branch"
-      >
-        {{ props.repository.branch }}
-      </span>
-      <span
-        class="ml-auto shrink-0 text-sm text-fg-muted tabular-nums"
-        :aria-label="t('folder.changedFiles', { n: n(count) }, count)"
-        data-testid="folder-section-count"
-      >
-        {{ n(count) }}
-      </span>
+        <span class="flex size-icon shrink-0 items-center justify-center">
+          <component
+            :is="props.collapsed ? ChevronRight : ChevronDown"
+            :size="12"
+            :stroke-width="1.5"
+            aria-hidden="true"
+          />
+        </span>
+        <span
+          class="min-w-0 truncate text-lg font-semibold text-fg"
+          :data-tooltip="props.repository.root"
+          data-testid="folder-section-name"
+        >
+          {{ props.repository.name }}
+        </span>
+        <span class="flex min-w-0 items-center gap-4 text-sm text-fg-muted">
+          <span v-if="branch" class="truncate" data-testid="folder-section-branch">
+            {{ branch }}
+          </span>
+          <template v-if="count !== null">
+            <span
+              class="shrink-0 tabular-nums"
+              aria-hidden="true"
+              data-testid="folder-section-count"
+            >
+              {{ n(count) }}
+            </span>
+            <span class="sr-only">{{ t("folder.changedFiles", { n: n(count) }, count) }}</span>
+          </template>
+        </span>
+      </button>
       <IconButton
-        :icon="FolderOpen"
-        :label="t('folder.openRepository')"
+        :icon="FolderGit2"
+        :label="t('folder.openRepositoryNamed', { name: props.repository.name })"
+        :tooltip="t('folder.openRepository')"
         data-testid="folder-section-open"
         @click="emit('open')"
       />
     </div>
     <div
-      v-if="!props.collapsed"
+      v-show="!props.collapsed"
+      :id="listsId"
       @pointerdown="emit('activate')"
       @click="emit('activate')"
       @focusin="emit('activate')"

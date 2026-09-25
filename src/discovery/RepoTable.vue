@@ -157,13 +157,17 @@ defineExpose({ focus: navigation.focus });
         class="flex flex-col"
       >
         <div
-          :id="`${labelIds}-${at}`"
           role="presentation"
           class="flex min-w-0 items-center gap-2 border-b border-line px-3 pt-3 pb-1 text-md font-medium text-fg"
           :data-testid="`section-${section.kind}`"
           :data-tooltip="section.folder ?? undefined"
         >
-          <span class="truncate" :class="{ 'font-mono text-mono-sm': section.folder !== null }">
+          <!-- The group's name is its label alone, not the count or the button after it. -->
+          <span
+            :id="`${labelIds}-${at}`"
+            class="truncate"
+            :class="{ 'font-mono text-mono-sm': section.folder !== null }"
+          >
             {{ sectionLabel(section) }}
           </span>
           <span
@@ -172,10 +176,12 @@ defineExpose({ focus: navigation.focus });
           >
             {{ sectionCount(section) }}
           </span>
+          <!-- -my-1 keeps the header as tall as those without the 24px button. -->
           <IconButton
             v-if="section.kind === 'folder' && section.folder !== null"
-            class="ml-auto"
-            :label="t('home.showChanges')"
+            class="-my-1 ml-auto"
+            :label="t('home.showChangesIn', { path: sectionLabel(section) })"
+            :tooltip="t('home.showChanges')"
             :icon="FilePen"
             data-testid="show-folder-changes"
             @click="() => section.folder !== null && void folderView.open(section.folder)"
