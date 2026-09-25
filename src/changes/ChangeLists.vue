@@ -4,7 +4,9 @@
 // (the "?" of an untracked file), the path and the stats. For the keyboard the two lists are
 // one: j/k and the arrows move through both, Enter opens the row's menu, s, u and Backspace
 // act on the selected row (the layout binds them), and the selected row is the tab stop.
-// Skeleton rows while the diffs stream, the empty sentence on a clean tree.
+// Skeleton rows while the diffs stream, the empty sentence on a clean tree. Embedded in the
+// folder view's sections, the lists scroll with the view, show no empty sentence, and hand
+// the row keys on at their ends (`edge`) so the view carries them into the next section.
 
 import { Check, CheckCheck, Code, Minus, Plus, Terminal, Undo2 } from "@lucide/vue";
 import { computed, nextTick, ref, watch } from "vue";
@@ -23,19 +25,36 @@ import { statusOf } from "@/detail/groupFiles";
 import type { Conflict, FileChange } from "@/ipc/schemas";
 import { errorText } from "@/shell/errorMessage";
 import { useShortcutHint } from "@/shortcuts/useShortcut";
-import { useListNavigation } from "@/shortcuts/useListNavigation";
+import { rowStep, useListNavigation } from "@/shortcuts/useListNavigation";
 import { useExternal } from "@/shell/useExternal";
-import { useChangesStore, type ChangeList } from "@/stores/changes";
+import type { ChangeList } from "@/stores/changes";
 import { useSequencerStore } from "@/stores/sequencer";
+
+import { useChanges, useOpenRepositoryChanges } from "./useChanges";
+
+const props = withDefaults(
+  defineProps<{
+    /** In a folder view's section: no scroll of its own, no empty sentence. */
+    embedded?: boolean;
+    /** Marks the selected row; off in a section the selection is not in. */
+    showSelection?: boolean;
+  }>(),
+  { embedded: false, showSelection: true },
+);
 
 const emit = defineEmits<{
   /** "Discard…" on rows, or "Discard all…": the layout confirms. */
   discard: [files: FileChange[]];
+  /** The row keys went past the first (-1) or the last (1) row of an embedded list. */
+  edge: [direction: 1 | -1];
 }>();
 
 const { t } = useI18n();
-const changes = useChangesStore();
+const changes = useChanges();
 const sequencer = useSequencerStore();
+/** The operation's conflicts, which belong to the open repository alone. */
+const openRepository = useOpenRepositoryChanges();
+const conflicts = computed(() => (openRepository ? sequencer.conflicts : []));
 const external = useExternal();
 const panel = ref<HTMLElement | null>(null);
 const menu = ref<{ list: ChangeList; file: FileChange; x: number; y: number } | null>(null);
@@ -76,7 +95,7 @@ function conflictRow(conflict: Conflict): Row {
 
 /** The three lists as one sequence, for the keyboard: conflicts first. */
 const rows = computed<Row[]>(() => [
-  ...sequencer.conflicts.map(conflictRow),
+  ...conflicts.value.map(conflictRow),
   ...changes.unstaged.files.map((file) => ({ list: "unstaged" as const, file })),
   ...changes.staged.files.map((file) => ({ list: "staged" as const, file })),
 ]);
@@ -136,6 +155,7 @@ function rowElement(index: number): Element | null | undefined {
 
 /** The selected row of a conflict or a file: the rows share the sequence. */
 function isSelected(list: Row["list"], path: string): boolean {
+  if (!props.showSelection) return false;
   const current = changes.selected;
   if (!current || current.path !== path) return false;
   if (list === "conflicts") return current.list === "unstaged" && selectedConflict.value === path;
@@ -166,7 +186,7 @@ function statusLetter(list: ChangeList, file: FileChange): FileStatus {
 function openMenu(row: Row, x: number, y: number): void {
   selectRow(row);
   if (row.list === "conflicts") {
-    const conflict = sequencer.conflicts.find((entry) => entry.path === row.file.path);
+    const conflict = conflicts.value.find((entry) => entry.path === row.file.path);
     if (conflict) conflictMenu.value = { conflict, x, y };
     return;
   }
@@ -201,7 +221,19 @@ function onKeydown(event: KeyboardEvent): void {
     openMenu(row, rect ? rect.left + MENU_OFFSET_X : 0, rect ? rect.bottom : 0);
     return;
   }
+  const step = rowStep(event);
+  if (props.embedded && step !== 0 && atEdge(step)) {
+    event.preventDefault();
+    emit("edge", step);
+    return;
+  }
   navigation.onKeydown(event);
+}
+
+/** Whether moving by `step` would leave the rows (an embedded list hands it on then). */
+function atEdge(step: 1 | -1): boolean {
+  const index = selectedIndex.value;
+  return step === 1 ? index === count.value - 1 : index <= 0;
 }
 
 function closeMenu(): void {
@@ -218,9 +250,19 @@ function menuAction(action: "stage" | "unstage" | "discard"): void {
   else emit("discard", [current.file]);
 }
 
-/** j/k from anywhere on the screen: moves the selection through both lists. */
-function moveFile(step: 1 | -1): void {
+/**
+ * j/k from anywhere on the screen: moves the selection through both lists; false when an
+ * embedded list's selection is at the end `step` points to, for the view to move on.
+ */
+function moveFile(step: 1 | -1): boolean {
+  if (props.embedded && atEdge(step)) return false;
   navigation.moveBy(step);
+  return true;
+}
+
+/** Selects and focuses the first or the last row (the view entering the section). */
+function selectEdge(edge: "first" | "last"): void {
+  navigation.select(edge === "first" ? 0 : count.value - 1);
 }
 
 function onFocusIn(): void {
@@ -247,23 +289,24 @@ watch(
   },
 );
 
-defineExpose({ focus: navigation.focus, moveFile });
+defineExpose({ focus: navigation.focus, moveFile, selectEdge });
 </script>
 
 <template>
   <section
     ref="panel"
-    class="flex min-h-0 min-w-0 flex-1 flex-col"
+    class="flex min-w-0 flex-col"
+    :class="props.embedded ? '' : 'min-h-0 flex-1'"
     data-testid="change-lists"
     @keydown="onKeydown"
     @focusin="onFocusIn"
     @focusout="onFocusOut"
   >
-    <template v-if="showEmpty">
+    <template v-if="showEmpty && !props.embedded">
       <PanelHeader :title="t('changes.title')" :count="0" />
       <EmptyState class="flex-1" :message="t('changes.empty')" data-testid="changes-empty" />
     </template>
-    <div v-else class="min-h-0 flex-1 overflow-y-auto">
+    <div v-else :class="props.embedded ? '' : 'min-h-0 flex-1 overflow-y-auto'">
       <div v-if="changes.error" class="p-3" data-testid="changes-load-failed">
         <ErrorBanner
           :message="loadFailed"
@@ -272,21 +315,21 @@ defineExpose({ focus: navigation.focus, moveFile });
           @action="changes.load()"
         />
       </div>
-      <template v-if="sequencer.conflicts.length > 0">
-        <PanelHeader :title="t('sequencer.conflicts')" :count="sequencer.conflicts.length">
+      <template v-if="conflicts.length > 0">
+        <PanelHeader :title="t('sequencer.conflicts')" :count="conflicts.length">
           <template #actions>
             <IconButton
               :label="t('sequencer.markAllResolved')"
               :icon="CheckCheck"
               :disabled="sequencer.busy"
               data-testid="resolve-all"
-              @click="() => void sequencer.markResolved(sequencer.conflicts.map((c) => c.path))"
+              @click="() => void sequencer.markResolved(conflicts.map((c) => c.path))"
             />
           </template>
         </PanelHeader>
         <div role="tree" class="py-1" data-testid="conflicts-list">
           <TreeRow
-            v-for="(conflict, index) in sequencer.conflicts"
+            v-for="(conflict, index) in conflicts"
             :key="conflict.path"
             :name="conflict.path"
             status="unmerged"
@@ -340,7 +383,7 @@ defineExpose({ focus: navigation.focus, moveFile });
           :generated="file.isGenerated"
           :binary="file.isBinary"
           :selected="isSelected('unstaged', file.path)"
-          :tab-stop="tabStop === sequencer.conflicts.length + index"
+          :tab-stop="tabStop === conflicts.length + index"
           :aria-disabled="changes.busy !== null || undefined"
           data-list="unstaged"
           :data-path="file.path"
@@ -379,7 +422,7 @@ defineExpose({ focus: navigation.focus, moveFile });
           :generated="file.isGenerated"
           :binary="file.isBinary"
           :selected="isSelected('staged', file.path)"
-          :tab-stop="tabStop === sequencer.conflicts.length + changes.unstagedCount + index"
+          :tab-stop="tabStop === conflicts.length + changes.unstagedCount + index"
           :aria-disabled="changes.busy !== null || undefined"
           data-list="staged"
           :data-path="file.path"

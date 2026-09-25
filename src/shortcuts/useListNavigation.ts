@@ -43,6 +43,13 @@ function isBound(event: KeyboardEvent, arrow: string, id: string): boolean {
   return keys !== undefined && matchesKeys(keys, event, registry.platform);
 }
 
+/** 1 for the key that moves to the next row, -1 for the previous one's, 0 for any other. */
+export function rowStep(event: KeyboardEvent): 1 | -1 | 0 {
+  if (isBound(event, "ArrowDown", "next-row")) return 1;
+  if (isBound(event, "ArrowUp", "previous-row")) return -1;
+  return 0;
+}
+
 export function useListNavigation(options: ListNavigationOptions): ListNavigation {
   const clamp = (index: number): number => {
     const count = options.count.value;

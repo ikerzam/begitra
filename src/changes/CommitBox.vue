@@ -3,7 +3,8 @@
 // past 72 characters, the description, "Amend last commit" (HEAD's message borrowed into an
 // empty box, off on an unborn branch) and "Sign off", the author line git will use (or the
 // commit being amended), and "Commit" with ⌘↵, enabled only with a subject and something to
-// commit. The draft lives in the store, so leaving the screen keeps it.
+// commit. The draft lives in the store, so leaving the screen keeps it. In the folder view a
+// line above the fields names the repository the box commits and its branch.
 
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
@@ -15,15 +16,26 @@ import Kbd from "@/components/Kbd.vue";
 import Textarea from "@/components/Textarea.vue";
 import { shortHash } from "@/shell/format";
 import { useShortcutHint } from "@/shortcuts/useShortcut";
-import { useChangesStore } from "@/stores/changes";
 import { useRepoStore } from "@/stores/repo";
+
+import { useChanges, useOpenRepositoryChanges } from "./useChanges";
+
+const props = withDefaults(
+  defineProps<{
+    /** The repository and branch the box commits, named above its fields. */
+    target?: string;
+  }>(),
+  { target: "" },
+);
 
 /** Git wraps the subject at this width in its logs; the count shows past it. */
 const SUBJECT_WIDTH = 72;
 
 const { t, n } = useI18n();
-const changes = useChangesStore();
+const changes = useChanges();
 const repo = useRepoStore();
+/** HEAD's hash is known for the open repository only (its refs are listed). */
+const openRepository = useOpenRepositoryChanges();
 const commitHint = useShortcutHint("commit");
 
 const subject = computed({
@@ -47,7 +59,9 @@ const unborn = computed(() => changes.context?.unborn ?? false);
 const inert = computed(() => changes.busy !== null || changes.isEmpty);
 const subjectLength = computed(() => [...changes.draft.subject].length);
 const overWidth = computed(() => subjectLength.value > SUBJECT_WIDTH);
-const headHash = computed(() => repo.currentBranch?.target ?? repo.commits[0]?.hash ?? null);
+const headHash = computed(() =>
+  openRepository ? (repo.currentBranch?.target ?? repo.commits[0]?.hash ?? null) : null,
+);
 
 /** The author line: who git signs the commit as, or the commit being amended and by whom. */
 const authorLine = computed(() => {
@@ -78,6 +92,9 @@ function onSubjectKeydown(event: KeyboardEvent): void {
     data-testid="commit-box"
     @submit.prevent="onSubmit"
   >
+    <span v-if="props.target" class="truncate text-sm text-fg-muted" data-testid="commit-target">
+      {{ props.target }}
+    </span>
     <!-- Subject and description sit 8px apart, the rest 12px. -->
     <div class="flex flex-col gap-2">
       <div class="flex flex-col gap-1">

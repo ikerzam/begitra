@@ -47,8 +47,10 @@ const props = withDefaults(
     selectable?: boolean;
     /** The picked lines, by `hunk:line` key. */
     selected?: Set<string>;
+    /** The repository the file is in; the open one when not given. */
+    root?: string | null;
   }>(),
-  { target: undefined, selectable: false, selected: () => new Set<string>() },
+  { target: undefined, selectable: false, selected: () => new Set<string>(), root: undefined },
 );
 
 /** `select`: the keys of the lines a click or Space named; `extend` unions them, else toggles. */
@@ -58,7 +60,7 @@ const repo = useRepoStore();
 const review = useReviewStore();
 const body = ref<HTMLElement | null>(null);
 
-const root = computed(() => repo.repo?.root ?? null);
+const root = computed(() => (props.root === undefined ? (repo.repo?.root ?? null) : props.root));
 const target = computed(() => (props.target === undefined ? review.target : props.target));
 const file = computed<FileChange | null>(() => props.file);
 const layout = computed(() => review.layout);

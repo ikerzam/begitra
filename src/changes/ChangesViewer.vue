@@ -22,22 +22,23 @@ import DiffRows from "@/review/DiffRows.vue";
 import ImageDiff from "@/review/ImageDiff.vue";
 import { imageType } from "@/review/sides";
 import { errorText } from "@/shell/errorMessage";
-import { lineKey, useChangesStore, type ChangeList } from "@/stores/changes";
-import { useRepoStore } from "@/stores/repo";
+import { lineKey, type ChangeList } from "@/stores/changes";
 import { useReviewStore, type ReviewTarget } from "@/stores/review";
 import { useSequencerStore } from "@/stores/sequencer";
 
 import type { DiscardRequest } from "./discard";
+import { useChanges, useOpenRepositoryChanges } from "./useChanges";
 
 const emit = defineEmits<{ discard: [request: DiscardRequest] }>();
 
 const { t, n } = useI18n();
-const changes = useChangesStore();
-const repo = useRepoStore();
+const changes = useChanges();
+/** The operation's conflicts belong to the open repository alone. */
+const openRepository = useOpenRepositoryChanges();
 const review = useReviewStore();
 const sequencer = useSequencerStore();
 
-const root = computed(() => repo.repo?.root ?? null);
+const root = computed(() => changes.root);
 const list = computed<ChangeList | null>(() => changes.selected?.list ?? null);
 const file = computed(() => changes.selectedFile);
 const target = computed<ReviewTarget | null>(() =>
@@ -74,7 +75,10 @@ const partialDiscard = computed(
 const busy = computed(() => changes.busy !== null);
 /** The open file is one of the operation's conflicts: "Mark resolved" in the header. */
 const conflicted = computed(
-  () => file.value !== null && sequencer.conflicts.some((entry) => entry.path === file.value?.path),
+  () =>
+    openRepository &&
+    file.value !== null &&
+    sequencer.conflicts.some((entry) => entry.path === file.value?.path),
 );
 const selectedCount = computed(() => selected.value.size);
 
@@ -297,6 +301,7 @@ defineExpose({ actOnSelection, selectedCount });
       :target="target"
       :selectable="selectable && !busy"
       :selected="selected"
+      :root="root"
       @select="onSelect"
     >
       <template #hunkActions="{ hunkIndex }">
