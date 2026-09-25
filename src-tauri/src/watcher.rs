@@ -1,17 +1,20 @@
-//! One filesystem watcher per open repository: `notify` events are collected for
-//! 150 ms after the first one, classified into the kinds of `repo:changed`, and emitted as one
-//! event with the changed paths relative to the root. A batch that touched the index also names
-//! the entries that moved, against the watcher's last snapshot of the index.
+//! The filesystem watchers of the open repository and of the folder view: `notify`
+//! events are collected for 150 ms after the first one, classified into the kinds of
+//! `repo:changed`, and emitted as one event with the changed paths relative to the root. A
+//! batch that touched the index also names the entries that moved, against the watcher's last
+//! snapshot of the index; a watcher that keeps a digest of the index instead (the folder
+//! view's) names none when entries moved, and nothing for a rewrite of stat data.
 
 use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
-use std::sync::Once;
+use std::sync::{Arc, Once};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use git_core::engine::GitEngine;
-use git_core::git2_engine::index_snapshot::IndexSnapshot;
+use git_core::git2_engine::index_snapshot::{IndexDigest, IndexSnapshot};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 
 use crate::events::{RepoChangeKind, RepoChanged};
@@ -120,6 +123,11 @@ impl WatchBases {
 pub struct RepoWatcher {
     watcher: Option<RecommendedWatcher>,
     thread: Option<JoinHandle<()>>,
+    /// A second sender of the raw events, which wakes the debounce loop without a change (see
+    /// [`RepoWatcher::forget_index`]).
+    wake: Option<mpsc::Sender<notify::Result<notify::Event>>>,
+    /// Set when the watcher is to keep a digest of the index in place of its snapshot.
+    forget: Arc<AtomicBool>,
 }
 
 impl RepoWatcher {
@@ -133,32 +141,45 @@ impl RepoWatcher {
         bases: WatchBases,
         emit: impl Fn(RepoChanged) + Send + 'static,
     ) -> Result<Self, notify::Error> {
-        Self::launch(bases, IndexNames::Snapshot, emit)
+        // The index as it is before the watch starts: every change the watch sees is named
+        // against it or a later snapshot.
+        let memory = IndexMemory::Snapshot(read_index(&bases.gitdir.join("index")));
+        Self::launch(bases, memory, emit)
     }
 
-    /// Starts a watcher as [`RepoWatcher::start`] does, without the snapshot of the index (a
-    /// few megabytes on a large tree): an index change names no entry and marks the conflicts
-    /// as changed, so the lists read again whole. The folder view's watchers, twenty of which
-    /// would otherwise hold twenty snapshots.
+    /// Starts a watcher as [`RepoWatcher::start`] does, keeping a digest of the index in place
+    /// of its snapshot (a few megabytes on a large tree): an index change that moved entries
+    /// names none, so the lists read again whole, and a rewrite of stat data still names
+    /// nothing. The folder view's watchers, twenty of which would otherwise hold twenty
+    /// snapshots.
     pub fn start_without_snapshot(
         bases: WatchBases,
         emit: impl Fn(RepoChanged) + Send + 'static,
     ) -> Result<Self, notify::Error> {
-        Self::launch(bases, IndexNames::Unknown, emit)
+        let memory = IndexMemory::Digest(read_digest(&bases.gitdir.join("index")));
+        Self::launch(bases, memory, emit)
+    }
+
+    /// Lets the index snapshot go for a digest, as [`RepoWatcher::start_without_snapshot`]
+    /// keeps: the open repository's watcher, which the folder view takes when the repository
+    /// closes. The first index change after it reads the lists whole.
+    pub fn forget_index(&self) {
+        self.forget.store(true, Ordering::Relaxed);
+        if let Some(wake) = &self.wake {
+            // A read reports nothing; it wakes the loop, which lets the snapshot go at once.
+            let _ = wake.send(Ok(notify::Event::new(notify::EventKind::Access(
+                notify::event::AccessKind::Any,
+            ))));
+        }
     }
 
     fn launch(
         bases: WatchBases,
-        names: IndexNames,
+        memory: IndexMemory,
         emit: impl Fn(RepoChanged) + Send + 'static,
     ) -> Result<Self, notify::Error> {
-        // The index as it is before the watch starts: every change the watch sees is named
-        // against it or a later snapshot.
-        let index = match names {
-            IndexNames::Snapshot => read_index(&bases.gitdir.join("index")),
-            IndexNames::Unknown => None,
-        };
         let (raw_tx, raw_rx) = mpsc::channel::<notify::Result<notify::Event>>();
+        let wake = raw_tx.clone();
         let mut watcher = notify::recommended_watcher(raw_tx)?;
         watcher.watch(&bases.root, RecursiveMode::Recursive)?;
         // A git directory outside the tree (a linked worktree's, a submodule's opened on its
@@ -192,45 +213,93 @@ impl RepoWatcher {
                 }
             }
         }
+        let forget = Arc::new(AtomicBool::new(false));
+        let forgets = Arc::clone(&forget);
         let thread = thread::Builder::new()
             .name("begitra-watcher".to_owned())
-            .spawn(move || debounce_loop(&bases, &raw_rx, names, index, emit))
+            .spawn(move || debounce_loop(&bases, &raw_rx, memory, &forgets, emit))
             .map_err(notify::Error::io)?;
         Ok(Self {
             watcher: Some(watcher),
             thread: Some(thread),
+            wake: Some(wake),
+            forget,
         })
     }
 }
 
 impl Drop for RepoWatcher {
     fn drop(&mut self) {
-        // Dropping the platform watcher closes the event sender, which wakes the debounce
-        // thread at once through `Disconnected`.
+        // Dropping the platform watcher and the second sender closes the event channel, which
+        // wakes the debounce thread at once through `Disconnected`.
         drop(self.watcher.take());
+        drop(self.wake.take());
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
     }
 }
 
-/// Whether a watcher names the index entries a change moved.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum IndexNames {
-    /// Against a snapshot of the index it keeps.
-    Snapshot,
-    /// It keeps none: an index change reads the lists whole.
-    Unknown,
+/// What a watcher keeps of the index to tell what an index change moved.
+enum IndexMemory {
+    /// Its entries, or `None` when the last read failed: a change names the paths whose
+    /// entries moved.
+    Snapshot(Option<IndexSnapshot>),
+    /// A digest of them, or `None` when the last read failed or none was made yet: a change
+    /// that moved entries names none, and a rewrite of stat data names nothing.
+    Digest(Option<IndexDigest>),
+}
+
+impl IndexMemory {
+    /// Reads the index at `path` again: the paths that moved since the last read, and whether
+    /// the conflicts moved; unknown paths and moved conflicts when either read failed. The new
+    /// read is kept for the next change.
+    fn changes(&mut self, path: &Path) -> (Option<Vec<String>>, bool) {
+        match self {
+            Self::Snapshot(last) => {
+                let newer = read_index(path);
+                let changes = match (last.as_ref(), newer.as_ref()) {
+                    (Some(before), Some(after)) => {
+                        let changes = before.changes(after, MAX_PATHS);
+                        (changes.paths, changes.conflicts)
+                    }
+                    _ => (None, true),
+                };
+                *last = newer;
+                changes
+            }
+            Self::Digest(last) => {
+                let newer = read_digest(path);
+                let changes = match (last.as_ref(), newer.as_ref()) {
+                    (Some(before), Some(after)) => {
+                        let changes = before.changes(after);
+                        (changes.paths, changes.conflicts)
+                    }
+                    _ => (None, true),
+                };
+                *last = newer;
+                changes
+            }
+        }
+    }
+
+    /// Lets the snapshot go for a digest. The digest is made at the next change, which reads
+    /// the lists whole: one made now could hide a change the loop has not handled yet.
+    fn forget(&mut self) {
+        if matches!(self, Self::Snapshot(_)) {
+            *self = Self::Digest(None);
+        }
+    }
 }
 
 /// Collects raw events, waits [`DEBOUNCE`] after the first of a batch, and emits the batch;
-/// one that touched the index names the entries that moved since `index`, the last snapshot,
-/// when the watcher keeps snapshots.
+/// one that touched the index says what moved since the last read of it (`memory`). Once
+/// `forget` is set, the snapshot goes for a digest.
 fn debounce_loop(
     bases: &WatchBases,
     raw: &Receiver<notify::Result<notify::Event>>,
-    names: IndexNames,
-    mut index: Option<IndexSnapshot>,
+    mut memory: IndexMemory,
+    forget: &AtomicBool,
     emit: impl Fn(RepoChanged),
 ) {
     let index_file = bases.gitdir.join("index");
@@ -240,6 +309,9 @@ fn debounce_loop(
     // past the limit refuses folder after folder.
     let mut refused = false;
     loop {
+        if forget.load(Ordering::Relaxed) {
+            memory.forget();
+        }
         let wait = deadline.map_or(Duration::from_secs(3600), |d| {
             d.saturating_duration_since(Instant::now())
         });
@@ -285,18 +357,8 @@ fn debounce_loop(
                 deadline = None;
                 if let Some(mut payload) = batch.take(&bases.root) {
                     if payload.kinds.contains(&RepoChangeKind::Index) {
-                        let newer = match names {
-                            IndexNames::Snapshot => read_index(&index_file),
-                            IndexNames::Unknown => None,
-                        };
-                        (payload.index_paths, payload.conflicts_changed) = match (&index, &newer) {
-                            (Some(before), Some(after)) => {
-                                let changes = before.changes(after, MAX_PATHS);
-                                (changes.paths, changes.conflicts)
-                            }
-                            _ => (None, true),
-                        };
-                        index = newer;
+                        (payload.index_paths, payload.conflicts_changed) =
+                            memory.changes(&index_file);
                     }
                     emit(payload);
                 }
@@ -407,17 +469,21 @@ impl Batch {
 /// The snapshot of the index at `path`, or `None` when libgit2 cannot read it (a split or
 /// sparse index, a file being replaced): the frontend then reloads in full.
 fn read_index(path: &Path) -> Option<IndexSnapshot> {
-    match IndexSnapshot::read(path) {
-        Ok(snapshot) => Some(snapshot),
-        Err(error) => {
-            static WARNED: Once = Once::new();
-            WARNED.call_once(|| {
-                tracing::warn!(%error, "the index could not be read: its changes reload the lists in full");
-            });
-            tracing::debug!(%error, "the index could not be read");
-            None
-        }
-    }
+    IndexSnapshot::read(path).map_err(unreadable).ok()
+}
+
+/// The digest of the index at `path`, or `None` when libgit2 cannot read it.
+fn read_digest(path: &Path) -> Option<IndexDigest> {
+    IndexDigest::read(path).map_err(unreadable).ok()
+}
+
+/// Logs an index that could not be read, as a warning the first time.
+fn unreadable(error: git_core::error::GitError) {
+    static WARNED: Once = Once::new();
+    WARNED.call_once(|| {
+        tracing::warn!(%error, "the index could not be read: its changes reload the lists in full");
+    });
+    tracing::debug!(%error, "the index could not be read");
 }
 
 enum Classified {
@@ -720,11 +786,12 @@ mod tests {
         let (raw_tx, raw_rx) = mpsc::channel();
         let (tx, rx) = mpsc::channel();
         let looping = thread::spawn(move || {
+            let never = AtomicBool::new(false);
             debounce_loop(
                 &bases,
                 &raw_rx,
-                IndexNames::Snapshot,
-                None,
+                IndexMemory::Snapshot(None),
+                &never,
                 move |payload| {
                     let _ = tx.send(payload);
                 },

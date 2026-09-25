@@ -185,7 +185,7 @@ impl Repo {
 /// ends a watch on the file itself on Linux, so a second operation must be seen by the watcher
 /// that saw the first.
 struct Session {
-    _watcher: RepoWatcher,
+    watcher: RepoWatcher,
     events: Receiver<RepoChanged>,
 }
 
@@ -212,10 +212,7 @@ impl Session {
         // What the setup still reports (FSEvents can deliver it late) is dropped: until quiet.
         let until = Instant::now() + PATIENCE;
         while Instant::now() < until && events.recv_timeout(QUIET).is_ok() {}
-        Self {
-            _watcher: watcher,
-            events,
-        }
+        Self { watcher, events }
     }
 
     /// Collects events until `enough` says so and no event came for `quiet`, or `patience`
@@ -539,25 +536,73 @@ fn a_staged_file_names_its_index_entry() {
     );
 }
 
+/// Whether every event that reports `index` leaves its entries unknown and the conflicts
+/// where they were, as a watcher without the snapshot reports a staged change.
+fn read_whole(events: &[RepoChanged]) -> bool {
+    let index = index_changes(events);
+    !index.is_empty()
+        && index
+            .iter()
+            .all(|event| event.index_paths.is_none() && !event.conflicts_changed)
+}
+
 #[test]
-fn a_watcher_without_the_snapshot_reads_an_index_change_whole() {
+fn a_watcher_without_the_snapshot_reads_each_index_change_whole() {
     let repo = Repo::new();
-    repo.write(
-        "a.txt", "two
-",
-    );
+    repo.write("a.txt", "two\n");
+    repo.write("b.txt", "b\n");
     let session = Session::start_without_snapshot(WatchBases::main(&repo.root));
     repo.git(&["add", "a.txt"]);
+    let first = session.collect(read_whole, QUIET, PATIENCE);
+    assert!(read_whole(&first), "{first:?}");
+    // The next change is compared with the index after the first, and named no better.
+    repo.git(&["add", "b.txt"]);
+    let second = session.collect(read_whole, QUIET, PATIENCE);
+    assert!(read_whole(&second), "{second:?}");
+}
+
+#[test]
+fn a_watcher_without_the_snapshot_names_nothing_for_a_refresh_of_the_stat_data() {
+    let repo = Repo::new();
+    // Written again with its own content before the watch: only its stat data changed, which
+    // a plain status writes back to the index.
+    repo.write("a.txt", "one\n");
+    let session = Session::start_without_snapshot(WatchBases::main(&repo.root));
+    repo.git(&["status", "--porcelain"]);
     let events = session.collect(|events| !index_changes(events).is_empty(), QUIET, PATIENCE);
     let index = index_changes(&events);
-    assert!(!index.is_empty(), "{events:?}");
-    // No snapshot to compare: the entries that moved are unknown, and so are the conflicts.
     assert!(
-        index
-            .iter()
-            .all(|event| event.index_paths.is_none() && event.conflicts_changed),
-        "{events:?}"
+        !index.is_empty(),
+        "the status rewrote the index: {events:?}"
     );
+    for event in index {
+        assert_eq!(event.index_paths.as_deref(), Some(&[][..]), "{events:?}");
+        assert!(!event.conflicts_changed, "{events:?}");
+    }
+}
+
+#[test]
+fn a_watcher_that_forgot_its_snapshot_reads_an_index_change_whole() {
+    let repo = Repo::new();
+    repo.write("a.txt", "two\n");
+    repo.write("b.txt", "b\n");
+    let session = Session::start(WatchBases::main(&repo.root));
+    session.watcher.forget_index();
+    // The first change has nothing to compare with: its entries and the conflicts are unknown.
+    let unknown = |events: &[RepoChanged]| {
+        let index = index_changes(events);
+        !index.is_empty()
+            && index
+                .iter()
+                .all(|event| event.index_paths.is_none() && event.conflicts_changed)
+    };
+    repo.git(&["add", "a.txt"]);
+    let first = session.collect(unknown, QUIET, PATIENCE);
+    assert!(unknown(&first), "{first:?}");
+    // The next one is compared with a digest, as a watcher without the snapshot compares it.
+    repo.git(&["add", "b.txt"]);
+    let second = session.collect(read_whole, QUIET, PATIENCE);
+    assert!(read_whole(&second), "{second:?}");
 }
 
 #[test]
