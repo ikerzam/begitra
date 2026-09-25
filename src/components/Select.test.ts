@@ -108,17 +108,118 @@ describe("Select", () => {
     wrapper.unmount();
   });
 
-  it("closes on a press outside and chooses with Tab", async () => {
+  it("only closes on a press outside, which reaches nothing else, and chooses with Tab", async () => {
     const wrapper = mountSelect();
     const button = wrapper.get('[data-testid="select-button"]');
+    const backdrop = document.createElement("div");
+    document.body.append(backdrop);
+    const reached: string[] = [];
+    backdrop.addEventListener("pointerdown", () => reached.push("pointerdown"));
     await button.trigger("click");
-    document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }));
-    await nextTick();
+    backdrop.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true }));
+    backdrop.dispatchEvent(new Event("pointerup", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(wrapper.find('[data-testid="option-list"]').exists()).toBe(false);
+    // A dialog's backdrop dismisses on its pointerdown: the press never reached it.
+    expect(reached).toEqual([]);
     await button.trigger("keydown", { key: "ArrowDown" });
     await button.trigger("keydown", { key: "ArrowDown" });
     await button.trigger("keydown", { key: "Tab" });
     expect(wrapper.emitted("update:modelValue")?.at(-1)).toEqual(["current"]);
+    // With nothing to choose, Tab only closes.
+    const empty = mountWithI18n(Select, {
+      props: { options: [], modelValue: "", label: "Start from" },
+      attachTo: document.body,
+    });
+    const emptyButton = empty.get('[data-testid="select-button"]');
+    await emptyButton.trigger("keydown", { key: "ArrowDown" });
+    expect(empty.find('[data-testid="option-list"]').exists()).toBe(true);
+    await emptyButton.trigger("keydown", { key: "Tab" });
+    expect(empty.find('[data-testid="option-list"]').exists()).toBe(false);
+    empty.unmount();
+    wrapper.unmount();
+  });
+
+  it("closes when the focus leaves it", async () => {
+    const wrapper = mountSelect();
+    const button = wrapper.get('[data-testid="select-button"]');
+    (button.element as HTMLElement).focus();
+    await button.trigger("keydown", { key: "ArrowDown" });
+    expect(wrapper.find('[data-testid="option-list"]').exists()).toBe(true);
+    await button.trigger("blur");
+    expect(wrapper.find('[data-testid="option-list"]').exists()).toBe(false);
+    expect(button.attributes("aria-expanded")).toBe("false");
+    wrapper.unmount();
+  });
+
+  it("stays closed after a click on an option inside a label around it", async () => {
+    const label = document.createElement("label");
+    document.body.append(label);
+    const wrapper = mountWithI18n(Select, {
+      props: { options, modelValue: "all" },
+      attachTo: label,
+    });
+    await wrapper.get('[data-testid="select-button"]').trigger("click");
+    await wrapper.get('[data-testid="option"][data-value="claude"]').trigger("click");
+    await nextTick();
+    expect(wrapper.emitted("update:modelValue")?.at(-1)).toEqual(["claude"]);
+    expect(wrapper.find('[data-testid="option-list"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("names its list after the label that points at it", async () => {
+    const label = document.createElement("label");
+    label.htmlFor = "zoom";
+    label.textContent = "Zoom";
+    document.body.append(label);
+    const wrapper = mountWithI18n(Select, {
+      props: { options, modelValue: "all", id: "zoom" },
+      attachTo: document.body,
+    });
+    await wrapper.get('[data-testid="select-button"]').trigger("keydown", { key: "ArrowDown" });
+    expect(wrapper.get('[data-testid="option-list"]').attributes("aria-label")).toBe("Zoom");
+    wrapper.unmount();
+  });
+
+  it("opens and chooses with F4 and Alt with an arrow, and types spaces into a search", async () => {
+    const wrapper = mountWithI18n(Select, {
+      props: {
+        options: [
+          { value: "branches", label: "All branches" },
+          { value: "tags", label: "All tags" },
+          { value: "none", label: "None" },
+        ],
+        modelValue: "none",
+        label: "Show",
+      },
+      attachTo: document.body,
+    });
+    const button = wrapper.get('[data-testid="select-button"]');
+    await button.trigger("keydown", { key: "F4" });
+    expect(wrapper.find('[data-testid="option-list"]').exists()).toBe(true);
+    await button.trigger("keydown", { key: "ArrowUp" });
+    await button.trigger("keydown", { key: "ArrowUp", altKey: true });
+    expect(wrapper.emitted("update:modelValue")?.at(-1)).toEqual(["tags"]);
+    expect(wrapper.find('[data-testid="option-list"]').exists()).toBe(false);
+    // "all b" is one search: the space does not choose All tags on the way.
+    await button.trigger("keydown", { key: "ArrowDown" });
+    for (const key of ["a", "l", "l", " ", "b"]) await button.trigger("keydown", { key });
+    await button.trigger("keydown", { key: "F4" });
+    expect(wrapper.emitted("update:modelValue")?.at(-1)).toEqual(["branches"]);
+    wrapper.unmount();
+  });
+
+  it("keeps the marked option when the options change under the open list", async () => {
+    const wrapper = mountSelect();
+    const button = wrapper.get('[data-testid="select-button"]');
+    await button.trigger("keydown", { key: "ArrowDown" });
+    await button.trigger("keydown", { key: "End" });
+    expect(button.attributes("aria-activedescendant")).toMatch(/-3$/);
+    // claude/fix-auth moves first.
+    await wrapper.setProps({ options: [...options.slice(3), ...options.slice(0, 2)] });
+    expect(button.attributes("aria-activedescendant")).toMatch(/-0$/);
+    await button.trigger("keydown", { key: "Enter" });
+    expect(wrapper.emitted("update:modelValue")?.at(-1)).toEqual(["claude"]);
     wrapper.unmount();
   });
 

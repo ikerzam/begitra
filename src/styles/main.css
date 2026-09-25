@@ -55,6 +55,15 @@
     background-color: var(--border-strong);
   }
 
+  /* A long list's thumb keeps a size the pointer can take. */
+  ::-webkit-scrollbar-thumb:vertical {
+    min-height: var(--space-6);
+  }
+
+  ::-webkit-scrollbar-thumb:horizontal {
+    min-width: var(--space-6);
+  }
+
   ::-webkit-scrollbar-thumb:hover {
     background-color: var(--text-disabled);
   }

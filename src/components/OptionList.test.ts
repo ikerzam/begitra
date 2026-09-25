@@ -16,7 +16,10 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-/** Lays the list out at `list` and its anchor at `anchor` (jsdom lays nothing out). */
+/**
+ * Lays the list out at `list` and its anchor at `anchor` (jsdom lays nothing out); the list's
+ * rows are 28px under 4px of padding on each side.
+ */
 function layout(anchor: DOMRect, list: DOMRect): HTMLElement {
   const element = document.createElement("button");
   document.body.append(element);
@@ -24,6 +27,11 @@ function layout(anchor: DOMRect, list: DOMRect): HTMLElement {
     this: HTMLElement,
   ) {
     return this === element ? anchor : list;
+  });
+  vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return this.getAttribute("role") === "listbox" ? this.children.length * 28 + 8 : 0;
   });
   return element;
 }
@@ -57,8 +65,68 @@ describe("OptionList", () => {
       attachTo: document.body,
     });
     await nextTick();
-    expect(above.attributes("style")).toContain("top: 576px");
+    // Three rows: 92px above the anchor's top, 4px away.
+    expect(above.attributes("style")).toContain("top: 604px");
+    // Rows that go place it again: one row is 36px.
+    await above.setProps({ options: options.slice(0, 1) });
+    await nextTick();
+    await nextTick();
+    expect(above.attributes("style")).toContain("top: 660px");
     above.unmount();
+  });
+
+  it("marks the pointer's row with the hover fill and the keys' row as selected", () => {
+    const anchor = document.createElement("button");
+    document.body.append(anchor);
+    const wrapper = mountWithI18n(OptionList, {
+      props: { id: "zoom", options, anchor, active: 1 },
+      attachTo: document.body,
+    });
+    const rows = wrapper.findAll('[role="option"]');
+    expect(rows[0]?.classes()).toContain("hover:bg-hover");
+    expect(rows[1]?.classes()).toContain("bg-selected");
+    expect(rows[1]?.classes()).not.toContain("hover:bg-hover");
+    expect(rows[2]?.classes()).not.toContain("hover:bg-hover");
+    wrapper.unmount();
+  });
+
+  it("keeps a press outside a modal list, and its click, from reaching anything else", async () => {
+    const anchor = document.createElement("button");
+    const backdrop = document.createElement("div");
+    document.body.append(anchor, backdrop);
+    const reached: string[] = [];
+    backdrop.addEventListener("pointerdown", () => reached.push("pointerdown"));
+    backdrop.addEventListener("click", () => reached.push("click"));
+    const wrapper = mountWithI18n(OptionList, {
+      props: { id: "zoom", options, anchor, active: 0, modal: true },
+      attachTo: document.body,
+    });
+    backdrop.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true }));
+    backdrop.dispatchEvent(new Event("pointerup", { bubbles: true }));
+    backdrop.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(wrapper.emitted("close")).toHaveLength(1);
+    expect(reached).toEqual([]);
+    wrapper.unmount();
+    // Once the press is over, clicks reach their targets again.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    backdrop.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(reached).toEqual(["click"]);
+  });
+
+  it("lets a press outside a field's suggestions reach where it lands", () => {
+    const anchor = document.createElement("input");
+    const other = document.createElement("button");
+    document.body.append(anchor, other);
+    const reached: string[] = [];
+    other.addEventListener("pointerdown", () => reached.push("pointerdown"));
+    const wrapper = mountWithI18n(OptionList, {
+      props: { id: "fonts", options, anchor, active: -1 },
+      attachTo: document.body,
+    });
+    other.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true }));
+    expect(wrapper.emitted("close")).toHaveLength(1);
+    expect(reached).toEqual(["pointerdown"]);
+    wrapper.unmount();
   });
 
   it("chooses an enabled row on a click and closes on a scroll outside it or a resize", async () => {

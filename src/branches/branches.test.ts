@@ -85,6 +85,41 @@ describe("BranchDialogs", () => {
     wrapper.unmount();
   });
 
+  it("sets the upstream picked with the mouse, its list closing on it", async () => {
+    const remote = (name: string) => ({
+      name,
+      fullName: `refs/remotes/${name}`,
+      kind: "remote-branch" as const,
+      target: "0".repeat(40),
+      isCurrent: false,
+      upstream: null,
+      ahead: null,
+      behind: null,
+      worktree: null,
+      message: null,
+      committedAt: null,
+    });
+    const calls = await open({ refs: [remote("origin/develop"), remote("origin/main")] });
+    const branches = useBranchesStore();
+    const wrapper = mountWithI18n(BranchDialogs, { attachTo: document.body });
+    branches.ask({ kind: "upstream", branch: "main", current: null });
+    await nextTick();
+    const dialog = wrapper.get('[data-testid="branch-upstream-dialog"]');
+    const select = dialog.get('[data-testid="branch-upstream"]');
+    await select.get('[data-testid="select-button"]').trigger("click");
+    await select.get('[data-testid="option"][data-value="origin/main"]').trigger("click");
+    await nextTick();
+    expect(select.find('[data-testid="option-list"]').exists()).toBe(false);
+    expect(select.get('[data-testid="select-button"]').text()).toBe("origin/main");
+    await dialog.get('[data-testid="dialog-confirm"]').trigger("click");
+    await settled();
+    expect(of(calls, "set_upstream")[0]?.args).toMatchObject({
+      branch: "main",
+      upstream: "origin/main",
+    });
+    wrapper.unmount();
+  });
+
   it("resets with the chosen mode, destructive for hard", async () => {
     const calls = await open();
     const branches = useBranchesStore();

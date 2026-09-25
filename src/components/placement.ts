@@ -73,6 +73,35 @@ export function fitSide(box: Box, control: Box, side: Side, viewport: Size): Sid
   return { align, placement };
 }
 
+/** The gap between a control and the list that hangs from it: --space-1. */
+export const LIST_GAP = 4;
+
+/**
+ * Where a list hanging from a control goes (a select's options), given its natural size:
+ * under the control, above it when it fits there and not under, else on the side with more
+ * room with its height cut to that room; lined up with the control's left edge, or with its
+ * right edge when the list would cross the window's right and fits that way, then kept inside
+ * the window. `height` is the height to show, null when nothing is laid out yet.
+ */
+export function hangList(
+  control: Box,
+  size: Size,
+  viewport: Size,
+): { left: number; top: number; height: number | null } {
+  if (size.width === 0 && size.height === 0) {
+    return { left: control.left, top: control.bottom + LIST_GAP, height: null };
+  }
+  const below = viewport.height - EDGE - control.bottom - LIST_GAP;
+  const above = control.top - LIST_GAP - EDGE;
+  const under = size.height <= below || (size.height > above && below >= above);
+  const height = Math.max(0, Math.min(size.height, under ? below : above));
+  const top = under ? control.bottom + LIST_GAP : control.top - LIST_GAP - height;
+  const crosses = control.left + size.width > viewport.width - EDGE;
+  const left =
+    crosses && control.right - size.width >= EDGE ? control.right - size.width : control.left;
+  return { left: clamp(left, size.width, viewport.width), top, height };
+}
+
 /** The window's size, or an unbounded one where there is no window. */
 export function viewportSize(): Size {
   return typeof window === "undefined"

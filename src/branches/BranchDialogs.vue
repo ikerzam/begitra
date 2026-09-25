@@ -207,15 +207,18 @@ function confirm(): void {
       @confirm="confirm"
       @cancel="branches.dismiss()"
     >
-      <label class="flex flex-col gap-1 text-md text-fg-secondary">
-        {{ t("branches.dialogs.upstream") }}
+      <div class="flex flex-col gap-1">
+        <label for="branch-upstream" class="text-md text-fg-secondary">
+          {{ t("branches.dialogs.upstream") }}
+        </label>
         <Select
+          id="branch-upstream"
           v-model="upstream"
           :options="remoteBranches"
           data-autofocus
           data-testid="branch-upstream"
         />
-      </label>
+      </div>
     </Dialog>
 
     <Dialog

@@ -388,6 +388,20 @@ describe("SettingsLayout", () => {
     expect(control.text()).toBe("Check for updates");
   });
 
+  it("walks past the zoom select with j while it is closed, not while its list is open", async () => {
+    const wrapper = await mountSettings();
+    const zoom = wrapper.get('[data-testid="zoom"] [data-testid="select-button"]');
+    (zoom.element as HTMLElement).focus();
+    await zoom.trigger("keydown", { key: "j" });
+    expect(document.activeElement).not.toBe(zoom.element);
+    (zoom.element as HTMLElement).focus();
+    await zoom.trigger("keydown", { key: "ArrowDown" });
+    await zoom.trigger("keydown", { key: "j" });
+    expect(document.activeElement).toBe(zoom.element);
+    expect(wrapper.find('[data-testid="zoom"] [data-testid="option-list"]').exists()).toBe(true);
+    await zoom.trigger("keydown", { key: "Escape" });
+  });
+
   it("moves between the fields with j and k when no text field has the focus", async () => {
     const wrapper = await mountSettings();
     const add = wrapper.get('[data-testid="scan-folders-add"]');

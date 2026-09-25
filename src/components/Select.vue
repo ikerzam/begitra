@@ -1,14 +1,16 @@
 <script setup lang="ts">
 // A select in the app's own treatment: a button with the value and the chevron that
 // opens the options in an OptionList, with its own open state (the focus border, the
-// chevron up). The keys of the WAI-ARIA select-only combobox: closed, the arrows, Enter and
-// Space open it (a letter does not, so j and k keep walking the settings' fields); open, the
-// arrows, Home, End and Page Up/Down move, letters jump to the next option they start, Enter
-// and Space choose, Tab chooses and moves on, and Escape closes without choosing; the keys it
-// handles while open stop here, so Escape never closes the dialog around it.
+// chevron up). The keys of the WAI-ARIA select-only combobox: closed, the arrows, Enter, Space
+// and F4 open it (a letter does not, so j and k keep walking the settings' fields); open, the
+// arrows, Home, End and Page Up/Down move, letters jump to the next option they start (a space
+// inside a typed run is part of it), Enter, Space, F4 and Alt with an arrow choose, Tab chooses
+// and moves on, and Escape closes without choosing; the keys it handles while open stop here,
+// so Escape never closes the dialog around it. The list closes when the focus leaves, and a
+// press outside it only closes it, as the platform's select.
 
 import { ChevronDown, ChevronUp } from "@lucide/vue";
-import { computed, ref, useId } from "vue";
+import { computed, ref, useId, watch } from "vue";
 
 import OptionList from "./OptionList.vue";
 import type { ControlSize, SelectOption } from "./types";
@@ -34,6 +36,8 @@ const listId = useId();
 const button = ref<HTMLButtonElement | null>(null);
 const open = ref(false);
 const current = ref(-1);
+/** The list's name: the control's own, or the text of the label that points at it. */
+const listLabel = ref<string | undefined>(undefined);
 
 const selectedIndex = computed(() =>
   props.options.findIndex((option) => option.value === model.value),
@@ -62,9 +66,15 @@ function step(from: number, direction: 1 | -1, count = 1): number {
   return found;
 }
 
+/** The chosen option when it can be marked, else the first enabled one. */
+function initialRow(): number {
+  return enabled(selectedIndex.value) ? selectedIndex.value : step(-1, 1);
+}
+
 function show(): void {
   if (props.disabled) return;
-  current.value = enabled(selectedIndex.value) ? selectedIndex.value : step(-1, 1);
+  current.value = initialRow();
+  listLabel.value = props.label ?? button.value?.labels?.[0]?.textContent?.trim() ?? undefined;
   open.value = true;
 }
 
@@ -81,10 +91,26 @@ function choose(index: number, refocus = true): void {
   if (refocus) button.value?.focus();
 }
 
+/* Options that change while the list is open (a reload re-sorts the authors) keep the marked
+   one by its value, not by its place. */
+watch(
+  () => props.options,
+  (options, previous) => {
+    if (!open.value) return;
+    const value = previous[current.value]?.value;
+    const index = options.findIndex((option) => option.value === value);
+    current.value = index >= 0 && enabled(index) ? index : initialRow();
+  },
+);
+
 /* Typing jumps to the next option that starts with the letters typed within half a second;
    one letter again moves on to the next that starts with it. */
 let typed = "";
 let typedAt = 0;
+
+function typing(): boolean {
+  return typed !== "" && Date.now() - typedAt <= 500;
+}
 
 function typeahead(char: string): void {
   const now = Date.now();
@@ -108,7 +134,7 @@ function typeahead(char: string): void {
 function onKeydown(event: KeyboardEvent): void {
   if (props.disabled) return;
   if (!open.value) {
-    if (["ArrowDown", "ArrowUp", "Enter", " "].includes(event.key)) {
+    if (["ArrowDown", "ArrowUp", "Enter", " ", "F4"].includes(event.key)) {
       event.preventDefault();
       show();
     }
@@ -116,10 +142,9 @@ function onKeydown(event: KeyboardEvent): void {
   }
   switch (event.key) {
     case "ArrowDown":
-      current.value = step(current.value, 1);
-      break;
     case "ArrowUp":
-      current.value = step(current.value, -1);
+      if (event.altKey) choose(current.value);
+      else current.value = step(current.value, event.key === "ArrowDown" ? 1 : -1);
       break;
     case "Home":
       current.value = step(-1, 1);
@@ -133,16 +158,21 @@ function onKeydown(event: KeyboardEvent): void {
     case "PageUp":
       current.value = step(current.value, -1, 10);
       break;
-    case "Enter":
     case " ":
+      if (typing()) typeahead(" ");
+      else choose(current.value);
+      break;
+    case "Enter":
+    case "F4":
       choose(current.value);
       break;
     case "Escape":
       hide();
       break;
     case "Tab":
-      // Chooses and lets the focus move on.
-      choose(current.value, false);
+      // Chooses and lets the focus move on; with nothing to choose it only closes.
+      if (enabled(current.value)) choose(current.value, false);
+      else hide();
       return;
     default:
       if (event.key.length !== 1 || event.ctrlKey || event.metaKey || event.altKey) return;
@@ -176,6 +206,7 @@ function onKeydown(event: KeyboardEvent): void {
       data-testid="select-button"
       @click="open ? hide() : show()"
       @keydown="onKeydown"
+      @blur="hide"
     >
       <span class="truncate">{{ selectedLabel }}</span>
     </button>
@@ -194,7 +225,8 @@ function onKeydown(event: KeyboardEvent): void {
       :anchor="button"
       :active="current"
       :selected="model"
-      :label="props.label"
+      :label="listLabel"
+      modal
       @choose="(index) => choose(index)"
       @close="hide"
     />
@@ -202,8 +234,10 @@ function onKeydown(event: KeyboardEvent): void {
 </template>
 
 <style scoped>
-/* The open state: the focus colour as a 2px border, as a focused input. */
+/* The open state: the focus colour as a 2px ring over the border, as a focused input,
+   drawn as the outline so the keyboard's focus ring cannot add to it. */
 .select-open {
-  box-shadow: 0 0 0 1px var(--focus-ring);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -1px;
 }
 </style>

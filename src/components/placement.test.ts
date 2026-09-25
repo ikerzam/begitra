@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { EDGE, fitSide, placeAtPoint } from "./placement";
+import { EDGE, fitSide, hangList, placeAtPoint } from "./placement";
 
 const viewport = { width: 1440, height: 900 };
 const menu = { width: 200, height: 160 };
@@ -73,5 +73,44 @@ describe("fitSide", () => {
     const control = { left: 100, top: 10, right: 124, bottom: 34 };
     const tall = { left: 100, top: 38, right: 240, bottom: 1000 };
     expect(fitSide(tall, control, start, viewport)).toEqual(start);
+  });
+});
+
+describe("hangList", () => {
+  const control = { left: 100, top: 100, right: 196, bottom: 128 };
+  const rows = { width: 96, height: 120 };
+
+  it("hangs under the control at its left edge when it fits", () => {
+    expect(hangList(control, rows, viewport)).toEqual({ left: 100, top: 132, height: 120 });
+  });
+
+  it("goes above a control whose room under it is short", () => {
+    const low = { left: 100, top: 800, right: 196, bottom: 828 };
+    expect(hangList(low, rows, viewport)).toEqual({ left: 100, top: 676, height: 120 });
+  });
+
+  it("takes the side with more room and cuts its height to it when neither fits", () => {
+    const short = { width: 1440, height: 600 };
+    const tall = { width: 96, height: 290 };
+    const higher = { left: 100, top: 280, right: 196, bottom: 308 };
+    expect(hangList(higher, tall, short)).toEqual({ left: 100, top: 312, height: 280 });
+    const lower = { left: 100, top: 300, right: 196, bottom: 328 };
+    expect(hangList(lower, tall, short)).toEqual({ left: 100, top: EDGE, height: 288 });
+  });
+
+  it("lines up with the control's right edge when it would cross the window's right", () => {
+    const right = { left: 1300, top: 100, right: 1400, bottom: 128 };
+    expect(hangList(right, { width: 300, height: 120 }, viewport).left).toBe(1100);
+    // Wider than both ways allow: against the window's left edge.
+    const narrow = { left: 20, top: 100, right: 60, bottom: 128 };
+    expect(hangList(narrow, { width: 1430, height: 120 }, viewport).left).toBe(EDGE);
+  });
+
+  it("stays under the control with no height of its own while nothing is laid out", () => {
+    expect(hangList(control, { width: 0, height: 0 }, viewport)).toEqual({
+      left: 100,
+      top: 132,
+      height: null,
+    });
   });
 });

@@ -59,22 +59,23 @@ let anchor: HTMLElement | null = null;
 
 /**
  * j/k walk the page's controls when no text field has the focus ("j/k fields"). Escape in a
- * field or a select hands the focus to the page (a text field has restored its value), so
- * the keys reach this handler again and walk on from that field.
+ * text field hands the focus to the page (the field has restored its value), so the keys
+ * reach this handler again and walk on from that field; a select is a button, which they walk
+ * from while it is closed.
  */
 function onKeydown(event: KeyboardEvent): void {
   if (screen.capturing) return;
   const origin = event.target as HTMLElement | null;
-  if (event.key === "Escape" && origin?.matches("input, select, textarea")) {
+  if (event.key === "Escape" && origin?.matches("input, textarea")) {
     anchor = origin;
     page.value?.focus();
     return;
   }
   if (isEditableTarget(origin)) return;
   if (event.key !== "j" && event.key !== "k") return;
-  const controls = [
-    ...(page.value?.querySelectorAll<HTMLElement>("input, select, button") ?? []),
-  ].filter((control) => !control.hasAttribute("disabled"));
+  const controls = [...(page.value?.querySelectorAll<HTMLElement>("input, button") ?? [])].filter(
+    (control) => !control.hasAttribute("disabled"),
+  );
   if (controls.length === 0) return;
   const active = document.activeElement;
   let current = controls.findIndex((control) => control === active);
