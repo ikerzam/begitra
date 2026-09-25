@@ -17,6 +17,7 @@ import { errorText } from "@/shell/errorMessage";
 import { shortHash } from "@/shell/format";
 import { useGraphStore } from "@/stores/graph";
 import { useRepoStore } from "@/stores/repo";
+import { useShellStore } from "@/stores/shell";
 import { useToastsStore } from "@/stores/toasts";
 
 import CommitContextMenu from "./CommitContextMenu.vue";
@@ -25,11 +26,13 @@ import FilterBar from "./FilterBar.vue";
 import HoverCard from "./HoverCard.vue";
 import { useCommitActions } from "./useCommitActions";
 import { useHoverCard } from "./useHoverCard";
+import WorkingTreeRow from "./WorkingTreeRow.vue";
 
 const emit = defineEmits<{ activate: [index: number]; removeFromList: [] }>();
 
 const { t } = useI18n();
 const repo = useRepoStore();
+const shell = useShellStore();
 const graph = useGraphStore();
 const toasts = useToastsStore();
 const actions = useCommitActions();
@@ -161,6 +164,7 @@ defineExpose({ focus: () => rows.value?.focus() });
     </div>
 
     <template v-else>
+      <WorkingTreeRow @open="() => void shell.setLayoutMode('changes')" />
       <EmptyState
         v-if="showEmpty && graph.isActive"
         :message="t('graph.noMatches')"

@@ -22,6 +22,7 @@ import PickerOverlay from "@/picker/PickerOverlay.vue";
 import { baseName, shortHash } from "@/shell/format";
 import { isOverlayTarget } from "@/shortcuts/registry";
 import { installShortcuts, useShortcut } from "@/shortcuts/useShortcut";
+import { useChangesStore } from "@/stores/changes";
 import { useIndexStore } from "@/stores/index";
 import { useOperationsStore } from "@/stores/operations";
 import { useRemotesStore } from "@/stores/remotes";
@@ -58,6 +59,7 @@ const repo = useRepoStore();
 const index = useIndexStore();
 const settings = useSettingsStore();
 const toasts = useToastsStore();
+const changes = useChangesStore();
 const worktrees = useWorktreesStore();
 const settingsScreen = useSettingsScreenStore();
 const reviewStore = useReviewStore();
@@ -258,6 +260,8 @@ async function removeFromList(): Promise<void> {
       :repository-name="repositoryName"
       :repository-root="repo.repo?.root ?? null"
       :layout-mode="shell.layoutMode"
+      :changed-count="changes.changedCount"
+      :can-show-changes="repo.state.kind === 'ready'"
       @open-folder="() => void openFolder()"
       @open-palette="shell.openPalette()"
       @set-layout-mode="(mode) => void shell.setLayoutMode(mode)"

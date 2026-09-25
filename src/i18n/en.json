@@ -98,7 +98,9 @@
     "search": "Search or run a command…",
     "settings": "Settings",
     "graphFocus": "Graph focus",
-    "reviewFocus": "Review focus"
+    "reviewFocus": "Review focus",
+    "changes": "Changes",
+    "changesCount": "Changes, {n} file changed | Changes, {n} files changed"
   },
   "sidebar": {
     "repos": "Repos",
@@ -290,6 +292,11 @@
     "clearFilters": "Clear filters",
     "noCommits": "No commits yet",
     "noMatches": "No commits match these filters.",
+    "workingTree": {
+      "label": "Uncommitted changes",
+      "unstaged": "{n} unstaged",
+      "staged": "{n} staged"
+    },
     "removeFromList": "Remove from list",
     "diffFromChip": "Diff from {hash}",
     "rangeEndChip": "Range end {hash}",

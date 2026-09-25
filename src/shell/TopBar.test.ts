@@ -21,7 +21,13 @@ afterEach(() => {
 describe("TopBar", () => {
   it("shows a tooltip with the shortcut hint on the layout buttons instead of a native title", async () => {
     const wrapper = mountWithI18n(TopBar, {
-      props: { repositoryName: null, repositoryRoot: null, layoutMode: "graph" },
+      props: {
+        repositoryName: null,
+        repositoryRoot: null,
+        layoutMode: "graph",
+        changedCount: 0,
+        canShowChanges: false,
+      },
       attachTo: document.body,
     });
     const button = wrapper.get('[data-testid="mode-graph"]');
@@ -43,13 +49,63 @@ describe("TopBar", () => {
 
   it("names the open repository in the switcher and passes Open folder… up", async () => {
     const wrapper = mountWithI18n(TopBar, {
-      props: { repositoryName: "geoportal", repositoryRoot: "/r/geoportal", layoutMode: "graph" },
+      props: {
+        repositoryName: "geoportal",
+        repositoryRoot: "/r/geoportal",
+        layoutMode: "graph",
+        changedCount: 0,
+        canShowChanges: true,
+      },
       attachTo: document.body,
     });
     expect(wrapper.get('[data-testid="repo-switcher"]').text()).toBe("geoportal");
     await wrapper.get('[data-testid="repo-switcher"]').trigger("click");
     await wrapper.get('[data-testid="switcher-open-folder"]').trigger("click");
     expect(wrapper.emitted("openFolder")).toHaveLength(1);
+    wrapper.unmount();
+  });
+
+  it("counts the changed files on the Changes toggle, names ⌘3 and opens the changes screen", async () => {
+    const wrapper = mountWithI18n(TopBar, {
+      props: {
+        repositoryName: "geoportal",
+        repositoryRoot: "/r/geoportal",
+        layoutMode: "graph",
+        changedCount: 5,
+        canShowChanges: true,
+      },
+      attachTo: document.body,
+    });
+    const toggle = wrapper.get('[data-testid="mode-changes"]');
+    expect(toggle.get('[data-testid="icon-button-count"]').text()).toBe("5");
+    expect(toggle.attributes("aria-label")).toBe("Changes, 5 files changed");
+    expect(toggle.attributes("aria-pressed")).toBe("false");
+    await wrapper.get('[data-testid="tooltip-changes"]').trigger("mouseenter");
+    const tooltip = wrapper.get("[role='tooltip']");
+    expect(tooltip.text()).toContain("Changes");
+    expect(tooltip.get("kbd").text()).toBe("Ctrl 3");
+    await toggle.trigger("click");
+    expect(wrapper.emitted("setLayoutMode")).toEqual([["changes"]]);
+
+    // On the changes screen, clean: pressed, no count.
+    await wrapper.setProps({ layoutMode: "changes", changedCount: 0 });
+    expect(toggle.attributes("aria-pressed")).toBe("true");
+    expect(toggle.find('[data-testid="icon-button-count"]').exists()).toBe(false);
+    expect(toggle.attributes("aria-label")).toBe("Changes");
+    wrapper.unmount();
+  });
+
+  it("disables the Changes toggle without a ready repository", () => {
+    const wrapper = mountWithI18n(TopBar, {
+      props: {
+        repositoryName: null,
+        repositoryRoot: null,
+        layoutMode: "graph",
+        changedCount: 0,
+        canShowChanges: false,
+      },
+    });
+    expect(wrapper.get('[data-testid="mode-changes"]').attributes("disabled")).toBeDefined();
     wrapper.unmount();
   });
 });

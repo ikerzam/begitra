@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FileDiff, GitGraph, Search, Settings } from "@lucide/vue";
+import { FileDiff, FilePen, GitGraph, Search, Settings } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
 
 import IconButton from "@/components/IconButton.vue";
@@ -16,6 +16,10 @@ const props = defineProps<{
   /** Root of the open repository, marked in the switcher menu. */
   repositoryRoot: string | null;
   layoutMode: LayoutMode;
+  /** Files with a change in the working tree or the index: the Changes toggle's count. */
+  changedCount: number;
+  /** Whether a repository is ready, which the changes screen needs. */
+  canShowChanges: boolean;
 }>();
 const emit = defineEmits<{ openFolder: []; openPalette: []; setLayoutMode: [mode: LayoutMode] }>();
 
@@ -24,6 +28,7 @@ const paletteHint = useShortcutHint("palette");
 const settingsHint = useShortcutHint("settings");
 const graphHint = useShortcutHint("graph-focus");
 const reviewHint = useShortcutHint("review-focus");
+const changesHint = useShortcutHint("changes-focus");
 </script>
 
 <template>
@@ -96,6 +101,28 @@ const reviewHint = useShortcutHint("review-focus");
           :aria-describedby="id"
           data-testid="mode-review"
           @click="emit('setLayoutMode', 'review')"
+        />
+      </Tooltip>
+      <Tooltip
+        v-slot="{ id }"
+        :label="t('topBar.changes')"
+        :keys="changesHint"
+        data-testid="tooltip-changes"
+      >
+        <IconButton
+          :label="
+            props.changedCount > 0
+              ? t('topBar.changesCount', { n: props.changedCount }, props.changedCount)
+              : t('topBar.changes')
+          "
+          :icon="FilePen"
+          :count="props.changedCount"
+          :pressed="props.layoutMode === 'changes'"
+          :disabled="!props.canShowChanges"
+          :native-title="false"
+          :aria-describedby="id"
+          data-testid="mode-changes"
+          @click="emit('setLayoutMode', 'changes')"
         />
       </Tooltip>
     </div>

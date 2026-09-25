@@ -5,11 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
 
 import { fakeBackend, fakeCommit } from "@/test/backend";
+import { changedFile } from "@/test/changes";
 import { mountWithI18n } from "@/test/mount";
 import { useBranchesStore } from "@/stores/branches";
 import { useGraphStore } from "@/stores/graph";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
+import { useShellStore } from "@/stores/shell";
 import { useToastsStore } from "@/stores/toasts";
 
 import GraphPanel from "./GraphPanel.vue";
@@ -278,6 +280,26 @@ describe("GraphPanel broken history", () => {
     await banner.get("button").trigger("click");
     await flushPromises();
     expect(calls.some((c) => c.cmd === "open_external")).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("shows the working tree's row above the commits and opens the changes screen from it", async () => {
+    fakeBackend({
+      changes: { unstaged: [changedFile("a.ts")], staged: [changedFile("b.ts")] },
+    });
+    await openRepository();
+    const wrapper = await mountPanel();
+    await settled();
+    const row = wrapper.get('[data-testid="working-tree-row"]');
+    expect(wrapper.get('[data-testid="working-tree-counts"]').text()).toBe("1 unstaged · 1 staged");
+    // Above the list, not in it: the rows and the selection are the commits'.
+    const position = row.element.compareDocumentPosition(
+      wrapper.get('[data-testid="commit-rows"]').element,
+    );
+    expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(useRepoStore().selectedIndex).toBe(0);
+    await row.trigger("click");
+    expect(useShellStore().layoutMode).toBe("changes");
     wrapper.unmount();
   });
 });

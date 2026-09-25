@@ -13,8 +13,17 @@ const props = withDefaults(
     size?: "md" | "lg";
     /** Off when a Tooltip wraps the button, so the native title does not double it. */
     nativeTitle?: boolean;
+    /** A number shown after the icon (a toggle's count), which widens the button; none at 0. */
+    count?: number;
   }>(),
-  { icon: undefined, pressed: undefined, disabled: false, size: "md", nativeTitle: true },
+  {
+    icon: undefined,
+    pressed: undefined,
+    disabled: false,
+    size: "md",
+    nativeTitle: true,
+    count: 0,
+  },
 );
 </script>
 
@@ -27,7 +36,7 @@ const props = withDefaults(
     :title="props.nativeTitle ? props.label : undefined"
     class="inline-flex shrink-0 items-center justify-center rounded-sm enabled:hover:bg-hover enabled:hover:text-fg enabled:active:bg-active disabled:text-fg-disabled"
     :class="[
-      props.size === 'lg' ? 'size-6' : 'size-5',
+      props.count > 0 ? 'h-5 min-w-5 gap-1 px-1' : props.size === 'lg' ? 'size-6' : 'size-5',
       props.pressed ? 'bg-selected text-fg' : 'text-fg-secondary',
     ]"
   >
@@ -38,6 +47,9 @@ const props = withDefaults(
       :stroke-width="1.5"
       aria-hidden="true"
     />
+    <span v-if="props.count > 0" class="text-sm tabular-nums" data-testid="icon-button-count">
+      {{ props.count }}
+    </span>
     <slot />
   </button>
 </template>
