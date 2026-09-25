@@ -209,6 +209,7 @@ describe("graph store", () => {
       behind: null,
       worktree: null,
       message: null,
+      committedAt: null,
     });
     const refs = [branch("develop", false), branch("main", true)];
     const calls = mockBackend(refs);

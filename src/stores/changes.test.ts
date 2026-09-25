@@ -389,6 +389,7 @@ describe("changes store", () => {
       behind: null,
       worktree: name === "agent" ? "/r-agent" : null,
       message: null,
+      committedAt: null,
     });
     const refs = [branch("agent", 3), branch("main", 0), branch("HEAD", 0)];
     const { changes, calls } = await openChanges({ refs });

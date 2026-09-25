@@ -16,6 +16,7 @@ function ref(name: string, kind: GitRef["kind"], isCurrent = false): GitRef {
     behind: null,
     worktree: null,
     message: null,
+    committedAt: null,
   };
 }
 

@@ -47,6 +47,7 @@ const ref = (over: Partial<Ref>): Ref => ({
   behind: 0,
   worktree: "/r",
   message: null,
+  committedAt: null,
   ...over,
 });
 const refs: Ref[] = [

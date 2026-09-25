@@ -98,6 +98,7 @@ function mockBackend(options: BackendOptions = {}): Call[] {
             behind: null,
             worktree: "/r",
             message: null,
+            committedAt: commit(0).committer.time,
           },
         ];
       case "walk_commits":

@@ -23,6 +23,7 @@ function ref(overrides: Partial<GitRef> & Pick<GitRef, "name" | "fullName" | "ki
     behind: null,
     worktree: null,
     message: null,
+    committedAt: null,
     ...overrides,
   };
 }

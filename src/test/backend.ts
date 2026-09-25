@@ -386,6 +386,7 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
             behind: null,
             worktree: "/r",
             message: null,
+            committedAt: fakeCommit(0).committer.time,
           },
           {
             name: "develop",
@@ -398,6 +399,7 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
             behind: null,
             worktree: null,
             message: null,
+            committedAt: fakeCommit(3).committer.time,
           },
         ];
       case "walk_commits":

@@ -82,6 +82,11 @@ export const RefSchema = v.object({
   behind: v.nullable(count),
   worktree: v.nullable(v.string()),
   message: v.nullable(v.string()),
+  /**
+   * Unix seconds of the committer time of the ref's commit, as `git log -1 --format=%ct <ref>`
+   * prints it; null for a tag of a tree or a blob.
+   */
+  committedAt: v.nullable(int),
 });
 export type Ref = v.InferOutput<typeof RefSchema>;
 

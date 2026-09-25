@@ -225,6 +225,111 @@ fn a_gone_upstream_keeps_its_name_without_counts() {
 }
 
 #[test]
+fn carries_the_committer_time_of_each_ref_s_commit_like_log() {
+    let mut f = Fixture::basic().with_remote().with_stash();
+    f.git(&["tag", "light", "develop"]);
+    f.git(&["tag", "tree", "HEAD^{tree}"]);
+    f.git(&["tag", "-a", "tree-note", "-m", "a tree", "HEAD^{tree}"]);
+    f.git(&["checkout", "-q", "-b", "fresh"]);
+    f.write("fresh.txt", "fresh\n");
+    f.commit("f1: fresh");
+    f.git(&["checkout", "-q", "main"]);
+    let refs = refs_at(&f.root);
+
+    // (listed ref, what git log reads it as); the annotated tag v1 is its tagged commit's.
+    for (full_name, spec) in [
+        ("refs/heads/main", "main"),
+        ("refs/heads/develop", "develop"),
+        ("refs/heads/fresh", "fresh"),
+        ("refs/remotes/origin/main", "origin/main"),
+        ("refs/remotes/origin/develop", "origin/develop"),
+        ("refs/tags/v1", "v1"),
+        ("refs/tags/light", "light"),
+        ("refs/stash", "stash@{0}"),
+        ("HEAD", "HEAD"),
+    ] {
+        let expected: i64 = f
+            .git(&["log", "-1", "--format=%ct", spec])
+            .trim()
+            .parse()
+            .expect("a Unix time");
+        assert_eq!(
+            find(&refs, full_name).committed_at,
+            Some(expected),
+            "{full_name}"
+        );
+    }
+    let fresh = find(&refs, "refs/heads/fresh").committed_at;
+    assert!(fresh > find(&refs, "refs/heads/main").committed_at);
+    assert!(find(&refs, "refs/tags/v1").committed_at < fresh);
+    // A tag of a tree, lightweight or annotated, has no commit and so no time.
+    assert_eq!(find(&refs, "refs/tags/tree").committed_at, None);
+    assert_eq!(find(&refs, "refs/tags/tree-note").committed_at, None);
+}
+
+#[test]
+fn takes_the_committer_time_rather_than_the_author_s_or_the_tagger_s() {
+    let mut f = Fixture::basic();
+    // An amend keeps the author time and takes the clock as the committer time.
+    f.tick();
+    f.git(&["commit", "--amend", "--no-edit", "-q"]);
+    // A tag made after its commit: the tagger time is the clock.
+    f.tick();
+    f.git(&["tag", "-a", "late", "-m", "late", "HEAD~1"]);
+    let refs = refs_at(&f.root);
+    let time = |args: &[&str]| -> i64 { f.git(args).parse().expect("a Unix time") };
+
+    let author = time(&["log", "-1", "--format=%at", "main"]);
+    let committer = time(&["log", "-1", "--format=%ct", "main"]);
+    assert_ne!(author, committer);
+    assert_eq!(find(&refs, "refs/heads/main").committed_at, Some(committer));
+
+    let tagged = time(&["log", "-1", "--format=%ct", "late"]);
+    let tagger = time(&[
+        "for-each-ref",
+        "--format=%(taggerdate:unix)",
+        "refs/tags/late",
+    ]);
+    assert_ne!(tagged, tagger);
+    assert_eq!(find(&refs, "refs/tags/late").committed_at, Some(tagged));
+}
+
+/// The instant, not the wall clock: commits made in zones nineteen hours apart carry the Unix
+/// seconds `git log --format=%ct` prints, and the later instant comes out later even though its
+/// local time is earlier.
+#[test]
+fn committer_times_are_instants_whatever_the_zone() {
+    let f = Fixture::basic();
+    for (branch, date) in [
+        ("east", "2026-03-10T12:00:00+1400"),
+        ("west", "2026-03-10T08:00:00-0500"),
+    ] {
+        f.git(&["checkout", "-q", "-b", branch, "main"]);
+        f.write(&format!("{branch}.txt"), branch);
+        f.git(&["add", "-A"]);
+        f.git_with_env(
+            &[("GIT_AUTHOR_DATE", date), ("GIT_COMMITTER_DATE", date)],
+            &["commit", "-q", "-m", branch],
+        );
+    }
+    f.git(&["checkout", "-q", "main"]);
+    let refs = refs_at(&f.root);
+    let at = |branch: &str| find(&refs, &format!("refs/heads/{branch}")).committed_at;
+
+    // 2026-03-09T22:00:00Z and 2026-03-10T13:00:00Z.
+    assert_eq!(at("east"), Some(1_773_093_600));
+    assert_eq!(at("west"), Some(1_773_147_600));
+    for branch in ["east", "west"] {
+        let expected: i64 = f
+            .git(&["log", "-1", "--format=%ct", branch])
+            .parse()
+            .expect("a Unix time");
+        assert_eq!(at(branch), Some(expected), "{branch}");
+    }
+    assert!(at("west") > at("east"));
+}
+
+#[test]
 fn peels_annotated_tags_and_carries_their_message() {
     let f = Fixture::basic();
     f.git(&["tag", "light", "HEAD~1"]);

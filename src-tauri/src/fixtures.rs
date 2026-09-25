@@ -117,6 +117,7 @@ fn refs() -> Vec<Ref> {
         behind: Some(3),
         worktree: Some(PathBuf::from("/home/iker/code/begitra")),
         message: None,
+        committed_at: Some(1_700_000_000),
     };
     vec![
         base.clone(),
@@ -132,6 +133,19 @@ fn refs() -> Vec<Ref> {
             ..base.clone()
         },
         Ref {
+            name: "docs-tree".to_owned(),
+            full_name: "refs/tags/docs-tree".to_owned(),
+            kind: RefKind::Tag,
+            target: hash(4),
+            is_current: false,
+            upstream: None,
+            ahead: None,
+            behind: None,
+            worktree: None,
+            message: None,
+            committed_at: None,
+        },
+        Ref {
             name: "v1.0".to_owned(),
             full_name: "refs/tags/v1.0".to_owned(),
             kind: RefKind::Tag,
@@ -142,6 +156,7 @@ fn refs() -> Vec<Ref> {
             behind: None,
             worktree: None,
             message: Some("Release 1.0".to_owned()),
+            committed_at: Some(1_699_000_000),
         },
         Ref {
             name: "stash@{0}".to_owned(),
@@ -154,6 +169,7 @@ fn refs() -> Vec<Ref> {
             behind: None,
             worktree: None,
             message: Some("WIP on main: tidy".to_owned()),
+            committed_at: Some(1_700_100_000),
         },
         Ref {
             name: "HEAD".to_owned(),

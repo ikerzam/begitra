@@ -146,6 +146,7 @@ function backend(
             behind: 0,
             worktree: "/r",
             message: null,
+            committedAt: commit(tip.index).committer.time,
           },
           {
             name: "origin/main",
@@ -158,6 +159,7 @@ function backend(
             behind: null,
             worktree: null,
             message: null,
+            committedAt: commit(tip.index).committer.time,
           },
         ];
       case "walk_commits":

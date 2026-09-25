@@ -101,6 +101,7 @@ describe("WorkingTreeRow", () => {
         behind: null,
         worktree: null,
         message: null,
+        committedAt: null,
       },
     ];
     await lists(["a.ts"], []);

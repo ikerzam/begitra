@@ -32,6 +32,7 @@ function stashRef(index: number, message: string, hash: string): Ref {
     behind: null,
     worktree: null,
     message,
+    committedAt: null,
   };
 }
 
@@ -47,6 +48,7 @@ const refs: Ref[] = [
     behind: null,
     worktree: "/r",
     message: null,
+    committedAt: null,
   },
   stashRef(0, "wip: worker pool before the rebase", fakeCommit(3).hash),
   stashRef(1, "On main: tiles spike", "f".repeat(40)),

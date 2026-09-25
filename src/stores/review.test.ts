@@ -93,6 +93,7 @@ describe("review targets", () => {
       behind: null,
       worktree: null,
       message: null,
+      committedAt: null,
     });
     const refs = [
       at("v1", "refs/heads/v1", "local-branch", hash),
@@ -415,6 +416,7 @@ describe("review store", () => {
       behind: null,
       worktree: null,
       message: null,
+      committedAt: null,
     });
     const refs = [
       at("agent", "refs/heads/agent", "local-branch", 3),

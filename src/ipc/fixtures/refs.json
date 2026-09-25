@@ -9,7 +9,8 @@
     "ahead": 2,
     "behind": 3,
     "worktree": "/home/iker/code/begitra",
-    "message": null
+    "message": null,
+    "committedAt": 1700000000
   },
   {
     "name": "origin/main",
@@ -21,7 +22,21 @@
     "ahead": null,
     "behind": null,
     "worktree": null,
-    "message": null
+    "message": null,
+    "committedAt": 1700000000
+  },
+  {
+    "name": "docs-tree",
+    "fullName": "refs/tags/docs-tree",
+    "kind": "tag",
+    "target": "0000000000000000000000000000000000000004",
+    "isCurrent": false,
+    "upstream": null,
+    "ahead": null,
+    "behind": null,
+    "worktree": null,
+    "message": null,
+    "committedAt": null
   },
   {
     "name": "v1.0",
@@ -33,7 +48,8 @@
     "ahead": null,
     "behind": null,
     "worktree": null,
-    "message": "Release 1.0"
+    "message": "Release 1.0",
+    "committedAt": 1699000000
   },
   {
     "name": "stash@{0}",
@@ -45,7 +61,8 @@
     "ahead": null,
     "behind": null,
     "worktree": null,
-    "message": "WIP on main: tidy"
+    "message": "WIP on main: tidy",
+    "committedAt": 1700100000
   },
   {
     "name": "HEAD",
@@ -57,6 +74,7 @@
     "ahead": null,
     "behind": null,
     "worktree": null,
-    "message": null
+    "message": null,
+    "committedAt": 1700000000
   }
 ]

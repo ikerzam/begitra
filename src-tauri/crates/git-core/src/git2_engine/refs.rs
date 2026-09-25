@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use git2::{ErrorCode, ObjectType, Oid, Reference, ReferenceType, Repository};
+use git2::{ErrorCode, Object, ObjectType, Oid, Reference, ReferenceType, Repository};
 
 use super::{worktrees, Git2Engine};
 use crate::engine::Cancel;
@@ -89,7 +89,14 @@ fn collect(repo: &Repository, cancel: &Cancel) -> GitResult<Vec<Ref>> {
             let Some(target) = resolve(repo, &reference)? else {
                 continue;
             };
-            let mut entry = plain(short, full_name, RefKind::LocalBranch, target.peeled, None);
+            let mut entry = plain(
+                short,
+                full_name,
+                RefKind::LocalBranch,
+                target.peeled,
+                target.committed_at,
+                None,
+            );
             entry.is_current = current.as_deref() == Some(full_name);
             entry.worktree = checkouts.get(full_name).cloned();
             pending.push((refs.len(), full_name.to_owned(), target.peeled));
@@ -107,6 +114,7 @@ fn collect(repo: &Repository, cancel: &Cancel) -> GitResult<Vec<Ref>> {
                 full_name,
                 RefKind::RemoteBranch,
                 target.peeled,
+                target.committed_at,
                 None,
             ));
         } else if let Some(short) = full_name.strip_prefix(TAGS) {
@@ -118,6 +126,7 @@ fn collect(repo: &Repository, cancel: &Cancel) -> GitResult<Vec<Ref>> {
                 full_name,
                 RefKind::Tag,
                 target.peeled,
+                target.committed_at,
                 target.tag_message,
             ));
         }
@@ -138,7 +147,14 @@ fn collect(repo: &Repository, cancel: &Cancel) -> GitResult<Vec<Ref>> {
 }
 
 /// A ref entry without tracking data or worktree marker.
-fn plain(name: &str, full_name: &str, kind: RefKind, target: Oid, message: Option<String>) -> Ref {
+fn plain(
+    name: &str,
+    full_name: &str,
+    kind: RefKind,
+    target: Oid,
+    committed_at: Option<i64>,
+    message: Option<String>,
+) -> Ref {
     Ref {
         name: name.to_owned(),
         full_name: full_name.to_owned(),
@@ -150,13 +166,22 @@ fn plain(name: &str, full_name: &str, kind: RefKind, target: Oid, message: Optio
         behind: None,
         worktree: None,
         message,
+        committed_at,
     }
 }
 
+/// The committer time of `object` when it is a commit, from the header its lookup parsed;
+/// `None` for a tree or a blob, which a tag can point at.
+fn committed_at(object: &Object<'_>) -> Option<i64> {
+    object.as_commit().map(|commit| commit.time().seconds())
+}
+
 /// A ref's target read from the object store: after peeling annotated tags, the commit (or
-/// whatever non-tag object a tag wraps), plus the tag message when there is one.
+/// whatever non-tag object a tag wraps) with its committer time, plus the tag message when
+/// there is one.
 struct Target {
     peeled: Oid,
+    committed_at: Option<i64>,
     tag_message: Option<String>,
 }
 
@@ -188,6 +213,7 @@ fn resolve(repo: &Repository, reference: &Reference<'_>) -> GitResult<Option<Tar
     let Some(tag) = object.as_tag() else {
         return Ok(Some(Target {
             peeled: oid,
+            committed_at: committed_at(&object),
             tag_message: None,
         }));
     };
@@ -203,6 +229,7 @@ fn resolve(repo: &Repository, reference: &Reference<'_>) -> GitResult<Option<Tar
         .map_err(|error| GitError::object(&tag.target_id().to_string(), error))?;
     Ok(Some(Target {
         peeled: peeled.id(),
+        committed_at: committed_at(&peeled),
         tag_message,
     }))
 }
@@ -420,8 +447,8 @@ fn stashes(repo: &Repository, cancel: &Cancel) -> GitResult<Vec<Ref>> {
     for (index, entry) in stash_entries(&reflog) {
         cancel.check()?;
         let oid = entry.id_new();
-        match repo.find_object(oid, Some(ObjectType::Commit)) {
-            Ok(_) => {}
+        let committed_at = match repo.find_object(oid, Some(ObjectType::Commit)) {
+            Ok(object) => committed_at(&object),
             Err(error)
                 if error.code() == ErrorCode::NotFound && super::object_missing(repo, oid) =>
             {
@@ -429,13 +456,14 @@ fn stashes(repo: &Repository, cancel: &Cancel) -> GitResult<Vec<Ref>> {
                 continue;
             }
             Err(error) => return Err(GitError::object(&oid.to_string(), error)),
-        }
+        };
         let message = entry.message().ok().flatten().map(str::to_owned);
         refs.push(plain(
             &format!("stash@{{{index}}}"),
             STASH,
             RefKind::Stash,
             oid,
+            committed_at,
             message,
         ));
     }
@@ -448,7 +476,14 @@ fn head_entry(repo: &Repository) -> GitResult<Option<Ref>> {
     let Some(target) = resolve(repo, &head)? else {
         return Ok(None);
     };
-    let mut entry = plain("HEAD", "HEAD", RefKind::Head, target.peeled, None);
+    let mut entry = plain(
+        "HEAD",
+        "HEAD",
+        RefKind::Head,
+        target.peeled,
+        target.committed_at,
+        None,
+    );
     entry.is_current = true;
     Ok(Some(entry))
 }

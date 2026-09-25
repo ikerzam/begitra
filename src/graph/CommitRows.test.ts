@@ -40,6 +40,7 @@ const refs: GitRef[] = [
     behind: 0,
     worktree: "/r",
     message: null,
+    committedAt: null,
   },
   {
     name: "origin/main",
@@ -52,6 +53,7 @@ const refs: GitRef[] = [
     behind: null,
     worktree: null,
     message: null,
+    committedAt: null,
   },
   {
     name: "v1",
@@ -64,6 +66,7 @@ const refs: GitRef[] = [
     behind: null,
     worktree: null,
     message: null,
+    committedAt: null,
   },
 ];
 

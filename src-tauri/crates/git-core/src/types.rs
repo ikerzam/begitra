@@ -68,6 +68,10 @@ pub struct Ref {
     pub worktree: Option<PathBuf>,
     /// Stash message or annotated tag message, when there is one.
     pub message: Option<String>,
+    /// Unix seconds of the committer time of the commit the ref points at, an annotated tag
+    /// peeled to its commit, as `git log -1 --format=%ct <ref>` prints it; `None` for a tag of a
+    /// tree or a blob.
+    pub committed_at: Option<i64>,
 }
 
 /// Author or committer identity with its timestamp.
