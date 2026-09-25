@@ -204,6 +204,7 @@ defineExpose({ focusSides: () => sideA.value?.focus() });
               :max="paneLimits.files.max"
               :label="t('review.files')"
               @resize="(px) => void shell.setPaneSize('files', px)"
+              @reset="() => void shell.resetPaneSize('files')"
             />
             <DiffView
               :file="openFile"

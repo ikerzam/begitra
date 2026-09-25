@@ -12,6 +12,7 @@ import SkeletonRow from "@/components/SkeletonRow.vue";
 import { errorText } from "@/shell/errorMessage";
 import { useListNavigation } from "@/shortcuts/useListNavigation";
 import { useIndexStore } from "@/stores/index";
+import { useShellStore } from "@/stores/shell";
 
 import RepoRowMenu from "./RepoRowMenu.vue";
 import RepoTableHeader from "./RepoTableHeader.vue";
@@ -32,6 +33,19 @@ const index = useIndexStore();
 const format = useDiscoveryFormat();
 const actions = useRepoActions();
 const listbox = ref<HTMLElement | null>(null);
+
+const shell = useShellStore();
+
+/* The columns' widths (the settings), which the header and every row read. */
+const columnStyle = computed(() => {
+  const widths = shell.columnWidths.home;
+  return {
+    "--repo-name-w": `${widths.name}px`,
+    "--repo-branch-w": `${widths.branch}px`,
+    "--repo-ahead-w": `${widths.ahead}px`,
+    "--repo-commit-w": `${widths.commit}px`,
+  };
+});
 
 const sections = computed(() => tableSections(index));
 const labelIds = useId();
@@ -117,7 +131,7 @@ defineExpose({ focus: navigation.focus });
 </script>
 
 <template>
-  <div class="mt-3 flex min-h-0 flex-col" data-testid="repo-table">
+  <div class="mt-3 flex min-h-0 flex-col" :style="columnStyle" data-testid="repo-table">
     <RepoTableHeader />
     <div
       ref="listbox"
@@ -192,14 +206,3 @@ defineExpose({ focus: navigation.focus });
     <RepoRowMenu v-if="menu" :entry="menu.row.entry" :x="menu.x" :y="menu.y" @close="closeMenu" />
   </div>
 </template>
-
-<style scoped>
-/* Column widths: name 200, branch 180, ahead/behind 84, last
-   commit 80, then the path, with the row's 16px gap (columns start at 60/276/472/572/668). */
-.repo-table-rows {
-  --repo-name-w: 200px;
-  --repo-branch-w: 180px;
-  --repo-ahead-w: 84px;
-  --repo-commit-w: 80px;
-}
-</style>

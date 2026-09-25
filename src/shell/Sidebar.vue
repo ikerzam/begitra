@@ -35,7 +35,11 @@ const filterPlaceholder = computed(() => {
 </script>
 
 <template>
-  <aside class="flex w-sidebar shrink-0 flex-col border-r border-line" data-testid="sidebar">
+  <aside
+    class="flex shrink-0 flex-col border-r border-line"
+    :style="{ width: `${shell.paneSizes.sidebar}px` }"
+    data-testid="sidebar"
+  >
     <SidebarTabs :active="shell.sidebarTab" @select="shell.setSidebarTab" />
     <div class="px-2 py-2">
       <Input v-model="filter" :placeholder="filterPlaceholder" :icon="Search" />

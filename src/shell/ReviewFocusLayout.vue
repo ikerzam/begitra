@@ -60,6 +60,7 @@ defineExpose({ focusFiles: () => filesPanel.value?.focus() });
       :max="paneLimits.files.max"
       :label="t('review.files')"
       @resize="(px) => void shell.setPaneSize('files', px)"
+      @reset="() => void shell.resetPaneSize('files')"
     />
     <DiffView
       :file="openFile"
@@ -74,6 +75,7 @@ defineExpose({ focusFiles: () => filesPanel.value?.focus() });
         :max="paneLimits.reviewRail.max"
         :label="t('review.overview')"
         @resize="(px) => void shell.setPaneSize('reviewRail', px)"
+        @reset="() => void shell.resetPaneSize('reviewRail')"
       />
       <ReviewRail
         class="shrink-0"

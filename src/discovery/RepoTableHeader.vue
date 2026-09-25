@@ -1,20 +1,26 @@
 <script setup lang="ts">
 // The column header of the home table: Name, Branch and Last commit sort the All section on
-// click; the active column shows its direction.
+// click; the active column shows its direction. Every column but the path resizes from its
+// right edge (the widths are the settings', which the rows read too).
 
 import { ArrowDown, ArrowUp } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
 
+import ColumnResizer from "@/shell/ColumnResizer.vue";
 import { useIndexStore, type SortColumn } from "@/stores/index";
+import { columnLimits, useShellStore } from "@/stores/shell";
 
 const { t } = useI18n();
 const index = useIndexStore();
+const shell = useShellStore();
 
-const columns: { id: string; label: string; sort?: SortColumn }[] = [
-  { id: "name", label: "home.columns.name", sort: "name" },
-  { id: "branch", label: "home.columns.branch", sort: "branch" },
-  { id: "aheadBehind", label: "home.columns.aheadBehind" },
-  { id: "lastCommit", label: "home.columns.lastCommit", sort: "lastCommit" },
+type Width = "name" | "branch" | "ahead" | "commit";
+
+const columns: { id: string; label: string; sort?: SortColumn; width?: Width }[] = [
+  { id: "name", label: "home.columns.name", sort: "name", width: "name" },
+  { id: "branch", label: "home.columns.branch", sort: "branch", width: "branch" },
+  { id: "aheadBehind", label: "home.columns.aheadBehind", width: "ahead" },
+  { id: "lastCommit", label: "home.columns.lastCommit", sort: "lastCommit", width: "commit" },
   { id: "path", label: "home.columns.path" },
 ];
 
@@ -33,7 +39,7 @@ function sortBy(column: SortColumn | undefined): void {
     class="repo-table-columns grid h-control shrink-0 items-center gap-4 border-b border-l-2 border-line border-l-transparent px-3 text-sm whitespace-nowrap text-fg-muted"
     data-testid="repo-table-columns"
   >
-    <template v-for="column in columns" :key="column.id">
+    <div v-for="column in columns" :key="column.id" class="relative flex min-w-0 items-center">
       <button
         v-if="column.sort"
         type="button"
@@ -54,13 +60,24 @@ function sortBy(column: SortColumn | undefined): void {
         />
       </button>
       <span v-else>{{ t(column.label) }}</span>
-    </template>
+      <ColumnResizer
+        v-if="column.width"
+        :size="shell.columnWidths.home[column.width]"
+        :min="columnLimits.min"
+        :max="columnLimits.max"
+        :label="t('layout.resizeColumn', { column: t(column.label) })"
+        @resize="(px) => column.width && void shell.setColumnWidth('home', column.width, px)"
+        @reset="() => column.width && void shell.resetColumnWidth('home', column.width)"
+      />
+    </div>
   </div>
 </template>
 
 <style scoped>
-/* The same widths as the rows (see RepoTable.vue): name 200, branch 180, ahead 84, commit 80. */
+/* The rows' widths, which RepoTable sets from the settings (200, 180, 84 and 80 by default). */
 .repo-table-columns {
-  grid-template-columns: 200px 180px 84px 80px minmax(0, 1fr);
+  grid-template-columns:
+    var(--repo-name-w) var(--repo-branch-w) var(--repo-ahead-w) var(--repo-commit-w)
+    minmax(0, 1fr);
 }
 </style>

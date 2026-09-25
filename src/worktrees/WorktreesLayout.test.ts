@@ -64,6 +64,22 @@ function rows(wrapper: ReturnType<typeof mountWithI18n>) {
 }
 
 describe("WorktreesLayout", () => {
+  it("resizes the path, branch, state and ahead/behind columns from their headers", async () => {
+    const { wrapper } = await mountDashboard();
+    const table = wrapper.get('[data-testid="worktree-table"]');
+    expect(table.attributes("style")).toContain("--worktree-ahead-w: 84px");
+    const edges = table.findAll('[data-testid="column-resizer"]');
+    expect(edges).toHaveLength(4);
+    const branch = edges[1]!;
+    await branch.trigger("mousedown", { clientX: 400 });
+    window.dispatchEvent(new MouseEvent("mousemove", { clientX: 480 }));
+    window.dispatchEvent(new MouseEvent("mouseup"));
+    await flushPromises();
+    expect(useSettingsStore().values.columnWidths.worktrees.branch).toBe(280);
+    expect(table.attributes("style")).toContain("--worktree-branch-w: 280px");
+    wrapper.unmount();
+  });
+
   it("lists the worktrees as a grid: the main one first, states, counts and the footer", async () => {
     const { wrapper } = await mountDashboard();
     expect(wrapper.get('[data-testid="worktrees-count"]').text()).toBe("2");

@@ -52,6 +52,10 @@
   "contextMenu": {
     "label": "Menú contextual"
   },
+  "layout": {
+    "resizeSidebar": "Redimensionar la barra lateral",
+    "resizeColumn": "Redimensionar la columna {column}"
+  },
   "textMenu": {
     "label": "Acciones del texto",
     "copy": "Copiar"

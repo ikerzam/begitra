@@ -173,6 +173,28 @@ describe("HomeScreen", () => {
     wrapper.unmount();
   });
 
+  it("resizes a column from its header's edge for the header and every row, and resets it", async () => {
+    const { wrapper } = await mountHome();
+    const table = wrapper.get('[data-testid="repo-table"]');
+    expect(table.attributes("style")).toContain("--repo-name-w: 200px");
+    const edges = wrapper.findAll(
+      '[data-testid="repo-table-columns"] [data-testid="column-resizer"]',
+    );
+    expect(edges).toHaveLength(4);
+    const name = edges[0]!;
+    expect(name.attributes("aria-label")).toBe("Resize the Name column");
+    await name.trigger("mousedown", { clientX: 200 });
+    window.dispatchEvent(new MouseEvent("mousemove", { clientX: 260 }));
+    window.dispatchEvent(new MouseEvent("mouseup"));
+    await flushPromises();
+    expect(useSettingsStore().values.columnWidths.home.name).toBe(260);
+    expect(table.attributes("style")).toContain("--repo-name-w: 260px");
+    await name.trigger("dblclick");
+    await flushPromises();
+    expect(useSettingsStore().values.columnWidths.home.name).toBe(200);
+    wrapper.unmount();
+  });
+
   it("sorts the All section from the column header and keeps the other sections", async () => {
     const { wrapper, index } = await mountHome();
     const names = () =>

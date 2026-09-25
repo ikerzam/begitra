@@ -32,7 +32,7 @@ import { usePickerStore } from "@/stores/picker";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
 import { useSettingsStore } from "@/stores/settings";
-import { useShellStore } from "@/stores/shell";
+import { paneLimits, useShellStore } from "@/stores/shell";
 import { useToastsStore } from "@/stores/toasts";
 import { useWorktreesStore } from "@/stores/worktrees";
 import { useSettingsScreenStore } from "@/stores/settingsScreen";
@@ -42,6 +42,7 @@ import AddWorktreeDialog from "@/worktrees/AddWorktreeDialog.vue";
 import WorktreesLayout from "@/worktrees/WorktreesLayout.vue";
 
 import { errorText } from "./errorMessage";
+import PaneResizer from "./PaneResizer.vue";
 import GraphFocusLayout from "./GraphFocusLayout.vue";
 import ReviewFocusLayout from "./ReviewFocusLayout.vue";
 import Sidebar from "./Sidebar.vue";
@@ -276,6 +277,15 @@ async function removeFromList(): Promise<void> {
     <OperationBanner />
     <div class="relative flex min-h-0 flex-1">
       <Sidebar v-if="showSidebar" />
+      <PaneResizer
+        v-if="showSidebar"
+        :size="shell.paneSizes.sidebar"
+        :min="paneLimits.sidebar.min"
+        :max="paneLimits.sidebar.max"
+        :label="t('layout.resizeSidebar')"
+        @resize="(px) => void shell.setPaneSize('sidebar', px)"
+        @reset="() => void shell.resetPaneSize('sidebar')"
+      />
       <SidebarRail
         v-else
         :active="settingsMode ? null : shell.sidebarTab"

@@ -4,15 +4,27 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 
-import { useSettingsStore, type LayoutMode, type PaneSizes } from "./settings";
+import {
+  defaultColumnWidths,
+  defaultSettings,
+  useSettingsStore,
+  type ColumnWidths,
+  type LayoutMode,
+  type PaneSizes,
+} from "./settings";
 
 /** Pane limits in px, from the design: detail never under 360, sidebar 240 by default. */
 export const paneLimits: Record<keyof PaneSizes, { min: number; max: number }> = {
   sidebar: { min: 200, max: 420 },
   detail: { min: 360, max: 900 },
-  files: { min: 220, max: 420 },
+  files: { min: 220, max: 560 },
   reviewRail: { min: 240, max: 400 },
 };
+
+/** Limits of a table column in px; the last column takes what is left. */
+export const columnLimits = { min: 60, max: 480 };
+
+export type ColumnTable = keyof ColumnWidths;
 
 /** Below this window width the review rail collapses. */
 export const REVIEW_RAIL_BREAKPOINT = 1100;
@@ -46,6 +58,7 @@ export const useShellStore = defineStore("shell", () => {
   const layoutMode = computed<LayoutMode>(() => settings.values.layoutMode);
   const sidebarCollapsed = computed(() => settings.values.sidebarCollapsed);
   const paneSizes = computed<PaneSizes>(() => settings.values.paneSizes);
+  const columnWidths = computed<ColumnWidths>(() => settings.values.columnWidths);
 
   /** Width of the detail panel: the pinned size after a drag, else the fraction of the window. */
   const detailWidth = computed(() => {
@@ -74,6 +87,38 @@ export const useShellStore = defineStore("shell", () => {
     const next: PaneSizes = { ...settings.values.paneSizes };
     next[pane] = clampPane(pane, px);
     return settings.update("paneSizes", next);
+  }
+
+  /** Puts a pane back to its default; the detail panel unpins, back to its share of the window. */
+  function resetPaneSize(pane: keyof PaneSizes): Promise<void> {
+    const defaults = defaultSettings(settings.platform).paneSizes;
+    const next: PaneSizes = { ...settings.values.paneSizes };
+    if (pane === "detail") next.detail = defaults.detail;
+    else next[pane] = defaults[pane];
+    return settings.update("paneSizes", next);
+  }
+
+  /** Sets a table column to `px` within the column limits. */
+  function setColumnWidth<T extends ColumnTable>(
+    table: T,
+    column: keyof ColumnWidths[T],
+    px: number,
+  ): Promise<void> {
+    const width = Math.round(Math.min(Math.max(px, columnLimits.min), columnLimits.max));
+    const current = settings.values.columnWidths;
+    return settings.update("columnWidths", {
+      ...current,
+      [table]: { ...current[table], [column]: width },
+    });
+  }
+
+  /** Puts a table column back to its default width. */
+  function resetColumnWidth<T extends ColumnTable>(
+    table: T,
+    column: keyof ColumnWidths[T],
+  ): Promise<void> {
+    const width = defaultColumnWidths()[table][column] as number;
+    return setColumnWidth(table, column, width);
   }
 
   /** Crossing the breakpoint in either direction hands the rail back to the automatic rule. */
@@ -136,6 +181,10 @@ export const useShellStore = defineStore("shell", () => {
     setLayoutMode,
     toggleSidebar,
     setPaneSize,
+    resetPaneSize,
+    columnWidths,
+    setColumnWidth,
+    resetColumnWidth,
     setWindowWidth,
     showReviewRail,
     hideReviewRail,

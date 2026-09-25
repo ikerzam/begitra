@@ -810,6 +810,28 @@ describe("AppShell", () => {
     wrapper.unmount();
   });
 
+  it("resizes the sidebar from its divider, remembers it and resets it with a double click", async () => {
+    backend();
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    await useRepoStore().open("/r");
+    await settle();
+    const divider = wrapper.get('[aria-label="Resize the sidebar"]');
+    await divider.trigger("mousedown", { clientX: 240 });
+    window.dispatchEvent(new MouseEvent("mousemove", { clientX: 320 }));
+    window.dispatchEvent(new MouseEvent("mouseup"));
+    await settle();
+    expect(useSettingsStore().values.paneSizes.sidebar).toBe(320);
+    expect(wrapper.get('[data-testid="sidebar"]').attributes("style")).toContain("width: 320px");
+    await divider.trigger("dblclick");
+    await settle();
+    expect(useSettingsStore().values.paneSizes.sidebar).toBe(240);
+    // Collapsed, the sidebar takes its divider with it.
+    await useShellStore().toggleSidebar();
+    await settle();
+    expect(wrapper.find('[aria-label="Resize the sidebar"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
   it("shows the error state with the git output and the Repos tab, and toggles the sidebar with Ctrl B", async () => {
     backend({ failOpen: true });
     const shell = useShellStore();

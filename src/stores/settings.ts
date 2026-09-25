@@ -43,6 +43,12 @@ export interface CompareEndpoints {
   b: CompareEndpoint;
 }
 
+/** Widths in px of the resizable columns of the two tables with a header; the last takes the rest. */
+export interface ColumnWidths {
+  home: { name: number; branch: number; ahead: number; commit: number };
+  worktrees: { path: number; branch: number; state: number; ahead: number };
+}
+
 export interface PaneSizes {
   sidebar: number;
   /** Pinned width after a drag; null keeps the default fraction of the window. */
@@ -55,6 +61,7 @@ export interface Settings {
   terminalCommand: string;
   editorCommand: string;
   paneSizes: PaneSizes;
+  columnWidths: ColumnWidths;
   sidebarCollapsed: boolean;
   layoutMode: LayoutMode;
   locale: Locale;
@@ -119,6 +126,10 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   terminalCommand: v.pipe(v.string(), v.minLength(1)),
   editorCommand: v.pipe(v.string(), v.minLength(1)),
   paneSizes: v.object({ sidebar: px, detail: v.nullable(px), files: px, reviewRail: px }),
+  columnWidths: v.object({
+    home: v.object({ name: px, branch: px, ahead: px, commit: px }),
+    worktrees: v.object({ path: px, branch: px, state: px, ahead: px }),
+  }),
   sidebarCollapsed: v.boolean(),
   layoutMode: v.picklist(["graph", "review", "compare", "worktrees", "settings", "changes"]),
   locale: v.picklist(["en", "es"]),
@@ -165,12 +176,21 @@ export function platformDefaults(platform: Platform): { terminal: string[]; edit
   }
 }
 
+/** The tables' default column widths. */
+export function defaultColumnWidths(): ColumnWidths {
+  return {
+    home: { name: 200, branch: 180, ahead: 84, commit: 80 },
+    worktrees: { path: 200, branch: 200, state: 96, ahead: 84 },
+  };
+}
+
 export function defaultSettings(platform: Platform): Settings {
   const defaults = platformDefaults(platform);
   return {
     terminalCommand: defaults.terminal[0] ?? "",
     editorCommand: defaults.editor[0] ?? "",
     paneSizes: { sidebar: 240, detail: null, files: 280, reviewRail: 280 },
+    columnWidths: defaultColumnWidths(),
     sidebarCollapsed: false,
     layoutMode: "graph",
     locale: "en",

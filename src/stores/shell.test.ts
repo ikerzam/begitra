@@ -37,6 +37,39 @@ describe("shell store", () => {
     expect((storage.data.get("paneSizes") as { detail: number }).detail).toBe(360);
   });
 
+  it("puts a pane back to its default, the detail panel back to its share of the window", async () => {
+    const settings = useSettingsStore();
+    await settings.init(memoryStorage(), "windows");
+    const shell = useShellStore();
+    shell.setWindowWidth(1440);
+    await shell.setPaneSize("detail", 520);
+    await shell.setPaneSize("sidebar", 320);
+    await shell.setPaneSize("files", 700);
+    expect(shell.paneSizes.files).toBe(560);
+    await shell.resetPaneSize("detail");
+    await shell.resetPaneSize("sidebar");
+    expect(shell.paneSizes.detail).toBeNull();
+    expect(shell.paneSizes.sidebar).toBe(240);
+    expect(shell.detailWidth).toBe(480);
+  });
+
+  it("keeps table columns between 60 and 480px and back to their default widths", async () => {
+    const settings = useSettingsStore();
+    const storage = memoryStorage();
+    await settings.init(storage, "windows");
+    const shell = useShellStore();
+    expect(shell.columnWidths.home).toEqual({ name: 200, branch: 180, ahead: 84, commit: 80 });
+    await shell.setColumnWidth("home", "name", 260.4);
+    await shell.setColumnWidth("worktrees", "path", 20);
+    await shell.setColumnWidth("worktrees", "branch", 999);
+    expect(shell.columnWidths.home.name).toBe(260);
+    expect(shell.columnWidths.worktrees.path).toBe(60);
+    expect(shell.columnWidths.worktrees.branch).toBe(480);
+    expect(storage.data.get("columnWidths")).toEqual(shell.columnWidths);
+    await shell.resetColumnWidth("home", "name");
+    expect(shell.columnWidths.home.name).toBe(200);
+  });
+
   it("sizes the detail panel as 40% of the window minus the sidebar until it is dragged", async () => {
     const settings = useSettingsStore();
     const storage = memoryStorage();

@@ -189,6 +189,7 @@ defineExpose({
       :max="paneLimits.files.max"
       :label="t('changes.title')"
       @resize="(px) => void shell.setPaneSize('files', px)"
+      @reset="() => void shell.resetPaneSize('files')"
     />
     <ChangesViewer ref="viewer" @discard="askDiscard" />
     <Dialog

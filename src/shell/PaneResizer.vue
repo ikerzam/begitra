@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // A zero-width handle over the hairline of a pane (the pane draws the line inside its own
-// width) that resizes it: drag it, or focus it and use the arrow keys (16px per press).
+// width) that resizes it: drag it, or focus it and use the arrow keys (16px per press); a
+// double click asks for the pane's default.
 
 import { onBeforeUnmount } from "vue";
 
@@ -17,7 +18,7 @@ const props = withDefaults(
   }>(),
   { direction: 1, min: undefined, max: undefined },
 );
-const emit = defineEmits<{ resize: [px: number] }>();
+const emit = defineEmits<{ resize: [px: number]; reset: [] }>();
 
 let startX = 0;
 let startSize = 0;
@@ -62,6 +63,7 @@ onBeforeUnmount(stop);
     class="pane-resizer relative shrink-0 cursor-col-resize"
     data-testid="pane-resizer"
     @mousedown="start"
+    @dblclick="emit('reset')"
     @keydown="onKeydown"
   ></div>
 </template>

@@ -52,6 +52,10 @@
   "contextMenu": {
     "label": "Context menu"
   },
+  "layout": {
+    "resizeSidebar": "Resize the sidebar",
+    "resizeColumn": "Resize the {column} column"
+  },
   "textMenu": {
     "label": "Text actions",
     "copy": "Copy"

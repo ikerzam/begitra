@@ -62,6 +62,7 @@ defineExpose({ focusRows: () => graph.value?.focus() });
         :max="paneLimits.detail.max"
         :label="t('detail.commit')"
         @resize="(px) => void shell.setPaneSize('detail', px)"
+        @reset="() => void shell.resetPaneSize('detail')"
       />
       <DetailPanel
         class="shrink-0"

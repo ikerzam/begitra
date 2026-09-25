@@ -10,9 +10,11 @@ import { useI18n } from "vue-i18n";
 import SkeletonRow from "@/components/SkeletonRow.vue";
 import WorktreeRow from "@/components/WorktreeRow.vue";
 import { useDiscoveryFormat } from "@/discovery/useDiscoveryFormat";
+import ColumnResizer from "@/shell/ColumnResizer.vue";
 import { relativeDate } from "@/shell/format";
 import { useNow } from "@/shell/useNow";
 import { useListNavigation } from "@/shortcuts/useListNavigation";
+import { columnLimits, useShellStore } from "@/stores/shell";
 import type { WorktreeRow as Row } from "@/stores/worktrees";
 
 const props = withDefaults(
@@ -40,6 +42,25 @@ const { t } = useI18n();
 const now = useNow();
 const format = useDiscoveryFormat();
 const grid = ref<HTMLElement | null>(null);
+const shell = useShellStore();
+
+/* The resizable columns (the last commit takes the rest) and their widths, which the header
+   and every row read. */
+const resizable = [
+  { width: "path", label: "worktrees.columns.path" },
+  { width: "branch", label: "worktrees.columns.branch" },
+  { width: "state", label: "worktrees.columns.state" },
+  { width: "ahead", label: "worktrees.columns.aheadBehind" },
+] as const;
+const columnStyle = computed(() => {
+  const widths = shell.columnWidths.worktrees;
+  return {
+    "--worktree-path-w": `${widths.path}px`,
+    "--worktree-branch-w": `${widths.branch}px`,
+    "--worktree-state-w": `${widths.state}px`,
+    "--worktree-ahead-w": `${widths.ahead}px`,
+  };
+});
 
 const rowCount = computed(() => props.rows.length);
 const selectedIndex = computed({
@@ -100,7 +121,7 @@ defineExpose({ focus, keyboardOnTabs });
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-col" data-testid="worktree-table">
+  <div class="flex min-h-0 flex-col" :style="columnStyle" data-testid="worktree-table">
     <div
       role="grid"
       :aria-label="t('worktrees.title')"
@@ -112,10 +133,22 @@ defineExpose({ focus, keyboardOnTabs });
         role="row"
         class="worktree-table-header grid h-control shrink-0 items-center gap-4 border-b border-l-2 border-line border-l-transparent px-3 text-sm text-fg-muted whitespace-nowrap"
       >
-        <span role="columnheader">{{ t("worktrees.columns.path") }}</span>
-        <span role="columnheader">{{ t("worktrees.columns.branch") }}</span>
-        <span role="columnheader">{{ t("worktrees.columns.state") }}</span>
-        <span role="columnheader">{{ t("worktrees.columns.aheadBehind") }}</span>
+        <span
+          v-for="column in resizable"
+          :key="column.width"
+          role="columnheader"
+          class="relative flex min-w-0 items-center"
+        >
+          <span class="truncate">{{ t(column.label) }}</span>
+          <ColumnResizer
+            :size="shell.columnWidths.worktrees[column.width]"
+            :min="columnLimits.min"
+            :max="columnLimits.max"
+            :label="t('layout.resizeColumn', { column: t(column.label) })"
+            @resize="(px) => void shell.setColumnWidth('worktrees', column.width, px)"
+            @reset="() => void shell.resetColumnWidth('worktrees', column.width)"
+          />
+        </span>
         <span role="columnheader">{{ t("worktrees.columns.lastCommit") }}</span>
         <span role="columnheader" class="sr-only">{{ t("worktrees.columns.actions") }}</span>
       </div>
@@ -158,11 +191,8 @@ defineExpose({ focus, keyboardOnTabs });
 </template>
 
 <style scoped>
-/* The header shares the row's column widths; the ahead/behind column is
-   84px here, where the row's own default is 56. */
-.worktree-grid {
-  --worktree-ahead-w: 84px;
-}
+/* The header and the rows read the widths WorktreeTable sets from the settings (the ahead/behind
+   column defaults to 84px here, where the row's own default is 56). */
 .worktree-table-header {
   grid-template-columns:
     var(--worktree-path-w, 200px) var(--worktree-branch-w, 200px) var(--worktree-state-w, 96px)
