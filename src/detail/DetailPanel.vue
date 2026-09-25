@@ -20,6 +20,7 @@ import { useToastsStore } from "@/stores/toasts";
 
 import CommitSummary from "./CommitSummary.vue";
 import FileList, { type SelectTrigger } from "./FileList.vue";
+import FileMenu from "./FileMenu.vue";
 import { totals } from "./groupFiles";
 
 const emit = defineEmits<{ review: [file?: FileChange] }>();
@@ -57,6 +58,8 @@ function selectParent(hash: string): void {
 
 /* The keys move a selection through the tree; a click or Enter opens the file in review. */
 const selectedPath = ref<string | null>(null);
+/** The file whose menu is open, and where. */
+const fileMenu = ref<{ file: FileChange; x: number; y: number } | null>(null);
 watch(
   () => detail.value?.hash,
   () => {
@@ -119,6 +122,16 @@ function onSelect(file: FileChange, trigger: SelectTrigger): void {
           :selected-path="selectedPath"
           @select="onSelect"
           @activate="(file) => emit('review', file)"
+          @menu="(file, x, y) => (fileMenu = { file, x, y })"
+        />
+        <FileMenu
+          v-if="fileMenu"
+          :file="fileMenu.file"
+          :x="fileMenu.x"
+          :y="fileMenu.y"
+          review
+          @review="(file) => emit('review', file)"
+          @close="fileMenu = null"
         />
       </div>
     </template>

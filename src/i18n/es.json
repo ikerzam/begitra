@@ -52,6 +52,17 @@
   "contextMenu": {
     "label": "Menú contextual"
   },
+  "textMenu": {
+    "label": "Acciones del texto",
+    "copy": "Copiar"
+  },
+  "fileMenu": {
+    "label": "Acciones del fichero",
+    "openInReview": "Abrir en revisión",
+    "copyPath": "Copiar la ruta",
+    "openInEditor": "Abrir en el editor",
+    "pathCopied": "Ruta {path} copiada"
+  },
   "dialog": {
     "cancel": "Cancelar",
     "confirm": "Confirmar"

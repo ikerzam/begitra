@@ -47,11 +47,13 @@ import ReviewFocusLayout from "./ReviewFocusLayout.vue";
 import Sidebar from "./Sidebar.vue";
 import SidebarRail from "./SidebarRail.vue";
 import StatusBar from "./StatusBar.vue";
+import TextMenu from "./TextMenu.vue";
 import ToastHost from "./ToastHost.vue";
 import TopBar from "./TopBar.vue";
 import { useExternal } from "./useExternal";
 import { useOpenFolder } from "./useOpenFolder";
 import { useRepoWatcher } from "./useRepoWatcher";
+import { useNativeMenu, type TextMenuRequest } from "./useNativeMenu";
 import { useZoom } from "./useZoom";
 
 const { t } = useI18n();
@@ -126,6 +128,9 @@ function compareWith(): void {
 }
 
 useZoom();
+/* The webview's own menu never opens; selected text gets the app's Copy menu. */
+const textMenu = ref<TextMenuRequest | null>(null);
+useNativeMenu((request) => (textMenu.value = request));
 useShortcut("palette", () => shell.togglePalette());
 useShortcut("graph-focus", () => void shell.setLayoutMode("graph"));
 useShortcut("review-focus", () => void shell.setLayoutMode("review"));
@@ -306,5 +311,6 @@ async function removeFromList(): Promise<void> {
     <RemotesSheet v-if="remotes.sheetOpen" />
     <StashSheet v-if="stash.sheetOpen" />
     <ToastHost />
+    <TextMenu v-if="textMenu" v-bind="textMenu" @close="textMenu = null" />
   </div>
 </template>

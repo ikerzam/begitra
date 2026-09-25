@@ -2,7 +2,7 @@
 // The change set as a tree grouped by folder, with status letters and stats per file. For the
 // keyboard the files form one list: j/k and the arrows move the selection, Enter activates,
 // and the selected row (or the first) is the tab stop. Folders keep their own chevron and
-// Left/Right keys.
+// Left/Right keys. A right click or the menu key on a file asks for its menu; the panel owns it.
 
 import { computed, ref } from "vue";
 
@@ -37,6 +37,8 @@ const props = withDefaults(
 const emit = defineEmits<{
   select: [file: FileChange, trigger: SelectTrigger];
   activate: [file: FileChange];
+  /** The file's menu at a viewport point (a right click, or the menu key at the row). */
+  menu: [file: FileChange, x: number, y: number];
 }>();
 
 const tree = ref<HTMLElement | null>(null);
@@ -93,11 +95,30 @@ function collapseAll(): void {
   collapsed.value = allCollapsed ? new Set() : new Set(folders);
 }
 
+function onContextMenu(file: FileChange, event: MouseEvent): void {
+  event.preventDefault();
+  emit("menu", file, event.clientX, event.clientY);
+}
+
+/** The menu key (or Shift+F10) on a focused file opens its menu at the row's corner. */
+function onKeydown(event: KeyboardEvent): void {
+  const menuKey = event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey);
+  const row = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-path]");
+  const file = row ? props.files.find((candidate) => candidate.path === row.dataset["path"]) : null;
+  if (menuKey && row && file) {
+    event.preventDefault();
+    const rect = row.getBoundingClientRect();
+    emit("menu", file, rect.left + 24, rect.bottom);
+    return;
+  }
+  navigation.onKeydown(event);
+}
+
 defineExpose({ focus: navigation.focus, collapseAll });
 </script>
 
 <template>
-  <div ref="tree" role="tree" class="py-1" data-testid="file-list" @keydown="navigation.onKeydown">
+  <div ref="tree" role="tree" class="py-1" data-testid="file-list" @keydown="onKeydown">
     <template v-for="group in groups" :key="group.folder">
       <TreeRow
         :name="group.folder"
@@ -127,6 +148,7 @@ defineExpose({ focus: navigation.focus, collapseAll });
           :title="entry.file.path"
           @select="emit('select', entry.file, 'pointer')"
           @activate="emit('activate', entry.file)"
+          @contextmenu="(event: MouseEvent) => onContextMenu(entry.file, event)"
         />
       </template>
     </template>

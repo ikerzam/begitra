@@ -14,6 +14,7 @@ import Input from "@/components/Input.vue";
 import PanelHeader from "@/components/PanelHeader.vue";
 import SkeletonRow from "@/components/SkeletonRow.vue";
 import FileList from "@/detail/FileList.vue";
+import FileMenu from "@/detail/FileMenu.vue";
 import { applyFilters, pathMatcher, sortBySize } from "@/detail/groupFiles";
 import type { FileChange } from "@/ipc/schemas";
 import { targetLabel, useReviewStore } from "@/stores/review";
@@ -37,6 +38,8 @@ const filterInput = ref<{ $el: HTMLElement } | null>(null);
 
 const filterOpen = ref(false);
 const pathFilter = ref("");
+/** The file whose menu is open, and where. */
+const fileMenu = ref<{ file: FileChange; x: number; y: number } | null>(null);
 const sortBySizeOn = ref(false);
 
 const files = computed<FileChange[]>(() => {
@@ -169,6 +172,14 @@ defineExpose({ focus: () => list.value?.focus(), moveFile });
         :changed="review.changedFiles"
         :conflicts="props.conflicts"
         @select="(file) => review.select(file.path)"
+        @menu="(file, x, y) => (fileMenu = { file, x, y })"
+      />
+      <FileMenu
+        v-if="fileMenu"
+        :file="fileMenu.file"
+        :x="fileMenu.x"
+        :y="fileMenu.y"
+        @close="fileMenu = null"
       />
       <EmptyState
         v-if="changeSet && !changeSet.loading && count === 0 && !changeSetError"
