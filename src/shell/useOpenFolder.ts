@@ -1,6 +1,6 @@
 // "Open folder…": the native folder picker of tauri-plugin-dialog, then the index store, which
-// opens the repository and syncs the listing with the entry the backend records. A picker
-// that cannot open (a missing portal, a capability mismatch) becomes a toast.
+// opens the repository the folder lies in, or scans a folder of repositories as a scan folder.
+// A picker that cannot open (a missing portal, a capability mismatch) becomes a toast.
 
 import { open } from "@tauri-apps/plugin-dialog";
 import { useI18n } from "vue-i18n";
@@ -29,7 +29,7 @@ export function useOpenFolder() {
       return null;
     }
     if (typeof picked !== "string" || picked.length === 0) return null;
-    await index.open(picked);
+    await index.openFolder(picked);
     return picked;
   }
 

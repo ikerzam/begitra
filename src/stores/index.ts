@@ -280,12 +280,31 @@ export const useIndexStore = defineStore("index", () => {
     }
   }
 
+  /** Folders asked for while a scan runs: queued in its folder states, scanned when it ends. */
+  let queued: string[] = [];
+
   /**
    * Scans `folders` (every scan folder by default) with the settings' skip list and depth,
-   * applying the messages as they arrive. A scan already running is left alone.
+   * applying the messages as they arrive. While a scan runs, the folders it does not cover
+   * wait for it and are scanned once it ends; the ones it covers are left alone.
    */
   function startScan(folders: string[] = scanRoots.value): void {
-    if (scan.value.kind === "scanning" || folders.length === 0) return;
+    if (folders.length === 0) return;
+    const running = scan.value;
+    if (running.kind === "scanning") {
+      const waiting = folders.filter(
+        (folder) =>
+          !Object.keys(running.folders).some((known) => sameFolder(known, folder)) &&
+          !queued.some((known) => sameFolder(known, folder)),
+      );
+      if (waiting.length === 0) return;
+      queued = [...queued, ...waiting];
+      scan.value = waiting.reduce(
+        (progress, folder) => withFolder(progress, folder, "queued"),
+        running,
+      );
+      return;
+    }
     const states: Record<string, FolderScanState> = {};
     for (const folder of folders) states[folder] = "queued";
     scan.value = { kind: "scanning", folders: states, scanned: 0, found: 0, current: null };
@@ -314,11 +333,18 @@ export const useIndexStore = defineStore("index", () => {
         if (scanHandle === handle) scanHandle = null;
         scan.value = { kind: "idle" };
         operations.finish(opId);
+        // The folders that waited, unless removed meanwhile.
+        const next = queued.filter((folder) =>
+          scanRoots.value.some((root) => sameFolder(root, folder)),
+        );
+        queued = [];
+        startScan(next);
       });
   }
 
-  /** Stops the running scan; what it found stays. */
+  /** Stops the running scan and drops the folders waiting for it; what it found stays. */
   async function stopScan(): Promise<void> {
+    queued = [];
     await scanHandle?.cancel();
   }
 
@@ -401,6 +427,23 @@ export const useIndexStore = defineStore("index", () => {
       // The recents order is not worth refusing the open.
     }
     await repo.open(path);
+    await afterOpen(path);
+  }
+
+  /**
+   * Opens a folder the user picked or dropped: the repository it lies in, or, when it lies in
+   * none, the folder as a scan folder (scanned again when it is one already), which the home
+   * screen shows being scanned. An indexed entry goes through `open`, where the same answer
+   * means that its folder is gone.
+   */
+  async function openFolder(path: string): Promise<void> {
+    const repo = useRepoStore();
+    await repo.open(path);
+    if (repo.state.kind === "error" && repo.state.error.code === "repo.not_found") {
+      await repo.close();
+      if (!addRoot(path)) startScan([path]);
+      return;
+    }
     await afterOpen(path);
   }
 
@@ -500,6 +543,7 @@ export const useIndexStore = defineStore("index", () => {
     forget,
     refresh,
     open,
+    openFolder,
     restore,
     setSort,
   };

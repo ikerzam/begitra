@@ -508,6 +508,93 @@ describe("index store", () => {
     expect(store.entries.find((e) => e.name === "begitra")?.missing).toBe(true);
   });
 
+  it("openFolder opens the repository a picked folder lies in, and scans nothing", async () => {
+    const { calls } = mockBackend();
+    const store = useIndexStore();
+    const repo = useRepoStore();
+    const settings = useSettingsStore();
+    await store.load();
+    await store.openFolder(`${CODE}/tiles-spike`);
+    await settled();
+    expect(repo.state.kind).toBe("ready");
+    expect(calls.some((c) => c.cmd === "scan_folders")).toBe(false);
+    expect(settings.values.scanRoots).toEqual([CODE, WT]);
+  });
+
+  it("openFolder makes a folder of repositories a scan folder and scans it, with no error state", async () => {
+    const { calls } = mockBackend({ openFails: true });
+    const store = useIndexStore();
+    const repo = useRepoStore();
+    const settings = useSettingsStore();
+    await store.load();
+    await store.openFolder("/home/iker/projects");
+    await settled();
+    expect(repo.state.kind).toBe("empty");
+    expect(settings.values.scanRoots).toEqual([CODE, WT, "/home/iker/projects"]);
+    expect(calls.filter((c) => c.cmd === "scan_folders").map((c) => c.args["folders"])).toEqual([
+      ["/home/iker/projects"],
+    ]);
+    // No index entry is flagged or asked for: the folder was never a repository.
+    expect(calls.some((c) => c.cmd === "refresh_repository")).toBe(false);
+    expect(store.entries.some((e) => e.missing)).toBe(false);
+  });
+
+  it("openFolder scans a folder that is already a scan folder again", async () => {
+    const { calls } = mockBackend({ openFails: true });
+    const store = useIndexStore();
+    const settings = useSettingsStore();
+    await store.load();
+    await store.openFolder(CODE);
+    await settled();
+    expect(settings.values.scanRoots).toEqual([CODE, WT]);
+    expect(calls.filter((c) => c.cmd === "scan_folders").map((c) => c.args["folders"])).toEqual([
+      [CODE],
+    ]);
+  });
+
+  it("scans a folder added during a scan once that scan ends", async () => {
+    let release = (): void => undefined;
+    const scanGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { calls } = mockBackend({ scanGate });
+    const store = useIndexStore();
+    await store.load();
+    store.startScan([CODE]);
+    expect(store.addRoot("/home/iker/more")).toBe(true);
+    expect(store.scan).toMatchObject({
+      kind: "scanning",
+      folders: { [CODE]: "queued", "/home/iker/more": "queued" },
+    });
+    await settled();
+    const scanned = () =>
+      calls.filter((c) => c.cmd === "scan_folders").map((c) => c.args["folders"]);
+    expect(scanned()).toEqual([[CODE]]);
+    release();
+    await settled();
+    expect(scanned()).toEqual([[CODE], ["/home/iker/more"]]);
+    expect(store.scan.kind).toBe("idle");
+  });
+
+  it("Stop drops the folders waiting for the scan", async () => {
+    let release = (): void => undefined;
+    const scanGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { calls } = mockBackend({ scanGate });
+    const store = useIndexStore();
+    await store.load();
+    store.startScan([CODE]);
+    store.addRoot("/home/iker/more");
+    await store.stopScan();
+    release();
+    await settled();
+    expect(calls.filter((c) => c.cmd === "scan_folders").map((c) => c.args["folders"])).toEqual([
+      [CODE],
+    ]);
+    expect(store.scan.kind).toBe("idle");
+  });
+
   it("restore reopens the last repository and, when it is gone, returns the error and goes home flagged", async () => {
     mockBackend();
     const store = useIndexStore();

@@ -68,7 +68,7 @@ const sequencer = useSequencerStore();
 const operations = useOperationsStore();
 const { openFolder } = useOpenFolder();
 const external = useExternal();
-const { dragging } = useDragDrop((path) => void index.open(path));
+const { dragging } = useDragDrop((path) => void index.openFolder(path));
 useRepoWatcher();
 const graphLayout = ref<{ focusRows(): void } | null>(null);
 const reviewLayout = ref<{ focusFiles(): void } | null>(null);
