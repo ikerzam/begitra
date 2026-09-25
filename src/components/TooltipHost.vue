@@ -58,6 +58,8 @@ function show(): void {
   if (!trigger?.isConnected) return;
   text.value = trigger.dataset.tooltip ?? "";
   keys.value = trigger.dataset.tooltipKeys ?? "";
+  // Measured at the window's origin, whatever the last bubble's place was.
+  place.value = { left: 0, top: 0 };
   measured.value = false;
   shown.value = true;
   void nextTick(measure);
@@ -148,7 +150,7 @@ onBeforeUnmount(() => {
     ref="bubble"
     role="tooltip"
     aria-hidden="true"
-    class="tooltip-bubble pointer-events-none fixed z-50 inline-flex items-center gap-2 rounded-md border border-line-strong bg-raised px-2 py-1 text-sm text-fg shadow-overlay"
+    class="tooltip-bubble pointer-events-none fixed z-50 inline-flex w-max items-center gap-2 rounded-md border border-line-strong bg-raised px-2 py-1 text-sm text-fg shadow-overlay"
     :style="{
       left: `${place.left}px`,
       top: `${place.top}px`,
@@ -162,7 +164,9 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-/* A long path wraps anywhere rather than leaving the window. */
+/* Its own width wherever it stands (max-content, so the room left of a place near the
+   window's right edge cannot squeeze it before it is measured); a long path wraps anywhere
+   rather than leaving the window. */
 .tooltip-bubble {
   max-width: calc(100vw - 16px);
   overflow-wrap: anywhere;

@@ -195,4 +195,31 @@ describe("TooltipHost", () => {
     expect(bubble()?.style.top).toBe("710px");
     host.unmount();
   });
+
+  it("measures each bubble at its own width from the origin, not where the last one stood", async () => {
+    const host = mountHost();
+    const corner = hinted("Changes");
+    const path = hinted("packages/map-core/src/layers/vector/tiles/worker-pool-scheduler.ts");
+    const measuredAt: string[] = [];
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      if (this.dataset.testid === "tooltip") {
+        measuredAt.push(`${this.style.left} ${this.style.top}`);
+        return DOMRect.fromRect({ x: 0, y: 0, width: 120, height: 26 });
+      }
+      const x = this === corner ? 1000 : 400;
+      return DOMRect.fromRect({ x, y: 100, width: 24, height: 24 });
+    });
+    move(null, corner);
+    await wait(500);
+    expect(bubble()?.style.left).toBe("896px");
+    leave(corner);
+    move(document.body, path);
+    await wait(0);
+    // Near the window's right edge the room would squeeze a bubble measured there.
+    expect(measuredAt).toEqual(["0px 0px", "0px 0px"]);
+    expect(bubble()?.classList).toContain("w-max");
+    host.unmount();
+  });
 });
