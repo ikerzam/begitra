@@ -281,7 +281,8 @@
     "pin": "Fijar",
     "unpin": "Desfijar",
     "removeFromList": "Quitar de la lista",
-    "dropHere": "Suelta una carpeta para abrirla"
+    "dropHere": "Suelta una carpeta para abrirla",
+    "showChanges": "Ver cambios"
   },
   "graph": {
     "searchCommits": "Buscar commits",
@@ -515,7 +516,8 @@
       "stashes": "Stashes…",
       "stash-changes": "Guardar los cambios en el stash…",
       "continue-operation": "Continuar la operación",
-      "abort-operation": "Abortar la operación…"
+      "abort-operation": "Abortar la operación…",
+      "show-folder-changes": "Ver los cambios de la carpeta"
     },
     "repos": "Repos"
   },
@@ -1025,5 +1027,22 @@
       "showDetails": "Mostrar detalles",
       "versionUnavailable": "Versión no disponible"
     }
+  },
+  "folder": {
+    "title": "Cambios de la carpeta",
+    "refresh": "Volver a leer todos los repositorios",
+    "expand": "Mostrar {name}",
+    "collapse": "Ocultar {name}",
+    "openRepository": "Abrir repositorio",
+    "changedFiles": "{n} fichero cambiado | {n} ficheros cambiados",
+    "clean": "{n} repositorio sin cambios | {n} repositorios sin cambios",
+    "reading": "{n} leyéndose",
+    "readingLine": "Leyendo {n} repositorio… | Leyendo {n} repositorios…",
+    "readingOne": "Leyendo…",
+    "noChanges": "Sin cambios",
+    "looking": "Buscando repositorios en {folder}…",
+    "empty": "No hay repositorios en {folder}",
+    "scanAgain": "Buscar de nuevo",
+    "allClean": "Nada que commitear en {n} repositorio | Nada que commitear en {n} repositorios"
   }
 }

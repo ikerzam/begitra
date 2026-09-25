@@ -413,6 +413,19 @@ describe("HomeEmpty", () => {
 });
 
 describe("launch and the watcher", () => {
+  it("reopens the folder view at launch when it was the last screen", async () => {
+    await useSettingsStore().init(
+      memoryStorage({ layoutMode: "folder", folderView: "/code" }),
+      "windows",
+    );
+    backend();
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    await settle();
+    expect(wrapper.find('[data-testid="folder-view"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="folder-panel"]').text()).toContain("/code");
+    wrapper.unmount();
+  });
+
   it("reopens the last repository, watches it and refreshes on repo:changed", async () => {
     await useSettingsStore().init(memoryStorage({ lastRepository: "/r" }), "windows");
     const calls = backend();

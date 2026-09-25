@@ -146,6 +146,13 @@ const hints = computed(() => {
   if (operations.current?.cancellable) {
     return [{ keys: registry.hint("palette"), label: t("statusBar.commands") }];
   }
+  if (shell.layoutMode === "folder") {
+    return [
+      { keys: "j/k", label: t("statusBar.files") },
+      { keys: registry.hint("stage-file"), label: t("statusBar.stage") },
+      { keys: registry.hint("commit"), label: t("statusBar.commit") },
+    ];
+  }
   if (repo.state.kind !== "ready") {
     return [
       { keys: "↵", label: t("statusBar.open") },

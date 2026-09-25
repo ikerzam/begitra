@@ -514,7 +514,7 @@ describe("index store", () => {
     const repo = useRepoStore();
     const settings = useSettingsStore();
     await store.load();
-    await store.openFolder(`${CODE}/tiles-spike`);
+    expect(await store.openFolder(`${CODE}/tiles-spike`)).toBe("repository");
     await settled();
     expect(repo.state.kind).toBe("ready");
     expect(calls.some((c) => c.cmd === "scan_folders")).toBe(false);
@@ -527,7 +527,8 @@ describe("index store", () => {
     const repo = useRepoStore();
     const settings = useSettingsStore();
     await store.load();
-    await store.openFolder("/home/iker/projects");
+    // The caller shows the folder's view.
+    expect(await store.openFolder("/home/iker/projects")).toBe("folder");
     await settled();
     expect(repo.state.kind).toBe("empty");
     expect(settings.values.scanRoots).toEqual([CODE, WT, "/home/iker/projects"]);

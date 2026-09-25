@@ -18,6 +18,7 @@ import { useDragDrop } from "@/discovery/useDragDrop";
 import type { FileChange } from "@/ipc/schemas";
 import PaletteOverlay from "@/palette/PaletteOverlay.vue";
 import CompareLayout from "@/compare/CompareLayout.vue";
+import FolderLayout from "@/folder/FolderLayout.vue";
 import PickerOverlay from "@/picker/PickerOverlay.vue";
 import { baseName, shortHash } from "@/shell/format";
 import { isOverlayTarget } from "@/shortcuts/registry";
@@ -31,6 +32,7 @@ import { useStashStore } from "@/stores/stash";
 import { usePickerStore } from "@/stores/picker";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
+import { useFolderStore } from "@/stores/folder";
 import { useSettingsStore } from "@/stores/settings";
 import { paneLimits, useShellStore } from "@/stores/shell";
 import { useToastsStore } from "@/stores/toasts";
@@ -62,6 +64,7 @@ const shell = useShellStore();
 const repo = useRepoStore();
 const index = useIndexStore();
 const settings = useSettingsStore();
+const folder = useFolderStore();
 const toasts = useToastsStore();
 const changes = useChangesStore();
 const worktrees = useWorktreesStore();
@@ -74,7 +77,12 @@ const sequencer = useSequencerStore();
 const operations = useOperationsStore();
 const { openFolder } = useOpenFolder();
 const external = useExternal();
-const { dragging } = useDragDrop((path) => void index.openFolder(path));
+// A folder dropped on the window opens as Open folder… opens it.
+const { dragging } = useDragDrop((path) => {
+  void index.openFolder(path).then((kind) => {
+    if (kind === "folder") void folder.open(path);
+  });
+});
 useRepoWatcher();
 const graphLayout = ref<{ focusRows(): void } | null>(null);
 const reviewLayout = ref<{ focusFiles(): void } | null>(null);
@@ -96,6 +104,10 @@ const worktreesMode = computed(
 );
 const settingsMode = computed(() => shell.layoutMode === "settings");
 const changesMode = computed(() => shell.layoutMode === "changes" && repo.state.kind === "ready");
+/** The folder view shows with or without an open repository. */
+const folderMode = computed(
+  () => shell.layoutMode === "folder" && settings.values.folderView !== null,
+);
 /**
  * One sidebar for every layout but review focus and the settings (which show the rail), so
  * switching layouts keeps its filter, its lists and the focus of a tab that switched to the
@@ -296,6 +308,7 @@ async function removeFromList(): Promise<void> {
       <WorktreesLayout v-else-if="worktreesMode" ref="worktreesLayout" />
       <SettingsLayout v-else-if="settingsMode" ref="settingsLayout" />
       <ChangesLayout v-else-if="changesMode" ref="changesLayout" />
+      <FolderLayout v-else-if="folderMode" />
       <GraphFocusLayout
         v-else
         ref="graphLayout"

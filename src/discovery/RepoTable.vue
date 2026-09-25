@@ -3,14 +3,17 @@
 // opened on their own, in one listbox with roving focus, the row menu, and the loading,
 // scanning, empty and error states of the index.
 
+import { FilePen } from "@lucide/vue";
 import { computed, nextTick, ref, useId } from "vue";
 import { useI18n } from "vue-i18n";
 
 import EmptyState from "@/components/EmptyState.vue";
 import ErrorBanner from "@/components/ErrorBanner.vue";
+import IconButton from "@/components/IconButton.vue";
 import SkeletonRow from "@/components/SkeletonRow.vue";
 import { errorText } from "@/shell/errorMessage";
 import { useListNavigation } from "@/shortcuts/useListNavigation";
+import { useFolderStore } from "@/stores/folder";
 import { useIndexStore } from "@/stores/index";
 import { useShellStore } from "@/stores/shell";
 
@@ -35,6 +38,7 @@ const actions = useRepoActions();
 const listbox = ref<HTMLElement | null>(null);
 
 const shell = useShellStore();
+const folderView = useFolderStore();
 
 /* The columns' widths (the settings), which the header and every row read. */
 const columnStyle = computed(() => {
@@ -168,6 +172,14 @@ defineExpose({ focus: navigation.focus });
           >
             {{ sectionCount(section) }}
           </span>
+          <IconButton
+            v-if="section.kind === 'folder' && section.folder !== null"
+            class="ml-auto"
+            :label="t('home.showChanges')"
+            :icon="FilePen"
+            data-testid="show-folder-changes"
+            @click="() => section.folder !== null && void folderView.open(section.folder)"
+          />
         </div>
         <RepoTableRow
           v-for="row in section.rows"

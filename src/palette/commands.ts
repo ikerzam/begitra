@@ -55,6 +55,9 @@ export interface PaletteActions {
   swapComparison: () => Promise<void>;
   openComparisonInReview: () => Promise<void>;
   showWorktrees: () => Promise<void>;
+  /** Whether a folder view was shown, for "Show folder changes" to return to it. */
+  hasFolderView: () => boolean;
+  showFolderView: () => Promise<void>;
   /** Opens the changes screen. */
   showChanges: () => Promise<void>;
   inChanges: () => boolean;
@@ -261,6 +264,12 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       labelKey: "palette.commandsById.show-worktrees",
       enabled: withRepo,
       run: actions.showWorktrees,
+    },
+    {
+      id: "show-folder-changes",
+      labelKey: "palette.commandsById.show-folder-changes",
+      enabled: actions.hasFolderView,
+      run: actions.showFolderView,
     },
     {
       id: "add-worktree",

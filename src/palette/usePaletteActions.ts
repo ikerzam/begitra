@@ -20,6 +20,7 @@ import { useCompareStore } from "@/stores/compare";
 import { usePickerStore } from "@/stores/picker";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
+import { useFolderStore } from "@/stores/folder";
 import { useSettingsStore } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
 import { useWorktreesStore } from "@/stores/worktrees";
@@ -33,6 +34,7 @@ export function usePaletteActions(): PaletteActions {
   const repo = useRepoStore();
   const index = useIndexStore();
   const settings = useSettingsStore();
+  const folder = useFolderStore();
   const { openFolder } = useOpenFolder();
   const { addScanFolder } = useAddScanFolder();
   const external = useExternal();
@@ -110,6 +112,11 @@ export function usePaletteActions(): PaletteActions {
     swapComparison: () => compare.swap(),
     openComparisonInReview: () => compare.openInReview(),
     showWorktrees: () => worktrees.show(),
+    hasFolderView: () => settings.values.folderView !== null,
+    showFolderView: async () => {
+      const shown = settings.values.folderView;
+      if (shown !== null) await folder.open(shown);
+    },
     showChanges: () => shell.setLayoutMode("changes"),
     branchAction: (action) => picker.open({ kind: "branch-action", action }),
     network: (action) => {

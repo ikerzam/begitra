@@ -137,6 +137,10 @@ const tabStop = computed(() => (selectedIndex.value >= 0 ? selectedIndex.value :
 const showSkeletons = (list: ChangeList) =>
   changes[list].loading && changes[list].files.length === 0;
 const showEmpty = computed(() => changes.isEmpty);
+/** A list shows on the changes screen always; in a folder view's section only with files. */
+function shows(list: ChangeList): boolean {
+  return !props.embedded || changes[list].loading || changes[list].files.length > 0;
+}
 const showLists = computed(() => !showEmpty.value && !changes.error);
 /** A diff that failed: the sentence over git's words, with "Try again". */
 const loadFailed = computed(() => {
@@ -345,6 +349,7 @@ defineExpose({ focus: navigation.focus, moveFile, selectEdge });
         </div>
       </template>
       <PanelHeader
+        v-if="shows('unstaged')"
         :title="t('changes.unstaged')"
         :count="
           changes.unstaged.loading && changes.unstagedCount === 0
@@ -369,7 +374,12 @@ defineExpose({ focus: navigation.focus, moveFile, selectEdge });
           />
         </template>
       </PanelHeader>
-      <div v-if="showLists" role="tree" class="py-1" data-testid="unstaged-list">
+      <div
+        v-if="showLists && shows('unstaged')"
+        role="tree"
+        class="py-1"
+        data-testid="unstaged-list"
+      >
         <template v-if="showSkeletons('unstaged')">
           <SkeletonRow v-for="n in 5" :key="n" :index="n" height="tree" />
         </template>
@@ -393,6 +403,7 @@ defineExpose({ focus: navigation.focus, moveFile, selectEdge });
         />
       </div>
       <PanelHeader
+        v-if="shows('staged')"
         :title="t('changes.staged')"
         :count="
           changes.staged.loading && changes.stagedCount === 0 ? undefined : changes.stagedCount
@@ -408,7 +419,7 @@ defineExpose({ focus: navigation.focus, moveFile, selectEdge });
           />
         </template>
       </PanelHeader>
-      <div v-if="showLists" role="tree" class="py-1" data-testid="staged-list">
+      <div v-if="showLists && shows('staged')" role="tree" class="py-1" data-testid="staged-list">
         <template v-if="showSkeletons('staged')">
           <SkeletonRow v-for="n in 2" :key="n" :index="n + 5" height="tree" />
         </template>

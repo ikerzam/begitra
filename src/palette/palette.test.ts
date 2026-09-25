@@ -197,6 +197,11 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
       calls.push("showWorktrees");
       return Promise.resolve();
     },
+    hasFolderView: () => false,
+    showFolderView: () => {
+      calls.push("showFolderView");
+      return Promise.resolve();
+    },
     openSettings: () => {
       calls.push("openSettings");
       return Promise.resolve();

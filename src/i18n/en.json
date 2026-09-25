@@ -281,7 +281,8 @@
     "pin": "Pin",
     "unpin": "Unpin",
     "removeFromList": "Remove from list",
-    "dropHere": "Drop a folder to open it"
+    "dropHere": "Drop a folder to open it",
+    "showChanges": "Show changes"
   },
   "graph": {
     "searchCommits": "Search commits",
@@ -515,7 +516,8 @@
       "stashes": "Stashes…",
       "stash-changes": "Stash changes…",
       "continue-operation": "Continue the operation",
-      "abort-operation": "Abort the operation…"
+      "abort-operation": "Abort the operation…",
+      "show-folder-changes": "Show folder changes"
     },
     "repos": "Repos"
   },
@@ -1025,5 +1027,22 @@
       "showDetails": "Show details",
       "versionUnavailable": "Version unavailable"
     }
+  },
+  "folder": {
+    "title": "Folder changes",
+    "refresh": "Read every repository again",
+    "expand": "Show {name}",
+    "collapse": "Hide {name}",
+    "openRepository": "Open repository",
+    "changedFiles": "{n} changed file | {n} changed files",
+    "clean": "{n} repository without changes | {n} repositories without changes",
+    "reading": "{n} being read",
+    "readingLine": "Reading {n} repository… | Reading {n} repositories…",
+    "readingOne": "Reading…",
+    "noChanges": "No changes",
+    "looking": "Looking for repositories in {folder}…",
+    "empty": "No repositories in {folder}",
+    "scanAgain": "Scan again",
+    "allClean": "Nothing to commit in {n} repository | Nothing to commit in {n} repositories"
   }
 }

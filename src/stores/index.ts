@@ -436,15 +436,20 @@ export const useIndexStore = defineStore("index", () => {
    * screen shows being scanned. An indexed entry goes through `open`, where the same answer
    * means that its folder is gone.
    */
-  async function openFolder(path: string): Promise<void> {
+  /**
+   * Opens `path` as a repository; a folder that is not one becomes a scan folder and is
+   * scanned. Resolves with what it was, so the caller can show a folder's view.
+   */
+  async function openFolder(path: string): Promise<"repository" | "folder"> {
     const repo = useRepoStore();
     await repo.open(path);
     if (repo.state.kind === "error" && repo.state.error.code === "repo.not_found") {
       await repo.close();
       if (!addRoot(path)) startScan([path]);
-      return;
+      return "folder";
     }
     await afterOpen(path);
+    return "repository";
   }
 
   /**
