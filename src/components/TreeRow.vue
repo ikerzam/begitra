@@ -173,7 +173,11 @@ const checkLabel = computed(() =>
       {{ t("treeRow.changed") }}
     </span>
     <DiffStat v-if="hasStats" :added="props.added ?? 0" :removed="props.removed ?? 0" />
-    <span v-if="props.reviewed || props.changed" class="inline-flex shrink-0" :title="checkLabel">
+    <span
+      v-if="props.reviewed || props.changed"
+      class="inline-flex shrink-0"
+      :data-tooltip="checkLabel"
+    >
       <Check
         :size="16"
         :stroke-width="1.5"

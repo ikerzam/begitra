@@ -9,7 +9,7 @@ describe("DirtyDot", () => {
     const wrapper = mountWithI18n(DirtyDot);
     expect(wrapper.attributes("role")).toBe("img");
     expect(wrapper.attributes("aria-label")).toBe("Uncommitted changes");
-    expect(wrapper.attributes("title")).toBe("Uncommitted changes");
+    expect(wrapper.attributes("data-tooltip")).toBe("Uncommitted changes");
     expect(wrapper.classes()).toContain("bg-warn");
     expect(wrapper.classes()).toContain("rounded-full");
   });

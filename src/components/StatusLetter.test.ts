@@ -17,7 +17,7 @@ describe("StatusLetter", () => {
     expect(wrapper.classes()).toContain("font-semibold");
     expect(wrapper.classes()).toContain("w-icon");
     expect(wrapper.classes().some((c) => c.startsWith("bg-"))).toBe(false);
-    expect(wrapper.attributes("title")).toBe(title);
+    expect(wrapper.attributes("data-tooltip")).toBe(title);
     expect(wrapper.attributes("aria-label")).toBe(title);
     expect(wrapper.attributes("data-status")).toBe(status);
   });
@@ -25,6 +25,6 @@ describe("StatusLetter", () => {
   it("translates the title but keeps the git letter", () => {
     const wrapper = mountWithI18n(StatusLetter, { props: { status: "deleted" } }, { locale: "es" });
     expect(wrapper.text()).toBe("D");
-    expect(wrapper.attributes("title")).toBe("Borrado");
+    expect(wrapper.attributes("data-tooltip")).toBe("Borrado");
   });
 });

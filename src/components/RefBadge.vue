@@ -37,7 +37,8 @@ const text = computed(() => props.label || (props.kind === "head" ? t("refBadge.
     class="ref-badge inline-flex shrink-0 items-center gap-1 rounded-md border px-2 text-sm font-medium whitespace-nowrap"
     :class="kindClasses[props.kind]"
     :data-kind="props.kind"
-    :title="t(`refBadge.kind.${props.kind}`)"
+    :data-tooltip="t(`refBadge.kind.${props.kind}`)"
+    :aria-description="t(`refBadge.kind.${props.kind}`)"
   >
     <TreePine
       v-if="props.worktreeLane > 0"

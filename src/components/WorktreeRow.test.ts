@@ -34,7 +34,7 @@ describe("WorktreeRow", () => {
     const branch = wrapper.get("[data-testid='worktree-row-branch']");
     expect(branch.get("[data-lane]").classes()).toContain("bg-lane-4");
     expect(branch.text()).toBe("claude/fix-auth");
-    expect(branch.find("[title='Uncommitted changes']").exists()).toBe(true);
+    expect(branch.find("[data-tooltip='Uncommitted changes']").exists()).toBe(true);
     expect(wrapper.get("[data-testid='worktree-row-state']").text()).toBe("");
     expect(wrapper.get("[data-testid='ahead']").text()).toBe("5");
     expect(wrapper.get("[data-testid='behind']").text()).toBe("1");
@@ -50,12 +50,14 @@ describe("WorktreeRow", () => {
     ]);
   });
 
-  it("shows no counts until they are known and the lock reason as the state's title", () => {
+  it("shows no counts until they are known and the lock reason as the state's tooltip", () => {
     const wrapper = mountWithI18n(WorktreeRow, {
       props: { ...worktree, ahead: null, behind: null, locked: true, lockReason: "review" },
     });
     expect(wrapper.find("[data-testid='ahead']").exists()).toBe(false);
-    expect(wrapper.get("[data-testid='worktree-row-state']").attributes("title")).toBe("review");
+    const state = wrapper.get("[data-testid='worktree-row-state']");
+    expect(state.attributes("data-tooltip")).toBe("review");
+    expect(state.attributes("aria-description")).toBe("review");
   });
 
   it("asks for the context menu from a right click and from the menu key", async () => {

@@ -295,7 +295,7 @@ defineExpose({ focus: navigation.focus, moveFile });
             :tab-stop="tabStop === index"
             data-list="conflicts"
             :data-path="conflict.path"
-            :title="conflict.path"
+            :data-tooltip="conflict.path"
             @select="selectRow(conflictRow(conflict))"
             @contextmenu="(event: MouseEvent) => onContextMenu(conflictRow(conflict), event)"
           />
@@ -344,7 +344,7 @@ defineExpose({ focus: navigation.focus, moveFile });
           :aria-disabled="changes.busy !== null || undefined"
           data-list="unstaged"
           :data-path="file.path"
-          :title="file.path"
+          :data-tooltip="file.path"
           @select="changes.select('unstaged', file.path)"
           @contextmenu="(event: MouseEvent) => onContextMenu({ list: 'unstaged', file }, event)"
         />
@@ -383,7 +383,7 @@ defineExpose({ focus: navigation.focus, moveFile });
           :aria-disabled="changes.busy !== null || undefined"
           data-list="staged"
           :data-path="file.path"
-          :title="file.path"
+          :data-tooltip="file.path"
           @select="changes.select('staged', file.path)"
           @contextmenu="(event: MouseEvent) => onContextMenu({ list: 'staged', file }, event)"
         />

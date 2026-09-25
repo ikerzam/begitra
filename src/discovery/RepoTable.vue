@@ -157,7 +157,7 @@ defineExpose({ focus: navigation.focus });
           role="presentation"
           class="flex min-w-0 items-center gap-2 border-b border-line px-3 pt-3 pb-1 text-md font-medium text-fg"
           :data-testid="`section-${section.kind}`"
-          :title="section.folder ?? undefined"
+          :data-tooltip="section.folder ?? undefined"
         >
           <span class="truncate" :class="{ 'font-mono text-mono-sm': section.folder !== null }">
             {{ sectionLabel(section) }}

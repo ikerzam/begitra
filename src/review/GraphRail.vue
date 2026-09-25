@@ -41,7 +41,7 @@ const ring = computed(() => {
   <div
     class="relative flex w-rail shrink-0 flex-col overflow-hidden border-r border-line"
     data-testid="graph-rail"
-    :title="t('topBar.graphFocus')"
+    :data-tooltip="t('topBar.graphFocus')"
     @click.self="emit('back')"
   >
     <GraphCanvas

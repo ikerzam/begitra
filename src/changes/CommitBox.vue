@@ -124,7 +124,7 @@ function onSubjectKeydown(event: KeyboardEvent): void {
       <span
         class="min-w-0 flex-1 truncate text-sm"
         :class="inert ? 'text-fg-disabled' : 'text-fg-muted'"
-        :title="changes.context?.author ?? ''"
+        :data-tooltip="changes.context?.author || undefined"
         data-testid="commit-author"
       >
         {{ authorLine }}

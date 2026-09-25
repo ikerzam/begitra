@@ -93,7 +93,7 @@ onMounted(() => {
         <span
           v-if="screen.appInfo?.logFile"
           class="min-w-0 truncate font-mono text-mono-sm text-fg-secondary"
-          :title="screen.appInfo.logFile"
+          :data-tooltip="screen.appInfo.logFile"
           data-testid="about-log-file"
         >
           {{ screen.appInfo.logFile }}

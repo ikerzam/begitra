@@ -8,7 +8,7 @@ const { t } = useI18n();
   <span
     role="img"
     :aria-label="t('dirtyDot.label')"
-    :title="t('dirtyDot.label')"
+    :data-tooltip="t('dirtyDot.label')"
     class="dirty-dot inline-block shrink-0 rounded-full bg-warn"
   />
 </template>

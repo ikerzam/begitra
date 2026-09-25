@@ -17,7 +17,7 @@ describe("ListRow", () => {
     expect(wrapper.get("[data-lane]").classes()).toContain("bg-lane-3");
     expect(wrapper.get("[data-testid='list-row-name']").text()).toBe("feature/tile-cache");
     expect(wrapper.get("[data-testid='ahead']").text()).toBe("2");
-    expect(wrapper.find("[title='Uncommitted changes']").exists()).toBe(false);
+    expect(wrapper.find("[data-tooltip='Uncommitted changes']").exists()).toBe(false);
     expect(wrapper.find("[data-testid='list-row-meta']").exists()).toBe(false);
   });
 
@@ -25,7 +25,7 @@ describe("ListRow", () => {
     const wrapper = mountWithI18n(ListRow, {
       props: { name: "feature/tile-cache", lane: 3, dirty: true, ahead: 2, behind: 0 },
     });
-    const dirty = wrapper.get("[title='Uncommitted changes']");
+    const dirty = wrapper.get("[data-tooltip='Uncommitted changes']");
     expect(dirty.classes()).toContain("bg-warn");
     const html = wrapper.html();
     expect(html.indexOf("Uncommitted changes")).toBeLessThan(html.indexOf('data-testid="ahead"'));

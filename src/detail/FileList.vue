@@ -145,7 +145,7 @@ defineExpose({ focus: navigation.focus, collapseAll });
           :selected="entry.file.path === props.selectedPath"
           :tab-stop="entry.file.path === tabStopPath"
           :data-path="entry.file.path"
-          :title="entry.file.path"
+          :data-tooltip="entry.file.path"
           @select="emit('select', entry.file, 'pointer')"
           @activate="emit('activate', entry.file)"
           @contextmenu="(event: MouseEvent) => onContextMenu(entry.file, event)"

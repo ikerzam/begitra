@@ -46,7 +46,8 @@ function sortBy(column: SortColumn | undefined): void {
         class="flex items-center gap-1 rounded-sm text-left hover:text-fg"
         :class="{ 'text-fg': index.sort.column === column.sort }"
         :aria-sort="ariaSort(column.sort)"
-        :title="t('home.sortBy', { column: t(column.label) })"
+        :data-tooltip="t('home.sortBy', { column: t(column.label) })"
+        :aria-description="t('home.sortBy', { column: t(column.label) })"
         :data-testid="`sort-${column.id}`"
         @click="sortBy(column.sort)"
       >

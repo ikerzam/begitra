@@ -167,7 +167,7 @@ describe("HomeScreen", () => {
     expect(rows[1]?.get("[data-lane]").attributes("data-lane")).toBe("2");
     expect(rows[0]?.get('[data-testid="repo-row-last-commit"]').text()).toBe("3h ago");
     expect(rows[0]?.get('[data-testid="repo-row-path"]').text()).toBe(`${CODE}/geoportal`);
-    expect(rows[0]?.find("[title='Uncommitted changes']").exists()).toBe(true);
+    expect(rows[0]?.find("[data-tooltip='Uncommitted changes']").exists()).toBe(true);
     expect(rows.map((row) => row.attributes("tabindex"))).toEqual(["0", "-1", "-1", "-1", "-1"]);
     expect(wrapper.find('[data-testid="skeleton-row"]').exists()).toBe(false);
     wrapper.unmount();

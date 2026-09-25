@@ -45,7 +45,7 @@ describe("RepoRow", () => {
     expect(connector.classes()).toContain("border-l");
     expect(connector.classes()).toContain("border-b");
     expect(connector.classes()).toContain("border-line-strong");
-    expect(wrapper.find("[title='Uncommitted changes']").exists()).toBe(true);
+    expect(wrapper.find("[data-tooltip='Uncommitted changes']").exists()).toBe(true);
   });
 
   it("selects and activates like every row", async () => {

@@ -122,7 +122,8 @@ function onContextMenu(event: MouseEvent): void {
       role="gridcell"
       class="flex items-center gap-2 truncate text-sm"
       :class="props.missing ? 'text-warn' : 'text-fg-muted'"
-      :title="props.locked && props.lockReason ? props.lockReason : undefined"
+      :data-tooltip="props.locked && props.lockReason ? props.lockReason : undefined"
+      :aria-description="props.locked && props.lockReason ? props.lockReason : undefined"
       data-testid="worktree-row-state"
     >
       <template v-if="props.missing">

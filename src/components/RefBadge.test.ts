@@ -19,7 +19,10 @@ describe("RefBadge", () => {
     expect(wrapper.classes()).toContain("border");
     expect(wrapper.classes().some((c) => c.startsWith("bg-"))).toBe(false);
     expect(wrapper.attributes("data-kind")).toBe(kind);
-    expect(wrapper.attributes("title")).toBe(title);
+    // The kind is its tooltip, and its description for assistive technology.
+    expect(wrapper.attributes("data-tooltip")).toBe(title);
+    expect(wrapper.attributes("aria-description")).toBe(title);
+    expect(wrapper.attributes("title")).toBeUndefined();
   });
 
   it("fills only the current branch, with a white label", () => {
@@ -73,6 +76,6 @@ describe("RefBadge", () => {
       { locale: "es" },
     );
     expect(wrapper.get("svg").attributes("aria-label")).toBe("Activa en un worktree");
-    expect(wrapper.attributes("title")).toBe("Rama remota");
+    expect(wrapper.attributes("data-tooltip")).toBe("Rama remota");
   });
 });
