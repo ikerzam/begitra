@@ -192,10 +192,21 @@ struct Session {
 impl Session {
     /// Starts a watcher on `bases` and lets it settle; what it reports meanwhile is dropped.
     fn start(bases: WatchBases) -> Self {
+        Self::started(|emit| RepoWatcher::start(bases, emit))
+    }
+
+    /// [`Session::start`] on a watcher that keeps no index snapshot, as the folder view's.
+    fn start_without_snapshot(bases: WatchBases) -> Self {
+        Self::started(|emit| RepoWatcher::start_without_snapshot(bases, emit))
+    }
+
+    fn started(
+        start: impl FnOnce(Box<dyn Fn(RepoChanged) + Send>) -> Result<RepoWatcher, notify::Error>,
+    ) -> Self {
         let (tx, events) = mpsc::channel();
-        let watcher = RepoWatcher::start(bases, move |payload| {
+        let watcher = start(Box::new(move |payload| {
             let _ = tx.send(payload);
-        })
+        }))
         .expect("the watcher starts");
         std::thread::sleep(SETTLE.max(DEBOUNCE * 2));
         // What the setup still reports (FSEvents can deliver it late) is dropped: until quiet.
@@ -524,6 +535,27 @@ fn a_staged_file_names_its_index_entry() {
     );
     assert!(
         index.iter().all(|event| !event.conflicts_changed),
+        "{events:?}"
+    );
+}
+
+#[test]
+fn a_watcher_without_the_snapshot_reads_an_index_change_whole() {
+    let repo = Repo::new();
+    repo.write(
+        "a.txt", "two
+",
+    );
+    let session = Session::start_without_snapshot(WatchBases::main(&repo.root));
+    repo.git(&["add", "a.txt"]);
+    let events = session.collect(|events| !index_changes(events).is_empty(), QUIET, PATIENCE);
+    let index = index_changes(&events);
+    assert!(!index.is_empty(), "{events:?}");
+    // No snapshot to compare: the entries that moved are unknown, and so are the conflicts.
+    assert!(
+        index
+            .iter()
+            .all(|event| event.index_paths.is_none() && event.conflicts_changed),
         "{events:?}"
     );
 }

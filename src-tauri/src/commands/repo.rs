@@ -68,17 +68,10 @@ pub async fn watch_repository(
         return Ok(());
     }
     let ticket = shared.begin_watch(&root);
-    // A repository of the folder view: its folder watcher becomes the slot's, with no gap and
-    // no second walk of its tree.
-    if let Some(watcher) = shared.take_folder_watcher(&root) {
-        if let Some(previous) = shared.install_watcher(ticket, root, watcher) {
-            tokio::task::spawn_blocking(move || drop(previous))
-                .await
-                .map_err(|join| AppError::internal(format!("watcher task failed: {join}")))?;
-        }
-        return Ok(());
-    }
-    let (outcome, superseded) = tokio::task::spawn_blocking(move || {
+    // A repository of the folder view: its folder watcher keeps no index snapshot, so the
+    // slot starts one of its own, and the folder's stops once that one runs.
+    let folder_watcher = shared.take_folder_watcher(&root);
+    let (outcome, mut superseded) = tokio::task::spawn_blocking(move || {
         let handle = app.clone();
         let bases = match shared.engine_for(&root) {
             Some(engine) => engine.watch_bases(),
@@ -119,6 +112,7 @@ pub async fn watch_repository(
     })
     .await
     .map_err(|join| AppError::internal(format!("watcher task failed: {join}")))?;
+    superseded.extend(folder_watcher);
     if !superseded.is_empty() {
         tokio::task::spawn_blocking(move || drop(superseded))
             .await
@@ -147,7 +141,7 @@ pub async fn watch_folder(
         drop(sync.dropped);
         shared.run_folder_starts(sync.start, |bases| {
             let handle = app.clone();
-            RepoWatcher::start(bases, move |payload| {
+            RepoWatcher::start_without_snapshot(bases, move |payload| {
                 if let Err(error) = crate::events::emit_repo_changed(&handle, &payload) {
                     tracing::warn!(error = %error, "repo:changed could not be emitted");
                 }

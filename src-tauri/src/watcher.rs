@@ -133,9 +133,31 @@ impl RepoWatcher {
         bases: WatchBases,
         emit: impl Fn(RepoChanged) + Send + 'static,
     ) -> Result<Self, notify::Error> {
+        Self::launch(bases, IndexNames::Snapshot, emit)
+    }
+
+    /// Starts a watcher as [`RepoWatcher::start`] does, without the snapshot of the index (a
+    /// few megabytes on a large tree): an index change names no entry and marks the conflicts
+    /// as changed, so the lists read again whole. The folder view's watchers, twenty of which
+    /// would otherwise hold twenty snapshots.
+    pub fn start_without_snapshot(
+        bases: WatchBases,
+        emit: impl Fn(RepoChanged) + Send + 'static,
+    ) -> Result<Self, notify::Error> {
+        Self::launch(bases, IndexNames::Unknown, emit)
+    }
+
+    fn launch(
+        bases: WatchBases,
+        names: IndexNames,
+        emit: impl Fn(RepoChanged) + Send + 'static,
+    ) -> Result<Self, notify::Error> {
         // The index as it is before the watch starts: every change the watch sees is named
         // against it or a later snapshot.
-        let index = read_index(&bases.gitdir.join("index"));
+        let index = match names {
+            IndexNames::Snapshot => read_index(&bases.gitdir.join("index")),
+            IndexNames::Unknown => None,
+        };
         let (raw_tx, raw_rx) = mpsc::channel::<notify::Result<notify::Event>>();
         let mut watcher = notify::recommended_watcher(raw_tx)?;
         watcher.watch(&bases.root, RecursiveMode::Recursive)?;
@@ -172,7 +194,7 @@ impl RepoWatcher {
         }
         let thread = thread::Builder::new()
             .name("begitra-watcher".to_owned())
-            .spawn(move || debounce_loop(&bases, &raw_rx, index, emit))
+            .spawn(move || debounce_loop(&bases, &raw_rx, names, index, emit))
             .map_err(notify::Error::io)?;
         Ok(Self {
             watcher: Some(watcher),
@@ -192,11 +214,22 @@ impl Drop for RepoWatcher {
     }
 }
 
+/// Whether a watcher names the index entries a change moved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum IndexNames {
+    /// Against a snapshot of the index it keeps.
+    Snapshot,
+    /// It keeps none: an index change reads the lists whole.
+    Unknown,
+}
+
 /// Collects raw events, waits [`DEBOUNCE`] after the first of a batch, and emits the batch;
-/// one that touched the index names the entries that moved since `index`, the last snapshot.
+/// one that touched the index names the entries that moved since `index`, the last snapshot,
+/// when the watcher keeps snapshots.
 fn debounce_loop(
     bases: &WatchBases,
     raw: &Receiver<notify::Result<notify::Event>>,
+    names: IndexNames,
     mut index: Option<IndexSnapshot>,
     emit: impl Fn(RepoChanged),
 ) {
@@ -252,7 +285,10 @@ fn debounce_loop(
                 deadline = None;
                 if let Some(mut payload) = batch.take(&bases.root) {
                     if payload.kinds.contains(&RepoChangeKind::Index) {
-                        let newer = read_index(&index_file);
+                        let newer = match names {
+                            IndexNames::Snapshot => read_index(&index_file),
+                            IndexNames::Unknown => None,
+                        };
                         (payload.index_paths, payload.conflicts_changed) = match (&index, &newer) {
                             (Some(before), Some(after)) => {
                                 let changes = before.changes(after, MAX_PATHS);
@@ -684,9 +720,15 @@ mod tests {
         let (raw_tx, raw_rx) = mpsc::channel();
         let (tx, rx) = mpsc::channel();
         let looping = thread::spawn(move || {
-            debounce_loop(&bases, &raw_rx, None, move |payload| {
-                let _ = tx.send(payload);
-            });
+            debounce_loop(
+                &bases,
+                &raw_rx,
+                IndexNames::Snapshot,
+                None,
+                move |payload| {
+                    let _ = tx.send(payload);
+                },
+            );
         });
         let refused = || Err(notify::Error::new(notify::ErrorKind::MaxFilesWatch));
         raw_tx.send(refused()).expect("send");

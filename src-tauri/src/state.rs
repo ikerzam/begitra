@@ -487,7 +487,8 @@ impl AppState {
             .collect()
     }
 
-    /// Takes the folder watcher of `root` out, for the open repository's slot to run it.
+    /// Takes the folder watcher of `root` out when the open repository's slot starts its own,
+    /// which keeps the index snapshot the folder's lacks; dropped once the slot's runs.
     pub fn take_folder_watcher(&self, root: &Path) -> Option<RepoWatcher> {
         self.folder_watchers().running.remove(root)
     }
@@ -838,19 +839,22 @@ mod tests {
     }
 
     #[test]
-    fn the_open_repository_takes_its_folder_watcher_over_and_gives_it_back() {
+    fn the_open_repository_watches_on_its_own_and_gives_its_watcher_to_the_view() {
         let dir = tempfile::tempdir().expect("temp dir");
         let roots = folders(dir.path(), &["a", "b", "c"]);
         let (a, b, c) = (roots[0].clone(), roots[1].clone(), roots[2].clone());
         let state = AppState::default();
         sync(&state, &roots);
-        // b opens. While the slot's start runs, a sync keeps b's folder watcher, which the slot
-        // takes over, and claims nothing for b.
+        // b opens. While the slot's start runs, a sync claims nothing for b; b's folder watcher,
+        // which keeps no index snapshot, leaves the view and stops once the slot's own runs.
         let ticket = state.begin_watch(&b);
         let during = state.begin_folder_sync(&roots);
         assert!(during.start.is_empty() && during.dropped.is_empty());
-        let taken = state.take_folder_watcher(&b).expect("b's folder watcher");
-        assert!(state.install_watcher(ticket, b.clone(), taken).is_none());
+        let folder_b = state.take_folder_watcher(&b).expect("b's folder watcher");
+        assert!(state
+            .install_watcher(ticket, b.clone(), watcher_of(&b))
+            .is_none());
+        drop(folder_b);
         assert!(state.is_watching(&b));
         assert_eq!(state.folder_watched(), vec![a.clone(), c.clone()]);
         // While b is open, the view leaves it to the slot.
