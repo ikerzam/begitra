@@ -4,7 +4,6 @@ import { useI18n } from "vue-i18n";
 
 import IconButton from "@/components/IconButton.vue";
 import Kbd from "@/components/Kbd.vue";
-import Tooltip from "@/components/Tooltip.vue";
 import { useShortcutHint } from "@/shortcuts/useShortcut";
 import type { LayoutMode } from "@/stores/settings";
 
@@ -53,82 +52,47 @@ const changesHint = useShortcutHint("changes-focus");
       <span class="flex-1 truncate text-left">{{ t("topBar.search") }}</span>
       <Kbd :keys="paletteHint" />
     </button>
-    <!-- Tooltips carry the shortcut hint; the buttons drop their native title to avoid two. -->
+    <!-- The tooltips carry the shortcut hints. -->
     <div class="flex flex-1 items-center justify-end gap-2">
-      <Tooltip
-        v-slot="{ id }"
-        align="end"
+      <IconButton
         :label="t('topBar.settings')"
         :keys="settingsHint"
-        data-testid="tooltip-settings"
-      >
-        <IconButton
-          :label="t('topBar.settings')"
-          :icon="Settings"
-          :pressed="props.layoutMode === 'settings'"
-          :native-title="false"
-          :aria-describedby="id"
-          data-testid="mode-settings"
-          @click="emit('setLayoutMode', 'settings')"
-        />
-      </Tooltip>
-      <Tooltip
-        v-slot="{ id }"
-        align="end"
+        :icon="Settings"
+        :pressed="props.layoutMode === 'settings'"
+        data-testid="mode-settings"
+        @click="emit('setLayoutMode', 'settings')"
+      />
+      <IconButton
         :label="t('topBar.graphFocus')"
         :keys="graphHint"
-        data-testid="tooltip-graph"
-      >
-        <IconButton
-          :label="t('topBar.graphFocus')"
-          :icon="GitGraph"
-          :pressed="props.layoutMode === 'graph'"
-          :native-title="false"
-          :aria-describedby="id"
-          data-testid="mode-graph"
-          @click="emit('setLayoutMode', 'graph')"
-        />
-      </Tooltip>
-      <Tooltip
-        v-slot="{ id }"
-        align="end"
+        :icon="GitGraph"
+        :pressed="props.layoutMode === 'graph'"
+        data-testid="mode-graph"
+        @click="emit('setLayoutMode', 'graph')"
+      />
+      <IconButton
         :label="t('topBar.reviewFocus')"
         :keys="reviewHint"
-        data-testid="tooltip-review"
-      >
-        <IconButton
-          :label="t('topBar.reviewFocus')"
-          :icon="FileDiff"
-          :pressed="props.layoutMode === 'review'"
-          :native-title="false"
-          :aria-describedby="id"
-          data-testid="mode-review"
-          @click="emit('setLayoutMode', 'review')"
-        />
-      </Tooltip>
-      <Tooltip
-        v-slot="{ id }"
-        align="end"
-        :label="t('topBar.changes')"
+        :icon="FileDiff"
+        :pressed="props.layoutMode === 'review'"
+        data-testid="mode-review"
+        @click="emit('setLayoutMode', 'review')"
+      />
+      <IconButton
+        :label="
+          props.changedCount > 0
+            ? t('topBar.changesCount', { n: n(props.changedCount) }, props.changedCount)
+            : t('topBar.changes')
+        "
+        :tooltip="t('topBar.changes')"
         :keys="changesHint"
-        data-testid="tooltip-changes"
-      >
-        <IconButton
-          :label="
-            props.changedCount > 0
-              ? t('topBar.changesCount', { n: n(props.changedCount) }, props.changedCount)
-              : t('topBar.changes')
-          "
-          :icon="FilePen"
-          :count="props.changedCount"
-          :pressed="props.layoutMode === 'changes'"
-          :disabled="!props.canShowChanges"
-          :native-title="false"
-          :aria-describedby="id"
-          data-testid="mode-changes"
-          @click="emit('setLayoutMode', 'changes')"
-        />
-      </Tooltip>
+        :icon="FilePen"
+        :count="props.changedCount"
+        :pressed="props.layoutMode === 'changes'"
+        :disabled="!props.canShowChanges"
+        data-testid="mode-changes"
+        @click="emit('setLayoutMode', 'changes')"
+      />
     </div>
   </header>
 </template>

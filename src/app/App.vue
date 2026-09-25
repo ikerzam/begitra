@@ -1,9 +1,10 @@
 <script setup lang="ts">
 // Root: loads the settings (falling back to memory outside Tauri), applies the locale, the
-// theme and the fonts, then renders the shell.
+// theme and the fonts, then renders the shell; the tooltip host serves every screen.
 
 import { onMounted, ref } from "vue";
 
+import TooltipHost from "@/components/TooltipHost.vue";
 import { setLocale } from "@/i18n";
 import AppShell from "@/shell/AppShell.vue";
 import { useFonts } from "@/shell/useFonts";
@@ -29,5 +30,6 @@ onMounted(async () => {
 <template>
   <div class="h-full bg-app text-fg" data-testid="app-root">
     <AppShell v-if="ready" />
+    <TooltipHost />
   </div>
 </template>

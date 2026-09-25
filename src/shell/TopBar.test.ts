@@ -19,31 +19,30 @@ afterEach(() => {
 });
 
 describe("TopBar", () => {
-  it("shows a tooltip with the shortcut hint on the layout buttons instead of a native title", async () => {
+  it("gives the layout buttons the app's tooltip with the shortcut hint, and no native title", () => {
     const wrapper = mountWithI18n(TopBar, {
       props: {
         repositoryName: null,
         repositoryRoot: null,
         layoutMode: "graph",
-        changedCount: 0,
-        canShowChanges: false,
+        changedCount: 5,
+        canShowChanges: true,
       },
       attachTo: document.body,
     });
-    const button = wrapper.get('[data-testid="mode-graph"]');
-    expect(button.attributes("title")).toBeUndefined();
-    expect(button.attributes("aria-label")).toBe("Graph focus");
-    expect(wrapper.find("[role='tooltip']").exists()).toBe(false);
-
-    await wrapper.get('[data-testid="tooltip-graph"]').trigger("mouseenter");
-    const tooltip = wrapper.get("[role='tooltip']");
-    expect(tooltip.text()).toContain("Graph focus");
-    expect(tooltip.get("kbd").text()).toBe("Ctrl 1");
-    expect(button.attributes("aria-describedby")).toBe(tooltip.attributes("id"));
-
-    await wrapper.get('[data-testid="tooltip-graph"]').trigger("mouseleave");
-    await wrapper.get('[data-testid="tooltip-review"]').trigger("focusin");
-    expect(wrapper.get("[role='tooltip']").get("kbd").text()).toBe("Ctrl 2");
+    const hints = ["settings", "graph", "review", "changes"].map((mode) => {
+      const button = wrapper.get(`[data-testid="mode-${mode}"]`);
+      expect(button.attributes("title")).toBeUndefined();
+      return [button.attributes("data-tooltip"), button.attributes("data-tooltip-keys")];
+    });
+    expect(hints).toEqual([
+      ["Settings", "Ctrl ,"],
+      ["Graph focus", "Ctrl 1"],
+      ["Review focus", "Ctrl 2"],
+      ["Changes", "Ctrl 3"],
+    ]);
+    // The Changes toggle's name carries its count; its tooltip names the screen.
+    expect(wrapper.get('[data-testid="mode-changes"]').attributes("aria-label")).toContain("5");
     wrapper.unmount();
   });
 
@@ -80,10 +79,8 @@ describe("TopBar", () => {
     expect(toggle.get('[data-testid="icon-button-count"]').text()).toBe("5");
     expect(toggle.attributes("aria-label")).toBe("Changes, 5 files changed");
     expect(toggle.attributes("aria-pressed")).toBe("false");
-    await wrapper.get('[data-testid="tooltip-changes"]').trigger("mouseenter");
-    const tooltip = wrapper.get("[role='tooltip']");
-    expect(tooltip.text()).toContain("Changes");
-    expect(tooltip.get("kbd").text()).toBe("Ctrl 3");
+    expect(toggle.attributes("data-tooltip")).toBe("Changes");
+    expect(toggle.attributes("data-tooltip-keys")).toBe("Ctrl 3");
     await toggle.trigger("click");
     expect(wrapper.emitted("setLayoutMode")).toEqual([["changes"]]);
 

@@ -11,21 +11,32 @@ describe("IconButton", () => {
     expect(wrapper.element.tagName).toBe("BUTTON");
     expect(wrapper.attributes("type")).toBe("button");
     expect(wrapper.attributes("aria-label")).toBe("Settings");
-    expect(wrapper.attributes("title")).toBe("Settings");
+    // The app's tooltip shows the label; no native title doubles it.
+    expect(wrapper.attributes("data-tooltip")).toBe("Settings");
+    expect(wrapper.attributes("data-tooltip-keys")).toBeUndefined();
+    expect(wrapper.attributes("title")).toBeUndefined();
     expect(wrapper.classes()).toContain("size-5");
     expect(wrapper.classes()).toContain("rounded-sm");
     expect(wrapper.classes()).toContain("text-fg-secondary");
     expect(wrapper.get("svg").attributes("width")).toBe("16");
   });
 
-  it("renders 32px for the rail and drops the native title under a custom tooltip", () => {
+  it("renders 32px for the rail", () => {
     const wrapper = mountWithI18n(IconButton, {
-      props: { label: "Repos", icon: Settings, size: "lg", nativeTitle: false },
+      props: { label: "Repos", icon: Settings, size: "lg" },
     });
     expect(wrapper.classes()).toContain("size-6");
     expect(wrapper.classes()).not.toContain("size-5");
-    expect(wrapper.attributes("title")).toBeUndefined();
     expect(wrapper.attributes("aria-label")).toBe("Repos");
+  });
+
+  it("gives its tooltip a text of its own and a shortcut when asked", () => {
+    const wrapper = mountWithI18n(IconButton, {
+      props: { label: "Changes, 5 files", tooltip: "Changes", keys: "Ctrl 3", icon: Settings },
+    });
+    expect(wrapper.attributes("aria-label")).toBe("Changes, 5 files");
+    expect(wrapper.attributes("data-tooltip")).toBe("Changes");
+    expect(wrapper.attributes("data-tooltip-keys")).toBe("Ctrl 3");
   });
 
   it("renders slot content when no icon prop is given", () => {

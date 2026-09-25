@@ -12,7 +12,7 @@
 import { Check } from "@lucide/vue";
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
-import { EDGE, hangList, viewportSize } from "./placement";
+import { EDGE, hangFrom, viewportSize } from "./placement";
 import type { SelectOption } from "./types";
 
 const props = withDefaults(
@@ -57,7 +57,7 @@ function measure(): void {
   // The natural height: every row (the scroll height and the border) up to ten.
   const border = element.offsetHeight - element.clientHeight;
   const natural = box.height === 0 ? 0 : Math.min(element.scrollHeight + border, MAX_HEIGHT);
-  place.value = hangList(anchor, { width: box.width, height: natural }, viewport);
+  place.value = hangFrom(anchor, { width: box.width, height: natural }, viewport);
   room.value = { minWidth: anchor.width, maxWidth: viewport.width - 2 * EDGE };
 }
 
