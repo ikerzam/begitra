@@ -194,11 +194,30 @@ export const useChangesStore = defineStore("changes", () => {
   const listOf = (list: ChangeList) => (list === "unstaged" ? unstaged : staged);
   const unstagedCount = computed(() => unstaged.value.files.length);
   const stagedCount = computed(() => staged.value.files.length);
-  /** Files with a change in either list, a file in both counted once: the top bar's count. */
-  const changedCount = computed(() => {
-    const paths = new Set(unstaged.value.files.map((file) => file.path));
-    for (const file of staged.value.files) paths.add(file.path);
-    return paths.size;
+  /**
+   * The counts the top bar and the graph's row show, taken when neither list streams: a full
+   * reload's pages would count up from its first, and one list may land before the other. The
+   * last counts stay through a reload; null until the first load ends, after a failure and
+   * once the lists are emptied. `changed` counts a file in both lists once.
+   */
+  const counts = shallowRef<{ unstaged: number; staged: number; changed: number } | null>(null);
+  watch([unstaged, staged], ([nowUnstaged, nowStaged]) => {
+    if (!loaded.value) {
+      counts.value = null;
+      return;
+    }
+    if (nowUnstaged.loading || nowStaged.loading) return;
+    if (nowUnstaged.error || nowStaged.error) {
+      counts.value = null;
+      return;
+    }
+    const paths = new Set(nowUnstaged.files.map((file) => file.path));
+    for (const file of nowStaged.files) paths.add(file.path);
+    counts.value = {
+      unstaged: nowUnstaged.files.length,
+      staged: nowStaged.files.length,
+      changed: paths.size,
+    };
   });
   const loading = computed(() => unstaged.value.loading || staged.value.loading);
   const error = computed(() => unstaged.value.error ?? staged.value.error ?? null);
@@ -384,6 +403,7 @@ export const useChangesStore = defineStore("changes", () => {
     staged.value = emptyList();
     selected.value = null;
     loaded.value = false;
+    counts.value = null;
   }
 
   /** Forgets the lists and what belongs to their repository: the draft, the commit context. */
@@ -667,7 +687,7 @@ export const useChangesStore = defineStore("changes", () => {
     loaded,
     unstagedCount,
     stagedCount,
-    changedCount,
+    counts,
     loading,
     error,
     isEmpty,

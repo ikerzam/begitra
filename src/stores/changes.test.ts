@@ -13,6 +13,7 @@ import {
   type FakeBackendOptions,
 } from "@/test/backend";
 import * as ipc from "@/ipc/commands";
+import { AppError } from "@/ipc/errors";
 import { changedFile, repoChange } from "@/test/changes";
 
 import {
@@ -438,7 +439,7 @@ describe("the lists before the screen", () => {
     await useRepoStore().open("/r");
     await settled();
     expect(changes.loaded).toBe(true);
-    expect([changes.unstagedCount, changes.stagedCount, changes.changedCount]).toEqual([2, 2, 3]);
+    expect(changes.counts).toEqual({ unstaged: 2, staged: 2, changed: 3 });
     // After the open's own work: the first page of history streams first.
     const order = calls.map((call) => call.cmd);
     expect(order.indexOf("diff")).toBeGreaterThan(order.indexOf("walk_commits"));
@@ -453,18 +454,37 @@ describe("the lists before the screen", () => {
     changes.setDraft({ subject: "draft" });
     const again = repo.open("/r");
     await nextTick();
-    expect(changes.changedCount).toBe(0);
+    expect(changes.counts).toBeNull();
     await again;
     await settled();
     expect(changes.draft.subject).toBe("draft");
-    expect(changes.changedCount).toBe(3);
+    expect(changes.counts?.changed).toBe(3);
     const other = repo.open("/other");
     await nextTick();
-    expect(changes.changedCount).toBe(0);
+    expect(changes.counts).toBeNull();
     await other;
     await settled();
     expect(changes.draft.subject).toBe("");
-    expect(changes.changedCount).toBe(3);
+    expect(changes.counts?.changed).toBe(3);
+  });
+
+  it("count only when neither list streams, keeping the last counts through a reload", async () => {
+    fakeBackend({ changes: lists });
+    const changes = useChangesStore();
+    await useRepoStore().open("/r");
+    await settled();
+    expect(changes.counts).toEqual({ unstaged: 2, staged: 2, changed: 3 });
+    // A full reload streams its first page: the counts are the last ones until it ends.
+    changes.unstaged = { ...changes.unstaged, loading: true, files: [changedFile("a.ts")] };
+    await nextTick();
+    expect(changes.counts).toEqual({ unstaged: 2, staged: 2, changed: 3 });
+    changes.unstaged = { ...changes.unstaged, loading: false };
+    await nextTick();
+    expect(changes.counts).toEqual({ unstaged: 1, staged: 2, changed: 3 });
+    // A failed list leaves the counts unknown.
+    changes.staged = { ...changes.staged, error: new AppError("git.cli_failed", "x") };
+    await nextTick();
+    expect(changes.counts).toBeNull();
   });
 
   it("stream nothing again when the screen opens on lists already loaded", async () => {

@@ -260,7 +260,7 @@ async function removeFromList(): Promise<void> {
       :repository-name="repositoryName"
       :repository-root="repo.repo?.root ?? null"
       :layout-mode="shell.layoutMode"
-      :changed-count="changes.changedCount"
+      :changed-count="changes.counts?.changed ?? 0"
       :can-show-changes="repo.state.kind === 'ready'"
       @open-folder="() => void openFolder()"
       @open-palette="shell.openPalette()"
