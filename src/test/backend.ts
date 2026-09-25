@@ -358,12 +358,15 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
     if (filter.paths) listed = listed.filter((_c, i) => i % 2 === 0);
     return listed;
   };
+  /** The repository the slot watches, which `watch_folder` leaves out, as the backend does. */
+  let opened: string | null = null;
   mockIPC((cmd, rawArgs) => {
     const args = (rawArgs ?? {}) as Record<string, unknown>;
     calls.push({ cmd, args });
     switch (cmd) {
       case "open_repository": {
         const root = options.rootIsPath ? (args["path"] as string) : "/r";
+        opened = root;
         return {
           root,
           commonDir: `${root}/.git`,
@@ -866,7 +869,11 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
       case "unwatch_folder":
         return null;
       case "watch_folder":
-        return (args["roots"] as string[]).slice(0, 20);
+        // The first 20 distinct roots but the open repository's, sorted, as the backend answers.
+        return [...new Set(args["roots"] as string[])]
+          .slice(0, 20)
+          .filter((root) => root !== opened)
+          .sort();
       case "list_repositories":
         return [];
       case "open_external":

@@ -68,6 +68,16 @@ pub async fn watch_repository(
         return Ok(());
     }
     let ticket = shared.begin_watch(&root);
+    // A repository of the folder view: its folder watcher becomes the slot's, with no gap and
+    // no second walk of its tree.
+    if let Some(watcher) = shared.take_folder_watcher(&root) {
+        if let Some(previous) = shared.install_watcher(ticket, root, watcher) {
+            tokio::task::spawn_blocking(move || drop(previous))
+                .await
+                .map_err(|join| AppError::internal(format!("watcher task failed: {join}")))?;
+        }
+        return Ok(());
+    }
     let (outcome, superseded) = tokio::task::spawn_blocking(move || {
         let handle = app.clone();
         let bases = match shared.engine_for(&root) {
@@ -80,17 +90,13 @@ pub async fn watch_repository(
             }
         });
         match started {
-            Ok(watcher) => {
-                let replaced = shared.install_watcher(ticket, root.clone(), watcher);
-                // A repository of the folder view that opens: its own watcher takes over from
-                // the folder's, so its events come once.
-                let folder = if shared.is_watching(&root) {
-                    shared.take_folder_watcher(&root)
-                } else {
-                    None
-                };
-                (Ok(()), replaced.into_iter().chain(folder).collect())
-            }
+            Ok(watcher) => (
+                Ok(()),
+                shared
+                    .install_watcher(ticket, root, watcher)
+                    .into_iter()
+                    .collect(),
+            ),
             Err(error) => {
                 // notify names the inotify limit as its own kind (ENOSPC included).
                 let detail = match error.kind {
@@ -122,11 +128,12 @@ pub async fn watch_repository(
 }
 
 /// Makes the folder view's watchers follow `roots`: the first
-/// [`crate::state::FOLDER_WATCH_LIMIT`] of them get a watcher, but the open repository, which keeps its
-/// own, and the watchers of roots no longer listed stop. The starts run one after another, so
-/// the first repositories follow their changes while the rest start. Answers the roots the
-/// folder watchers watch once the starts ended; a root whose repository or watcher cannot
-/// start is left out and logged, and the view reads it again on the window's focus.
+/// [`crate::state::FOLDER_WATCH_LIMIT`] of them get a watcher, but the open repository, which
+/// keeps its own, and the watchers of roots no longer listed stop. The roots are claimed before
+/// the command waits, so an `unwatch_folder` or a sync sent after it comes after it; the starts
+/// run in the background, one after another. Answers the roots the folder watchers watch when
+/// this call's starts ended; a root whose repository or watcher cannot start is logged and left
+/// out, and the view reads it again on the window's focus.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state, app, roots), fields(roots = roots.len()))]
 pub async fn watch_folder(
@@ -135,33 +142,17 @@ pub async fn watch_folder(
     roots: Vec<PathBuf>,
 ) -> Result<Vec<PathBuf>, AppError> {
     let shared = state.inner().clone();
+    let sync = shared.begin_folder_sync(&roots);
     tokio::task::spawn_blocking(move || {
-        let sync = shared.begin_folder_sync(&roots);
         drop(sync.dropped);
-        for root in sync.start {
-            if !shared.folder_sync_current(sync.ticket) {
-                break;
-            }
-            let bases = match shared.open(&root) {
-                Ok(engine) => engine.watch_bases(),
-                Err(error) => {
-                    tracing::warn!(root = %root.display(), error = %error, "folder watcher: the repository did not open");
-                    continue;
-                }
-            };
+        shared.run_folder_starts(sync.start, |bases| {
             let handle = app.clone();
-            let started = RepoWatcher::start(bases, move |payload| {
+            RepoWatcher::start(bases, move |payload| {
                 if let Err(error) = crate::events::emit_repo_changed(&handle, &payload) {
                     tracing::warn!(error = %error, "repo:changed could not be emitted");
                 }
-            });
-            match started {
-                Ok(watcher) => drop(shared.install_folder_watcher(sync.ticket, root, watcher)),
-                Err(error) => {
-                    tracing::warn!(root = %root.display(), error = %error, "folder watcher did not start");
-                }
-            }
-        }
+            })
+        });
         shared.folder_watched()
     })
     .await

@@ -2,7 +2,7 @@
 //! registry. Cloning the state clones a handle to the same maps, so commands can move it into
 //! blocking closures.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -16,7 +16,7 @@ use syntax::Highlight;
 
 use crate::error::AppError;
 use crate::ops::Operations;
-use crate::watcher::RepoWatcher;
+use crate::watcher::{RepoWatcher, WatchBases, WatchBasesExt};
 
 /// Walk handles idle for longer than this are dropped.
 pub const WALK_IDLE_LIMIT: Duration = Duration::from_secs(5 * 60);
@@ -74,22 +74,22 @@ struct WatchSlot {
 /// its order read again on the window's focus instead.
 pub const FOLDER_WATCH_LIMIT: usize = 20;
 
-/// The folder view's watchers, one per repository of the view but the open one, and the
-/// generation that lets a later sync, or leaving the view, win over starts still running.
+/// The folder view's watchers: the roots its latest sync lists, the watchers running, and the
+/// roots a start runs for, so that one start runs per root however many syncs come.
 #[derive(Default)]
 struct FolderWatchers {
+    /// The first [`FOLDER_WATCH_LIMIT`] roots of the latest sync, the open repository's
+    /// included; empty once the view has stopped its watchers.
+    listed: Vec<PathBuf>,
     running: HashMap<PathBuf, RepoWatcher>,
-    /// Bumped by every sync and when the view stops its watchers.
-    generation: u64,
+    starting: HashSet<PathBuf>,
 }
 
-/// What a folder sync leaves to its caller: the roots to start, installed through
-/// [`AppState::install_folder_watcher`] with `ticket`, and the watchers it took out, to drop
-/// off the async runtime.
+/// What a folder sync leaves to its caller: the roots it claimed, each to start
+/// ([`AppState::run_folder_starts`]) or give up, and the watchers it took out, to drop off the
+/// async runtime.
 pub struct FolderSync {
-    /// The sync's generation.
-    pub ticket: u64,
-    /// Roots to watch that have no watcher yet, in the order given.
+    /// Roots to watch with no watcher and no start yet, in the order given.
     pub start: Vec<PathBuf>,
     /// Watchers of roots the sync left out.
     pub dropped: Vec<RepoWatcher>,
@@ -333,79 +333,139 @@ impl AppState {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// The roots the open repository's slot watches or is starting to watch.
-    fn slot_roots(&self) -> Vec<PathBuf> {
+    /// The root the open repository's slot watches, and the one a start of the slot runs for.
+    fn slot_roots(&self) -> (Option<PathBuf>, Option<PathBuf>) {
         let slot = self.watch_slot();
-        slot.running
-            .iter()
-            .map(|(root, _)| root.clone())
-            .chain(slot.pending.clone())
-            .collect()
+        (
+            slot.running.as_ref().map(|(root, _)| root.clone()),
+            slot.pending.clone(),
+        )
     }
 
     /// Makes the folder watchers follow `roots`: the first [`FOLDER_WATCH_LIMIT`] distinct
-    /// roots are to be watched, but the one the open repository's slot watches or starts,
-    /// which keeps its own; the watchers of the other roots are taken out. Every sync
-    /// supersedes the starts of the ones before it.
+    /// roots are listed, and each gets a watcher but the one the open repository's slot
+    /// watches; the one a start of the slot runs for keeps the folder's watcher it has, which
+    /// the slot takes over, and gets no new one. The watchers of roots no longer listed are
+    /// taken out, and the roots with neither a watcher nor a start in flight are claimed.
     pub fn begin_folder_sync(&self, roots: &[PathBuf]) -> FolderSync {
-        let open = self.slot_roots();
-        let mut listed: Vec<&PathBuf> = Vec::with_capacity(FOLDER_WATCH_LIMIT);
+        let (open, pending) = self.slot_roots();
+        let mut listed: Vec<PathBuf> = Vec::with_capacity(FOLDER_WATCH_LIMIT);
         for root in roots {
             if listed.len() == FOLDER_WATCH_LIMIT {
                 break;
             }
-            if !listed.contains(&root) {
-                listed.push(root);
+            if !listed.contains(root) {
+                listed.push(root.clone());
             }
         }
-        let wanted: Vec<PathBuf> = listed
-            .into_iter()
-            .filter(|root| !open.contains(root))
-            .cloned()
-            .collect();
         let mut folders = self.folder_watchers();
-        folders.generation += 1;
         let mut dropped = Vec::new();
         for (root, watcher) in std::mem::take(&mut folders.running) {
-            if wanted.contains(&root) {
+            if listed.contains(&root) && open.as_ref() != Some(&root) {
                 folders.running.insert(root, watcher);
             } else {
                 dropped.push(watcher);
             }
         }
-        let start = wanted
-            .into_iter()
-            .filter(|root| !folders.running.contains_key(root))
+        let start: Vec<PathBuf> = listed
+            .iter()
+            .filter(|root| {
+                open.as_ref() != Some(*root)
+                    && pending.as_ref() != Some(*root)
+                    && !folders.running.contains_key(*root)
+                    && !folders.starting.contains(*root)
+            })
+            .cloned()
             .collect();
-        FolderSync {
-            ticket: folders.generation,
-            start,
-            dropped,
+        folders.starting.extend(start.iter().cloned());
+        folders.listed = listed;
+        FolderSync { start, dropped }
+    }
+
+    /// Whether a claimed start of `root` is still worth running: the latest sync lists it, and
+    /// the open repository's slot neither watches it nor starts to.
+    pub fn folder_wants(&self, root: &Path) -> bool {
+        let (open, pending) = self.slot_roots();
+        if open.as_deref() == Some(root) || pending.as_deref() == Some(root) {
+            return false;
         }
+        self.folder_watchers()
+            .listed
+            .iter()
+            .any(|listed| listed == root)
     }
 
-    /// Whether `ticket` is still the latest folder sync, so its starts are worth running.
-    pub fn folder_sync_current(&self, ticket: u64) -> bool {
-        self.folder_watchers().generation == ticket
-    }
-
-    /// Installs the folder watcher of `root` when `ticket` is still the latest sync and the
-    /// open repository's slot does not watch `root` meanwhile. Returns the watcher to drop off
-    /// the async runtime: `watcher` itself when it came too late.
+    /// Ends a claimed start with its watcher: installed while [`AppState::folder_wants`] still
+    /// holds, else returned to be dropped off the async runtime. The slot's lock is held while
+    /// the watcher goes in, so the slot cannot take the root in between.
     pub fn install_folder_watcher(
         &self,
-        ticket: u64,
         root: PathBuf,
         watcher: RepoWatcher,
     ) -> Option<RepoWatcher> {
-        if self.slot_roots().contains(&root) {
-            return Some(watcher);
-        }
+        let slot = self.watch_slot();
+        let taken = slot
+            .running
+            .as_ref()
+            .is_some_and(|(watched, _)| *watched == root)
+            || slot.pending.as_ref() == Some(&root);
         let mut folders = self.folder_watchers();
-        if folders.generation != ticket {
+        folders.starting.remove(&root);
+        if taken || !folders.listed.contains(&root) {
             return Some(watcher);
         }
         folders.running.insert(root, watcher)
+    }
+
+    /// Ends a claimed start without a watcher (its repository or watcher did not start, or it
+    /// is no longer wanted), so a later sync may claim the root again.
+    pub fn abandon_folder_start(&self, root: &Path) {
+        self.folder_watchers().starting.remove(root);
+    }
+
+    /// Runs the starts a folder sync claimed, one after another, so the first repositories
+    /// follow their changes while the rest start. Each root still wanted gets its watcher from
+    /// its engine when one is open, else from one opened for the start and dropped after it, so
+    /// a view that closed meanwhile leaves no engine behind; a root no longer wanted is given
+    /// up, and so is every root left once the platform's limit of watches is reached.
+    /// Blocking: call from `spawn_blocking`.
+    pub fn run_folder_starts(
+        &self,
+        roots: Vec<PathBuf>,
+        start: impl Fn(WatchBases) -> Result<RepoWatcher, notify::Error>,
+    ) {
+        let mut claimed = roots.into_iter();
+        while let Some(root) = claimed.next() {
+            if !self.folder_wants(&root) {
+                self.abandon_folder_start(&root);
+                continue;
+            }
+            let bases = match self.engine_for(&root) {
+                Some(engine) => engine.watch_bases(),
+                None => match Git2Engine::open(&root) {
+                    Ok(engine) => engine.watch_bases(),
+                    Err(error) => {
+                        tracing::warn!(root = %root.display(), error = %error, "folder watcher: the repository did not open");
+                        self.abandon_folder_start(&root);
+                        continue;
+                    }
+                },
+            };
+            match start(bases) {
+                Ok(watcher) => drop(self.install_folder_watcher(root, watcher)),
+                Err(error) if matches!(error.kind, notify::ErrorKind::MaxFilesWatch) => {
+                    tracing::warn!(root = %root.display(), "folder watchers stop: too many watched folders for this system (inotify limit)");
+                    self.abandon_folder_start(&root);
+                    for rest in claimed.by_ref() {
+                        self.abandon_folder_start(&rest);
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(root = %root.display(), error = %error, "folder watcher did not start");
+                    self.abandon_folder_start(&root);
+                }
+            }
+        }
     }
 
     /// The roots the folder watchers watch, sorted.
@@ -415,11 +475,11 @@ impl AppState {
         roots
     }
 
-    /// Takes every folder watcher out, leaving the folder view, and supersedes the starts in
-    /// flight; returned to be dropped off the async runtime.
+    /// Takes every folder watcher out, leaving the folder view; the starts still running find
+    /// nothing listed when they end, and their watchers go.
     pub fn stop_folder_watchers(&self) -> Vec<RepoWatcher> {
         let mut folders = self.folder_watchers();
-        folders.generation += 1;
+        folders.listed.clear();
         folders
             .running
             .drain()
@@ -427,9 +487,22 @@ impl AppState {
             .collect()
     }
 
-    /// Takes the folder watcher of `root` out, once the open repository's slot watches it.
+    /// Takes the folder watcher of `root` out, for the open repository's slot to run it.
     pub fn take_folder_watcher(&self, root: &Path) -> Option<RepoWatcher> {
         self.folder_watchers().running.remove(root)
+    }
+
+    /// Gives the folder view the watcher the open repository's slot let go of, when its latest
+    /// sync lists that root; returns it otherwise, to be dropped.
+    fn keep_for_folder(&self, root: &Path, watcher: RepoWatcher) -> Option<RepoWatcher> {
+        let mut folders = self.folder_watchers();
+        if folders.listed.iter().any(|listed| listed == root) && !folders.running.contains_key(root)
+        {
+            folders.running.insert(root.to_path_buf(), watcher);
+            None
+        } else {
+            Some(watcher)
+        }
     }
 
     /// Opens the repository containing `path`, or returns the engine already open for its
@@ -490,7 +563,10 @@ impl AppState {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .remove(root);
-        let watcher = self.take_watcher(root).map(|(_, watcher)| watcher);
+        // A repository the folder view lists keeps being watched, by the view's watchers.
+        let watcher = self
+            .take_watcher(root)
+            .and_then(|(_, watcher)| self.keep_for_folder(root, watcher));
         if engine.is_none() && dropped.is_empty() && watcher.is_none() {
             return None;
         }
@@ -676,7 +752,7 @@ mod tests {
     }
 
     /// Folders `names` created under `dir`.
-    fn folders(dir: &Path, names: &[String]) -> Vec<PathBuf> {
+    fn folders(dir: &Path, names: &[&str]) -> Vec<PathBuf> {
         names
             .iter()
             .map(|name| {
@@ -687,15 +763,29 @@ mod tests {
             .collect()
     }
 
-    /// A folder sync run to its end as `watch_folder` runs it; answers how many watchers it
-    /// took out.
+    /// Repositories `names` under `dir`, made by `git init`.
+    fn repositories(dir: &Path, names: &[&str]) -> Vec<PathBuf> {
+        let roots = folders(dir, names);
+        for root in &roots {
+            let status = std::process::Command::new("git")
+                .args(["init", "-q"])
+                .current_dir(root)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_CONFIG_GLOBAL", dir.join("no-global-config"))
+                .status()
+                .expect("git runs");
+            assert!(status.success(), "git init");
+        }
+        roots
+    }
+
+    /// A folder sync run to its end with watchers that report nothing; answers how many
+    /// watchers it took out.
     fn sync(state: &AppState, roots: &[PathBuf]) -> usize {
         let sync = state.begin_folder_sync(roots);
         for root in sync.start {
             let watcher = watcher_of(&root);
-            assert!(state
-                .install_folder_watcher(sync.ticket, root, watcher)
-                .is_none());
+            assert!(state.install_folder_watcher(root, watcher).is_none());
         }
         sync.dropped.len()
     }
@@ -704,6 +794,7 @@ mod tests {
     fn folder_watchers_follow_the_roots_up_to_the_cap() {
         let dir = tempfile::tempdir().expect("temp dir");
         let names: Vec<String> = (0..22).map(|i| format!("r{i:02}")).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
         let roots = folders(dir.path(), &names);
         let state = AppState::default();
         assert_eq!(sync(&state, &roots), 0);
@@ -721,65 +812,131 @@ mod tests {
     }
 
     #[test]
-    fn the_open_repository_keeps_its_own_watcher_and_gets_no_folder_one() {
+    fn back_to_back_syncs_start_a_root_once() {
         let dir = tempfile::tempdir().expect("temp dir");
-        let roots = folders(
-            dir.path(),
-            &["a".to_owned(), "b".to_owned(), "c".to_owned()],
-        );
+        let roots = folders(dir.path(), &["a", "b", "c"]);
         let (a, b, c) = (roots[0].clone(), roots[1].clone(), roots[2].clone());
         let state = AppState::default();
-        let ticket = state.begin_watch(&a);
+        let first = state.begin_folder_sync(std::slice::from_ref(&a));
+        assert_eq!(first.start, vec![a.clone()]);
+        // A second sync while a's start runs claims b alone.
+        let second = state.begin_folder_sync(&[a.clone(), b.clone()]);
+        assert_eq!(second.start, vec![b.clone()]);
+        // a's start ends after the second sync: that sync lists a, so it goes in.
         assert!(state
-            .install_watcher(ticket, a.clone(), watcher_of(&a))
+            .install_folder_watcher(a.clone(), watcher_of(&a))
             .is_none());
-        sync(&state, &roots);
-        assert_eq!(state.folder_watched(), vec![b.clone(), c.clone()]);
-        // b opens: its own watcher replaces a's, and its folder watcher goes.
-        let ticket = state.begin_watch(&b);
         assert!(state
-            .install_watcher(ticket, b.clone(), watcher_of(&b))
-            .is_some());
-        assert!(state.take_folder_watcher(&b).is_some());
-        assert!(state.take_folder_watcher(&b).is_none());
-        assert_eq!(state.folder_watched(), vec![c.clone()]);
-        // The next sync watches a again and leaves b to its own.
-        sync(&state, &roots);
-        assert_eq!(state.folder_watched(), vec![a, c]);
+            .install_folder_watcher(b.clone(), watcher_of(&b))
+            .is_none());
+        assert_eq!(state.folder_watched(), vec![a.clone(), b.clone()]);
+        // A claim given up is claimed again by the next sync.
+        let third = state.begin_folder_sync(&roots);
+        assert_eq!(third.start, vec![c.clone()]);
+        state.abandon_folder_start(&c);
+        assert_eq!(state.begin_folder_sync(&roots).start, vec![c]);
     }
 
     #[test]
-    fn a_folder_start_that_came_too_late_is_dropped_not_installed() {
+    fn the_open_repository_takes_its_folder_watcher_over_and_gives_it_back() {
         let dir = tempfile::tempdir().expect("temp dir");
-        let roots = folders(dir.path(), &["a".to_owned(), "b".to_owned()]);
-        let (a, b) = (roots[0].clone(), roots[1].clone());
+        let roots = folders(dir.path(), &["a", "b", "c"]);
+        let (a, b, c) = (roots[0].clone(), roots[1].clone(), roots[2].clone());
         let state = AppState::default();
-        // A second sync while the first one's starts run: the first one's go.
-        let first = state.begin_folder_sync(std::slice::from_ref(&a));
-        let second = state.begin_folder_sync(std::slice::from_ref(&b));
-        assert!(!state.folder_sync_current(first.ticket));
-        assert!(state.folder_sync_current(second.ticket));
+        sync(&state, &roots);
+        // b opens. While the slot's start runs, a sync keeps b's folder watcher, which the slot
+        // takes over, and claims nothing for b.
+        let ticket = state.begin_watch(&b);
+        let during = state.begin_folder_sync(&roots);
+        assert!(during.start.is_empty() && during.dropped.is_empty());
+        let taken = state.take_folder_watcher(&b).expect("b's folder watcher");
+        assert!(state.install_watcher(ticket, b.clone(), taken).is_none());
+        assert!(state.is_watching(&b));
+        assert_eq!(state.folder_watched(), vec![a.clone(), c.clone()]);
+        // While b is open, the view leaves it to the slot.
+        let open = state.begin_folder_sync(&roots);
+        assert!(open.start.is_empty() && open.dropped.is_empty());
+        // b closes while the view lists it: its watcher goes back to the view.
+        let closed = state.close(&b);
+        assert!(closed.is_none_or(|closed| closed.watcher.is_none()));
+        assert_eq!(state.folder_watched(), vec![a, b.clone(), c]);
+        // Once the view left, the slot's watcher goes with its repository, as before.
+        drop(state.stop_folder_watchers());
+        let ticket = state.begin_watch(&b);
         assert!(state
-            .install_folder_watcher(first.ticket, a.clone(), watcher_of(&a))
-            .is_some());
-        assert!(state
-            .install_folder_watcher(second.ticket, b.clone(), watcher_of(&b))
+            .install_watcher(ticket, b.clone(), watcher_of(&b))
             .is_none());
+        assert!(state
+            .close(&b)
+            .is_some_and(|closed| closed.watcher.is_some()));
+    }
+
+    #[test]
+    fn a_folder_start_that_ends_after_the_view_left_or_the_slot_took_its_root_is_dropped() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let roots = folders(dir.path(), &["a"]);
+        let a = roots[0].clone();
+        let state = AppState::default();
         // Leaving the view while a start runs: it installs nothing.
         let late = state.begin_folder_sync(&roots);
         assert_eq!(late.start, vec![a.clone()]);
-        assert_eq!(state.stop_folder_watchers().len(), 1);
+        assert!(state.stop_folder_watchers().is_empty());
+        assert!(!state.folder_wants(&a));
         assert!(state
-            .install_folder_watcher(late.ticket, a.clone(), watcher_of(&a))
+            .install_folder_watcher(a.clone(), watcher_of(&a))
             .is_some());
         assert!(state.folder_watched().is_empty());
-        // A root that the open repository started to watch meanwhile gets no second watcher.
-        let sync = state.begin_folder_sync(std::slice::from_ref(&a));
+        // The open repository's slot starts to watch a while a folder start of it runs.
+        assert_eq!(state.begin_folder_sync(&roots).start, vec![a.clone()]);
         state.begin_watch(&a);
+        assert!(!state.folder_wants(&a));
         assert!(state
-            .install_folder_watcher(sync.ticket, a.clone(), watcher_of(&a))
+            .install_folder_watcher(a.clone(), watcher_of(&a))
             .is_some());
         assert!(state.folder_watched().is_empty());
+    }
+
+    #[test]
+    fn folder_starts_watch_what_is_wanted_report_their_root_and_stop_at_the_platform_limit() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let roots = repositories(dir.path(), &["a", "b", "c"]);
+        let (a, b, c) = (roots[0].clone(), roots[1].clone(), roots[2].clone());
+        let state = AppState::default();
+        let claimed = state.begin_folder_sync(&roots);
+        let (sender, changes) = std::sync::mpsc::channel();
+        // The platform refuses b's watches as it does past the inotify limit.
+        state.run_folder_starts(claimed.start, |bases| {
+            if bases.root == b {
+                return Err(notify::Error::new(notify::ErrorKind::MaxFilesWatch));
+            }
+            let sender = sender.clone();
+            RepoWatcher::start(bases, move |payload| {
+                let _ = sender.send(payload);
+            })
+        });
+        assert_eq!(state.folder_watched(), vec![a.clone()]);
+        // b and the root after it were given up: the next sync claims them.
+        let again = state.begin_folder_sync(&roots);
+        assert_eq!(again.start, vec![b, c.clone()]);
+        state.abandon_folder_start(&c);
+        // No engine stays behind for a start.
+        assert_eq!(state.open_count(), 0);
+        // A change in a reaches its watcher, named by its root.
+        std::thread::sleep(Duration::from_millis(400));
+        std::fs::write(a.join("new.txt"), "new\n").expect("write");
+        let change = changes
+            .recv_timeout(Duration::from_secs(10))
+            .expect("a change");
+        assert_eq!(change.repo, a);
+        // A root no longer wanted when its turn comes is given up, not started.
+        let later = state.begin_folder_sync(std::slice::from_ref(&c));
+        assert_eq!(later.dropped.len(), 1, "a is no longer listed");
+        assert!(state.stop_folder_watchers().is_empty());
+        state.run_folder_starts(later.start, |_| panic!("c is not wanted any more"));
+        assert_eq!(
+            state.begin_folder_sync(std::slice::from_ref(&c)).start,
+            vec![c]
+        );
     }
 
     #[test]
