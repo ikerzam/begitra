@@ -1,0 +1,231 @@
+{
+  "lang": "es",
+  "locale": "es_ES",
+  "dateLocale": "es-ES",
+  "name": "Español",
+  "skip": "Saltar al contenido",
+  "meta": {
+    "productTitle": "Begitra: el cliente de Git para revisar el código que escriben tus agentes",
+    "productDescription": "Un cliente de Git de escritorio y gratuito para leer y revisar el código que escriben los agentes de IA: marca ficheros y hunks como revisados, previsualiza merges y ten a la vista todos tus worktrees. Para Windows.",
+    "downloadTitle": "Descargar Begitra para Windows",
+    "downloadDescription": "Descarga Begitra {version} para Windows 10 y 11: los instaladores con su tamaño, sus sumas SHA-256 y sus firmas, y cómo comprobarlos.",
+    "ogAlt": "Begitra: mira antes de fusionar. Un cliente de Git para revisar el código que escriben tus agentes."
+  },
+  "nav": {
+    "label": "Principal",
+    "home": "Begitra, inicio",
+    "features": "Funciones",
+    "whatsNew": "Novedades",
+    "questions": "Preguntas",
+    "donate": "Donar",
+    "download": "Descargar"
+  },
+  "hero": {
+    "pillLabel": "Nuevo en {version}",
+    "headline": "Mira antes de fusionar.",
+    "sub": "Begitra es el cliente de Git para revisar el código que escriben tus agentes. Marca lo que has leído, mira qué ha cambiado desde entonces, previsualiza cada merge y ten a la vista todos tus worktrees.",
+    "download": "Descargar para Windows",
+    "whatsNew": "Ver novedades",
+    "facts": ["Gratis", "Windows 10 y 11, 64 bits", "Versión {version}"],
+    "imageAlt": "El modo de revisión de Begitra: los ficheros cambiados con sus marcas de revisado, un diff en paralelo con colores de sintaxis y el resumen del cambio con el progreso de la revisión."
+  },
+  "review": {
+    "label": "Modo de revisión",
+    "title": "Marca lo que has leído. Mira qué ha cambiado después.",
+    "body": "Una marca vale mientras el código sea el mismo. Cuando un agente reescribe una línea que ya leíste, Begitra te pide que vuelvas a mirarla.",
+    "points": [
+      "Marca como revisado un fichero entero o un solo hunk.",
+      "Escribe notas sobre los ficheros y cópialas como Markdown en el siguiente prompt.",
+      "El resumen del cambio: ficheros por tipo, los cambios más grandes, generado frente a escrito a mano, los tests que toca.",
+      "Los ficheros generados, los lockfiles y los binarios se pliegan hasta que los abres."
+    ],
+    "keys": [
+      [["j", "k"], "ficheros"],
+      [["n", "p"], "hunks"],
+      [["r"], "revisado"]
+    ],
+    "imageAlt": "Hunks marcados como revisados en un diff, junto al resumen del cambio: ficheros por tipo, los cambios más grandes y el progreso de la revisión."
+  },
+  "worktrees": {
+    "label": "Worktrees",
+    "title": "El worktree de cada agente en una tabla.",
+    "body": "Cada worktree con su rama, sus cambios sin commitear, cuánto va por delante o por detrás de main y su último commit, al día mientras tus agentes trabajan. Añade, elimina, poda y bloquea worktrees, y abre cualquiera frente a main en un paso.",
+    "imageAlt": "La tabla de worktrees: la ruta, la rama, el estado, los commits por delante y por detrás y el último commit de cada uno."
+  },
+  "compare": {
+    "label": "Comparar y previsualizar el merge",
+    "title": "Sabe cómo irá un merge antes de hacerlo.",
+    "body": "Elige dos ramas, etiquetas o commits. Begitra muestra su merge base, los commits que solo tiene cada lado y el diff combinado, y te dice si el merge sería un fast-forward, un merge limpio o un conflicto, y en qué ficheros. Tu árbol de trabajo no se toca.",
+    "imageAlt": "Dos ramas comparadas: la merge base, los tres ficheros que entrarían en conflicto y los commits que solo tiene main."
+  },
+  "performance": {
+    "label": "Hecho para repositorios grandes",
+    "title": "Rápido con el kernel de Linux.",
+    "body": "1,48 millones de commits y 96.000 ficheros. Begitra lee el historial, los diffs y las comparaciones por páginas, así que la primera pantalla está ahí antes de que la busques.",
+    "stats": [
+      ["37 ms", "para mostrar la primera página de los 1,48 millones de commits del kernel"],
+      [
+        "20 ms",
+        "para el diff de un commit que reescribe una de cada tres líneas de su fichero MAINTAINERS"
+      ],
+      ["36 ms", "para comparar dos release candidates a unos 2.000 commits de distancia"]
+    ],
+    "note": "Medianas de los benchmarks del motor de Begitra en un portátil con un AMD Ryzen AI 9 HX 370 y la caché de disco caliente."
+  },
+  "everyday": {
+    "label": "Git de cada día",
+    "title": "El resto de Git, con las palabras de Git a un clic.",
+    "palette": {
+      "title": "Todo está a una tecla.",
+      "body": "Una paleta de comandos en Ctrl K, j y k en todas las listas, y atajos que puedes cambiar en los ajustes.",
+      "imageAlt": "La paleta de comandos con acciones recientes y comandos, cada uno con su atajo."
+    },
+    "folder": {
+      "badge": "Nuevo en 0.3",
+      "title": "Todos los repositorios de una carpeta a la vez.",
+      "body": "Abre una carpeta con varios repositorios: ve juntos los cambios preparados y sin preparar de cada uno, prepara y haz commit en cada uno desde un solo sitio, y sigue sus cambios en vivo.",
+      "count": "4 repositorios",
+      "repos": [
+        ["api", "main", "3 preparados, 2 sin preparar"],
+        ["web", "claude/fix-auth", "12 sin preparar"],
+        ["map-core", "feature/tile-cache", "1 sin preparar"],
+        ["docs", "main", "Sin cambios"]
+      ]
+    },
+    "commit": {
+      "title": "Haz commit, corrígelo y fírmalo.",
+      "body": "Prepara y descarta ficheros, hunks o líneas sueltas, y haz commit desde una caja que muestra con qué autor lo haces.",
+      "imageAlt": "La caja de commit: el mensaje, Corregir el último commit, Firmar, el autor y el botón de commit."
+    },
+    "branches": {
+      "title": "Ramas, merges y remotos.",
+      "body": "Cambia, crea, renombra y borra ramas; fusiona, haz rebase, cherry-pick y revert; haz fetch, pull y push viendo el progreso.",
+      "imageAlt": "Las ramas locales con sus colores y cuánto va cada una por delante o por detrás de su upstream."
+    },
+    "privacy": {
+      "title": "Local y privado.",
+      "body": "Sin cuenta y sin telemetría. Las marcas, las notas y los ajustes se quedan en tu ordenador.",
+      "head": "Cuándo se conecta Begitra",
+      "rows": [
+        ["Buscar actualizaciones", "cuando lo pulsas"],
+        ["Fetch, pull y push", "tu Git, tus remotos"],
+        ["Telemetría", "ninguna"],
+        ["Cuenta", "ninguna"]
+      ]
+    }
+  },
+  "releases": {
+    "label": "Novedades",
+    "title": "Versiones recientes.",
+    "body": "Begitra busca una versión nueva cuando se lo pides, en Ajustes › Acerca de, y comprueba su firma antes de instalarla."
+  },
+  "closing": {
+    "title": "Mira antes de fusionar.",
+    "sub": "Gratis para Windows 10 y 11, 64 bits. Necesita Git 2.38 o posterior.",
+    "download": "Descargar para Windows",
+    "checksums": "Sumas de comprobación y firmas",
+    "meta": ["Versión {version}", "{size}", "{date}"]
+  },
+  "questions": {
+    "title": "Preguntas",
+    "free": [
+      "¿Begitra es gratis?",
+      "Sí. Sin cuenta, sin prueba y sin telemetría.",
+      ["Si Begitra te ahorra tiempo, puedes ", "donar", " para que siga adelante."]
+    ],
+    "items": [
+      [
+        "¿Por qué avisa Windows del instalador?",
+        "Los instaladores aún no están firmados con un certificado de código, así que Windows puede mostrar «Windows protegió su PC»: elige «Más información» y luego «Ejecutar de todas formas». La página de descarga da el SHA-256 y la firma de cada instalador, para que compruebes que el fichero es el publicado allí."
+      ],
+      [
+        "¿Funciona con mi agente?",
+        "Begitra lee Git. Lo que escriba en tus repositorios y worktrees, sea Claude Code, Codex, Cursor o tú, aparece en él."
+      ],
+      [
+        "¿Qué Git usa?",
+        "El tuyo. Begitra ejecuta el Git instalado en tu ordenador, 2.38 o posterior, así que se aplican tus hooks, tus credenciales y tu configuración, y cuando Git se niega, lees lo que dice Git."
+      ],
+      [
+        "¿Hay versión para macOS o Linux?",
+        "Begitra compila en los dos, pero esas versiones aún no están publicadas."
+      ]
+    ]
+  },
+  "footer": {
+    "tagline": "Un cliente de Git para revisar el código que escriben tus agentes.",
+    "product": "Producto",
+    "downloads": "Descarga",
+    "language": "Idioma",
+    "installer": "Instalador para Windows",
+    "checksums": "Sumas y firmas",
+    "checksumsShort": "Sumas",
+    "older": "Versiones anteriores",
+    "copyright": "© {year} {publisher}",
+    "key": "Clave del actualizador",
+    "licenses": "Licencias de terceros"
+  },
+  "download": {
+    "title": "Descargar Begitra",
+    "sub": "Versión {version}, publicada el {date}. Gratis para Windows 10 y 11, 64 bits.",
+    "platform": "Begitra para Windows",
+    "platformSub": "Windows 10 y 11, x64",
+    "button": "Descargar el instalador",
+    "size": ".exe · {size}",
+    "note": "Recomendado. Se instala para tu usuario, sin permisos de administrador. Ajustes › Acerca de › Buscar actualizaciones trae las versiones siguientes.",
+    "msi": "Windows Installer (.msi)",
+    "msiHint": "{size} · para instalaciones gestionadas en todo el equipo",
+    "files": "Ficheros",
+    "columns": ["Fichero", "Tamaño", "SHA-256", "Firma"],
+    "checkTitle": "Comprobar una descarga",
+    "checkHash": "Compara el SHA-256 del fichero con el de arriba, en PowerShell:",
+    "checkSignature": "Después comprueba su firma con minisign. La clave es la que usa la app instalada para verificar cada actualización:",
+    "keyLabel": "Clave pública",
+    "warning": {
+      "title": "Windows te avisará",
+      "body": "Los instaladores aún no están firmados con un certificado de código. Tu navegador puede decir que el fichero no se descarga habitualmente, y Windows puede detenerlo:",
+      "steps": [
+        "Aparece «Windows protegió su PC».",
+        "Elige «Más información».",
+        "Elige «Ejecutar de todas formas»."
+      ],
+      "foot": "Puede volver a pasar con cada versión nueva. Con el Control inteligente de aplicaciones activado, Windows bloquea Begitra y no ofrece forma de ejecutarlo."
+    },
+    "requirements": {
+      "title": "Requisitos",
+      "items": [
+        "Windows 10 u 11 de 64 bits (x64).",
+        "Git 2.38 o posterior.",
+        "WebView2, que viene con Windows 11 y con Windows 10 actualizado; el instalador lo descarga si falta."
+      ]
+    },
+    "support": {
+      "title": "Begitra es gratis",
+      "body": "Lo hace un solo desarrollador. Si te ahorra tiempo, una donación ayuda a que siga adelante.",
+      "button": "Donar"
+    },
+    "after": {
+      "title": "Después de instalar",
+      "updates": [
+        "Actualizaciones",
+        "Ajustes › Acerca de › Buscar actualizaciones descarga la versión nueva y comprueba su firma con la clave de arriba antes de instalarla. La app se cierra para instalar."
+      ],
+      "uninstall": [
+        "Desinstalar",
+        "Configuración › Aplicaciones › Aplicaciones instaladas (Aplicaciones y características en Windows 10) › Begitra › Desinstalar. Marca «Delete the application data» (el desinstalador está en inglés) para borrar también tus marcas, notas y ajustes; si no, se quedan para una instalación posterior."
+      ],
+      "data": [
+        "Tus datos",
+        "Ajustes, índice de repositorios, marcas de revisión y notas:",
+        "Registros:"
+      ]
+    },
+    "older": {
+      "title": "Versiones anteriores",
+      "body": "Cada versión tiene su propia carpeta y sus ficheros no cambian.",
+      "exe": "Instalador (.exe)",
+      "msi": "Windows Installer (.msi)"
+    },
+    "signatureOf": "Firma (.minisig) de {file}"
+  }
+}

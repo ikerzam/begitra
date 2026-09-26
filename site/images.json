@@ -1,0 +1,57 @@
+{
+  "hero": {
+    "width": 1152,
+    "height": 720,
+    "widths": [700, 1152, 2304]
+  },
+  "review": {
+    "width": 688,
+    "height": 499,
+    "widths": [688, 1376]
+  },
+  "review-narrow": {
+    "width": 350,
+    "height": 380,
+    "widths": [350, 700]
+  },
+  "worktrees": {
+    "width": 1152,
+    "height": 250,
+    "widths": [700, 1152, 2304]
+  },
+  "worktrees-narrow": {
+    "width": 350,
+    "height": 170,
+    "widths": [350, 700]
+  },
+  "compare": {
+    "width": 688,
+    "height": 470,
+    "widths": [688, 1376]
+  },
+  "compare-narrow": {
+    "width": 350,
+    "height": 300,
+    "widths": [350, 700]
+  },
+  "palette": {
+    "width": 724,
+    "height": 400,
+    "widths": [724, 1296]
+  },
+  "palette-narrow": {
+    "width": 329,
+    "height": 250,
+    "widths": [329, 658]
+  },
+  "commit": {
+    "width": 312,
+    "height": 216,
+    "widths": [312, 560]
+  },
+  "branches": {
+    "width": 312,
+    "height": 216,
+    "widths": [312, 480]
+  }
+}

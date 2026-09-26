@@ -1,0 +1,51 @@
+[
+  {
+    "version": "0.3.0",
+    "date": "2026-09-25",
+    "title": { "en": "The folder view", "es": "La vista de carpeta" },
+    "highlight": {
+      "en": "The folder view: every repository of a folder at once",
+      "es": "La vista de carpeta: todos los repositorios de una carpeta a la vez"
+    },
+    "notes": {
+      "en": "Open a folder that holds several repositories and see the staged and unstaged changes of every repository and worktree in it together. j and k walk the files across repositories; stage, unstage, discard and commit each in its own repository from one commit box.",
+      "es": "Abre una carpeta con varios repositorios y ve juntos los cambios preparados y sin preparar de cada repositorio y worktree. j y k recorren los ficheros de todos los repositorios; prepara, quita, descarta y haz commit en cada uno desde una sola caja de commit."
+    }
+  },
+  {
+    "version": "0.2.2",
+    "date": "2026-09-25",
+    "title": { "en": "Resizable panels and columns", "es": "Paneles y columnas a tu medida" },
+    "notes": {
+      "en": "Panels and table columns resize by dragging their edges. Selects, scrollbars and tooltips are the app's own, readable in both themes, and the Branches tab lists branches by their last commit.",
+      "es": "Los paneles y las columnas de las tablas cambian de tamaño arrastrando sus bordes. Los desplegables, las barras de desplazamiento y los tooltips son los de la app, legibles en los dos temas, y la pestaña Ramas ordena las ramas por su último commit."
+    }
+  },
+  {
+    "version": "0.2.1",
+    "date": "2026-09-25",
+    "title": { "en": "Fonts and zoom", "es": "Fuentes y zoom" },
+    "notes": {
+      "en": "Settings › Appearance chooses the interface and code fonts, their weights and the zoom. Every modal overlay shares one backdrop, and popups stay inside the window.",
+      "es": "Ajustes › Apariencia elige las fuentes de la interfaz y del código, sus grosores y el zoom. Todas las capas modales comparten un mismo fondo, y los menús emergentes se quedan dentro de la ventana."
+    }
+  },
+  {
+    "version": "0.2.0",
+    "date": "2026-09-25",
+    "title": { "en": "Folders of repositories", "es": "Carpetas de repositorios" },
+    "notes": {
+      "en": "Open a folder of repositories and Begitra scans it two levels deep; Home groups its table by folder. The working tree is the first row of the graph, and the changes screen opens from the top bar and from that row.",
+      "es": "Abre una carpeta de repositorios y Begitra la explora dos niveles hacia abajo; Inicio agrupa su tabla por carpeta. El árbol de trabajo es la primera fila del grafo, y la pantalla de cambios se abre desde la barra superior y desde esa fila."
+    }
+  },
+  {
+    "version": "0.1.0",
+    "date": "2026-09-25",
+    "title": { "en": "The first release", "es": "La primera versión" },
+    "notes": {
+      "en": "The commit graph, review mode with reviewed marks, notes and the change overview, the comparison with its merge preview, the worktrees table, staging and committing, branches, remotes and stashes, and the command palette.",
+      "es": "El grafo de commits, el modo de revisión con marcas de revisado, notas y el resumen del cambio, la comparación con su vista previa del merge, la tabla de worktrees, preparar y hacer commit, ramas, remotos y stashes, y la paleta de comandos."
+    }
+  }
+]
