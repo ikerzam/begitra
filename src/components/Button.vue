@@ -22,6 +22,9 @@ const variantClasses: Record<ButtonVariant, string> = {
     "border border-line-strong text-fg enabled:hover:bg-hover enabled:active:bg-active disabled:border-line disabled:text-fg-disabled",
   ghost:
     "text-fg-secondary enabled:hover:bg-hover enabled:hover:text-fg enabled:active:bg-active disabled:text-fg-disabled",
+  // A destructive action that is not the dialog's primary ("Delete project…").
+  "ghost-danger":
+    "text-danger enabled:hover:bg-hover enabled:active:bg-active disabled:text-fg-disabled",
   destructive:
     "bg-danger text-white enabled:hover:bg-danger-hover enabled:active:bg-danger-active disabled:bg-selected disabled:text-fg-disabled",
 };

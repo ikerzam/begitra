@@ -1,6 +1,6 @@
 /** Prop unions shared by the design-system components and their tests. */
 
-export type ButtonVariant = "primary" | "secondary" | "ghost" | "destructive";
+export type ButtonVariant = "primary" | "secondary" | "ghost" | "ghost-danger" | "destructive";
 
 /** `md` is the 28px control height; `lg` is the 32px used inside dialogs. */
 export type ControlSize = "md" | "lg";

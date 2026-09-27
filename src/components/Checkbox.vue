@@ -7,8 +7,10 @@ const props = withDefaults(
     label?: string;
     indeterminate?: boolean;
     disabled?: boolean;
+    /** False keeps the box out of the Tab order, where its row is the list's tab stop. */
+    focusable?: boolean;
   }>(),
-  { label: "", indeterminate: false, disabled: false },
+  { label: "", indeterminate: false, disabled: false, focusable: true },
 );
 
 const model = defineModel<boolean>({ default: false });
@@ -34,6 +36,7 @@ const boxClass = computed(() => {
       type="checkbox"
       class="peer sr-only"
       :disabled="props.disabled"
+      :tabindex="props.focusable ? undefined : -1"
       :indeterminate="props.indeterminate"
       :aria-checked="props.indeterminate ? 'mixed' : undefined"
     />
