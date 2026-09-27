@@ -53,6 +53,7 @@ pub fn index_summary(summary: &RepoSummary) -> repo_index::RepoSummary {
                 name: upstream.name.clone(),
                 remote: upstream.remote.clone(),
                 branch: upstream.branch.clone(),
+                push_remote: upstream.push_remote.clone(),
             }),
         ahead: summary.ahead,
         behind: summary.behind,

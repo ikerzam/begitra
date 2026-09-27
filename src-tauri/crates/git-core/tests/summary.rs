@@ -85,7 +85,7 @@ fn cli_upstream(f: &Fixture, branch: &str) -> Option<Upstream> {
     let full = format!("refs/heads/{branch}");
     let line = f.git(&[
         "for-each-ref",
-        "--format=%(upstream:short)%00%(upstream:remotename)%00%(upstream:remoteref)",
+        "--format=%(upstream:short)%00%(upstream:remotename)%00%(upstream:remoteref)%00%(push:remotename)",
         &full,
     ]);
     let mut parts = line.split('\0');
@@ -95,6 +95,7 @@ fn cli_upstream(f: &Fixture, branch: &str) -> Option<Upstream> {
     }
     let remote = parts.next().unwrap_or_default();
     let merge = parts.next().unwrap_or_default();
+    let push = parts.next().unwrap_or_default();
     Some(Upstream {
         name: name.to_owned(),
         remote: remote.to_owned(),
@@ -102,6 +103,7 @@ fn cli_upstream(f: &Fixture, branch: &str) -> Option<Upstream> {
             .strip_prefix("refs/heads/")
             .unwrap_or(merge)
             .to_owned(),
+        push_remote: push.to_owned(),
     })
 }
 
@@ -110,6 +112,7 @@ fn upstream(name: &str, remote: &str, branch: &str) -> Option<Upstream> {
         name: name.to_owned(),
         remote: remote.to_owned(),
         branch: branch.to_owned(),
+        push_remote: remote.to_owned(),
     })
 }
 
@@ -192,6 +195,25 @@ fn an_upstream_names_its_remote_with_a_slash_and_a_tracking_prefix_of_another_na
         upstream("elsewhere/develop", "mirror-src", "develop")
     );
     assert_eq!(summary.upstream, cli_upstream(&f, "mirrored"));
+}
+
+#[test]
+fn the_push_remote_follows_push_remote_then_push_default_as_git_push_does() {
+    let f = Fixture::basic().with_remote();
+    let origin = f.sibling("origin.git");
+    let origin = origin.to_str().expect("utf-8 temp path");
+    f.git(&["remote", "add", "fork", origin]);
+    f.git(&["checkout", "-q", "develop"]);
+    f.git(&["config", "remote.pushDefault", "fork"]);
+    let summary = describe(&f.root, &Cancel::never()).expect("summary");
+    let pushed = summary.upstream.as_ref().map(|u| u.push_remote.as_str());
+    assert_eq!(pushed, Some("fork"));
+    assert_eq!(summary.upstream, cli_upstream(&f, "develop"));
+    f.git(&["config", "branch.develop.pushRemote", "origin"]);
+    let summary = describe(&f.root, &Cancel::never()).expect("summary");
+    let pushed = summary.upstream.as_ref().map(|u| u.push_remote.as_str());
+    assert_eq!(pushed, Some("origin"));
+    assert_eq!(summary.upstream, cli_upstream(&f, "develop"));
 }
 
 #[test]

@@ -176,6 +176,9 @@ pub struct Upstream {
     pub remote: String,
     /// The upstream's branch on that remote.
     pub branch: String,
+    /// The remote `git push` sends the branch to (a push remote or `remote.pushDefault`, else
+    /// the upstream's remote).
+    pub push_remote: String,
 }
 
 /// The operation a working tree is in the middle of.

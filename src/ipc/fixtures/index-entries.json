@@ -11,7 +11,8 @@
       "upstream": {
         "name": "origin/main",
         "remote": "origin",
-        "branch": "main"
+        "branch": "main",
+        "pushRemote": "origin"
       },
       "ahead": 2,
       "behind": 0,
@@ -38,7 +39,8 @@
       "upstream": {
         "name": "origin/main",
         "remote": "origin",
-        "branch": "main"
+        "branch": "main",
+        "pushRemote": "origin"
       },
       "ahead": 2,
       "behind": 0,

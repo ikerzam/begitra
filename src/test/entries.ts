@@ -7,7 +7,7 @@ export function summaryOf(over: Partial<RepoSummary> = {}): RepoSummary {
   return {
     currentBranch: "main",
     detached: false,
-    upstream: { name: "origin/main", remote: "origin", branch: "main" },
+    upstream: { name: "origin/main", remote: "origin", branch: "main", pushRemote: "origin" },
     ahead: 0,
     behind: 0,
     operation: "none",

@@ -65,6 +65,11 @@ pub struct Upstream {
     pub remote: String,
     /// The upstream's branch on that remote (`branch.<name>.merge` without `refs/heads/`).
     pub branch: String,
+    /// The remote `git push` sends the branch to: `branch.<name>.pushRemote`, else
+    /// `remote.pushDefault`, else the upstream's remote. Another than [`Upstream::remote`]
+    /// is a triangular workflow, where a push to the upstream's remote is not what the user's
+    /// own push does.
+    pub push_remote: String,
 }
 
 /// Describes the repository at `path` for the index. Cheap parts first (HEAD, upstream, tip,
@@ -175,6 +180,19 @@ fn upstream_of(repo: &Repository, branch: &str) -> GitResult<Option<(Upstream, S
     let Some(merge) = setting(repo.branch_upstream_merge(&full))? else {
         return Ok(None);
     };
+    let config = repo.config()?.snapshot()?;
+    let push_remote = [
+        format!("branch.{branch}.pushRemote"),
+        "remote.pushDefault".to_owned(),
+    ]
+    .iter()
+    .find_map(|key| {
+        config
+            .get_string(key)
+            .ok()
+            .filter(|value| !value.is_empty())
+    })
+    .unwrap_or_else(|| remote.clone());
     let upstream = Upstream {
         name: upstream_short_name(&tracking).to_owned(),
         remote,
@@ -182,6 +200,7 @@ fn upstream_of(repo: &Repository, branch: &str) -> GitResult<Option<(Upstream, S
             .strip_prefix("refs/heads/")
             .unwrap_or(&merge)
             .to_owned(),
+        push_remote,
     };
     Ok(Some((upstream, tracking)))
 }

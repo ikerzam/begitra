@@ -93,6 +93,7 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE repos ADD COLUMN upstream TEXT;
     ALTER TABLE repos ADD COLUMN upstream_remote TEXT;
     ALTER TABLE repos ADD COLUMN upstream_branch TEXT;
+    ALTER TABLE repos ADD COLUMN upstream_push_remote TEXT;
     ALTER TABLE repos ADD COLUMN operation TEXT;
     ALTER TABLE repos ADD COLUMN fetched_at INTEGER;
     ALTER TABLE repos ADD COLUMN last_commit_subject TEXT;

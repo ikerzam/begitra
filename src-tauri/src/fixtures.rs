@@ -468,6 +468,7 @@ fn index_entry(name: &str, kind: RepoKind, parent: Option<&str>) -> IndexEntry {
                 name: "origin/main".to_owned(),
                 remote: "origin".to_owned(),
                 branch: "main".to_owned(),
+                push_remote: "origin".to_owned(),
             }),
             ahead: Some(2),
             behind: Some(0),

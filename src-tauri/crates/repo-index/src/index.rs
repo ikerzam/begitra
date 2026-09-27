@@ -78,7 +78,7 @@ impl Index {
             "UPDATE repos SET current_branch = ?2, detached = ?3, dirty = ?4, ahead = ?5,
                behind = ?6, last_commit_at = ?7, refreshed_at = ?8, missing = 0,
                upstream = ?9, operation = ?10, fetched_at = ?11, last_commit_subject = ?12,
-               upstream_remote = ?13, upstream_branch = ?14
+               upstream_remote = ?13, upstream_branch = ?14, upstream_push_remote = ?15
              WHERE path = ?1",
             params![
                 path_text(path),
@@ -95,6 +95,10 @@ impl Index {
                 summary.last_commit_subject,
                 summary.upstream.as_ref().map(|upstream| &upstream.remote),
                 summary.upstream.as_ref().map(|upstream| &upstream.branch),
+                summary
+                    .upstream
+                    .as_ref()
+                    .map(|upstream| &upstream.push_remote),
             ],
         )?;
         Ok(())
@@ -106,7 +110,7 @@ impl Index {
             "SELECT path, name, kind, parent_path, scan_root, current_branch, detached, dirty,
                     ahead, behind, last_commit_at, pinned, last_opened_at, refreshed_at, missing,
                     upstream, operation, fetched_at, last_commit_subject, upstream_remote,
-                    upstream_branch
+                    upstream_branch, upstream_push_remote
              FROM repos ORDER BY pinned DESC, name COLLATE NOCASE ASC, path ASC",
         )?;
         let rows = statement.query_map([], entry_from_row)?;
@@ -121,7 +125,7 @@ impl Index {
                 "SELECT path, name, kind, parent_path, scan_root, current_branch, detached, dirty,
                         ahead, behind, last_commit_at, pinned, last_opened_at, refreshed_at, missing,
                         upstream, operation, fetched_at, last_commit_subject, upstream_remote,
-                        upstream_branch
+                        upstream_branch, upstream_push_remote
                  FROM repos WHERE path = ?1",
                 params![path_text(path)],
                 entry_from_row,
@@ -258,8 +262,10 @@ fn entry_from_row(row: &Row<'_>) -> rusqlite::Result<IndexEntry> {
     let upstream: Option<String> = row.get(15)?;
     let upstream_remote: Option<String> = row.get(19)?;
     let upstream_branch: Option<String> = row.get(20)?;
+    let upstream_push_remote: Option<String> = row.get(21)?;
     let upstream = match (upstream, upstream_remote, upstream_branch) {
         (Some(name), Some(remote), Some(branch)) => Some(Upstream {
+            push_remote: upstream_push_remote.unwrap_or_else(|| remote.clone()),
             name,
             remote,
             branch,
@@ -406,6 +412,7 @@ mod tests {
                 name: "origin/main".to_owned(),
                 remote: "origin".to_owned(),
                 branch: "main".to_owned(),
+                push_remote: "origin".to_owned(),
             }),
             ahead: Some(1),
             behind: Some(0),
@@ -458,6 +465,7 @@ mod tests {
                     name: "my/fork/develop".to_owned(),
                     remote: "my/fork".to_owned(),
                     branch: "develop".to_owned(),
+                    push_remote: "mine".to_owned(),
                 }),
                 operation: Some(operation),
                 fetched_at: Some(1_700_000_100),

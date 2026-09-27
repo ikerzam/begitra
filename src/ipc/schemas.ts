@@ -620,11 +620,13 @@ export const RepoSummarySchema = v.object({
   currentBranch: v.nullable(v.string()),
   detached: v.boolean(),
   /**
-   * The branch's upstream: the tracking ref's short name (`origin/main`), the remote a pull
-   * fetches from and a push sends to (`.` for a local upstream), and the branch on it; null
-   * without one.
+   * The branch's upstream: the tracking ref's short name (`origin/main`), its remote (`.` for a
+   * local upstream), the branch on it, and the remote `git push` sends to (a push remote or
+   * `remote.pushDefault`, else the upstream's); null without one.
    */
-  upstream: v.nullable(v.object({ name: v.string(), remote: v.string(), branch: v.string() })),
+  upstream: v.nullable(
+    v.object({ name: v.string(), remote: v.string(), branch: v.string(), pushRemote: v.string() }),
+  ),
   ahead: v.nullable(count),
   behind: v.nullable(count),
   /** The operation in progress; null until a summary has read it. */
