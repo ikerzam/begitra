@@ -372,6 +372,16 @@ export const useFolderStore = defineStore("folder", () => {
     groupOpen.value = false;
   }
 
+  /** Reads the lists of `root` again (after a bulk operation wrote to it). */
+  function reload(root: string): void {
+    if (isOpen(root)) {
+      openChanges.requestReload("unstaged", { kind: "full" });
+      openChanges.requestReload("staged", { kind: "full" });
+    } else if (members.has(root)) {
+      enqueue(root, "reload");
+    }
+  }
+
   /** Reads every repository's lists again (the refresh button, the window's focus, a return). */
   function refresh(): void {
     for (const current of members.values()) {
@@ -570,6 +580,7 @@ export const useFolderStore = defineStore("folder", () => {
     toggleSection,
     toggleGroup,
     refresh,
+    reload,
     show,
     hide,
     open,

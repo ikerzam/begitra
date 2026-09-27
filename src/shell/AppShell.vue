@@ -34,6 +34,7 @@ import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
 import { useFolderStore } from "@/stores/folder";
 import { useProjectsStore } from "@/stores/projects";
+import { useBulkStore } from "@/stores/bulk";
 import { useSettingsStore } from "@/stores/settings";
 import { paneLimits, useShellStore } from "@/stores/shell";
 import { useToastsStore } from "@/stores/toasts";
@@ -67,6 +68,7 @@ const index = useIndexStore();
 const settings = useSettingsStore();
 const folder = useFolderStore();
 const projects = useProjectsStore();
+const bulk = useBulkStore();
 const toasts = useToastsStore();
 const changes = useChangesStore();
 const worktrees = useWorktreesStore();
@@ -171,11 +173,15 @@ useShortcut("push", () => {
   if (repo.state.kind === "ready" && branch) remotes.ask({ kind: "push", branch });
 });
 
-/** Escape outside every overlay cancels the network command in flight ("esc cancel push"). */
+/**
+ * Escape outside every overlay cancels the network command in flight ("esc cancel push"), or
+ * stops a bulk operation.
+ */
 function onEscape(event: KeyboardEvent): void {
-  if (event.key !== "Escape" || !operations.current?.cancellable) return;
+  if (event.key !== "Escape" || event.defaultPrevented) return;
   if (isOverlayTarget(event.target) || isOverlayTarget(document.activeElement)) return;
-  void remotes.cancel();
+  if (bulk.running) void bulk.stop();
+  else if (operations.current?.cancellable) void remotes.cancel();
 }
 
 let uninstall: (() => void) | undefined;

@@ -17,6 +17,9 @@ const props = withDefaults(
     confirmDisabled?: boolean;
     /** Icon before the confirm label (the push dialog's upload arrow). */
     confirmIcon?: Component;
+    /** 440px by default; the project dialogs' lists take 560 (a form) and 600 (a bulk
+     * confirmation). */
+    size?: "md" | "lg" | "xl";
   }>(),
   {
     body: "",
@@ -25,6 +28,7 @@ const props = withDefaults(
     variant: "default",
     confirmDisabled: false,
     confirmIcon: undefined,
+    size: "md",
   },
 );
 
@@ -73,13 +77,18 @@ onBeforeUnmount(() => {
       :aria-labelledby="titleId"
       :aria-describedby="props.body ? bodyId : undefined"
       :data-variant="props.variant"
+      :data-size="props.size"
       class="dialog flex flex-col gap-4 rounded-lg border border-line-strong bg-raised p-5 shadow-overlay"
       @keydown="onKeydown"
     >
       <h2 :id="titleId" class="text-xl font-semibold text-fg">{{ props.title }}</h2>
       <p v-if="props.body" :id="bodyId" class="text-md text-fg-secondary">{{ props.body }}</p>
       <slot />
-      <div class="mt-2 flex justify-end gap-2">
+      <div class="mt-2 flex items-center justify-end gap-2">
+        <!-- An action of its own at the start of the footer ("Add repository…", "Delete project…"). -->
+        <div v-if="$slots['footer-start']" class="mr-auto flex items-center">
+          <slot name="footer-start" />
+        </div>
         <Button size="lg" variant="secondary" data-testid="dialog-cancel" @click="emit('cancel')">
           {{ props.cancelLabel || t("dialog.cancel") }}
         </Button>
@@ -103,5 +112,11 @@ onBeforeUnmount(() => {
 .dialog {
   width: 440px;
   max-width: calc(100vw - var(--space-6));
+}
+.dialog[data-size="lg"] {
+  width: 560px;
+}
+.dialog[data-size="xl"] {
+  width: 600px;
 }
 </style>

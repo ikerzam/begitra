@@ -12,25 +12,27 @@ import Button from "@/components/Button.vue";
 import Checkbox from "@/components/Checkbox.vue";
 import EmptyState from "@/components/EmptyState.vue";
 import ErrorBanner from "@/components/ErrorBanner.vue";
-import LaneDot from "@/components/LaneDot.vue";
 import SkeletonRow from "@/components/SkeletonRow.vue";
 import { useDiscoveryFormat } from "@/discovery/useDiscoveryFormat";
 import { errorText } from "@/shell/errorMessage";
 import { useExternal } from "@/shell/useExternal";
 import { formatShortcut } from "@/shortcuts/platform";
 import { shortcutRegistry } from "@/shortcuts/registry";
+import { useBulkStore } from "@/stores/bulk";
 import { useFolderStore } from "@/stores/folder";
 import { useIndexStore } from "@/stores/index";
 import { useOverviewStore, type OverviewRow } from "@/stores/overview";
 import { useProjectsStore } from "@/stores/projects";
 
 import MemberRow from "./MemberRow.vue";
+import OverviewToolbar from "./OverviewToolbar.vue";
 import { rowStatus } from "./status";
 import { useOverviewKeys } from "./useOverviewKeys";
 
 const emit = defineEmits<{ edit: [] }>();
 
-const { t, n } = useI18n();
+const { t } = useI18n();
+const bulk = useBulkStore();
 const folder = useFolderStore();
 const index = useIndexStore();
 const projects = useProjectsStore();
@@ -66,19 +68,39 @@ const emptyText = computed(() =>
   }),
 );
 
-/** Each row's status column, once per change of the rows. */
+/** Each row's status column, a bulk operation's state first, once per change of the rows. */
 const statuses = computed(
-  () => new Map(overview.rows.map((row) => [row.path, rowStatus(row, undefined, null, t)])),
+  () =>
+    new Map(
+      overview.rows.map((row) => [
+        row.path,
+        rowStatus(row, bulk.states.get(row.path), bulk.kind, t),
+      ]),
+    ),
 );
 
 function open(path: string): void {
   void folder.openRepository(path);
 }
 
-const keys = useOverviewKeys({ overview, table, open });
+const keys = useOverviewKeys({
+  overview,
+  table,
+  open,
+  // Esc stops a bulk operation before it clears the selection.
+  onEscape: () => {
+    if (!bulk.running) return false;
+    void bulk.stop();
+    return true;
+  },
+});
 
 function fetched(row: OverviewRow): string {
   if (row.missing) return "";
+  const run = bulk.states.get(row.path);
+  if (run?.state === "done" && run.outcome === "fetched-with") {
+    return t("project.fetchedWith", { name: run.with ?? "" });
+  }
   return row.fetchedAt === null ? t("project.neverFetched") : format.shortAgo(row.fetchedAt);
 }
 
@@ -106,29 +128,7 @@ defineExpose({ focusRows: (): void => keys.focus() });
 
 <template>
   <div class="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="project-overview">
-    <div
-      class="flex shrink-0 items-center gap-2 border-b border-line px-4 py-2"
-      data-testid="overview-toolbar"
-    >
-      <ul
-        class="flex min-h-control min-w-0 flex-1 items-center gap-2 overflow-hidden"
-        :aria-label="t('project.groups')"
-      >
-        <li
-          v-for="group in overview.groups"
-          :key="group.branch"
-          class="flex h-control shrink-0 items-center gap-2 rounded-md border border-line px-2 text-md"
-          data-testid="branch-group"
-        >
-          <LaneDot :lane="group.lane" />
-          <span class="text-fg">{{ group.branch }}</span>
-          <span class="text-fg-muted">
-            {{ t("project.groupCount", { n: n(group.count), total: n(overview.rows.length) }) }}
-          </span>
-        </li>
-      </ul>
-      <slot name="actions" />
-    </div>
+    <OverviewToolbar />
     <div class="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div v-if="problem" class="p-4" data-testid="overview-error">
         <ErrorBanner

@@ -55,6 +55,11 @@ export const useOperationsStore = defineStore("operations", () => {
     ];
   }
 
+  /** Replaces the parameters of an operation's label (a bulk operation's count). */
+  function setParams(opId: string, params: Record<string, string>): void {
+    operations.value = operations.value.map((op) => (op.opId === opId ? { ...op, params } : op));
+  }
+
   /** Replaces the detail line of an operation (the latest progress line). */
   function setDetail(opId: string, detail: string): void {
     operations.value = operations.value.map((op) => (op.opId === opId ? { ...op, detail } : op));
@@ -70,5 +75,15 @@ export const useOperationsStore = defineStore("operations", () => {
     operations.value = operations.value.filter((op) => op.opId !== opId);
   }
 
-  return { operations, current, isBusy, currentFraction, start, setDetail, progress, finish };
+  return {
+    operations,
+    current,
+    isBusy,
+    currentFraction,
+    start,
+    setParams,
+    setDetail,
+    progress,
+    finish,
+  };
 });

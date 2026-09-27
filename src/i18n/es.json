@@ -182,7 +182,10 @@
       "fetch": "el fetch",
       "pull": "el pull",
       "push": "el push"
-    }
+    },
+    "repositoryRows": "repositorios",
+    "spaceKey": "Espacio",
+    "select": "seleccionar"
   },
   "operations": {
     "opening": "Abriendo {name}",
@@ -225,7 +228,14 @@
     "applyingStash": "Aplicando el stash",
     "poppingStash": "Sacando el stash",
     "droppingStash": "Borrando el stash",
-    "downloadingUpdate": "Descargando Begitra {version}"
+    "downloadingUpdate": "Descargando Begitra {version}",
+    "bulk": {
+      "fetch": "Fetch de {done} de {total} repositorios",
+      "pull": "Pull de {done} de {total} repositorios",
+      "push": "Push de {done} de {total} repositorios",
+      "switch": "Cambiando de rama {done} de {total} repositorios",
+      "create": "Creando la rama en {done} de {total} repositorios"
+    }
   },
   "home": {
     "title": "Repositorios",
@@ -1092,8 +1102,10 @@
     "missing": "Carpeta no encontrada",
     "removeFromProject": "Quitar del proyecto",
     "readFailed": "No se ha podido leer",
-    "showOutput": "Ver salida",
+    "showOutput": "Ver",
     "hideOutput": "Ocultar",
+    "showOutputLabel": "Ver la salida de git",
+    "hideOutputLabel": "Ocultar la salida de git",
     "terminal": "Abrir {name} en el terminal",
     "editor": "Abrir {name} en el editor",
     "hint": "Espacio selecciona un repositorio y {selectAll} todos; las acciones actúan sobre la selección, o sobre todos los repositorios si no hay ninguno seleccionado.",
@@ -1142,6 +1154,67 @@
       "network": "Red inaccesible",
       "upstream-gone": "Su upstream ya no está en el remoto",
       "branch-exists": "La rama ya existe"
+    },
+    "bulk": {
+      "actions": "Acciones en bloque",
+      "fetchAll": "Fetch de todos",
+      "pullAll": "Pull de todos",
+      "pushAll": "Push de todos",
+      "fetchSome": "Fetch {n}",
+      "pullSome": "Pull {n}",
+      "pushSome": "Push {n}",
+      "switchBranch": "Cambiar de rama…",
+      "newBranch": "Nueva rama…",
+      "stop": "Detener",
+      "retryFailed": "Reintentar los fallidos",
+      "done": "Hecho",
+      "fastForwardOnly": "solo fast-forward",
+      "title": {
+        "pull": "Pull de {n} repositorio | Pull de {n} repositorios",
+        "push": "Push de {n} repositorio | Push de {n} repositorios",
+        "switch": "Cambiar de rama {n} repositorio | Cambiar de rama {n} repositorios",
+        "create": "Nueva rama en {n} repositorio | Nueva rama en {n} repositorios"
+      },
+      "body": {
+        "pull": "Cada repositorio hace fetch de su upstream y mueve su rama solo si es un fast-forward. No se hace merge ni rebase.",
+        "push": "Cada repositorio sube su rama actual a su upstream con el mismo nombre. No se fuerza nada.",
+        "switch": "Cada repositorio cambia a la rama, o a una rama remota con ese nombre. Los que tienen cambios sin commitear se quedan como están.",
+        "create": "Cada repositorio crea la rama en su HEAD y cambia a ella."
+      },
+      "name": "Rama",
+      "namePlaceholder": "release/2.4",
+      "nameInvalid": "No es un nombre de rama válido",
+      "acting": {
+        "pull": "Hacen pull",
+        "push": "Hacen push",
+        "switch": "Cambian",
+        "create": "La crean"
+      },
+      "skipped": "Omitidos",
+      "behind": "{n} por detrás",
+      "upToDateSoFar": "al día por ahora",
+      "commits": "{n} commit | {n} commits",
+      "countsNote": "Los números son del último fetch; el pull hace fetch primero.",
+      "pushNote": "Los números son del último fetch.",
+      "confirm": {
+        "pull": "Pull de {n}, solo fast-forward",
+        "push": "Push de {n}",
+        "switch": "Cambiar {n}",
+        "create": "Crear en {n}"
+      },
+      "summary": {
+        "done": {
+          "fetch": "{n} con fetch",
+          "pull": "{n} con pull",
+          "push": "{n} con push",
+          "switch": "{n} cambiados",
+          "create": "{n} creadas"
+        },
+        "upToDate": "{n} al día",
+        "failed": "{n} fallidos",
+        "skipped": "{n} omitidos",
+        "stopped": "{n} detenidos"
+      }
     }
   }
 }

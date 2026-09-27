@@ -15,15 +15,18 @@ import TabsItem from "@/components/TabsItem.vue";
 import { useDiscoveryFormat } from "@/discovery/useDiscoveryFormat";
 import FolderLayout from "@/folder/FolderLayout.vue";
 import { baseName } from "@/shell/format";
+import { useBulkStore } from "@/stores/bulk";
 import { useFolderStore } from "@/stores/folder";
 import { useOverviewStore } from "@/stores/overview";
 import { useProjectsStore } from "@/stores/projects";
 import { useSettingsStore, type ProjectTab } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
 
+import BulkDialog from "./BulkDialog.vue";
 import ProjectOverview from "./ProjectOverview.vue";
 
 const { t, n } = useI18n();
+const bulk = useBulkStore();
 const folder = useFolderStore();
 const overview = useOverviewStore();
 const projects = useProjectsStore();
@@ -171,5 +174,6 @@ onBeforeUnmount(() => {
       role="tabpanel"
     />
     <FolderLayout v-else id="project-changes" ref="changesTab" role="tabpanel" />
+    <BulkDialog v-if="bulk.plan" />
   </div>
 </template>

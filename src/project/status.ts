@@ -14,7 +14,7 @@ export interface RowStatus {
   text: string;
   /** The progress bar's value while an operation runs; null sweeps. Absent otherwise. */
   progress?: number | null;
-  /** git's output behind "Show output". */
+  /** git's output, one click away in the row. */
   output?: string;
 }
 

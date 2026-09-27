@@ -129,6 +129,10 @@ export interface FakeBackendOptions {
   unmergedBranch?: boolean;
   /** The network commands stream these lines, then fail with a rejected push. */
   failNetwork?: boolean;
+  /** The network commands of these repositories end with these errors. */
+  networkErrors?: Record<string, { code: string; message: string; detail?: string }>;
+  /** `switch` and `branch_create` in these repositories reject with these errors. */
+  writeErrors?: Record<string, { code: string; message: string; detail?: string }>;
   /** `stash_push` answers false (nothing to save). */
   stashNothing?: boolean;
   /** The projects `projects` answers at start; the project writes change the list. */
@@ -816,6 +820,11 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
           return { hash: FAKE_COMMIT_HASH };
         }
         case "branch_create":
+          if (options.writeErrors?.[args["repo"] as string]) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject(options.writeErrors[args["repo"] as string]);
+          }
+          return null;
         case "branch_rename":
         case "tag_create":
         case "tag_delete":
@@ -824,6 +833,10 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
         case "mark_resolved":
           return null;
         case "switch":
+          if (options.writeErrors?.[args["repo"] as string]) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject(options.writeErrors[args["repo"] as string]);
+          }
           if (options.dirtySwitch) {
             // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
             return Promise.reject({
@@ -887,7 +900,10 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
             seq,
             data: { kind: "progress", line },
           }));
-          if (options.failNetwork) {
+          const repoError = options.networkErrors?.[args["repo"] as string];
+          if (repoError) {
+            messages.push({ kind: "error", error: repoError });
+          } else if (options.failNetwork) {
             messages.push({
               kind: "error",
               error: {

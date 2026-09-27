@@ -182,7 +182,10 @@
       "fetch": "fetch",
       "pull": "pull",
       "push": "push"
-    }
+    },
+    "repositoryRows": "repositories",
+    "spaceKey": "Space",
+    "select": "select"
   },
   "operations": {
     "opening": "Opening {name}",
@@ -225,7 +228,14 @@
     "applyingStash": "Applying stash",
     "poppingStash": "Popping stash",
     "droppingStash": "Dropping stash",
-    "downloadingUpdate": "Downloading Begitra {version}"
+    "downloadingUpdate": "Downloading Begitra {version}",
+    "bulk": {
+      "fetch": "Fetching {done} of {total} repositories",
+      "pull": "Pulling {done} of {total} repositories",
+      "push": "Pushing {done} of {total} repositories",
+      "switch": "Switching {done} of {total} repositories",
+      "create": "Creating the branch in {done} of {total} repositories"
+    }
   },
   "home": {
     "title": "Repositories",
@@ -1092,8 +1102,10 @@
     "missing": "Folder missing",
     "removeFromProject": "Remove from project",
     "readFailed": "Couldn't read it",
-    "showOutput": "Show output",
+    "showOutput": "Show",
     "hideOutput": "Hide",
+    "showOutputLabel": "Show git's output",
+    "hideOutputLabel": "Hide git's output",
     "terminal": "Open {name} in terminal",
     "editor": "Open {name} in editor",
     "hint": "Space selects a repository and {selectAll} all of them; the actions work on the selection, or on every repository when none is selected.",
@@ -1142,6 +1154,67 @@
       "network": "Network unreachable",
       "upstream-gone": "Its upstream left the remote",
       "branch-exists": "The branch already exists"
+    },
+    "bulk": {
+      "actions": "Bulk actions",
+      "fetchAll": "Fetch all",
+      "pullAll": "Pull all",
+      "pushAll": "Push all",
+      "fetchSome": "Fetch {n}",
+      "pullSome": "Pull {n}",
+      "pushSome": "Push {n}",
+      "switchBranch": "Switch branch…",
+      "newBranch": "New branch…",
+      "stop": "Stop",
+      "retryFailed": "Retry failed",
+      "done": "Done",
+      "fastForwardOnly": "fast-forward only",
+      "title": {
+        "pull": "Pull {n} repository | Pull {n} repositories",
+        "push": "Push {n} repository | Push {n} repositories",
+        "switch": "Switch {n} repository | Switch {n} repositories",
+        "create": "New branch in {n} repository | New branch in {n} repositories"
+      },
+      "body": {
+        "pull": "Each repository fetches its upstream and moves its branch only if that is a fast-forward. Nothing is merged or rebased.",
+        "push": "Each repository pushes its current branch to its upstream under the same name. Nothing is forced.",
+        "switch": "Each repository switches to the branch, or to a remote branch of that name. One with uncommitted changes is left as it is.",
+        "create": "Each repository creates the branch at its HEAD and switches to it."
+      },
+      "name": "Branch",
+      "namePlaceholder": "release/2.4",
+      "nameInvalid": "Not a valid branch name",
+      "acting": {
+        "pull": "Pulls",
+        "push": "Pushes",
+        "switch": "Switch",
+        "create": "Create it"
+      },
+      "skipped": "Skipped",
+      "behind": "{n} behind",
+      "upToDateSoFar": "up to date so far",
+      "commits": "{n} commit | {n} commits",
+      "countsNote": "Counts are from the last fetch; the pull fetches first.",
+      "pushNote": "Counts are from the last fetch.",
+      "confirm": {
+        "pull": "Pull {n}, fast-forward only",
+        "push": "Push {n}",
+        "switch": "Switch {n}",
+        "create": "Create in {n}"
+      },
+      "summary": {
+        "done": {
+          "fetch": "{n} fetched",
+          "pull": "{n} pulled",
+          "push": "{n} pushed",
+          "switch": "{n} switched",
+          "create": "{n} created"
+        },
+        "upToDate": "{n} up to date",
+        "failed": "{n} failed",
+        "skipped": "{n} skipped",
+        "stopped": "{n} stopped"
+      }
     }
   }
 }

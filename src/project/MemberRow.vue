@@ -127,9 +127,11 @@ const hasCounts = computed(() => props.row.ahead !== null && props.row.behind !=
     <span role="gridcell" class="truncate text-sm text-fg-secondary" data-testid="member-changes">
       {{ changes }}
     </span>
+    <!-- The status may run 8px into the column gap, as "Diverged from its
+         upstream" and its link do. -->
     <span
       role="gridcell"
-      class="flex min-w-0 items-center gap-2 text-sm"
+      class="-mr-2 flex min-w-0 items-center gap-2 text-sm"
       data-testid="member-status"
     >
       <template v-if="props.status">
@@ -154,6 +156,9 @@ const hasCounts = computed(() => props.row.ahead !== null && props.row.behind !=
           type="button"
           class="shrink-0 text-accent hover:underline"
           :aria-expanded="props.outputOpen"
+          :aria-label="
+            props.outputOpen ? t('project.hideOutputLabel') : t('project.showOutputLabel')
+          "
           data-testid="member-output-toggle"
           @click.stop="emit('output')"
         >

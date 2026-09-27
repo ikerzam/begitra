@@ -15,6 +15,7 @@ import { useFolderStore } from "@/stores/folder";
 import { useSequencerStore } from "@/stores/sequencer";
 import { useCompareStore } from "@/stores/compare";
 import { targetLabel, useReviewStore } from "@/stores/review";
+import { useSettingsStore } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
 
 import { branchLanes } from "./branchLanes";
@@ -24,6 +25,7 @@ import { useHomeDir } from "./useHomeDir";
 const { t } = useI18n();
 const repo = useRepoStore();
 const shell = useShellStore();
+const settings = useSettingsStore();
 const index = useIndexStore();
 const operations = useOperationsStore();
 const review = useReviewStore();
@@ -148,7 +150,18 @@ const hints = computed(() => {
   if (operations.current?.cancellable) {
     return [{ keys: registry.hint("palette"), label: t("statusBar.commands") }];
   }
-  if (shell.layoutMode === "folder") {
+  if (
+    (shell.layoutMode === "folder" || shell.layoutMode === "project") &&
+    settings.values.projectTab === "overview"
+  ) {
+    return [
+      { keys: "j/k", label: t("statusBar.repositoryRows") },
+      { keys: t("statusBar.spaceKey"), label: t("statusBar.select") },
+      { keys: "↵", label: t("statusBar.open") },
+      { keys: registry.hint("palette"), label: t("statusBar.commands") },
+    ];
+  }
+  if (shell.layoutMode === "folder" || shell.layoutMode === "project") {
     // With nothing to stage (the scan, the first reads, no change), the way back and the
     // palette, as on the changes screen.
     if (folderView.state !== "changes") {
