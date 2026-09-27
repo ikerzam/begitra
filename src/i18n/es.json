@@ -293,7 +293,21 @@
     "removeFromList": "Quitar de la lista",
     "dropHere": "Suelta una carpeta para abrirla",
     "showChanges": "Ver cambios",
-    "showChangesIn": "Ver los cambios de {path}"
+    "showChangesIn": "Ver los cambios de {path}",
+    "saveAsProjectIn": "Guardar {path} como proyecto",
+    "projects": {
+      "title": "Proyectos",
+      "changes": "{n} con cambios",
+      "behind": "{n} por detrás",
+      "operation": {
+        "merge": "{n} en merge",
+        "rebase": "{n} en rebase",
+        "cherry-pick": "{n} en cherry-pick",
+        "revert": "{n} en revert"
+      },
+      "missing": "{n} no están",
+      "upToDate": "al día"
+    }
   },
   "graph": {
     "searchCommits": "Buscar commits",
@@ -1215,6 +1229,36 @@
         "skipped": "{n} omitidos",
         "stopped": "{n} detenidos"
       }
+    },
+    "checklistEmpty": "Ningún repositorio coincide.",
+    "new": {
+      "open": "Nuevo proyecto…",
+      "title": "Nuevo proyecto",
+      "body": "Un proyecto agrupa repositorios y worktrees de cualquier carpeta. Crearlo no toca ningún repositorio.",
+      "name": "Nombre",
+      "nameInvalid": "Entre 1 y 100 caracteres",
+      "repositories": "Repositorios",
+      "filter": "Filtrar repositorios",
+      "addRepository": "Añadir repositorio…",
+      "confirm": "Crear con {n} repositorio | Crear con {n} repositorios"
+    },
+    "editDialog": {
+      "title": "Editar proyecto",
+      "save": "Guardar",
+      "order": "en este orden en el Resumen",
+      "add": "Añadir repositorios…",
+      "addTitle": "Añadir repositorios",
+      "addConfirm": "Añadir {n} | Añadir {n}",
+      "missing": "no está",
+      "moveUp": "Subir {name}",
+      "moveDown": "Bajar {name}",
+      "remove": "Quitar {name} del proyecto",
+      "none": "Aún no hay repositorios.",
+      "hint": "Ctrl ↑ y Ctrl ↓ mueven el repositorio con el foco. Quitar uno del proyecto deja su carpeta y su entrada del índice como están.",
+      "delete": "Borrar proyecto…",
+      "deleteTitle": "¿Borrar {name}?",
+      "deleteBody": "Se borra el proyecto; sus repositorios, sus carpetas y sus entradas del índice se quedan como están.",
+      "deleteConfirm": "Borrar proyecto"
     }
   }
 }

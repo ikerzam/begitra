@@ -3,7 +3,7 @@
 // opened on their own, in one listbox with roving focus, the row menu, and the loading,
 // scanning, empty and error states of the index.
 
-import { FilePen } from "@lucide/vue";
+import { FilePen, Layers } from "@lucide/vue";
 import { computed, nextTick, ref, useId } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -14,6 +14,7 @@ import SkeletonRow from "@/components/SkeletonRow.vue";
 import { errorText } from "@/shell/errorMessage";
 import { useListNavigation } from "@/shortcuts/useListNavigation";
 import { useFolderStore } from "@/stores/folder";
+import { useProjectsStore } from "@/stores/projects";
 import { useIndexStore } from "@/stores/index";
 import { useShellStore } from "@/stores/shell";
 
@@ -39,6 +40,7 @@ const listbox = ref<HTMLElement | null>(null);
 
 const shell = useShellStore();
 const folderView = useFolderStore();
+const projects = useProjectsStore();
 
 /* The columns' widths (the settings), which the header and every row read. */
 const columnStyle = computed(() => {
@@ -185,6 +187,17 @@ defineExpose({ focus: navigation.focus });
             :icon="FilePen"
             data-testid="show-folder-changes"
             @click="() => section.folder !== null && void folderView.open(section.folder)"
+          />
+          <IconButton
+            v-if="section.kind === 'folder' && section.folder !== null"
+            class="-my-1"
+            :label="t('home.saveAsProjectIn', { path: sectionLabel(section) })"
+            :tooltip="t('project.saveAsProject')"
+            :icon="Layers"
+            data-testid="save-folder-as-project"
+            @click="
+              () => section.folder !== null && void projects.saveFolder(section.folder, 'overview')
+            "
           />
         </div>
         <RepoTableRow

@@ -243,6 +243,22 @@ export const useProjectsStore = defineStore("projects", () => {
     await Promise.all(writes);
   }
 
+  /**
+   * Makes a project of the scan folder `folder`'s repositories and worktrees in path order,
+   * named after the folder, and shows it on `tab` ("Save as project").
+   */
+  async function saveFolder(folder: string, tab?: ProjectTab): Promise<Project | null> {
+    const paths = index.entries
+      .filter(
+        (entry) => entry.scanRoot !== null && sameFolder(entry.scanRoot, folder) && !entry.missing,
+      )
+      .map((entry) => entry.path)
+      .sort((a, b) => a.localeCompare(b));
+    const project = await create(baseName(folder), paths);
+    if (project) await open(project.id, tab);
+    return project;
+  }
+
   /** Opens the member after (1) or before (-1) the open repository in the active project. */
   async function openNeighbour(step: 1 | -1): Promise<boolean> {
     const current = useRepoStore().repo?.root ?? null;
@@ -268,6 +284,7 @@ export const useProjectsStore = defineStore("projects", () => {
     setMembers,
     remove,
     open,
+    saveFolder,
     openNeighbour,
   };
 });

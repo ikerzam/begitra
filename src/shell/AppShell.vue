@@ -18,6 +18,8 @@ import { useDragDrop } from "@/discovery/useDragDrop";
 import type { FileChange } from "@/ipc/schemas";
 import PaletteOverlay from "@/palette/PaletteOverlay.vue";
 import CompareLayout from "@/compare/CompareLayout.vue";
+import EditProjectDialog from "@/project/EditProjectDialog.vue";
+import NewProjectDialog from "@/project/NewProjectDialog.vue";
 import ProjectLayout from "@/project/ProjectLayout.vue";
 import PickerOverlay from "@/picker/PickerOverlay.vue";
 import { baseName, shortHash } from "@/shell/format";
@@ -35,6 +37,7 @@ import { useReviewStore } from "@/stores/review";
 import { useFolderStore } from "@/stores/folder";
 import { useProjectsStore } from "@/stores/projects";
 import { useBulkStore } from "@/stores/bulk";
+import { useProjectDialogsStore } from "@/stores/projectDialogs";
 import { useSettingsStore } from "@/stores/settings";
 import { paneLimits, useShellStore } from "@/stores/shell";
 import { useToastsStore } from "@/stores/toasts";
@@ -69,6 +72,7 @@ const settings = useSettingsStore();
 const folder = useFolderStore();
 const projects = useProjectsStore();
 const bulk = useBulkStore();
+const projectDialogs = useProjectDialogsStore();
 const toasts = useToastsStore();
 const changes = useChangesStore();
 const worktrees = useWorktreesStore();
@@ -347,6 +351,12 @@ async function removeFromList(): Promise<void> {
       :branch="remotes.prompt.branch"
     />
     <RemotesSheet v-if="remotes.sheetOpen" />
+    <NewProjectDialog v-if="projectDialogs.creating" />
+    <EditProjectDialog
+      v-if="projectDialogs.editing !== null"
+      :id="projectDialogs.editing"
+      :key="projectDialogs.editing"
+    />
     <StashSheet v-if="stash.sheetOpen" />
     <ToastHost />
     <TextMenu v-if="textMenu" v-bind="textMenu" @close="textMenu = null" />

@@ -418,6 +418,21 @@ export const useIndexStore = defineStore("index", () => {
   }
 
   /**
+   * Adds the repository or worktree at `path` to the index without opening it ("Add
+   * repository…"): the entry the backend stores, spelled as the index spells it, or why it
+   * could not (`repo.not_found` for a folder that lies in no repository).
+   */
+  async function add(path: string): Promise<IndexEntry | AppError> {
+    try {
+      const entry = await ipc.refreshRepository(path, true);
+      upsert(entry);
+      return entry;
+    } catch (error) {
+      return toAppError(error);
+    }
+  }
+
+  /**
    * Opens the repository at `path` through the repository store: the open is recorded first,
    * then the listing is synced with what the backend stored. A folder that is gone leaves the
    * shell in its error state and flags the entry.
@@ -547,6 +562,7 @@ export const useIndexStore = defineStore("index", () => {
     pin,
     forget,
     refresh,
+    add,
     open,
     openFolder,
     restore,

@@ -5,7 +5,7 @@
 // the reads and the folder watchers start when it mounts and stop when it goes, so switching
 // tabs keeps them, and the two tabs are mounted one at a time, so their keys never both listen.
 
-import { Layers, RefreshCw } from "@lucide/vue";
+import { Layers, Pencil, RefreshCw } from "@lucide/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -14,10 +14,10 @@ import IconButton from "@/components/IconButton.vue";
 import TabsItem from "@/components/TabsItem.vue";
 import { useDiscoveryFormat } from "@/discovery/useDiscoveryFormat";
 import FolderLayout from "@/folder/FolderLayout.vue";
-import { baseName } from "@/shell/format";
 import { useBulkStore } from "@/stores/bulk";
 import { useFolderStore } from "@/stores/folder";
 import { useOverviewStore } from "@/stores/overview";
+import { useProjectDialogsStore } from "@/stores/projectDialogs";
 import { useProjectsStore } from "@/stores/projects";
 import { useSettingsStore, type ProjectTab } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
@@ -29,6 +29,7 @@ const { t, n } = useI18n();
 const bulk = useBulkStore();
 const folder = useFolderStore();
 const overview = useOverviewStore();
+const dialogs = useProjectDialogsStore();
 const projects = useProjectsStore();
 const settings = useSettingsStore();
 const shell = useShellStore();
@@ -80,12 +81,12 @@ function refresh(): void {
 /** Makes a project of the folder's repositories and worktrees in path order, on the same tab. */
 async function saveAsProject(): Promise<void> {
   const shown = folder.folder;
-  if (shown === null) return;
-  const project = await projects.create(
-    baseName(shown),
-    folder.listed.map((member) => member.path),
-  );
-  if (project) await projects.open(project.id, tab.value);
+  if (shown !== null) await projects.saveFolder(shown, tab.value);
+}
+
+function edit(): void {
+  const project = folder.project;
+  if (project) dialogs.edit(project.id);
 }
 
 function focus(): void {
@@ -164,6 +165,9 @@ onBeforeUnmount(() => {
         >
           {{ t("project.saveAsProject") }}
         </Button>
+        <Button v-else variant="ghost" :icon="Pencil" data-testid="edit-project" @click="edit">
+          {{ t("project.edit") }}
+        </Button>
         <slot name="actions" />
       </div>
     </header>
@@ -172,6 +176,7 @@ onBeforeUnmount(() => {
       id="project-overview"
       ref="overviewTab"
       role="tabpanel"
+      @edit="edit"
     />
     <FolderLayout v-else id="project-changes" ref="changesTab" role="tabpanel" />
     <BulkDialog v-if="bulk.plan" />

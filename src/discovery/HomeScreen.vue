@@ -1,10 +1,12 @@
 <script setup lang="ts">
-// The home screen with an index: header, scan folders
-// and the repository table. The empty Home stays in the shell as `HomeEmpty`.
+// The home screen with an index:
+// header, scan folders, the projects and the repository table. The empty Home stays in the
+// shell as `HomeEmpty`.
 
 import { ref } from "vue";
 
 import HomeHeader from "./HomeHeader.vue";
+import ProjectsSection from "./ProjectsSection.vue";
 import RepoTable from "./RepoTable.vue";
 import ScanFolders from "./ScanFolders.vue";
 
@@ -19,6 +21,7 @@ defineExpose({ focus: () => table.value?.focus() });
   <section class="flex min-w-0 flex-1 flex-col overflow-y-auto" data-testid="home-screen">
     <HomeHeader @open-folder="emit('openFolder')" />
     <ScanFolders />
+    <ProjectsSection />
     <RepoTable ref="table" />
   </section>
 </template>

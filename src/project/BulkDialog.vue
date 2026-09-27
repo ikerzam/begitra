@@ -96,6 +96,7 @@ function confirm(): void {
       <Input
         v-model="name"
         class="flex-1"
+        size="lg"
         :placeholder="t('project.bulk.namePlaceholder')"
         :error="name.trim() !== '' && !nameValid ? t('project.bulk.nameInvalid') : ''"
         data-testid="bulk-name"

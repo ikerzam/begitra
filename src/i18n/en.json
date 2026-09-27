@@ -293,7 +293,21 @@
     "removeFromList": "Remove from list",
     "dropHere": "Drop a folder to open it",
     "showChanges": "Show changes",
-    "showChangesIn": "Show the changes in {path}"
+    "showChangesIn": "Show the changes in {path}",
+    "saveAsProjectIn": "Save {path} as a project",
+    "projects": {
+      "title": "Projects",
+      "changes": "{n} with changes",
+      "behind": "{n} behind",
+      "operation": {
+        "merge": "{n} merging",
+        "rebase": "{n} rebasing",
+        "cherry-pick": "{n} cherry-picking",
+        "revert": "{n} reverting"
+      },
+      "missing": "{n} missing",
+      "upToDate": "up to date"
+    }
   },
   "graph": {
     "searchCommits": "Search commits",
@@ -1215,6 +1229,36 @@
         "skipped": "{n} skipped",
         "stopped": "{n} stopped"
       }
+    },
+    "checklistEmpty": "No repository matches.",
+    "new": {
+      "open": "New project…",
+      "title": "New project",
+      "body": "A project groups repositories and worktrees from any folder. Making one touches no repository.",
+      "name": "Name",
+      "nameInvalid": "Between 1 and 100 characters",
+      "repositories": "Repositories",
+      "filter": "Filter repositories",
+      "addRepository": "Add repository…",
+      "confirm": "Create with {n} repository | Create with {n} repositories"
+    },
+    "editDialog": {
+      "title": "Edit project",
+      "save": "Save",
+      "order": "in this order in the Overview",
+      "add": "Add repositories…",
+      "addTitle": "Add repositories",
+      "addConfirm": "Add {n} | Add {n}",
+      "missing": "missing",
+      "moveUp": "Move {name} up",
+      "moveDown": "Move {name} down",
+      "remove": "Remove {name} from the project",
+      "none": "No repositories yet.",
+      "hint": "Ctrl ↑ and Ctrl ↓ move the focused repository. Removing one from the project leaves its folder and its index entry as they are.",
+      "delete": "Delete project…",
+      "deleteTitle": "Delete {name}?",
+      "deleteBody": "The project goes; its repositories, their folders and their index entries stay as they are.",
+      "deleteConfirm": "Delete project"
     }
   }
 }
