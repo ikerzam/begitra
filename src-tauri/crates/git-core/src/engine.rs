@@ -334,8 +334,8 @@ pub trait GitEngine: Send + Sync {
     ) -> GitResult<NetworkResult>;
 
     /// Pulls: the fetch with its progress streamed and the cancel honoured, then the merge
-    /// (or the rebase, when asked) of what it brought, which no cancel interrupts; a stop
-    /// on conflicts is an [`Outcome`].
+    /// (a fast-forward only, or the rebase, when asked) of what it brought, which no cancel
+    /// interrupts; a stop on conflicts is an [`Outcome`].
     fn pull(
         &self,
         request: &PullRequest,

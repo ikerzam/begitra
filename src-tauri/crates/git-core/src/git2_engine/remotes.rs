@@ -261,8 +261,9 @@ const FINISH_LIMIT: std::time::Duration = std::time::Duration::from_secs(600);
 /// at any point, so the two halves run here as `git-pull.sh` ran them: `git merge
 /// FETCH_HEAD` with `pull.ff`, or `git rebase --onto FETCH_HEAD <fork point>` with the fork
 /// point `git pull --rebase` computes from the tracking branch's reflog. A fetch that
-/// brought nothing to merge (no upstream) is refused, as `git pull` refuses it.
-#[tracing::instrument(level = "debug", skip_all, fields(remote = ?request.remote, branch = ?request.branch, rebase = request.rebase))]
+/// brought nothing to merge (no upstream) is refused, as `git pull` refuses it. A
+/// fast-forward-only pull runs `git merge --ff-only FETCH_HEAD` whatever `pull.ff` says.
+#[tracing::instrument(level = "debug", skip_all, fields(remote = ?request.remote, branch = ?request.branch, rebase = request.rebase, ff_only = request.ff_only))]
 pub(super) fn pull(
     engine: &Git2Engine,
     request: &PullRequest,
@@ -270,6 +271,11 @@ pub(super) fn pull(
     cancel: &Cancel,
 ) -> GitResult<Outcome> {
     plain_refspec(request.branch.as_deref())?;
+    if request.rebase && request.ff_only {
+        return Err(GitError::Git(
+            "a pull is either a rebase or a fast-forward only, not both".to_owned(),
+        ));
+    }
     let before = sequencer::head_hash(engine)?;
     let mut args = vec!["fetch", "--progress"];
     if let Some(remote) = request.remote.as_deref() {
@@ -320,11 +326,15 @@ pub(super) fn pull(
         return Ok(outcome);
     }
     let mut args = vec!["merge"];
-    match pull_ff(engine)?.as_deref() {
-        Some("only") => args.push("--ff-only"),
-        Some("false") => args.push("--no-ff"),
-        Some(_) => args.push("--ff"),
-        None => {}
+    if request.ff_only {
+        args.push("--ff-only");
+    } else {
+        match pull_ff(engine)?.as_deref() {
+            Some("only") => args.push("--ff-only"),
+            Some("false") => args.push("--no-ff"),
+            Some(_) => args.push("--ff"),
+            None => {}
+        }
     }
     args.push("FETCH_HEAD");
     let exit = run_git_env_within(root, &args, &PULL_ENV, &never, FINISH_LIMIT)?;

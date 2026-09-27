@@ -197,6 +197,7 @@ fn fetches_with_prune_and_pulls_with_and_without_rebase() {
                 remote: Some("origin".to_owned()),
                 branch: Some("develop".to_owned()),
                 rebase: false,
+                ff_only: false,
             },
             &mut |_| {},
             &never(),
@@ -215,6 +216,7 @@ fn fetches_with_prune_and_pulls_with_and_without_rebase() {
                 remote: Some("origin".to_owned()),
                 branch: Some("develop".to_owned()),
                 rebase: true,
+                ff_only: false,
             },
             &mut |_| {},
             &never(),
@@ -267,6 +269,7 @@ fn a_pull_tells_a_fast_forward_from_a_merge_and_says_up_to_date() {
         remote: Some("origin".to_owned()),
         branch: Some("main".to_owned()),
         rebase: false,
+        ff_only: false,
     };
     let outcome = e.pull(&request, &mut |_| {}, &never()).expect("pull");
     assert_eq!(outcome.kind, OutcomeKind::FastForward);
@@ -302,6 +305,7 @@ fn a_pull_tells_a_fast_forward_from_a_merge_and_says_up_to_date() {
                 remote: Some("origin".to_owned()),
                 branch: Some("develop".to_owned()),
                 rebase: false,
+                ff_only: false,
             },
             &mut |_| {},
             &never(),
@@ -312,6 +316,62 @@ fn a_pull_tells_a_fast_forward_from_a_merge_and_says_up_to_date() {
         other => panic!("unexpected {other:?}"),
     }
     assert_eq!(f.git(&["status", "--porcelain"]), "");
+    f.tick();
+}
+
+#[test]
+fn a_fast_forward_only_pull_moves_says_up_to_date_or_refuses_whatever_the_config_says() {
+    let mut f = Fixture::basic().with_remote();
+    let e = engine(&f);
+    // The user's configuration asks for merge commits; a fast-forward-only pull ignores it.
+    f.git(&["config", "pull.ff", "false"]);
+    f.git(&["config", "merge.ff", "false"]);
+    let tip = f.rev("main");
+    f.git(&["reset", "-q", "--hard", "main~1"]);
+    // No remote and no branch: the branch's upstream, as a bulk pull asks for it.
+    let request = PullRequest {
+        remote: None,
+        branch: None,
+        rebase: false,
+        ff_only: true,
+    };
+    let outcome = e.pull(&request, &mut |_| {}, &never()).expect("pull");
+    assert_eq!(outcome.kind, OutcomeKind::FastForward);
+    assert_eq!(f.head(), tip);
+    let outcome = e.pull(&request, &mut |_| {}, &never()).expect("pull");
+    assert_eq!(outcome.kind, OutcomeKind::UpToDate);
+    assert_eq!(f.head(), tip);
+
+    // develop is 2 ahead and 3 behind origin/develop: git refuses, nothing moves or stays
+    // half done.
+    f.git(&["switch", "-q", "develop"]);
+    let before = f.head();
+    let error = e
+        .pull(&request, &mut |_| {}, &never())
+        .expect_err("not a fast-forward");
+    match &error {
+        GitError::Cli { stderr, .. } => {
+            assert!(stderr.contains("Not possible to fast-forward"), "{stderr}");
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(f.head(), before);
+    assert_eq!(f.git(&["status", "--porcelain"]), "");
+    assert!(!f.try_git(&["rev-parse", "-q", "--verify", "MERGE_HEAD"]).0);
+
+    // Fast-forward only is a merge's rule: with a rebase it is refused before git runs.
+    let error = e
+        .pull(
+            &PullRequest {
+                rebase: true,
+                ..request.clone()
+            },
+            &mut |_| {},
+            &never(),
+        )
+        .expect_err("rebase and fast-forward only");
+    assert!(!matches!(error, GitError::Cli { .. }), "{error:?}");
+    assert_eq!(f.head(), before);
     f.tick();
 }
 
@@ -359,6 +419,7 @@ fn a_branch_that_starts_with_a_plus_never_forces() {
                 remote: Some("origin".to_owned()),
                 branch: Some("+develop".to_owned()),
                 rebase: false,
+                ff_only: false,
             },
             &mut |_| {},
             &never(),

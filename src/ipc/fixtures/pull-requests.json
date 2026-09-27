@@ -2,11 +2,13 @@
   {
     "remote": null,
     "branch": null,
-    "rebase": false
+    "rebase": false,
+    "ffOnly": true
   },
   {
     "remote": "origin",
     "branch": "main",
-    "rebase": true
+    "rebase": true,
+    "ffOnly": false
   }
 ]

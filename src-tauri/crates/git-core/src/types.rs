@@ -945,7 +945,7 @@ pub struct Remote {
     pub fetched_at: Option<i64>,
 }
 
-/// A pull request: `git pull [--rebase] [remote [branch]]`.
+/// A pull request: `git pull [--rebase | --ff-only] [remote [branch]]`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PullRequest {
@@ -955,6 +955,10 @@ pub struct PullRequest {
     pub branch: Option<String>,
     /// Rebase the local commits on top instead of merging.
     pub rebase: bool,
+    /// Move the branch only as a fast-forward (`git merge --ff-only`), whatever `pull.ff`
+    /// and `merge.ff` say: a bulk pull never makes a merge commit. Refused with `rebase`.
+    #[serde(default)]
+    pub ff_only: bool,
 }
 
 /// A push request: `git push [--set-upstream] [--force-with-lease] [remote [branch]]`.

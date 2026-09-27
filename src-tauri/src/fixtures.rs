@@ -620,11 +620,13 @@ fn write_phase7() {
                 remote: None,
                 branch: None,
                 rebase: false,
+                ff_only: true,
             },
             PullRequest {
                 remote: Some("origin".to_owned()),
                 branch: Some("main".to_owned()),
                 rebase: true,
+                ff_only: false,
             },
         ],
     );
