@@ -21,6 +21,7 @@ const summaries = {
     upstream: null,
     operation: null,
     fetchedAt: null,
+    lastCommitSubject: null,
     dirty: true,
   },
 };

@@ -28,6 +28,7 @@ function entry(name: string, over: Partial<IndexEntry> = {}): IndexEntry {
       upstream: null,
       operation: null,
       fetchedAt: null,
+      lastCommitSubject: null,
       dirty: null,
     },
     pinned: false,

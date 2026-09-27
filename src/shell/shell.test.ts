@@ -49,6 +49,7 @@ function indexEntry(path: string, name: string, over: Partial<IndexEntry> = {}):
       upstream: null,
       operation: null,
       fetchedAt: null,
+      lastCommitSubject: null,
       dirty: false,
     },
     pinned: false,

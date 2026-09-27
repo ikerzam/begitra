@@ -628,6 +628,8 @@ export const RepoSummarySchema = v.object({
   /** Unix seconds of the working tree's last fetch; null before any. */
   fetchedAt: v.nullable(v.number()),
   lastCommitAt: v.nullable(v.number()),
+  /** The tip's subject; null when unborn or until a summary has read it. */
+  lastCommitSubject: v.nullable(v.string()),
   dirty: v.nullable(v.boolean()),
 });
 export type RepoSummary = v.InferOutput<typeof RepoSummarySchema>;

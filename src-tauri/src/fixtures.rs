@@ -474,6 +474,7 @@ fn index_entry(name: &str, kind: RepoKind, parent: Option<&str>) -> IndexEntry {
             }),
             fetched_at: (kind == RepoKind::Main).then_some(1_704_069_000),
             last_commit_at: Some(1_704_067_200),
+            last_commit_subject: Some("feat(map): stream tiles through a worker".to_owned()),
             dirty: Some(true),
         },
         pinned: kind == RepoKind::Main,

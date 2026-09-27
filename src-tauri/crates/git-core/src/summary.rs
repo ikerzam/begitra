@@ -44,6 +44,9 @@ pub struct RepoSummary {
     pub fetched_at: Option<i64>,
     /// Committer time of the tip, unix seconds; `None` when unborn.
     pub last_commit_at: Option<i64>,
+    /// The tip's subject as `git log --format=%s` prints it, at most [`SUBJECT_CAP`]
+    /// characters; `None` when unborn.
+    pub last_commit_subject: Option<String>,
     /// Whether the working tree has changes (untracked files count); `None` when the status
     /// was cancelled before it finished.
     pub dirty: Option<bool>,
@@ -102,9 +105,12 @@ fn read(path: &Path, with_dirty: bool, cancel: &Cancel) -> GitResult<RepoSummary
         None => (None, true),
     };
     let tip = head.resolve().ok().and_then(|direct| direct.target());
-    let last_commit_at = tip
-        .and_then(|oid| repo.find_commit(oid).ok())
-        .map(|commit| commit.time().seconds());
+    let tip_commit = tip.and_then(|oid| repo.find_commit(oid).ok());
+    let last_commit_at = tip_commit.as_ref().map(|commit| commit.time().seconds());
+    let last_commit_subject = tip_commit.as_ref().and_then(|commit| {
+        let subject = String::from_utf8_lossy(commit.summary_bytes()?);
+        Some(subject.chars().take(SUBJECT_CAP).collect())
+    });
 
     let upstream = match current_branch.as_deref() {
         Some(branch) => upstream_name(&repo, branch)?,
@@ -136,6 +142,7 @@ fn read(path: &Path, with_dirty: bool, cancel: &Cancel) -> GitResult<RepoSummary
         operation,
         fetched_at,
         last_commit_at,
+        last_commit_subject,
         dirty,
     })
 }
@@ -198,6 +205,9 @@ fn bounded_count(
 
 /// Most commits counted on either side of an upstream comparison.
 pub const COUNT_CAP: u32 = 100_000;
+
+/// Longest subject kept for a list row, in characters: a first paragraph can run to pages.
+pub const SUBJECT_CAP: usize = 200;
 
 /// The modification time of `FETCH_HEAD` in the repository's own git directory (a linked
 /// worktree's `.git/worktrees/<name>`), unix seconds; `None` when there is none.

@@ -83,12 +83,13 @@ const MIGRATIONS: &[&str] = &[
         updated_at INTEGER NOT NULL,
         PRIMARY KEY (repo, target, path, hunk, kind)
     );",
-    // Version 4: the upstream, the operation in progress and the last fetch of each entry,
-    // and projects. A member is a path, not a reference to a row of `repos`: scans and
+    // Version 4: the upstream, the operation in progress, the last fetch and the tip's subject
+    // of each entry, and projects. A member is a path, not a reference to a row of `repos`: scans and
     // forgets delete rows, and a project keeps its member until the user removes it.
     "ALTER TABLE repos ADD COLUMN upstream TEXT;
     ALTER TABLE repos ADD COLUMN operation TEXT;
     ALTER TABLE repos ADD COLUMN fetched_at INTEGER;
+    ALTER TABLE repos ADD COLUMN last_commit_subject TEXT;
     CREATE TABLE projects (
         id INTEGER PRIMARY KEY,
         name TEXT NOT NULL,

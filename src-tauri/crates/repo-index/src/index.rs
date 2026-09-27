@@ -77,7 +77,7 @@ impl Index {
         self.connection.execute(
             "UPDATE repos SET current_branch = ?2, detached = ?3, dirty = ?4, ahead = ?5,
                behind = ?6, last_commit_at = ?7, refreshed_at = ?8, missing = 0,
-               upstream = ?9, operation = ?10, fetched_at = ?11
+               upstream = ?9, operation = ?10, fetched_at = ?11, last_commit_subject = ?12
              WHERE path = ?1",
             params![
                 path_text(path),
@@ -91,6 +91,7 @@ impl Index {
                 summary.upstream,
                 summary.operation.map(operation_text),
                 summary.fetched_at,
+                summary.last_commit_subject,
             ],
         )?;
         Ok(())
@@ -101,7 +102,7 @@ impl Index {
         let mut statement = self.connection.prepare(
             "SELECT path, name, kind, parent_path, scan_root, current_branch, detached, dirty,
                     ahead, behind, last_commit_at, pinned, last_opened_at, refreshed_at, missing,
-                    upstream, operation, fetched_at
+                    upstream, operation, fetched_at, last_commit_subject
              FROM repos ORDER BY pinned DESC, name COLLATE NOCASE ASC, path ASC",
         )?;
         let rows = statement.query_map([], entry_from_row)?;
@@ -115,7 +116,7 @@ impl Index {
             .query_row(
                 "SELECT path, name, kind, parent_path, scan_root, current_branch, detached, dirty,
                         ahead, behind, last_commit_at, pinned, last_opened_at, refreshed_at, missing,
-                        upstream, operation, fetched_at
+                        upstream, operation, fetched_at, last_commit_subject
                  FROM repos WHERE path = ?1",
                 params![path_text(path)],
                 entry_from_row,
@@ -269,6 +270,7 @@ fn entry_from_row(row: &Row<'_>) -> rusqlite::Result<IndexEntry> {
             operation: operation.as_deref().and_then(operation_from_text),
             fetched_at: row.get(17)?,
             last_commit_at: row.get(10)?,
+            last_commit_subject: row.get(18)?,
         },
         pinned: row.get(11)?,
         last_opened_at: row.get(12)?,
@@ -436,6 +438,7 @@ mod tests {
                 upstream: Some("origin/develop".to_owned()),
                 operation: Some(operation),
                 fetched_at: Some(1_700_000_100),
+                last_commit_subject: Some("feat(tiles): cache décodé".to_owned()),
                 ..RepoSummary::default()
             };
             index

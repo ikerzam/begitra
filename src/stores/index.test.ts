@@ -24,6 +24,7 @@ function summary(over: Partial<RepoSummary> = {}): RepoSummary {
     upstream: null,
     operation: null,
     fetchedAt: null,
+    lastCommitSubject: null,
     dirty: false,
     ...over,
   };

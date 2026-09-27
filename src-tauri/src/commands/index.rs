@@ -52,6 +52,7 @@ pub fn index_summary(summary: &RepoSummary) -> repo_index::RepoSummary {
         operation: Some(index_operation(summary.operation)),
         fetched_at: summary.fetched_at,
         last_commit_at: summary.last_commit_at,
+        last_commit_subject: summary.last_commit_subject.clone(),
         dirty: summary.dirty,
     }
 }

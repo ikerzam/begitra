@@ -29,6 +29,10 @@ fn describes_branch_upstream_counts_tip_and_a_clean_tree() {
     assert_eq!(counts, "2\t3");
     let tip_time: i64 = f.git(&["log", "-1", "--format=%ct"]).parse().expect("time");
     assert_eq!(summary.last_commit_at, Some(tip_time));
+    assert_eq!(
+        summary.last_commit_subject.as_deref(),
+        Some(f.git(&["log", "-1", "--format=%s"]).as_str())
+    );
     assert_eq!(summary.dirty, Some(false));
     assert_eq!(summary.name, "repo");
     assert!(!summary.is_linked_worktree);
@@ -55,6 +59,7 @@ fn an_unborn_repository_has_no_tip() {
     let summary = describe(&f.root, &Cancel::never()).expect("summary");
     assert_eq!(summary.current_branch.as_deref(), Some("main"));
     assert!(summary.last_commit_at.is_none());
+    assert!(summary.last_commit_subject.is_none());
     assert_eq!(summary.dirty, Some(false));
 }
 

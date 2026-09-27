@@ -204,6 +204,8 @@ pub struct RepoSummary {
     pub fetched_at: Option<i64>,
     /// Committer time of the tip, unix seconds.
     pub last_commit_at: Option<i64>,
+    /// The tip's subject; `None` when unborn or until a summary has read it.
+    pub last_commit_subject: Option<String>,
     /// Whether the working tree has changes; `None` when status did not finish in time.
     pub dirty: Option<bool>,
 }

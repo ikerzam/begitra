@@ -26,6 +26,7 @@
         "operation": null,
         "fetchedAt": null,
         "lastCommitAt": null,
+        "lastCommitSubject": null,
         "dirty": null
       },
       "pinned": false,
@@ -51,6 +52,7 @@
         "operation": "none",
         "fetchedAt": 1704069000,
         "lastCommitAt": 1704067200,
+        "lastCommitSubject": "feat(map): stream tiles through a worker",
         "dirty": true
       },
       "pinned": true,
