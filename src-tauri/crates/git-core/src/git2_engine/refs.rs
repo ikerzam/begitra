@@ -332,13 +332,8 @@ fn upstream_of(repo: &Repository, full_name: &str) -> GitResult<(Tracking, Optio
         Err(error) if error.code() == ErrorCode::NotFound => return Ok((none, None)),
         Err(error) => return Err(error.into()),
     };
-    let short = upstream
-        .strip_prefix(REMOTES)
-        .or_else(|| upstream.strip_prefix(HEADS))
-        .unwrap_or(&upstream)
-        .to_owned();
     let gone = Tracking {
-        upstream: Some(short),
+        upstream: Some(upstream_short_name(&upstream).to_owned()),
         ahead: None,
         behind: None,
     };
@@ -349,6 +344,15 @@ fn upstream_of(repo: &Repository, full_name: &str) -> GitResult<(Tracking, Optio
     };
     let tip = resolve(repo, &upstream_ref)?.map(|target| target.peeled);
     Ok((gone, tip))
+}
+
+/// The short name of an upstream's tracking ref as `git branch -vv` shows it: `origin/main`
+/// for `refs/remotes/origin/main`, `main` for a local upstream (`refs/heads/main`).
+pub(crate) fn upstream_short_name(full_name: &str) -> &str {
+    full_name
+        .strip_prefix(REMOTES)
+        .or_else(|| full_name.strip_prefix(HEADS))
+        .unwrap_or(full_name)
 }
 
 /// The counts of `git rev-list --left-right --count local...upstream`.

@@ -1,13 +1,16 @@
-//! One cheap read of a repository for the index: HEAD, upstream counts, the tip's time and
-//! a bounded dirty flag.
+//! One cheap read of a repository for the index: HEAD, the upstream and its counts, the
+//! operation in progress, the last fetch, the tip's time and a bounded dirty flag.
 
 use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
 
 use git2::{ErrorCode, Repository, StatusOptions, StatusShow};
 use serde::{Deserialize, Serialize};
 
 use crate::engine::Cancel;
 use crate::error::{GitError, GitResult};
+use crate::git2_engine::{operation_of, upstream_short_name};
+use crate::types::OperationState;
 
 /// The state of a repository as the index shows it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -25,10 +28,20 @@ pub struct RepoSummary {
     pub current_branch: Option<String>,
     /// Whether HEAD is detached.
     pub detached: bool,
-    /// Commits ahead of the upstream, `None` without one.
+    /// Short name of the current branch's upstream as `git branch -vv` shows it
+    /// (`origin/main`), read from the branch's configuration, so a gone upstream keeps its
+    /// name; `None` when detached, unborn without one, or unset.
+    pub upstream: Option<String>,
+    /// Commits ahead of the upstream, `None` without one or when it is gone.
     pub ahead: Option<u32>,
-    /// Commits behind the upstream, `None` without one.
+    /// Commits behind the upstream, `None` without one or when it is gone.
     pub behind: Option<u32>,
+    /// The operation the working tree is in the middle of.
+    pub operation: OperationState,
+    /// When this working tree last fetched, unix seconds: the modification time of
+    /// `FETCH_HEAD` in its own git directory (a linked worktree has its own); `None` before
+    /// any fetch.
+    pub fetched_at: Option<i64>,
     /// Committer time of the tip, unix seconds; `None` when unborn.
     pub last_commit_at: Option<i64>,
     /// Whether the working tree has changes (untracked files count); `None` when the status
@@ -37,7 +50,8 @@ pub struct RepoSummary {
 }
 
 /// Describes the repository at `path` for the index. Cheap parts first (HEAD, upstream, tip,
-/// counts capped at [`COUNT_CAP`]); the dirty flag runs a status with untracked files and no
+/// counts capped at [`COUNT_CAP`], the operation in progress, `FETCH_HEAD`'s time); the dirty
+/// flag runs a status with untracked files and no
 /// rename detection. libgit2 offers no cancel hook inside a status, so a huge working tree
 /// costs its status once; `cancel` is honoured before it and makes the flag unknown after
 /// it.
@@ -92,10 +106,17 @@ fn read(path: &Path, with_dirty: bool, cancel: &Cancel) -> GitResult<RepoSummary
         .and_then(|oid| repo.find_commit(oid).ok())
         .map(|commit| commit.time().seconds());
 
-    let (ahead, behind) = match (current_branch.as_deref(), tip) {
-        (Some(branch), Some(local)) => upstream_counts(&repo, branch, local, cancel)?,
+    let upstream = match current_branch.as_deref() {
+        Some(branch) => upstream_name(&repo, branch)?,
+        None => None,
+    };
+    let (ahead, behind) = match (upstream.as_deref(), tip) {
+        (Some(upstream), Some(local)) => upstream_counts(&repo, upstream, local, cancel)?,
         _ => (None, None),
     };
+    let upstream = upstream.map(|full| upstream_short_name(&full).to_owned());
+    let operation = operation_of(repo.state());
+    let fetched_at = fetched_at(&repo);
     cancel.check()?;
     let dirty = if with_dirty {
         dirty_flag(&repo, cancel)
@@ -109,31 +130,34 @@ fn read(path: &Path, with_dirty: bool, cancel: &Cancel) -> GitResult<RepoSummary
         main_root,
         current_branch,
         detached,
+        upstream,
         ahead,
         behind,
+        operation,
+        fetched_at,
         last_commit_at,
         dirty,
     })
 }
 
-/// `(ahead, behind)` of `branch` against its upstream; `None`s without an upstream or when
-/// the upstream ref is gone.
+/// The full name of `branch`'s upstream tracking ref (`refs/remotes/origin/main`) from the
+/// branch's configuration, whether or not the ref exists; `None` when unset.
+fn upstream_name(repo: &Repository, branch: &str) -> GitResult<Option<String>> {
+    match repo.branch_upstream_name(&format!("refs/heads/{branch}")) {
+        Ok(buf) => Ok(buf.as_str().ok().map(str::to_owned)),
+        Err(error) if error.code() == ErrorCode::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// `(ahead, behind)` of `local` against the `upstream` ref; `None`s when the ref is gone.
 fn upstream_counts(
     repo: &Repository,
-    branch: &str,
+    upstream: &str,
     local: git2::Oid,
     cancel: &Cancel,
 ) -> GitResult<(Option<u32>, Option<u32>)> {
-    let full_name = format!("refs/heads/{branch}");
-    let upstream = match repo.branch_upstream_name(&full_name) {
-        Ok(buf) => match buf.as_str() {
-            Ok(name) => name.to_owned(),
-            Err(_) => return Ok((None, None)),
-        },
-        Err(error) if error.code() == ErrorCode::NotFound => return Ok((None, None)),
-        Err(error) => return Err(error.into()),
-    };
-    let target = match repo.find_reference(&upstream) {
+    let target = match repo.find_reference(upstream) {
         Ok(reference) => reference.resolve().ok().and_then(|r| r.target()),
         Err(error) if error.code() == ErrorCode::NotFound => None,
         Err(error) => return Err(error.into()),
@@ -174,6 +198,16 @@ fn bounded_count(
 
 /// Most commits counted on either side of an upstream comparison.
 pub const COUNT_CAP: u32 = 100_000;
+
+/// The modification time of `FETCH_HEAD` in the repository's own git directory (a linked
+/// worktree's `.git/worktrees/<name>`), unix seconds; `None` when there is none.
+fn fetched_at(repo: &Repository) -> Option<i64> {
+    let modified = std::fs::metadata(repo.path().join("FETCH_HEAD"))
+        .and_then(|meta| meta.modified())
+        .ok()?;
+    let since = modified.duration_since(UNIX_EPOCH).ok()?;
+    i64::try_from(since.as_secs()).ok()
+}
 
 /// Whether the working tree has any change; `None` when the status was cancelled or failed.
 fn dirty_flag(repo: &Repository, cancel: &Cancel) -> Option<bool> {

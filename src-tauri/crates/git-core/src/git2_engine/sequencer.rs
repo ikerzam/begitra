@@ -11,19 +11,23 @@ use crate::types::{Conflict, ConflictKind, OperationState, Outcome, OutcomeKind,
 
 /// See [`GitEngine::operation_state`].
 pub(super) fn operation_state(engine: &Git2Engine) -> GitResult<OperationState> {
-    engine.with_repo(|repo| {
-        Ok(match repo.state() {
-            RepositoryState::Merge => OperationState::Merge,
-            RepositoryState::Revert | RepositoryState::RevertSequence => OperationState::Revert,
-            RepositoryState::CherryPick | RepositoryState::CherryPickSequence => {
-                OperationState::CherryPick
-            }
-            RepositoryState::Rebase
-            | RepositoryState::RebaseInteractive
-            | RepositoryState::RebaseMerge => OperationState::Rebase,
-            _ => OperationState::None,
-        })
-    })
+    engine.with_repo(|repo| Ok(operation_of(repo.state())))
+}
+
+/// The operation libgit2's repository state stands for; a bisect or an `am` in progress
+/// reads as none, since the app neither continues nor aborts them.
+pub(crate) fn operation_of(state: RepositoryState) -> OperationState {
+    match state {
+        RepositoryState::Merge => OperationState::Merge,
+        RepositoryState::Revert | RepositoryState::RevertSequence => OperationState::Revert,
+        RepositoryState::CherryPick | RepositoryState::CherryPickSequence => {
+            OperationState::CherryPick
+        }
+        RepositoryState::Rebase
+        | RepositoryState::RebaseInteractive
+        | RepositoryState::RebaseMerge => OperationState::Rebase,
+        _ => OperationState::None,
+    }
 }
 
 /// The `XY` of a `u` record of `git status --porcelain=v2`.

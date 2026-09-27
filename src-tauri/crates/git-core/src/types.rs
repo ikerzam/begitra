@@ -901,10 +901,11 @@ pub struct Outcome {
 }
 
 /// The operation a repository is in the middle of.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum OperationState {
     /// Nothing in progress.
+    #[default]
     None,
     /// A merge stopped on conflicts (`MERGE_HEAD`).
     Merge,

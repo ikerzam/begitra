@@ -25,6 +25,8 @@ mod walk;
 mod worktree_ops;
 mod worktrees;
 
+pub(crate) use refs::upstream_short_name;
+pub(crate) use sequencer::operation_of;
 pub(crate) use worktrees::main_path;
 
 use std::path::{Path, PathBuf};

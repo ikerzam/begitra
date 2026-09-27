@@ -2,11 +2,14 @@
 
 mod support;
 
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use git_core::engine::Cancel;
 use git_core::error::GitError;
 use git_core::summary::describe;
+use git_core::types::OperationState;
 use support::Fixture;
 
 #[test]
@@ -68,6 +71,126 @@ fn a_linked_worktree_names_its_repository() {
         Some(support::canonical(&f.root))
     );
     assert_eq!(summary.current_branch.as_deref(), Some("feature/wt"));
+}
+
+/// `git for-each-ref --format=%(upstream:short)` of `branch`: the name git shows, from the
+/// branch's configuration whether or not the tracking ref exists.
+fn cli_upstream(f: &Fixture, branch: &str) -> Option<String> {
+    let full = format!("refs/heads/{branch}");
+    let name = f.git(&["for-each-ref", "--format=%(upstream:short)", &full]);
+    (!name.is_empty()).then_some(name)
+}
+
+#[test]
+fn the_upstream_is_named_as_git_names_it_set_unset_gone_local_or_detached() {
+    let f = Fixture::basic().with_remote();
+    f.git(&["checkout", "-q", "develop"]);
+    let summary = describe(&f.root, &Cancel::never()).expect("summary");
+    assert_eq!(summary.upstream.as_deref(), Some("origin/develop"));
+    assert_eq!(summary.upstream, cli_upstream(&f, "develop"));
+
+    f.git(&["checkout", "-q", "-b", "solo"]);
+    let summary = describe(&f.root, &Cancel::never()).expect("summary");
+    assert_eq!(summary.upstream, None);
+    assert_eq!(cli_upstream(&f, "solo"), None);
+
+    // A branch tracking a local branch (`branch.solo.remote = .`).
+    f.git(&["branch", "-q", "--set-upstream-to=main", "solo"]);
+    let summary = describe(&f.root, &Cancel::never()).expect("summary");
+    assert_eq!(summary.upstream.as_deref(), Some("main"));
+    assert_eq!(summary.upstream, cli_upstream(&f, "solo"));
+
+    // Gone: the tracking ref deleted keeps the name and loses the counts.
+    f.git(&["checkout", "-q", "develop"]);
+    f.git(&["branch", "-q", "-r", "-d", "origin/develop"]);
+    let summary = describe(&f.root, &Cancel::never()).expect("summary");
+    assert_eq!(summary.upstream.as_deref(), Some("origin/develop"));
+    assert_eq!(summary.upstream, cli_upstream(&f, "develop"));
+    assert_eq!((summary.ahead, summary.behind), (None, None));
+
+    f.git(&["checkout", "-q", "--detach", "main"]);
+    let summary = describe(&f.root, &Cancel::never()).expect("summary");
+    assert_eq!(summary.upstream, None);
+    assert!(!f.try_git(&["rev-parse", "--abbrev-ref", "@{upstream}"]).0);
+}
+
+#[test]
+fn a_merge_and_a_rebase_in_progress_are_named() {
+    let mut f = Fixture::basic();
+    f.git(&["checkout", "-q", "-b", "left"]);
+    f.write("conflict.txt", "left\n");
+    f.commit("left: conflict");
+    f.git(&["checkout", "-q", "-b", "right", "main"]);
+    f.write("conflict.txt", "right\n");
+    f.commit("right: conflict");
+    let summary = describe(&f.root, &Cancel::never()).expect("summary");
+    assert_eq!(summary.operation, OperationState::None);
+
+    assert!(
+        !f.try_git(&["merge", "-q", "left"]).0,
+        "the merge conflicts"
+    );
+    assert!(f.try_git(&["rev-parse", "-q", "--verify", "MERGE_HEAD"]).0);
+    let summary = describe(&f.root, &Cancel::never()).expect("summary");
+    assert_eq!(summary.operation, OperationState::Merge);
+    f.git(&["merge", "--abort"]);
+
+    assert!(!f.try_git(&["rebase", "left"]).0, "the rebase conflicts");
+    let rebase_dir = f.git(&["rev-parse", "--git-path", "rebase-merge"]);
+    assert!(f.root.join(rebase_dir).is_dir());
+    let summary = describe(&f.root, &Cancel::never()).expect("summary");
+    assert_eq!(summary.operation, OperationState::Rebase);
+    f.git(&["rebase", "--abort"]);
+
+    let summary = describe(&f.root, &Cancel::never()).expect("summary");
+    assert_eq!(summary.operation, OperationState::None);
+}
+
+/// Where git keeps `FETCH_HEAD` for the worktree at `cwd`, and its modification time in unix
+/// seconds when it exists.
+fn cli_fetch_head(f: &Fixture, cwd: &Path) -> (PathBuf, Option<i64>) {
+    let path = cwd.join(f.git_in(cwd, &["rev-parse", "--git-path", "FETCH_HEAD"]));
+    let time = fs::metadata(&path).ok().map(|meta| {
+        let modified = meta.modified().expect("modification time");
+        let since = modified.duration_since(UNIX_EPOCH).expect("after 1970");
+        i64::try_from(since.as_secs()).expect("seconds fit")
+    });
+    (path, time)
+}
+
+#[test]
+fn the_last_fetch_is_each_worktree_s_own_fetch_head() {
+    let f = Fixture::basic().with_remote().with_linked_worktree();
+    let wt = f.worktree_path();
+    assert_eq!(cli_fetch_head(&f, &f.root).1, None, "no fetch yet");
+    let summary = describe(&f.root, &Cancel::never()).expect("summary");
+    assert_eq!(summary.fetched_at, None);
+
+    let before = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("after 1970")
+        .as_secs();
+    f.git(&["fetch", "-q", "origin"]);
+    let (main_path, main_time) = cli_fetch_head(&f, &f.root);
+    assert!(main_time.is_some(), "{} exists", main_path.display());
+    let summary = describe(&f.root, &Cancel::never()).expect("summary");
+    assert_eq!(summary.fetched_at, main_time);
+    let fetched = u64::try_from(summary.fetched_at.unwrap_or_default()).expect("positive");
+    assert!(fetched + 1 >= before, "the fetch's own time");
+
+    // The linked worktree shares the refs, not `FETCH_HEAD`: a fetch in the main repository
+    // leaves the worktree without one, and its own fetch writes its own.
+    let (wt_path, wt_time) = cli_fetch_head(&f, &wt);
+    let folder = |path: &Path| support::canonical(path.parent().expect("a git directory"));
+    assert_ne!(folder(&wt_path), folder(&main_path));
+    assert_eq!(wt_time, None);
+    let summary = describe(&wt, &Cancel::never()).expect("summary");
+    assert_eq!(summary.fetched_at, None);
+    f.git_in(&wt, &["fetch", "-q", "origin"]);
+    let (_, wt_time) = cli_fetch_head(&f, &wt);
+    assert!(wt_time.is_some());
+    let summary = describe(&wt, &Cancel::never()).expect("summary");
+    assert_eq!(summary.fetched_at, wt_time);
 }
 
 #[test]
