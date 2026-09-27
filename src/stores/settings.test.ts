@@ -133,6 +133,8 @@ describe("settings store", () => {
       memoryStorage({
         paneSizes: { sidebar: 240, detail: 520, files: 280, reviewRail: 280 },
         layoutMode: "banana",
+        activeProject: 1.5,
+        projectTab: "history",
         locale: "es",
         terminalCommand: "",
       }),
@@ -141,8 +143,21 @@ describe("settings store", () => {
     expect(store.loaded).toBe(true);
     expect(store.values.paneSizes.detail).toBe(520);
     expect(store.values.layoutMode).toBe("graph");
+    expect(store.values.activeProject).toBeNull();
+    expect(store.values.projectTab).toBe("overview");
     expect(store.values.locale).toBe("es");
     expect(store.values.terminalCommand).toBe("wt -d {path}");
+  });
+
+  it("keeps the project view, its project and its tab", async () => {
+    const store = useSettingsStore();
+    await store.init(
+      memoryStorage({ layoutMode: "project", activeProject: 3, projectTab: "changes" }),
+      "windows",
+    );
+    expect(store.values.layoutMode).toBe("project");
+    expect(store.values.activeProject).toBe(3);
+    expect(store.values.projectTab).toBe("changes");
   });
 
   it("writes updates through and keeps the fallbacks after the configured command", async () => {

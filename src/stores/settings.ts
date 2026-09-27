@@ -11,7 +11,9 @@ import { defaultSkipFolders } from "@/ipc/commands";
 import { detectPlatform, type Platform } from "@/shortcuts/platform";
 
 export type LayoutMode =
-  "graph" | "review" | "compare" | "worktrees" | "settings" | "changes" | "folder";
+  "graph" | "review" | "compare" | "worktrees" | "settings" | "changes" | "folder" | "project";
+/** The tab of the project view (and of the folder view, a project of its folder). */
+export type ProjectTab = "overview" | "changes";
 export type TabWidth = 2 | 4 | 8;
 
 /** The filters a new review starts with (the settings' Diff section, "Hide by default"). */
@@ -80,6 +82,10 @@ export interface Settings {
   lastRepository: string | null;
   /** The folder the folder view shows; null until one was shown. */
   folderView: string | null;
+  /** The last project whose view was shown; null until one was. */
+  activeProject: number | null;
+  /** The tab the project view and the folder view show. */
+  projectTab: ProjectTab;
   /** Unix seconds of the last finished or stopped scan; null when none ran. */
   lastScanAt: number | null;
   /** The diff viewer's layout. */
@@ -146,6 +152,7 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
     "settings",
     "changes",
     "folder",
+    "project",
   ]),
   locale: v.picklist(["en", "es"]),
   paletteRecents: v.array(v.string()),
@@ -154,6 +161,8 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   maxDepth: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(32)),
   lastRepository: v.nullable(path),
   folderView: v.nullable(path),
+  activeProject: v.nullable(v.pipe(v.number(), v.integer())),
+  projectTab: v.picklist(["overview", "changes"]),
   lastScanAt: v.nullable(v.pipe(v.number(), v.minValue(0))),
   diffLayout: v.picklist(["unified", "side-by-side"]),
   diffWrap: v.boolean(),
@@ -217,6 +226,8 @@ export function defaultSettings(platform: Platform): Settings {
     maxDepth: 2,
     lastRepository: null,
     folderView: null,
+    activeProject: null,
+    projectTab: "overview",
     lastScanAt: null,
     diffLayout: "unified",
     diffWrap: false,
