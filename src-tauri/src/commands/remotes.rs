@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use git_core::engine::GitEngine;
-use git_core::types::{NetworkResult, Outcome, PullRequest, PushRequest, Remote};
+use git_core::types::{NetworkResult, Outcome, Prompts, PullRequest, PushRequest, Remote};
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::State;
@@ -158,8 +158,13 @@ pub async fn fetch(
                     line: line.to_owned(),
                 });
             };
-            let result: NetworkResult =
-                engine.fetch(remote.as_deref(), prune, &mut on_line, &cancel)?;
+            let result: NetworkResult = engine.fetch(
+                remote.as_deref(),
+                prune,
+                Prompts::Allowed,
+                &mut on_line,
+                &cancel,
+            )?;
             stream.page(NetworkEvent::Result {
                 summary: result.summary,
             });
@@ -202,7 +207,7 @@ pub async fn pull(
                     line: line.to_owned(),
                 });
             };
-            let outcome = engine.pull(&request, &mut on_line, &cancel)?;
+            let outcome = engine.pull(&request, Prompts::Allowed, &mut on_line, &cancel)?;
             stream.page(NetworkEvent::Outcome { outcome });
             Ok::<(), AppError>(())
         },
@@ -243,7 +248,7 @@ pub async fn push(
                     line: line.to_owned(),
                 });
             };
-            let result = engine.push(&request, &mut on_line, &cancel)?;
+            let result = engine.push(&request, Prompts::Allowed, &mut on_line, &cancel)?;
             stream.page(NetworkEvent::Result {
                 summary: result.summary,
             });

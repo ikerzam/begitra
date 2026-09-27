@@ -9,8 +9,8 @@ use crate::error::{GitError, GitResult};
 use crate::types::{
     BlobAt, BlobContent, ChangeSet, ChangeSetPage, CommitContext, CommitCount, CommitRequest,
     Comparison, Conflict, DiffOptions, DiffTarget, MergeMode, MergePreview, NetworkResult,
-    OperationState, Outcome, Page, PatchSelection, PullRequest, PushRequest, Ref, Remote, Repo,
-    ResetMode, SelectionTarget, SequencerAction, StashPush, StatusEntry, StatusOptions,
+    OperationState, Outcome, Page, PatchSelection, Prompts, PullRequest, PushRequest, Ref, Remote,
+    Repo, ResetMode, SelectionTarget, SequencerAction, StashPush, StatusEntry, StatusOptions,
     SwitchTarget, WalkOptions, WalkScope, Worktree, WorktreeAdd,
 };
 
@@ -324,29 +324,34 @@ pub trait GitEngine: Send + Sync {
     fn remote_remove(&self, name: &str, cancel: &Cancel) -> GitResult<()>;
 
     /// Fetches from a remote (every remote when `None`), git's progress lines handed to
-    /// `progress` as they arrive; git's own credential prompt fails at once.
+    /// `progress` as they arrive; git's own credential prompt fails at once, and a helper's
+    /// window opens only when `prompts` allows it.
     fn fetch(
         &self,
         remote: Option<&str>,
         prune: bool,
+        prompts: Prompts,
         progress: &mut dyn FnMut(&str),
         cancel: &Cancel,
     ) -> GitResult<NetworkResult>;
 
-    /// Pulls: the fetch with its progress streamed and the cancel honoured, then the merge
-    /// (a fast-forward only, or the rebase, when asked) of what it brought, which no cancel
-    /// interrupts; a stop on conflicts is an [`Outcome`].
+    /// Pulls: the fetch with its progress streamed, the cancel honoured and `prompts` as in
+    /// [`GitEngine::fetch`], then the merge (a fast-forward only, or the rebase, when asked)
+    /// of what it brought, which no cancel interrupts; a stop on conflicts is an [`Outcome`].
     fn pull(
         &self,
         request: &PullRequest,
+        prompts: Prompts,
         progress: &mut dyn FnMut(&str),
         cancel: &Cancel,
     ) -> GitResult<Outcome>;
 
-    /// Pushes with the progress streamed; a rejected push is [`GitError::Cli`].
+    /// Pushes with the progress streamed and `prompts` as in [`GitEngine::fetch`]; a
+    /// rejected push is [`GitError::Cli`].
     fn push(
         &self,
         request: &PushRequest,
+        prompts: Prompts,
         progress: &mut dyn FnMut(&str),
         cancel: &Cancel,
     ) -> GitResult<NetworkResult>;

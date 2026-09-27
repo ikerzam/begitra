@@ -945,6 +945,20 @@ pub struct Remote {
     pub fetched_at: Option<i64>,
 }
 
+/// Whether a fetch, pull or push may ask the user to sign in. git itself never asks on a
+/// terminal ([`crate::cli::WRITE_ENV`]); this is about the windows of credential helpers and
+/// askpass programs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Prompts {
+    /// Git Credential Manager's window and the user's askpass programs may ask, as they do
+    /// for the user's own git.
+    #[default]
+    Allowed,
+    /// Nothing asks: a remote that needs a sign-in fails with git's words, so an operation
+    /// over many repositories never opens a window for each ([`crate::cli::NO_PROMPT_ENV`]).
+    Never,
+}
+
 /// A pull request: `git pull [--rebase | --ff-only] [remote [branch]]`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

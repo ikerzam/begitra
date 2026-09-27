@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 use crate::engine::Cancel;
 use crate::error::{GitError, GitResult};
 use crate::types::GitDetection;
+use crate::types::Prompts;
 
 /// The executable every CLI call runs; `None` is `git` on PATH.
 static GIT_EXECUTABLE: RwLock<Option<PathBuf>> = RwLock::new(None);
@@ -428,8 +429,9 @@ pub fn run_git_cancellable(cwd: &Path, args: &[&str], cancel: &Cancel) -> GitRes
 }
 
 /// The environment of a write that must never wait for a terminal or an editor: git's own
-/// credential prompt fails at once with its message (a helper with a window of its own, such
-/// as Git Credential Manager, still opens it, and the caller's timeout bounds that), and a
+/// credential prompt never reads the terminal (a helper with a window of its own, such as Git
+/// Credential Manager, or an askpass program the user set still opens its window, which the
+/// caller's timeout bounds and [`NO_PROMPT_ENV`] closes), and a
 /// merge, revert or `--continue` that would open an editor takes the prepared message. `:`
 /// is the editor git knows not to launch, where `true` would spawn a shell for it. `LC_ALL=C`
 /// keeps git's words in English, so a refusal the app reads ("would be overwritten", "not
@@ -441,6 +443,28 @@ pub const WRITE_ENV: [(&str, &str); 4] = [
     ("GIT_SEQUENCE_EDITOR", ":"),
     ("LC_ALL", "C"),
 ];
+
+/// What [`Prompts::Never`] adds to [`WRITE_ENV`] for a fetch, pull or push: Git Credential
+/// Manager fails instead of opening its window, OpenSSH never runs an askpass program for a
+/// passphrase or a host key, and an empty `GIT_ASKPASS` ends git's own chain for a username
+/// or a password (`GIT_ASKPASS`, then `core.askPass`, then `SSH_ASKPASS`) before the
+/// terminal, which `WRITE_ENV` already closes. The user's SSH command, credential helpers and
+/// configuration stay as they are.
+pub const NO_PROMPT_ENV: [(&str, &str); 3] = [
+    ("GCM_INTERACTIVE", "never"),
+    ("SSH_ASKPASS_REQUIRE", "never"),
+    ("GIT_ASKPASS", ""),
+];
+
+/// The environment of a fetch, pull or push: [`WRITE_ENV`], with [`NO_PROMPT_ENV`] when
+/// nothing may ask.
+pub fn network_env(prompts: Prompts) -> Vec<(&'static str, &'static str)> {
+    let mut env = WRITE_ENV.to_vec();
+    if prompts == Prompts::Never {
+        env.extend(NO_PROMPT_ENV);
+    }
+    env
+}
 
 /// [`run_git_cancellable`] with extra environment variables (see [`WRITE_ENV`]).
 #[tracing::instrument(level = "debug", skip_all, fields(cwd = %cwd.display(), args = ?Redacted(args)))]
@@ -757,6 +781,21 @@ fn run_polled(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_network_command_that_may_not_prompt_closes_every_helper_s_window() {
+        assert_eq!(network_env(Prompts::Allowed), WRITE_ENV.to_vec());
+        let never = network_env(Prompts::Never);
+        assert_eq!(never[..WRITE_ENV.len()], WRITE_ENV[..]);
+        assert_eq!(
+            never[WRITE_ENV.len()..],
+            [
+                ("GCM_INTERACTIVE", "never"),
+                ("SSH_ASKPASS_REQUIRE", "never"),
+                ("GIT_ASKPASS", ""),
+            ]
+        );
+    }
 
     #[test]
     fn cancellable_runs_report_the_status_and_stop_on_cancel() {

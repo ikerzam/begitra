@@ -39,7 +39,7 @@ use crate::error::{GitError, GitResult};
 use crate::types::{
     BlobAt, BlobContent, ChangeSet, CommitContext, CommitCount, CommitRequest, Comparison,
     Conflict, DiffOptions, DiffTarget, MergeMode, MergePreview, NetworkResult, OperationState,
-    Outcome, PatchSelection, PullRequest, PushRequest, Ref, Remote, Repo, ResetMode,
+    Outcome, PatchSelection, Prompts, PullRequest, PushRequest, Ref, Remote, Repo, ResetMode,
     SelectionTarget, SequencerAction, StashPush, StatusEntry, StatusOptions, SwitchTarget,
     WalkOptions, WalkScope, Worktree, WorktreeAdd,
 };
@@ -585,28 +585,31 @@ impl GitEngine for Git2Engine {
         &self,
         remote: Option<&str>,
         prune: bool,
+        prompts: Prompts,
         progress: &mut dyn FnMut(&str),
         cancel: &Cancel,
     ) -> GitResult<NetworkResult> {
-        remotes::fetch(self, remote, prune, progress, cancel)
+        remotes::fetch(self, remote, prune, prompts, progress, cancel)
     }
 
     fn pull(
         &self,
         request: &PullRequest,
+        prompts: Prompts,
         progress: &mut dyn FnMut(&str),
         cancel: &Cancel,
     ) -> GitResult<Outcome> {
-        remotes::pull(self, request, progress, cancel)
+        remotes::pull(self, request, prompts, progress, cancel)
     }
 
     fn push(
         &self,
         request: &PushRequest,
+        prompts: Prompts,
         progress: &mut dyn FnMut(&str),
         cancel: &Cancel,
     ) -> GitResult<NetworkResult> {
-        remotes::push(self, request, progress, cancel)
+        remotes::push(self, request, prompts, progress, cancel)
     }
 
     fn stash_push(&self, request: &StashPush, cancel: &Cancel) -> GitResult<bool> {

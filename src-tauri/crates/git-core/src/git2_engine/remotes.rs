@@ -7,10 +7,14 @@
 use std::path::{Path, PathBuf};
 
 use super::{sequencer, Git2Engine};
-use crate::cli::{run_git_env, run_git_env_within, run_git_streaming, CliExit, WRITE_ENV};
+use crate::cli::{
+    network_env, run_git_env, run_git_env_within, run_git_streaming, CliExit, WRITE_ENV,
+};
 use crate::engine::{Cancel, GitEngine};
 use crate::error::{GitError, GitResult};
-use crate::types::{NetworkResult, Outcome, OutcomeKind, PullRequest, PushRequest, Remote};
+use crate::types::{
+    NetworkResult, Outcome, OutcomeKind, Prompts, PullRequest, PushRequest, Remote,
+};
 
 /// Most summary lines kept from a network command: a chatty server hook can print
 /// thousands, and the last ones carry the refs and the refusal.
@@ -176,6 +180,7 @@ pub(super) fn is_progress(line: &str) -> bool {
 fn network(
     engine: &Git2Engine,
     args: &[&str],
+    prompts: Prompts,
     progress: &mut dyn FnMut(&str),
     cancel: &Cancel,
 ) -> GitResult<(CliExit, NetworkResult)> {
@@ -183,7 +188,7 @@ fn network(
     let mut exit = run_git_streaming(
         &GitEngine::repo(engine).root,
         args,
-        &WRITE_ENV,
+        &network_env(prompts),
         &mut |line| {
             if is_progress(line) {
                 progress(line);
@@ -201,11 +206,12 @@ fn network(
 }
 
 /// See [`GitEngine::fetch`]: one remote, or every remote with `--all`.
-#[tracing::instrument(level = "debug", skip_all, fields(remote, prune))]
+#[tracing::instrument(level = "debug", skip_all, fields(remote, prune, prompts = ?prompts))]
 pub(super) fn fetch(
     engine: &Git2Engine,
     remote: Option<&str>,
     prune: bool,
+    prompts: Prompts,
     progress: &mut dyn FnMut(&str),
     cancel: &Cancel,
 ) -> GitResult<NetworkResult> {
@@ -220,7 +226,7 @@ pub(super) fn fetch(
         }
         None => args.push("--all"),
     }
-    let (exit, result) = network(engine, &args, progress, cancel)?;
+    let (exit, result) = network(engine, &args, prompts, progress, cancel)?;
     if exit.status == Some(0) {
         Ok(result)
     } else {
@@ -263,10 +269,11 @@ const FINISH_LIMIT: std::time::Duration = std::time::Duration::from_secs(600);
 /// point `git pull --rebase` computes from the tracking branch's reflog. A fetch that
 /// brought nothing to merge (no upstream) is refused, as `git pull` refuses it. A
 /// fast-forward-only pull runs `git merge --ff-only FETCH_HEAD` whatever `pull.ff` says.
-#[tracing::instrument(level = "debug", skip_all, fields(remote = ?request.remote, branch = ?request.branch, rebase = request.rebase, ff_only = request.ff_only))]
+#[tracing::instrument(level = "debug", skip_all, fields(remote = ?request.remote, branch = ?request.branch, rebase = request.rebase, ff_only = request.ff_only, prompts = ?prompts))]
 pub(super) fn pull(
     engine: &Git2Engine,
     request: &PullRequest,
+    prompts: Prompts,
     progress: &mut dyn FnMut(&str),
     cancel: &Cancel,
 ) -> GitResult<Outcome> {
@@ -285,7 +292,7 @@ pub(super) fn pull(
             args.push(branch);
         }
     }
-    let (exit, _) = network(engine, &args, progress, cancel)?;
+    let (exit, _) = network(engine, &args, prompts, progress, cancel)?;
     if exit.status != Some(0) {
         return Err(failed(&args, exit));
     }
@@ -426,10 +433,11 @@ fn fork_point(
 }
 
 /// See [`GitEngine::push`].
-#[tracing::instrument(level = "debug", skip_all, fields(remote = ?request.remote, branch = ?request.branch, set_upstream = request.set_upstream, lease = request.force_with_lease))]
+#[tracing::instrument(level = "debug", skip_all, fields(remote = ?request.remote, branch = ?request.branch, set_upstream = request.set_upstream, lease = request.force_with_lease, prompts = ?prompts))]
 pub(super) fn push(
     engine: &Git2Engine,
     request: &PushRequest,
+    prompts: Prompts,
     progress: &mut dyn FnMut(&str),
     cancel: &Cancel,
 ) -> GitResult<NetworkResult> {
@@ -448,7 +456,7 @@ pub(super) fn push(
             args.push(branch);
         }
     }
-    let (exit, result) = network(engine, &args, progress, cancel)?;
+    let (exit, result) = network(engine, &args, prompts, progress, cancel)?;
     if exit.status == Some(0) {
         Ok(result)
     } else {

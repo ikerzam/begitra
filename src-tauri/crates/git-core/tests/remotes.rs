@@ -2,12 +2,14 @@
 
 mod support;
 
+use std::fs;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use git_core::engine::{Cancel, GitEngine};
 use git_core::error::GitError;
 use git_core::git2_engine::Git2Engine;
-use git_core::types::{OutcomeKind, PullRequest, PushRequest};
+use git_core::types::{OutcomeKind, Prompts, PullRequest, PushRequest};
 use support::Fixture;
 
 fn engine(f: &Fixture) -> Git2Engine {
@@ -59,8 +61,14 @@ fn lists_adds_and_removes_remotes() {
         ["origin", "second"]
     );
     // A fetch of origin dates origin (FETCH_HEAD's time) and leaves second undated.
-    e.fetch(Some("origin"), false, &mut |_| {}, &never())
-        .expect("fetch");
+    e.fetch(
+        Some("origin"),
+        false,
+        Prompts::Allowed,
+        &mut |_| {},
+        &never(),
+    )
+    .expect("fetch");
     let remotes = e.remotes(&never()).expect("remotes");
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -92,6 +100,7 @@ fn pushes_with_progress_and_the_remote_follows() {
                 set_upstream: false,
                 force_with_lease: false,
             },
+            Prompts::Allowed,
             &mut progress,
             &never(),
         )
@@ -124,6 +133,7 @@ fn a_rejected_push_and_a_lease_force() {
                 set_upstream: false,
                 force_with_lease: false,
             },
+            Prompts::Allowed,
             &mut |_| {},
             &never(),
         )
@@ -133,8 +143,14 @@ fn a_rejected_push_and_a_lease_force() {
         other => panic!("unexpected {other:?}"),
     }
     // With a lease the push is accepted only when the tracking ref is current: fetch first.
-    e.fetch(Some("origin"), false, &mut |_| {}, &never())
-        .expect("fetch");
+    e.fetch(
+        Some("origin"),
+        false,
+        Prompts::Allowed,
+        &mut |_| {},
+        &never(),
+    )
+    .expect("fetch");
     let local = f.rev("develop");
     e.push(
         &PushRequest {
@@ -143,6 +159,7 @@ fn a_rejected_push_and_a_lease_force() {
             set_upstream: false,
             force_with_lease: true,
         },
+        Prompts::Allowed,
         &mut |_| {},
         &never(),
     )
@@ -165,6 +182,7 @@ fn push_with_set_upstream_records_the_tracking() {
             set_upstream: true,
             force_with_lease: false,
         },
+        Prompts::Allowed,
         &mut |_| {},
         &never(),
     )
@@ -182,12 +200,24 @@ fn fetches_with_prune_and_pulls_with_and_without_rebase() {
     let origin = f.sibling("origin.git");
     // A branch that exists on the remote only, then deleted there: prune removes the ref.
     f.git_in(&origin, &["branch", "gone", "main"]);
-    e.fetch(Some("origin"), false, &mut |_| {}, &never())
-        .expect("fetch");
+    e.fetch(
+        Some("origin"),
+        false,
+        Prompts::Allowed,
+        &mut |_| {},
+        &never(),
+    )
+    .expect("fetch");
     assert!(f.try_git(&["rev-parse", "--verify", "origin/gone"]).0);
     f.git_in(&origin, &["branch", "-D", "gone"]);
-    e.fetch(Some("origin"), true, &mut |_| {}, &never())
-        .expect("fetch --prune");
+    e.fetch(
+        Some("origin"),
+        true,
+        Prompts::Allowed,
+        &mut |_| {},
+        &never(),
+    )
+    .expect("fetch --prune");
     assert!(!f.try_git(&["rev-parse", "--verify", "origin/gone"]).0);
     // develop is behind origin/develop by 3 and ahead by 2 (with_remote): a pull merges.
     f.git(&["switch", "-q", "develop"]);
@@ -199,6 +229,7 @@ fn fetches_with_prune_and_pulls_with_and_without_rebase() {
                 rebase: false,
                 ff_only: false,
             },
+            Prompts::Allowed,
             &mut |_| {},
             &never(),
         )
@@ -218,6 +249,7 @@ fn fetches_with_prune_and_pulls_with_and_without_rebase() {
                 rebase: true,
                 ff_only: false,
             },
+            Prompts::Allowed,
             &mut |_| {},
             &never(),
         )
@@ -250,6 +282,7 @@ fn a_cancel_stops_a_push() {
                 set_upstream: false,
                 force_with_lease: false,
             },
+            Prompts::Allowed,
             &mut |_| {},
             &cancel,
         )
@@ -271,12 +304,16 @@ fn a_pull_tells_a_fast_forward_from_a_merge_and_says_up_to_date() {
         rebase: false,
         ff_only: false,
     };
-    let outcome = e.pull(&request, &mut |_| {}, &never()).expect("pull");
+    let outcome = e
+        .pull(&request, Prompts::Allowed, &mut |_| {}, &never())
+        .expect("pull");
     assert_eq!(outcome.kind, OutcomeKind::FastForward);
     assert_eq!(f.head(), tip);
     assert_eq!(outcome.hash.as_deref(), Some(tip.as_str()));
     // Again: nothing to do, with and without rebase.
-    let outcome = e.pull(&request, &mut |_| {}, &never()).expect("pull");
+    let outcome = e
+        .pull(&request, Prompts::Allowed, &mut |_| {}, &never())
+        .expect("pull");
     assert_eq!(outcome.kind, OutcomeKind::UpToDate);
     let outcome = e
         .pull(
@@ -284,6 +321,7 @@ fn a_pull_tells_a_fast_forward_from_a_merge_and_says_up_to_date() {
                 rebase: true,
                 ..request.clone()
             },
+            Prompts::Allowed,
             &mut |_| {},
             &never(),
         )
@@ -307,6 +345,7 @@ fn a_pull_tells_a_fast_forward_from_a_merge_and_says_up_to_date() {
                 rebase: false,
                 ff_only: false,
             },
+            Prompts::Allowed,
             &mut |_| {},
             &never(),
         )
@@ -335,10 +374,14 @@ fn a_fast_forward_only_pull_moves_says_up_to_date_or_refuses_whatever_the_config
         rebase: false,
         ff_only: true,
     };
-    let outcome = e.pull(&request, &mut |_| {}, &never()).expect("pull");
+    let outcome = e
+        .pull(&request, Prompts::Allowed, &mut |_| {}, &never())
+        .expect("pull");
     assert_eq!(outcome.kind, OutcomeKind::FastForward);
     assert_eq!(f.head(), tip);
-    let outcome = e.pull(&request, &mut |_| {}, &never()).expect("pull");
+    let outcome = e
+        .pull(&request, Prompts::Allowed, &mut |_| {}, &never())
+        .expect("pull");
     assert_eq!(outcome.kind, OutcomeKind::UpToDate);
     assert_eq!(f.head(), tip);
 
@@ -347,7 +390,7 @@ fn a_fast_forward_only_pull_moves_says_up_to_date_or_refuses_whatever_the_config
     f.git(&["switch", "-q", "develop"]);
     let before = f.head();
     let error = e
-        .pull(&request, &mut |_| {}, &never())
+        .pull(&request, Prompts::Allowed, &mut |_| {}, &never())
         .expect_err("not a fast-forward");
     match &error {
         GitError::Cli { stderr, .. } => {
@@ -366,12 +409,134 @@ fn a_fast_forward_only_pull_moves_says_up_to_date_or_refuses_whatever_the_config
                 rebase: true,
                 ..request.clone()
             },
+            Prompts::Allowed,
             &mut |_| {},
             &never(),
         )
         .expect_err("rebase and fast-forward only");
     assert!(!matches!(error, GitError::Cli { .. }), "{error:?}");
     assert_eq!(f.head(), before);
+    f.tick();
+}
+
+/// Points the remote `probe` at an SSH URL whose command writes the environment git starts
+/// it with to `out` and fails, as a server that refuses the key would. `ssh.variant=simple`
+/// spares git's `-G` probe of the command.
+fn add_env_probe(f: &Fixture, out: &Path) {
+    let out = out.to_str().expect("utf-8 temp path").replace('\\', "/");
+    f.git(&["config", "ssh.variant", "simple"]);
+    f.git(&[
+        "config",
+        "core.sshCommand",
+        &format!("env > '{out}'; false"),
+    ]);
+    f.git(&["remote", "add", "probe", "ssh://example.invalid/probe.git"]);
+}
+
+/// The value of `name` in an `env` listing; `None` when it is not set.
+fn env_value<'a>(listing: &'a str, name: &str) -> Option<&'a str> {
+    listing
+        .lines()
+        .find_map(|line| line.strip_prefix(name)?.strip_prefix('='))
+}
+
+#[test]
+fn nothing_may_prompt_in_a_fetch_pull_or_push_that_asks_so_and_a_local_remote_works_both_ways() {
+    let mut f = Fixture::basic().with_remote();
+    let e = engine(&f);
+    for prompts in [Prompts::Allowed, Prompts::Never] {
+        e.fetch(Some("origin"), false, prompts, &mut |_| {}, &never())
+            .expect("a local remote needs no sign-in");
+    }
+    f.write(
+        "never.txt",
+        "pushed without prompts
+",
+    );
+    f.commit("n1: pushed without prompts");
+    let push_main = PushRequest {
+        remote: Some("origin".to_owned()),
+        branch: Some("main".to_owned()),
+        set_upstream: false,
+        force_with_lease: false,
+    };
+    e.push(&push_main, Prompts::Never, &mut |_| {}, &never())
+        .expect("push");
+    assert_eq!(origin_rev(&f, "main"), f.head());
+
+    let out = f.sibling("ssh-env.txt");
+    add_env_probe(&f, &out);
+    let pull_probe = PullRequest {
+        remote: Some("probe".to_owned()),
+        branch: Some("main".to_owned()),
+        rebase: false,
+        ff_only: true,
+    };
+    let push_probe = PushRequest {
+        remote: Some("probe".to_owned()),
+        ..push_main
+    };
+    type Run<'a> = Box<dyn Fn(Prompts) -> Result<(), GitError> + 'a>;
+    let runs: [(&str, Run<'_>); 3] = [
+        (
+            "fetch",
+            Box::new(|prompts| {
+                e.fetch(Some("probe"), false, prompts, &mut |_| {}, &never())
+                    .map(drop)
+            }),
+        ),
+        (
+            "pull",
+            Box::new(|prompts| {
+                e.pull(&pull_probe, prompts, &mut |_| {}, &never())
+                    .map(drop)
+            }),
+        ),
+        (
+            "push",
+            Box::new(|prompts| {
+                e.push(&push_probe, prompts, &mut |_| {}, &never())
+                    .map(drop)
+            }),
+        ),
+    ];
+    for (name, run) in &runs {
+        for prompts in [Prompts::Never, Prompts::Allowed] {
+            let _ = fs::remove_file(&out);
+            let error = run(prompts).expect_err("the probe refuses");
+            assert!(matches!(error, GitError::Cli { .. }), "{name}: {error:?}");
+            let listing = fs::read_to_string(&out).unwrap_or_else(|error| {
+                panic!("{name}: the SSH command did not run ({error}); a GIT_SSH_COMMAND in the environment replaces it")
+            });
+            assert_eq!(
+                env_value(&listing, "GIT_TERMINAL_PROMPT"),
+                Some("0"),
+                "{name}"
+            );
+            if prompts == Prompts::Never {
+                assert_eq!(
+                    env_value(&listing, "GCM_INTERACTIVE"),
+                    Some("never"),
+                    "{name}"
+                );
+                assert_eq!(
+                    env_value(&listing, "SSH_ASKPASS_REQUIRE"),
+                    Some("never"),
+                    "{name}"
+                );
+                assert_eq!(env_value(&listing, "GIT_ASKPASS"), Some(""), "{name}");
+            } else {
+                // Allowed adds nothing: the helpers see what the app was started with.
+                for variable in ["GCM_INTERACTIVE", "SSH_ASKPASS_REQUIRE", "GIT_ASKPASS"] {
+                    assert_eq!(
+                        env_value(&listing, variable),
+                        std::env::var(variable).ok().as_deref(),
+                        "{name}: {variable}"
+                    );
+                }
+            }
+        }
+    }
     f.tick();
 }
 
@@ -386,7 +551,7 @@ fn a_fetch_without_a_remote_fetches_every_remote() {
     let origin = f.sibling("origin.git");
     f.git_in(&origin, &["branch", "on-origin", "main"]);
     e.remote_add("second", second, &never()).expect("add");
-    e.fetch(None, false, &mut |_| {}, &never())
+    e.fetch(None, false, Prompts::Allowed, &mut |_| {}, &never())
         .expect("fetch --all");
     assert!(f.try_git(&["rev-parse", "--verify", "origin/on-origin"]).0);
     assert!(f.try_git(&["rev-parse", "--verify", "second/on-second"]).0);
@@ -407,6 +572,7 @@ fn a_branch_that_starts_with_a_plus_never_forces() {
                 set_upstream: false,
                 force_with_lease: false,
             },
+            Prompts::Allowed,
             &mut |_| {},
             &never(),
         )
@@ -421,6 +587,7 @@ fn a_branch_that_starts_with_a_plus_never_forces() {
                 rebase: false,
                 ff_only: false,
             },
+            Prompts::Allowed,
             &mut |_| {},
             &never(),
         )

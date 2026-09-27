@@ -16,9 +16,9 @@ use git_core::error::GitError;
 use git_core::git2_engine::index_snapshot::IndexSnapshot;
 use git_core::git2_engine::Git2Engine;
 use git_core::types::{
-    BlobAt, DiffOptions, DiffTarget, PatchSelection, PushRequest, SelectedHunk, SelectedLine,
-    SelectionTarget, StatusOptions, WalkFilter, WalkOptions, WalkOrder, WalkScope, WorkingTreeBase,
-    WorktreeAdd, WorktreeBranch,
+    BlobAt, DiffOptions, DiffTarget, PatchSelection, Prompts, PushRequest, SelectedHunk,
+    SelectedLine, SelectionTarget, StatusOptions, WalkFilter, WalkOptions, WalkOrder, WalkScope,
+    WorkingTreeBase, WorktreeAdd, WorktreeBranch,
 };
 
 /// A benchmark repository that is present on disk.
@@ -1050,8 +1050,14 @@ fn fetch_push_bare(c: &mut Criterion) {
         let mut drop_line = |_line: &str| {};
         group.bench_with_input(BenchmarkId::new("fetch", target.name), &engine, |b, e| {
             b.iter(|| {
-                e.fetch(Some(&remote), false, &mut drop_line, &Cancel::never())
-                    .expect("fetch");
+                e.fetch(
+                    Some(&remote),
+                    false,
+                    Prompts::Allowed,
+                    &mut drop_line,
+                    &Cancel::never(),
+                )
+                .expect("fetch");
             });
         });
         let request = PushRequest {
@@ -1062,7 +1068,7 @@ fn fetch_push_bare(c: &mut Criterion) {
         };
         group.bench_with_input(BenchmarkId::new("push", target.name), &engine, |b, e| {
             b.iter(|| {
-                e.push(&request, &mut drop_line, &Cancel::never())
+                e.push(&request, Prompts::Allowed, &mut drop_line, &Cancel::never())
                     .expect("push");
             });
         });
