@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -444,24 +444,43 @@ pub const WRITE_ENV: [(&str, &str); 4] = [
     ("LC_ALL", "C"),
 ];
 
-/// What [`Prompts::Never`] adds to [`WRITE_ENV`] for a fetch, pull or push: Git Credential
-/// Manager fails instead of opening its window, OpenSSH never runs an askpass program for a
-/// passphrase or a host key, and an empty `GIT_ASKPASS` ends git's own chain for a username
-/// or a password (`GIT_ASKPASS`, then `core.askPass`, then `SSH_ASKPASS`) before the
-/// terminal, which `WRITE_ENV` already closes. The user's SSH command, credential helpers and
-/// configuration stay as they are.
-pub const NO_PROMPT_ENV: [(&str, &str); 3] = [
-    ("GCM_INTERACTIVE", "never"),
-    ("SSH_ASKPASS_REQUIRE", "never"),
-    ("GIT_ASKPASS", ""),
-];
+/// What [`Prompts::Never`] adds to [`WRITE_ENV`] for a fetch, pull or push, besides
+/// OpenSSH's askpass (see [`network_env`]): Git Credential Manager fails instead of opening its
+/// window, and an empty `GIT_ASKPASS` ends git's own chain for a username or a password
+/// (`GIT_ASKPASS`, then `core.askPass`, then `SSH_ASKPASS`) before the terminal, which
+/// `WRITE_ENV` already closes. The user's SSH command, credential helpers and configuration
+/// stay as they are.
+pub const NO_PROMPT_ENV: [(&str, &str); 2] = [("GCM_INTERACTIVE", "never"), ("GIT_ASKPASS", "")];
 
-/// The environment of a fetch, pull or push: [`WRITE_ENV`], with [`NO_PROMPT_ENV`] when
-/// nothing may ask.
+/// A program that exits non-zero at once without reading its input: OpenSSH's askpass in a
+/// bulk operation, so a passphrase or a host key to confirm fails as a refused sign-in
+/// instead of waiting. `where.exe` looks for a file named as the prompt, which none is, and
+/// every Windows has it; `false` everywhere else.
+pub fn failing_askpass() -> &'static str {
+    static PROGRAM: OnceLock<String> = OnceLock::new();
+    PROGRAM.get_or_init(|| {
+        if cfg!(windows) {
+            let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_owned());
+            format!(r"{root}\System32\where.exe")
+        } else if Path::new("/usr/bin/false").exists() {
+            "/usr/bin/false".to_owned()
+        } else {
+            "/bin/false".to_owned()
+        }
+    })
+}
+
+/// The environment of a fetch, pull or push: [`WRITE_ENV`], and when nothing may ask,
+/// [`NO_PROMPT_ENV`] and OpenSSH's askpass forced to [`failing_askpass`]. Forced, not refused:
+/// `SSH_ASKPASS_REQUIRE=never` leaves OpenSSH reading the console, and Windows' own OpenSSH
+/// finds the hidden console a windowless process gets and waits on it for a passphrase or a
+/// host key; with the failing askpass both it and Git for Windows' ssh fail within a second.
 pub fn network_env(prompts: Prompts) -> Vec<(&'static str, &'static str)> {
     let mut env = WRITE_ENV.to_vec();
     if prompts == Prompts::Never {
         env.extend(NO_PROMPT_ENV);
+        env.push(("SSH_ASKPASS_REQUIRE", "force"));
+        env.push(("SSH_ASKPASS", failing_askpass()));
     }
     env
 }
@@ -791,10 +810,23 @@ mod tests {
             never[WRITE_ENV.len()..],
             [
                 ("GCM_INTERACTIVE", "never"),
-                ("SSH_ASKPASS_REQUIRE", "never"),
                 ("GIT_ASKPASS", ""),
+                ("SSH_ASKPASS_REQUIRE", "force"),
+                ("SSH_ASKPASS", failing_askpass()),
             ]
         );
+    }
+
+    #[test]
+    fn the_failing_askpass_runs_and_fails_without_reading_its_input() {
+        let exit = Command::new(failing_askpass())
+            .arg("Enter passphrase for key 'C:\\Users\\x/.ssh/id_ed25519': ")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+            .expect("the askpass program runs");
+        assert!(!exit.status.success());
     }
 
     #[test]

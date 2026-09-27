@@ -6,6 +6,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use git_core::cli::failing_askpass;
 use git_core::engine::{Cancel, GitEngine};
 use git_core::error::GitError;
 use git_core::git2_engine::Git2Engine;
@@ -524,13 +525,23 @@ fn nothing_may_prompt_in_a_fetch_pull_or_push_that_asks_so_and_a_local_remote_wo
                 );
                 assert_eq!(
                     env_value(&listing, "SSH_ASKPASS_REQUIRE"),
-                    Some("never"),
+                    Some("force"),
+                    "{name}"
+                );
+                assert_eq!(
+                    env_value(&listing, "SSH_ASKPASS"),
+                    Some(failing_askpass()),
                     "{name}"
                 );
                 assert_eq!(env_value(&listing, "GIT_ASKPASS"), Some(""), "{name}");
             } else {
                 // Allowed adds nothing: the helpers see what the app was started with.
-                for variable in ["GCM_INTERACTIVE", "SSH_ASKPASS_REQUIRE", "GIT_ASKPASS"] {
+                for variable in [
+                    "GCM_INTERACTIVE",
+                    "SSH_ASKPASS_REQUIRE",
+                    "SSH_ASKPASS",
+                    "GIT_ASKPASS",
+                ] {
                     assert_eq!(
                         env_value(&listing, variable),
                         std::env::var(variable).ok().as_deref(),
@@ -587,7 +598,8 @@ fn a_bulk_pull_checks_out_what_it_brought_with_nothing_allowed_to_prompt() {
     assert_eq!(f.head(), tip);
     let listing = fs::read_to_string(&out).expect("the smudge filter ran");
     assert_eq!(env_value(&listing, "GCM_INTERACTIVE"), Some("never"));
-    assert_eq!(env_value(&listing, "SSH_ASKPASS_REQUIRE"), Some("never"));
+    assert_eq!(env_value(&listing, "SSH_ASKPASS_REQUIRE"), Some("force"));
+    assert_eq!(env_value(&listing, "SSH_ASKPASS"), Some(failing_askpass()));
     assert_eq!(env_value(&listing, "GIT_ASKPASS"), Some(""));
     assert_eq!(env_value(&listing, "GIT_REFLOG_ACTION"), Some("pull"));
     f.tick();
