@@ -166,6 +166,18 @@ pub enum ScanEvent {
     },
 }
 
+/// A branch's upstream as its configuration names it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Upstream {
+    /// The tracking ref's short name (`origin/main`).
+    pub name: String,
+    /// The remote a pull fetches from and a push sends to (`.` for a local upstream).
+    pub remote: String,
+    /// The upstream's branch on that remote.
+    pub branch: String,
+}
+
 /// The operation a working tree is in the middle of.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -190,8 +202,8 @@ pub struct RepoSummary {
     pub current_branch: Option<String>,
     /// Whether HEAD is detached.
     pub detached: bool,
-    /// Short name of the branch's upstream (`origin/main`), `None` without one.
-    pub upstream: Option<String>,
+    /// The branch's upstream; `None` without one.
+    pub upstream: Option<Upstream>,
     /// Commits ahead of the upstream, `None` without an upstream.
     pub ahead: Option<u32>,
     /// Commits behind the upstream, `None` without an upstream.

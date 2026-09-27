@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use git_core::engine::Cancel;
 use git_core::error::GitError;
-use git_core::summary::describe;
+use git_core::summary::{describe, Upstream};
 use git_core::types::OperationState;
 use support::Fixture;
 
@@ -78,12 +78,39 @@ fn a_linked_worktree_names_its_repository() {
     assert_eq!(summary.current_branch.as_deref(), Some("feature/wt"));
 }
 
-/// `git for-each-ref --format=%(upstream:short)` of `branch`: the name git shows, from the
-/// branch's configuration whether or not the tracking ref exists.
-fn cli_upstream(f: &Fixture, branch: &str) -> Option<String> {
+/// `git for-each-ref` of `branch`'s upstream: the short name git shows, the remote and the
+/// branch on it (`%(upstream:remoteref)` without `refs/heads/`), from the branch's
+/// configuration whether or not the tracking ref exists.
+fn cli_upstream(f: &Fixture, branch: &str) -> Option<Upstream> {
     let full = format!("refs/heads/{branch}");
-    let name = f.git(&["for-each-ref", "--format=%(upstream:short)", &full]);
-    (!name.is_empty()).then_some(name)
+    let line = f.git(&[
+        "for-each-ref",
+        "--format=%(upstream:short)%00%(upstream:remotename)%00%(upstream:remoteref)",
+        &full,
+    ]);
+    let mut parts = line.split('\0');
+    let name = parts.next().unwrap_or_default();
+    if name.is_empty() {
+        return None;
+    }
+    let remote = parts.next().unwrap_or_default();
+    let merge = parts.next().unwrap_or_default();
+    Some(Upstream {
+        name: name.to_owned(),
+        remote: remote.to_owned(),
+        branch: merge
+            .strip_prefix("refs/heads/")
+            .unwrap_or(merge)
+            .to_owned(),
+    })
+}
+
+fn upstream(name: &str, remote: &str, branch: &str) -> Option<Upstream> {
+    Some(Upstream {
+        name: name.to_owned(),
+        remote: remote.to_owned(),
+        branch: branch.to_owned(),
+    })
 }
 
 #[test]
@@ -91,7 +118,10 @@ fn the_upstream_is_named_as_git_names_it_set_unset_gone_local_or_detached() {
     let f = Fixture::basic().with_remote();
     f.git(&["checkout", "-q", "develop"]);
     let summary = describe(&f.root, &Cancel::never()).expect("summary");
-    assert_eq!(summary.upstream.as_deref(), Some("origin/develop"));
+    assert_eq!(
+        summary.upstream,
+        upstream("origin/develop", "origin", "develop")
+    );
     assert_eq!(summary.upstream, cli_upstream(&f, "develop"));
 
     f.git(&["checkout", "-q", "-b", "solo"]);
@@ -102,14 +132,17 @@ fn the_upstream_is_named_as_git_names_it_set_unset_gone_local_or_detached() {
     // A branch tracking a local branch (`branch.solo.remote = .`).
     f.git(&["branch", "-q", "--set-upstream-to=main", "solo"]);
     let summary = describe(&f.root, &Cancel::never()).expect("summary");
-    assert_eq!(summary.upstream.as_deref(), Some("main"));
+    assert_eq!(summary.upstream, upstream("main", ".", "main"));
     assert_eq!(summary.upstream, cli_upstream(&f, "solo"));
 
     // Gone: the tracking ref deleted keeps the name and loses the counts.
     f.git(&["checkout", "-q", "develop"]);
     f.git(&["branch", "-q", "-r", "-d", "origin/develop"]);
     let summary = describe(&f.root, &Cancel::never()).expect("summary");
-    assert_eq!(summary.upstream.as_deref(), Some("origin/develop"));
+    assert_eq!(
+        summary.upstream,
+        upstream("origin/develop", "origin", "develop")
+    );
     assert_eq!(summary.upstream, cli_upstream(&f, "develop"));
     assert_eq!((summary.ahead, summary.behind), (None, None));
 
@@ -117,6 +150,65 @@ fn the_upstream_is_named_as_git_names_it_set_unset_gone_local_or_detached() {
     let summary = describe(&f.root, &Cancel::never()).expect("summary");
     assert_eq!(summary.upstream, None);
     assert!(!f.try_git(&["rev-parse", "--abbrev-ref", "@{upstream}"]).0);
+}
+
+#[test]
+fn an_upstream_names_its_remote_with_a_slash_and_a_tracking_prefix_of_another_name() {
+    let f = Fixture::basic().with_remote();
+    let origin = f.sibling("origin.git");
+    let origin = origin.to_str().expect("utf-8 temp path");
+    // A remote whose name holds a slash: splitting `my/fork/main` at the first slash names
+    // the wrong remote.
+    f.git(&["remote", "add", "my/fork", origin]);
+    f.git(&["fetch", "-q", "my/fork"]);
+    f.git(&["checkout", "-q", "-b", "on-fork", "--track", "my/fork/main"]);
+    let summary = describe(&f.root, &Cancel::never()).expect("summary");
+    assert_eq!(
+        summary.upstream,
+        upstream("my/fork/main", "my/fork", "main")
+    );
+    assert_eq!(summary.upstream, cli_upstream(&f, "on-fork"));
+    assert_eq!((summary.ahead, summary.behind), (Some(0), Some(0)));
+
+    // A remote whose tracking refs live under another name.
+    f.git(&["remote", "add", "mirror-src", origin]);
+    f.git(&[
+        "config",
+        "remote.mirror-src.fetch",
+        "+refs/heads/*:refs/remotes/elsewhere/*",
+    ]);
+    f.git(&["fetch", "-q", "mirror-src"]);
+    f.git(&[
+        "checkout",
+        "-q",
+        "-b",
+        "mirrored",
+        "--track",
+        "elsewhere/develop",
+    ]);
+    let summary = describe(&f.root, &Cancel::never()).expect("summary");
+    assert_eq!(
+        summary.upstream,
+        upstream("elsewhere/develop", "mirror-src", "develop")
+    );
+    assert_eq!(summary.upstream, cli_upstream(&f, "mirrored"));
+}
+
+#[test]
+fn a_branch_whose_remote_is_a_url_has_no_upstream_as_git_shows_none() {
+    // `gh pr checkout` of a fork's pull request writes the fork's URL as the remote.
+    let f = Fixture::basic();
+    f.git(&["checkout", "-q", "-b", "fork-pr"]);
+    f.git(&[
+        "config",
+        "branch.fork-pr.remote",
+        "https://example.invalid/someone/fork.git",
+    ]);
+    f.git(&["config", "branch.fork-pr.merge", "refs/heads/fix"]);
+    assert_eq!(cli_upstream(&f, "fork-pr"), None);
+    let summary = describe(&f.root, &Cancel::never()).expect("summary");
+    assert_eq!(summary.upstream, None);
+    assert_eq!((summary.ahead, summary.behind), (None, None));
 }
 
 #[test]

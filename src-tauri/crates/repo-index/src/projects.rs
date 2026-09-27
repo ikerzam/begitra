@@ -271,10 +271,28 @@ mod tests {
                 .expect("members"),
             None
         );
+        // Without foreign keys, the check of the project is all that keeps members of a
+        // project that is gone out of the table.
+        let rows: i64 = index
+            .connection()
+            .query_row("SELECT COUNT(*) FROM project_members", [], |row| row.get(0))
+            .expect("count");
+        assert_eq!(rows, 0);
     }
 
     #[test]
-    fn a_file_index_with_foreign_keys_on_upgrades_and_keeps_projects() {
+    fn an_id_is_never_given_again_after_its_project_is_deleted() {
+        let index = Index::in_memory().expect("index");
+        let first = index.create_project("first", &[], 1).expect("create");
+        let second = index.create_project("second", &[], 2).expect("create");
+        assert!(index.delete_project(second.id).expect("delete"));
+        let third = index.create_project("third", &[], 3).expect("create");
+        assert!(third.id > second.id, "{} after {}", third.id, second.id);
+        assert_ne!(third.id, first.id);
+    }
+
+    #[test]
+    fn a_file_index_keeps_its_projects_with_foreign_keys_on() {
         let dir = tempfile::tempdir().expect("temp dir");
         let file = dir.path().join("index.db");
         let geo = {
@@ -284,6 +302,11 @@ mod tests {
                 .expect("create")
         };
         let index = Index::open(&file).expect("reopen");
+        let foreign_keys: i64 = index
+            .connection()
+            .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+            .expect("pragma");
+        assert_eq!(foreign_keys, 1);
         assert_eq!(index.projects().expect("projects"), vec![geo.clone()]);
         assert!(index.delete_project(geo.id).expect("delete"));
         assert!(index.projects().expect("projects").is_empty());

@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-use git2::{ErrorCode, Repository, StatusOptions, StatusShow};
+use git2::{Buf, ErrorCode, Repository, StatusOptions, StatusShow};
 use serde::{Deserialize, Serialize};
 
 use crate::engine::Cancel;
@@ -28,10 +28,10 @@ pub struct RepoSummary {
     pub current_branch: Option<String>,
     /// Whether HEAD is detached.
     pub detached: bool,
-    /// Short name of the current branch's upstream as `git branch -vv` shows it
-    /// (`origin/main`), read from the branch's configuration, so a gone upstream keeps its
-    /// name; `None` when detached, unborn without one, or unset.
-    pub upstream: Option<String>,
+    /// The current branch's upstream, read from the branch's configuration, so a gone
+    /// upstream keeps it; `None` when detached, unset, or a remote git names no upstream for
+    /// (a URL in `branch.<name>.remote`).
+    pub upstream: Option<Upstream>,
     /// Commits ahead of the upstream, `None` without one or when it is gone.
     pub ahead: Option<u32>,
     /// Commits behind the upstream, `None` without one or when it is gone.
@@ -50,6 +50,21 @@ pub struct RepoSummary {
     /// Whether the working tree has changes (untracked files count); `None` when the status
     /// was cancelled before it finished.
     pub dirty: Option<bool>,
+}
+
+/// A branch's upstream as its configuration names it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Upstream {
+    /// The tracking ref's short name as `git branch -vv` shows it (`origin/main`; `main` for
+    /// a local upstream).
+    pub name: String,
+    /// The remote a pull fetches from and a push sends to (`branch.<name>.remote`, `.` for a
+    /// local upstream): the remote's own name, which the tracking ref's name does not give
+    /// when the remote's name holds a slash or its fetch refspec maps elsewhere.
+    pub remote: String,
+    /// The upstream's branch on that remote (`branch.<name>.merge` without `refs/heads/`).
+    pub branch: String,
 }
 
 /// Describes the repository at `path` for the index. Cheap parts first (HEAD, upstream, tip,
@@ -113,14 +128,14 @@ fn read(path: &Path, with_dirty: bool, cancel: &Cancel) -> GitResult<RepoSummary
     });
 
     let upstream = match current_branch.as_deref() {
-        Some(branch) => upstream_name(&repo, branch)?,
+        Some(branch) => upstream_of(&repo, branch)?,
         None => None,
     };
-    let (ahead, behind) = match (upstream.as_deref(), tip) {
-        (Some(upstream), Some(local)) => upstream_counts(&repo, upstream, local, cancel)?,
+    let (ahead, behind) = match (upstream.as_ref(), tip) {
+        (Some((_, tracking)), Some(local)) => upstream_counts(&repo, tracking, local, cancel)?,
         _ => (None, None),
     };
-    let upstream = upstream.map(|full| upstream_short_name(&full).to_owned());
+    let upstream = upstream.map(|(upstream, _)| upstream);
     let operation = operation_of(repo.state());
     let fetched_at = fetched_at(&repo);
     cancel.check()?;
@@ -147,12 +162,39 @@ fn read(path: &Path, with_dirty: bool, cancel: &Cancel) -> GitResult<RepoSummary
     })
 }
 
-/// The full name of `branch`'s upstream tracking ref (`refs/remotes/origin/main`) from the
-/// branch's configuration, whether or not the ref exists; `None` when unset.
-fn upstream_name(repo: &Repository, branch: &str) -> GitResult<Option<String>> {
-    match repo.branch_upstream_name(&format!("refs/heads/{branch}")) {
+/// `branch`'s upstream and the full name of its tracking ref (`refs/remotes/origin/main`)
+/// from the branch's configuration, whether or not the ref exists; `None` when unset.
+fn upstream_of(repo: &Repository, branch: &str) -> GitResult<Option<(Upstream, String)>> {
+    let full = format!("refs/heads/{branch}");
+    let Some(tracking) = setting(repo.branch_upstream_name(&full))? else {
+        return Ok(None);
+    };
+    let Some(remote) = setting(repo.branch_upstream_remote(&full))? else {
+        return Ok(None);
+    };
+    let Some(merge) = setting(repo.branch_upstream_merge(&full))? else {
+        return Ok(None);
+    };
+    let upstream = Upstream {
+        name: upstream_short_name(&tracking).to_owned(),
+        remote,
+        branch: merge
+            .strip_prefix("refs/heads/")
+            .unwrap_or(&merge)
+            .to_owned(),
+    };
+    Ok(Some((upstream, tracking)))
+}
+
+/// A branch's upstream setting as text; `None` when it is unset, not UTF-8, or names no
+/// remote libgit2 can look up: a URL in `branch.<name>.remote` (`gh pr checkout` of a fork
+/// writes one) is `InvalidSpec`, and git shows no upstream for it either.
+fn setting(read: Result<Buf, git2::Error>) -> GitResult<Option<String>> {
+    match read {
         Ok(buf) => Ok(buf.as_str().ok().map(str::to_owned)),
-        Err(error) if error.code() == ErrorCode::NotFound => Ok(None),
+        Err(error) if matches!(error.code(), ErrorCode::NotFound | ErrorCode::InvalidSpec) => {
+            Ok(None)
+        }
         Err(error) => Err(error.into()),
     }
 }

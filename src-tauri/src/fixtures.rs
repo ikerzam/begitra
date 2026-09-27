@@ -22,7 +22,7 @@ use syntax::{Highlight, Symbol, SymbolKind, Token, TokenClass};
 
 use repo_index::{
     Annotation, AnnotationKind, IndexEntry, Operation as IndexOperation, Project, RepoKind,
-    RepoSummary as IndexSummary, ScanOptions,
+    RepoSummary as IndexSummary, ScanOptions, Upstream as IndexUpstream,
 };
 
 use crate::channels::StreamMessage;
@@ -464,7 +464,11 @@ fn index_entry(name: &str, kind: RepoKind, parent: Option<&str>) -> IndexEntry {
         summary: IndexSummary {
             current_branch: Some("main".to_owned()),
             detached: false,
-            upstream: Some("origin/main".to_owned()),
+            upstream: Some(IndexUpstream {
+                name: "origin/main".to_owned(),
+                remote: "origin".to_owned(),
+                branch: "main".to_owned(),
+            }),
             ahead: Some(2),
             behind: Some(0),
             operation: Some(if kind == RepoKind::Main {

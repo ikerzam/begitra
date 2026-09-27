@@ -37,8 +37,10 @@ fn validate_name(name: &str) -> Result<String, AppError> {
     Ok(trimmed.to_owned())
 }
 
-/// Member paths: at most [`MAX_MEMBERS`], each absolute and bounded. Returns them normalised
-/// as the index's paths are, so a member matches its entry whatever its spelling.
+/// Member paths: at most [`MAX_MEMBERS`], each absolute and bounded. Returns them rebuilt
+/// from their components as the index's paths are (separators, a trailing separator, `.`),
+/// which is all the normalising they get: case, `..`, short names and links stay, so a folder
+/// the user picks is added through the entry `refresh_repository` answers for it.
 fn validate_members(paths: &[PathBuf]) -> Result<Vec<PathBuf>, AppError> {
     if paths.len() > MAX_MEMBERS {
         return Err(AppError::invalid_argument(
@@ -167,9 +169,14 @@ mod tests {
     #[test]
     fn members_are_absolute_bounded_and_normalised() {
         let spaced = absolute("my repo");
+        let respelled = if cfg!(windows) {
+            PathBuf::from(r"C:/code/./my repo/")
+        } else {
+            PathBuf::from("/code/./my repo/")
+        };
         assert_eq!(
-            validate_members(&[spaced.clone(), absolute("año")]).expect("valid"),
-            [normalise(&spaced), normalise(&absolute("año"))]
+            validate_members(&[respelled, absolute("año")]).expect("valid"),
+            [spaced, absolute("año")]
         );
         assert!(validate_members(&[]).expect("empty").is_empty());
         assert!(validate_members(&[PathBuf::from("relative/repo")]).is_err());

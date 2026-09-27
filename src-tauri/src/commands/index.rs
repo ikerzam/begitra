@@ -46,7 +46,14 @@ pub fn index_summary(summary: &RepoSummary) -> repo_index::RepoSummary {
     repo_index::RepoSummary {
         current_branch: summary.current_branch.clone(),
         detached: summary.detached,
-        upstream: summary.upstream.clone(),
+        upstream: summary
+            .upstream
+            .as_ref()
+            .map(|upstream| repo_index::Upstream {
+                name: upstream.name.clone(),
+                remote: upstream.remote.clone(),
+                branch: upstream.branch.clone(),
+            }),
         ahead: summary.ahead,
         behind: summary.behind,
         operation: Some(index_operation(summary.operation)),

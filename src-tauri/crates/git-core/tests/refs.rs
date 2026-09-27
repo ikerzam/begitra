@@ -206,6 +206,30 @@ fn a_branch_without_upstream_has_no_counts() {
 }
 
 #[test]
+fn a_branch_whose_remote_is_a_url_lists_without_an_upstream() {
+    let f = Fixture::basic();
+    f.git(&["branch", "-q", "fork-pr", "develop"]);
+    f.git(&[
+        "config",
+        "branch.fork-pr.remote",
+        "https://example.invalid/someone/fork.git",
+    ]);
+    f.git(&["config", "branch.fork-pr.merge", "refs/heads/fix"]);
+    let shown = f.git(&[
+        "for-each-ref",
+        "--format=%(upstream:short)",
+        "refs/heads/fork-pr",
+    ]);
+    assert_eq!(shown, "");
+    let refs = refs_at(&f.root);
+    let branch = find(&refs, "refs/heads/fork-pr");
+    assert_eq!(
+        (branch.upstream.as_deref(), branch.ahead, branch.behind),
+        (None, None, None)
+    );
+}
+
+#[test]
 fn a_gone_upstream_keeps_its_name_without_counts() {
     let f = Fixture::basic().with_remote();
     f.git(&["branch", "-q", "--track", "topic", "origin/develop"]);

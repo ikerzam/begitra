@@ -21,5 +21,5 @@ pub use error::{IndexError, IndexResult};
 pub use index::Index;
 pub use types::{
     Annotation, AnnotationKey, AnnotationKind, Found, IndexEntry, Operation, Project, RepoKind,
-    RepoSummary, ScanEvent, ScanOptions,
+    RepoSummary, ScanEvent, ScanOptions, Upstream,
 };

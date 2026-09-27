@@ -83,15 +83,21 @@ const MIGRATIONS: &[&str] = &[
         updated_at INTEGER NOT NULL,
         PRIMARY KEY (repo, target, path, hunk, kind)
     );",
-    // Version 4: the upstream, the operation in progress, the last fetch and the tip's subject
-    // of each entry, and projects. A member is a path, not a reference to a row of `repos`: scans and
-    // forgets delete rows, and a project keeps its member until the user removes it.
+    // Version 4: the upstream (its name, remote and branch), the operation in progress, the
+    // last fetch and the tip's subject of each entry, and projects. A member is a path, not a
+    // reference to a row of `repos`: scans and forgets delete rows, and a project keeps its
+    // member until the user removes it. Ids never come back (`AUTOINCREMENT`): a stale id
+    // (another window, a crash before the settings were written) must not reach another
+    // project. The empty scope is a whole repository; a package of a monorepo will be a
+    // scope of its own, so it is part of the key.
     "ALTER TABLE repos ADD COLUMN upstream TEXT;
+    ALTER TABLE repos ADD COLUMN upstream_remote TEXT;
+    ALTER TABLE repos ADD COLUMN upstream_branch TEXT;
     ALTER TABLE repos ADD COLUMN operation TEXT;
     ALTER TABLE repos ADD COLUMN fetched_at INTEGER;
     ALTER TABLE repos ADD COLUMN last_commit_subject TEXT;
     CREATE TABLE projects (
-        id INTEGER PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
@@ -100,8 +106,8 @@ const MIGRATIONS: &[&str] = &[
         project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
         position INTEGER NOT NULL,
         path TEXT NOT NULL,
-        scope TEXT,
-        PRIMARY KEY (project_id, path)
+        scope TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY (project_id, path, scope)
     );",
 ];
 
@@ -144,7 +150,13 @@ mod tests {
             .expect("rows read");
         assert_eq!(
             tables,
-            vec!["annotations", "project_members", "projects", "repos"]
+            vec![
+                "annotations",
+                "project_members",
+                "projects",
+                "repos",
+                "sqlite_sequence"
+            ]
         );
     }
 

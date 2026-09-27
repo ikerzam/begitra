@@ -329,7 +329,11 @@ fn upstream_of(repo: &Repository, full_name: &str) -> GitResult<(Tracking, Optio
             Ok(name) => name.to_owned(),
             Err(_) => return Ok((none, None)),
         },
-        Err(error) if error.code() == ErrorCode::NotFound => return Ok((none, None)),
+        // A URL in `branch.<name>.remote` is no remote name libgit2 can look up; git shows
+        // no upstream for it either.
+        Err(error) if matches!(error.code(), ErrorCode::NotFound | ErrorCode::InvalidSpec) => {
+            return Ok((none, None))
+        }
         Err(error) => return Err(error.into()),
     };
     let gone = Tracking {

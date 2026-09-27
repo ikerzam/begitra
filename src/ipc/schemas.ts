@@ -619,8 +619,12 @@ export type RepoKind = v.InferOutput<typeof RepoKindSchema>;
 export const RepoSummarySchema = v.object({
   currentBranch: v.nullable(v.string()),
   detached: v.boolean(),
-  /** Short name of the branch's upstream (`origin/main`); null without one. */
-  upstream: v.nullable(v.string()),
+  /**
+   * The branch's upstream: the tracking ref's short name (`origin/main`), the remote a pull
+   * fetches from and a push sends to (`.` for a local upstream), and the branch on it; null
+   * without one.
+   */
+  upstream: v.nullable(v.object({ name: v.string(), remote: v.string(), branch: v.string() })),
   ahead: v.nullable(count),
   behind: v.nullable(count),
   /** The operation in progress; null until a summary has read it. */

@@ -8,7 +8,11 @@
     "summary": {
       "currentBranch": "main",
       "detached": false,
-      "upstream": "origin/main",
+      "upstream": {
+        "name": "origin/main",
+        "remote": "origin",
+        "branch": "main"
+      },
       "ahead": 2,
       "behind": 0,
       "operation": "none",
@@ -31,7 +35,11 @@
     "summary": {
       "currentBranch": "main",
       "detached": false,
-      "upstream": "origin/main",
+      "upstream": {
+        "name": "origin/main",
+        "remote": "origin",
+        "branch": "main"
+      },
       "ahead": 2,
       "behind": 0,
       "operation": "rebase",

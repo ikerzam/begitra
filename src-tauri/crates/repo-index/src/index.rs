@@ -7,7 +7,7 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::error::IndexResult;
 use crate::migrations;
-use crate::types::{Found, IndexEntry, Operation, RepoKind, RepoSummary};
+use crate::types::{Found, IndexEntry, Operation, RepoKind, RepoSummary, Upstream};
 
 /// The index database.
 pub struct Index {
@@ -77,7 +77,8 @@ impl Index {
         self.connection.execute(
             "UPDATE repos SET current_branch = ?2, detached = ?3, dirty = ?4, ahead = ?5,
                behind = ?6, last_commit_at = ?7, refreshed_at = ?8, missing = 0,
-               upstream = ?9, operation = ?10, fetched_at = ?11, last_commit_subject = ?12
+               upstream = ?9, operation = ?10, fetched_at = ?11, last_commit_subject = ?12,
+               upstream_remote = ?13, upstream_branch = ?14
              WHERE path = ?1",
             params![
                 path_text(path),
@@ -88,10 +89,12 @@ impl Index {
                 summary.behind,
                 summary.last_commit_at,
                 now,
-                summary.upstream,
+                summary.upstream.as_ref().map(|upstream| &upstream.name),
                 summary.operation.map(operation_text),
                 summary.fetched_at,
                 summary.last_commit_subject,
+                summary.upstream.as_ref().map(|upstream| &upstream.remote),
+                summary.upstream.as_ref().map(|upstream| &upstream.branch),
             ],
         )?;
         Ok(())
@@ -102,7 +105,8 @@ impl Index {
         let mut statement = self.connection.prepare(
             "SELECT path, name, kind, parent_path, scan_root, current_branch, detached, dirty,
                     ahead, behind, last_commit_at, pinned, last_opened_at, refreshed_at, missing,
-                    upstream, operation, fetched_at, last_commit_subject
+                    upstream, operation, fetched_at, last_commit_subject, upstream_remote,
+                    upstream_branch
              FROM repos ORDER BY pinned DESC, name COLLATE NOCASE ASC, path ASC",
         )?;
         let rows = statement.query_map([], entry_from_row)?;
@@ -116,7 +120,8 @@ impl Index {
             .query_row(
                 "SELECT path, name, kind, parent_path, scan_root, current_branch, detached, dirty,
                         ahead, behind, last_commit_at, pinned, last_opened_at, refreshed_at, missing,
-                        upstream, operation, fetched_at, last_commit_subject
+                        upstream, operation, fetched_at, last_commit_subject, upstream_remote,
+                        upstream_branch
                  FROM repos WHERE path = ?1",
                 params![path_text(path)],
                 entry_from_row,
@@ -250,6 +255,17 @@ fn entry_from_row(row: &Row<'_>) -> rusqlite::Result<IndexEntry> {
     let root: Option<String> = row.get(4)?;
     let path: String = row.get(0)?;
     let operation: Option<String> = row.get(16)?;
+    let upstream: Option<String> = row.get(15)?;
+    let upstream_remote: Option<String> = row.get(19)?;
+    let upstream_branch: Option<String> = row.get(20)?;
+    let upstream = match (upstream, upstream_remote, upstream_branch) {
+        (Some(name), Some(remote), Some(branch)) => Some(Upstream {
+            name,
+            remote,
+            branch,
+        }),
+        _ => None,
+    };
     Ok(IndexEntry {
         path: PathBuf::from(path),
         name: row.get(1)?,
@@ -263,7 +279,7 @@ fn entry_from_row(row: &Row<'_>) -> rusqlite::Result<IndexEntry> {
         summary: RepoSummary {
             current_branch: row.get(5)?,
             detached: row.get(6)?,
-            upstream: row.get(15)?,
+            upstream,
             dirty: row.get(7)?,
             ahead: row.get(8)?,
             behind: row.get(9)?,
@@ -282,7 +298,6 @@ fn entry_from_row(row: &Row<'_>) -> rusqlite::Result<IndexEntry> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::Operation;
 
     fn found(path: &str, kind: RepoKind, parent: Option<&str>) -> Found {
         Found {
@@ -387,7 +402,11 @@ mod tests {
         let index = Index::in_memory().expect("index");
         let summary = RepoSummary {
             current_branch: Some("main".to_owned()),
-            upstream: Some("origin/main".to_owned()),
+            upstream: Some(Upstream {
+                name: "origin/main".to_owned(),
+                remote: "origin".to_owned(),
+                branch: "main".to_owned(),
+            }),
             ahead: Some(1),
             behind: Some(0),
             operation: Some(Operation::None),
@@ -435,7 +454,11 @@ mod tests {
         ] {
             let summary = RepoSummary {
                 current_branch: Some("develop".to_owned()),
-                upstream: Some("origin/develop".to_owned()),
+                upstream: Some(Upstream {
+                    name: "my/fork/develop".to_owned(),
+                    remote: "my/fork".to_owned(),
+                    branch: "develop".to_owned(),
+                }),
                 operation: Some(operation),
                 fetched_at: Some(1_700_000_100),
                 last_commit_subject: Some("feat(tiles): cache décodé".to_owned()),
