@@ -2,10 +2,11 @@
 // One member of the project Overview: the checkbox, the name (with the worktree
 // icon for a linked worktree), the branch with its lane dot and dirty dot, ahead and behind,
 // the changed files, the status, the last commit, the last fetch, and the terminal and editor
-// actions, or "Remove from project" for a missing member. The Overview owns the focus, the
-// selection, the roving tab stop and the keys.
+// actions, or "Remove from project" across the last two columns for a missing member. The
+// table owns the focus, the selection, the roving tab stop and the keys; the row's own buttons
+// keep Enter and Space.
 
-import { CircleAlert, CircleCheck, CircleMinus, Code, ListTree, Terminal } from "@lucide/vue";
+import { Code, ListTree, Terminal } from "@lucide/vue";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -14,9 +15,9 @@ import Checkbox from "@/components/Checkbox.vue";
 import DirtyDot from "@/components/DirtyDot.vue";
 import IconButton from "@/components/IconButton.vue";
 import LaneDot from "@/components/LaneDot.vue";
-import Progress from "@/components/Progress.vue";
 import type { OverviewRow } from "@/stores/overview";
 
+import MemberStatus from "./MemberStatus.vue";
 import type { RowStatus } from "./status";
 
 const props = defineProps<{
@@ -30,7 +31,6 @@ const props = defineProps<{
   fetched: string;
   /** The last commit's time, relative. */
   committed: string;
-  /** Whether the output of the status shows under the row. */
   outputOpen: boolean;
   /** A missing member can leave the project from its row (a project's, not a folder's). */
   removable: boolean;
@@ -48,20 +48,6 @@ const emit = defineEmits<{
 
 const { t, n } = useI18n();
 
-const icons = { check: CircleCheck, minus: CircleMinus, alert: CircleAlert } as const;
-const tones = {
-  fg: "text-fg",
-  muted: "text-fg-muted",
-  warn: "text-warn",
-  danger: "text-danger",
-} as const;
-const iconTones = {
-  fg: "text-ok",
-  muted: "text-fg-muted",
-  warn: "text-warn",
-  danger: "text-danger",
-} as const;
-
 const branchText = computed(() => {
   if (props.row.missing) return "—";
   if (props.row.detached) return t("statusBar.detached");
@@ -72,16 +58,18 @@ const changes = computed(() => {
   if (props.row.missing || changed === null) return "";
   return changed === 0 ? "—" : t("project.files", { n: n(changed) }, changed);
 });
-const dirty = computed(
-  () => !props.row.missing && (props.row.dirty === true || (props.row.changed ?? 0) > 0),
-);
+/** The lists' count once they are read; the index's flag until then. */
+const dirty = computed(() => {
+  if (props.row.missing) return false;
+  return props.row.changed !== null ? props.row.changed > 0 : props.row.dirty === true;
+});
 const hasCounts = computed(() => props.row.ahead !== null && props.row.behind !== null);
 </script>
 
 <template>
   <div
     role="row"
-    :aria-selected="props.focused"
+    :aria-selected="props.selected"
     :tabindex="props.tabStop ? 0 : -1"
     :data-path="props.row.path"
     data-testid="member-row"
@@ -93,6 +81,7 @@ const hasCounts = computed(() => props.row.ahead !== null && props.row.behind !=
     <span role="gridcell" class="flex items-center" @click.stop>
       <Checkbox
         :model-value="props.selected"
+        :focusable="false"
         :aria-label="t('project.select', { name: props.row.name })"
         data-testid="member-select"
         @update:model-value="emit('toggle')"
@@ -134,37 +123,12 @@ const hasCounts = computed(() => props.row.ahead !== null && props.row.behind !=
       class="-mr-2 flex min-w-0 items-center gap-2 text-sm"
       data-testid="member-status"
     >
-      <template v-if="props.status">
-        <component
-          :is="icons[props.status.icon]"
-          v-if="props.status.icon"
-          :size="16"
-          :stroke-width="1.5"
-          aria-hidden="true"
-          class="shrink-0"
-          :class="iconTones[props.status.tone]"
-        />
-        <span class="truncate" :class="tones[props.status.tone]">{{ props.status.text }}</span>
-        <Progress
-          v-if="props.status.progress !== undefined"
-          class="w-12 shrink-0"
-          :value="props.status.progress ?? 0"
-          :indeterminate="props.status.progress === null"
-        />
-        <button
-          v-if="props.status.output"
-          type="button"
-          class="shrink-0 text-accent hover:underline"
-          :aria-expanded="props.outputOpen"
-          :aria-label="
-            props.outputOpen ? t('project.hideOutputLabel') : t('project.showOutputLabel')
-          "
-          data-testid="member-output-toggle"
-          @click.stop="emit('output')"
-        >
-          {{ props.outputOpen ? t("project.hideOutput") : t("project.showOutput") }}
-        </button>
-      </template>
+      <MemberStatus
+        v-if="props.status"
+        :status="props.status"
+        :output-open="props.outputOpen"
+        @output="emit('output')"
+      />
     </span>
     <span
       role="gridcell"
@@ -174,20 +138,22 @@ const hasCounts = computed(() => props.row.ahead !== null && props.row.behind !=
       <span class="truncate">{{ props.row.lastCommitSubject ?? "" }}</span>
       <span class="shrink-0">{{ props.committed }}</span>
     </span>
-    <span role="gridcell" class="truncate text-sm text-fg-muted" data-testid="member-fetched">
-      {{ props.fetched }}
-    </span>
-    <span role="gridcell" class="flex items-center justify-end gap-1">
+    <span v-if="props.row.missing" role="gridcell" class="member-wide flex justify-end">
       <button
-        v-if="props.row.missing && props.removable"
+        v-if="props.removable"
         type="button"
-        class="text-sm text-fg hover:underline"
+        class="text-sm text-fg-secondary hover:text-fg hover:underline"
         data-testid="member-remove"
         @click.stop="emit('remove')"
       >
         {{ t("project.removeFromProject") }}
       </button>
-      <template v-else-if="!props.row.missing">
+    </span>
+    <template v-else>
+      <span role="gridcell" class="truncate text-sm text-fg-muted" data-testid="member-fetched">
+        {{ props.fetched }}
+      </span>
+      <span role="gridcell" class="flex items-center justify-end gap-1">
         <IconButton
           :label="t('project.terminal', { name: props.row.name })"
           :icon="Terminal"
@@ -202,15 +168,19 @@ const hasCounts = computed(() => props.row.ahead !== null && props.row.behind !=
           data-testid="member-editor"
           @click.stop="emit('editor')"
         />
-      </template>
-    </span>
+      </span>
+    </template>
   </div>
 </template>
 
 <style scoped>
 /* select 14, name 180, branch 180, ahead 64, changes 64, status 200, last commit, fetched 80,
-   actions 136. */
+   actions 52. */
 .member-row {
-  grid-template-columns: 14px 180px 180px 64px 64px 200px minmax(0, 1fr) 80px 136px;
+  grid-template-columns: 14px 180px 180px 64px 64px 200px minmax(0, 1fr) 80px 52px;
+}
+/* A missing member's "Remove from project" takes the Fetched and actions columns. */
+.member-wide {
+  grid-column: span 2;
 }
 </style>

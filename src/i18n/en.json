@@ -185,7 +185,8 @@
     },
     "repositoryRows": "repositories",
     "spaceKey": "Space",
-    "select": "select"
+    "select": "select",
+    "indexFailed": "Couldn't read the index"
   },
   "operations": {
     "opening": "Opening {name}",
@@ -235,7 +236,8 @@
       "push": "Pushing {done} of {total} repositories",
       "switch": "Switching {done} of {total} repositories",
       "create": "Creating the branch in {done} of {total} repositories"
-    }
+    },
+    "readingRepositories": "Reading {n} repository | Reading {n} repositories"
   },
   "home": {
     "title": "Repositories",
@@ -1102,7 +1104,8 @@
       "changes": "Changes",
       "status": "Status",
       "lastCommit": "Last commit",
-      "fetched": "Fetched"
+      "fetched": "Fetched",
+      "actions": "Actions"
     },
     "selectAll": "Select every repository",
     "select": "Select {name}",
@@ -1134,7 +1137,7 @@
     "hint": "Space selects a repository and {selectAll} all of them; the actions work on the selection, or on every repository when none is selected.",
     "groupCount": "{n} of {total}",
     "groups": "Branches of the project's repositories",
-    "empty": "No repositories in {project}.",
+    "empty": "No repositories in {project}. Add the ones it is made of.",
     "run": {
       "queued": "Queued",
       "stopped": "Stopped",
@@ -1263,11 +1266,12 @@
       "moveDown": "Move {name} down",
       "remove": "Remove {name} from the project",
       "none": "No repositories yet.",
-      "hint": "{up} and {down} move the focused repository. Removing one from the project leaves its folder and its index entry as they are.",
+      "hint": "{up} and {down} move the focused repository and {remove} removes it. Removing one from the project leaves its folder and its index entry as they are.",
       "delete": "Delete project…",
       "deleteTitle": "Delete {name}?",
       "deleteBody": "The project goes; its repositories, their folders and their index entries stay as they are.",
       "deleteConfirm": "Delete project"
-    }
+    },
+    "loadFailed": "Couldn't read the list of repositories. {message}"
   }
 }

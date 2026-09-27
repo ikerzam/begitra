@@ -91,8 +91,8 @@ function confirm(): void {
     @confirm="confirm"
     @cancel="bulk.cancelPlan()"
   >
-    <label v-if="needsName" class="flex items-center gap-4 text-md text-fg-secondary">
-      <span class="w-20 shrink-0">{{ t("project.bulk.name") }}</span>
+    <label v-if="needsName" class="form-row grid items-center gap-4 text-md text-fg-secondary">
+      <span>{{ t("project.bulk.name") }}</span>
       <Input
         v-model="name"
         class="flex-1"
@@ -109,13 +109,19 @@ function confirm(): void {
         <li
           v-for="item in plan.acting"
           :key="item.path"
-          class="bulk-item grid h-row-list items-center gap-3 text-md"
+          class="bulk-item grid h-row-list items-center gap-2 text-md"
         >
           <LaneDot v-if="lane(item) > 0" :lane="lane(item)" />
           <span v-else aria-hidden="true" />
           <span class="truncate text-fg">{{ item.name }}</span>
           <span class="truncate font-mono text-mono-sm text-fg-secondary">{{ route(item) }}</span>
-          <span class="text-right text-sm text-fg-secondary">{{ amount(item) }}</span>
+          <span
+            class="text-right text-sm"
+            :class="
+              kind === 'pull' && (item.behind ?? 0) === 0 ? 'text-fg-muted' : 'text-fg-secondary'
+            "
+            >{{ amount(item) }}</span
+          >
         </li>
       </ul>
     </section>
@@ -125,7 +131,7 @@ function confirm(): void {
         <li
           v-for="item in plan.skipped"
           :key="item.path"
-          class="bulk-item grid h-row-list items-center gap-3 text-md"
+          class="bulk-item grid h-row-list items-center gap-2 text-md"
         >
           <LaneDot v-if="lane(item) > 0" :lane="lane(item)" />
           <span v-else aria-hidden="true" />
@@ -144,8 +150,12 @@ function confirm(): void {
 </template>
 
 <style scoped>
-/* Lane dot, name 144, the route, the amount or the reason. */
+/* Lane dot 8, name 96, the route from +120, the amount or the reason. */
 .bulk-item {
-  grid-template-columns: 8px 144px minmax(0, 1fr) auto;
+  grid-template-columns: 8px 96px minmax(0, 1fr) auto;
+}
+/* A form field's label takes 96px. */
+.form-row {
+  grid-template-columns: 96px minmax(0, 1fr);
 }
 </style>

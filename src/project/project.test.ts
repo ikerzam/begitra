@@ -166,6 +166,8 @@ describe("the project view", () => {
     await useIndexStore().load();
     await flush();
     expect(wrapper.find('[data-testid="overview-error"]').text()).toContain("Try again");
+    // A list that could not be read has no count.
+    expect(wrapper.find('[data-testid="project-meta"]').exists()).toBe(false);
     wrapper.unmount();
   });
 

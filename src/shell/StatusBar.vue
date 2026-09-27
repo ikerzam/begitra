@@ -73,15 +73,21 @@ const operationText = computed(() => {
   const current = operations.current;
   if (!current) return "";
   const target = review.target;
-  const text = t(current.label, {
-    name: repoName.value,
-    hash: repo.detail ? shortHash(repo.detail.hash) : "",
-    folder: scanFolder.value,
-    target: target ? targetLabel(target) || t(`review.target.${target.kind}`) : "",
-    a: compare.endpoints?.a.label ?? "",
-    b: compare.endpoints?.b.label ?? "",
-    ...current.params,
-  }).trim();
+  // The total picks a label's plural form ("Reading 1 repository"); a label without one
+  // ignores it.
+  const text = t(
+    current.label,
+    {
+      name: repoName.value,
+      hash: repo.detail ? shortHash(repo.detail.hash) : "",
+      folder: scanFolder.value,
+      target: target ? targetLabel(target) || t(`review.target.${target.kind}`) : "",
+      a: compare.endpoints?.a.label ?? "",
+      b: compare.endpoints?.b.label ?? "",
+      ...current.params,
+    },
+    current.total ?? 1,
+  ).trim();
   // A network command's latest progress line follows its label.
   return current.detail ? `${text} · ${current.detail}` : text;
 });
@@ -95,6 +101,13 @@ const stoppedText = computed(() => {
     ? t("statusBar.operationInProgress", { operation, n }, n)
     : t("statusBar.operationClean", { operation });
 });
+
+/** The project view's error state: the index it reads could not be read, in `--danger`. */
+const indexFailed = computed(() =>
+  (shell.layoutMode === "project" || shell.layoutMode === "folder") && index.loadError
+    ? t("statusBar.indexFailed")
+    : "",
+);
 
 /** Review focus's error state: the diff of the target failed, in `--danger`. */
 const diffFailed = computed(() => {
@@ -304,6 +317,9 @@ const cancelHint = computed(() => {
     </span>
     <span v-if="historyStopped" class="text-danger" data-testid="status-history-stopped">
       {{ historyStopped }}
+    </span>
+    <span v-else-if="indexFailed" class="text-danger" data-testid="status-index-failed">
+      {{ indexFailed }}
     </span>
     <span v-else-if="diffFailed" class="text-danger" data-testid="status-diff-failed">
       {{ diffFailed }}

@@ -1,43 +1,37 @@
 <script setup lang="ts">
-// "Edit project…": the name, the members in the Overview's order (each with its lane
-// dot, name, path, a missing one flagged), moved up and down with their buttons or Ctrl ↑ and
-// Ctrl ↓ (⌘ on macOS), removed, and "Add repositories…" from the index; "Delete project…"
-// confirms once and says no repository is touched. Nothing is written until Save.
+// "Edit project…": the name, the members in the Overview's order (`EditMembersList`:
+// moved with their buttons or Ctrl ↑ and Ctrl ↓, removed with their button or Delete), "Add
+// repositories…" from the index, and "Delete project…", which confirms once and says no
+// repository is touched. Nothing is written until Save.
 
-import { ArrowDown, ArrowUp, GripVertical, Plus, Trash2, X } from "@lucide/vue";
-import { computed, nextTick, ref } from "vue";
+import { Plus, Trash2 } from "@lucide/vue";
+import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Button from "@/components/Button.vue";
 import Dialog from "@/components/Dialog.vue";
-import IconButton from "@/components/IconButton.vue";
 import Input from "@/components/Input.vue";
-import LaneDot from "@/components/LaneDot.vue";
-import { useDiscoveryFormat } from "@/discovery/useDiscoveryFormat";
-import { formatShortcut, matchesKeys } from "@/shortcuts/platform";
+import { formatShortcut } from "@/shortcuts/platform";
 import { shortcutRegistry } from "@/shortcuts/registry";
-import { useOverviewStore } from "@/stores/overview";
+import { useIndexStore } from "@/stores/index";
 import { useProjectDialogsStore } from "@/stores/projectDialogs";
 import { resolveMembers, useProjectsStore } from "@/stores/projects";
-import { useIndexStore } from "@/stores/index";
 
 import AddRepositoriesDialog from "./AddRepositoriesDialog.vue";
+import EditMembersList from "./EditMembersList.vue";
 
 const props = defineProps<{ id: number }>();
 
 const { t } = useI18n();
 const projects = useProjectsStore();
 const index = useIndexStore();
-const overview = useOverviewStore();
 const dialogs = useProjectDialogsStore();
-const format = useDiscoveryFormat();
 
 const project = computed(() => projects.find(props.id) ?? null);
 const name = ref(project.value?.name ?? "");
 const paths = ref<string[]>([...(project.value?.members ?? [])]);
 const adding = ref(false);
 const deleting = ref(false);
-const list = ref<HTMLElement | null>(null);
 
 const members = computed(() =>
   resolveMembers(
@@ -52,19 +46,15 @@ const changed = computed(
     trimmed.value !== project.value?.name ||
     paths.value.join("\n") !== (project.value?.members ?? []).join("\n"),
 );
-
-/** The keys that move a row, as this platform writes them ("Ctrl ↑", "⌘↑"). */
+/** The keys that move and remove a row, as this platform writes them ("Ctrl ↑", "⌘↑", "⌫"). */
 const moveKeys = computed(() => {
   const platform = shortcutRegistry().platform;
   return {
     up: formatShortcut("mod+arrowup", platform),
     down: formatShortcut("mod+arrowdown", platform),
+    remove: formatShortcut(platform === "macos" ? "backspace" : "delete", platform),
   };
 });
-
-function lane(branch: string | null | undefined): number {
-  return branch ? (overview.lanes.get(branch) ?? 0) : 0;
-}
 
 function move(at: number, step: -1 | 1): void {
   const to = at + step;
@@ -74,22 +64,10 @@ function move(at: number, step: -1 | 1): void {
   if (moved === undefined) return;
   next.splice(to, 0, moved);
   paths.value = next;
-  void nextTick(() => list.value?.querySelectorAll<HTMLElement>("[data-member]")[to]?.focus());
 }
 
 function remove(at: number): void {
   paths.value = paths.value.filter((_, known) => known !== at);
-}
-
-function onRowKeydown(event: KeyboardEvent, at: number): void {
-  const platform = shortcutRegistry().platform;
-  if (matchesKeys("mod+arrowup", event, platform)) {
-    event.preventDefault();
-    move(at, -1);
-  } else if (matchesKeys("mod+arrowdown", event, platform)) {
-    event.preventDefault();
-    move(at, 1);
-  }
 }
 
 function add(added: string[]): void {
@@ -124,11 +102,10 @@ async function confirmDelete(): Promise<void> {
     @confirm="() => void save()"
     @cancel="dialogs.close()"
   >
-    <label class="flex items-center gap-4 text-md text-fg-secondary">
-      <span class="w-24 shrink-0">{{ t("project.new.name") }}</span>
+    <label class="form-row grid items-center gap-4 text-md text-fg-secondary">
+      <span>{{ t("project.new.name") }}</span>
       <Input
         v-model="name"
-        class="flex-1"
         size="lg"
         :error="!nameValid ? t('project.new.nameInvalid') : ''"
         data-testid="edit-project-name"
@@ -147,66 +124,12 @@ async function confirmDelete(): Promise<void> {
         {{ t("project.editDialog.add") }}
       </Button>
     </div>
-    <ul
-      ref="list"
-      class="flex flex-col overflow-y-auto rounded-md border border-line"
-      data-testid="edit-project-members"
-    >
-      <li
-        v-for="(member, at) in members"
-        :key="member.path"
-        data-member
-        tabindex="0"
-        class="edit-member grid h-row-list items-center gap-2 border-b border-line px-3 text-md last:border-b-0 focus-visible:bg-selected"
-        @keydown="(event) => onRowKeydown(event, at)"
-      >
-        <GripVertical :size="16" :stroke-width="1.5" class="text-fg-muted" aria-hidden="true" />
-        <LaneDot
-          v-if="lane(member.entry?.summary.currentBranch) > 0"
-          :lane="lane(member.entry?.summary.currentBranch)"
-        />
-        <span v-else aria-hidden="true" />
-        <span class="truncate" :class="member.missing ? 'text-fg-muted' : 'text-fg'">
-          {{ member.name }}
-        </span>
-        <span class="truncate font-mono text-mono-sm text-fg-muted">
-          {{ format.displayPath(member.path) }}
-        </span>
-        <span class="text-sm text-warn">{{
-          member.missing ? t("project.editDialog.missing") : ""
-        }}</span>
-        <IconButton
-          :label="t('project.editDialog.moveUp', { name: member.name })"
-          :icon="ArrowUp"
-          :disabled="at === 0"
-          tabindex="-1"
-          @click="move(at, -1)"
-        />
-        <IconButton
-          :label="t('project.editDialog.moveDown', { name: member.name })"
-          :icon="ArrowDown"
-          :disabled="at === members.length - 1"
-          tabindex="-1"
-          @click="move(at, 1)"
-        />
-        <IconButton
-          :label="t('project.editDialog.remove', { name: member.name })"
-          :icon="X"
-          tabindex="-1"
-          data-testid="edit-project-remove"
-          @click="remove(at)"
-        />
-      </li>
-      <li v-if="members.length === 0" class="px-3 py-2 text-sm text-fg-muted">
-        {{ t("project.editDialog.none") }}
-      </li>
-    </ul>
+    <EditMembersList :members="members" @move="move" @remove="remove" />
     <p class="text-sm text-fg-muted">{{ t("project.editDialog.hint", moveKeys) }}</p>
     <template #footer-start>
       <Button
-        variant="ghost"
+        variant="ghost-danger"
         size="lg"
-        class="text-danger"
         :icon="Trash2"
         data-testid="edit-project-delete"
         @click="deleting = true"
@@ -229,11 +152,8 @@ async function confirmDelete(): Promise<void> {
 </template>
 
 <style scoped>
-/* Grip, lane dot, name 160, path, missing, move up, move down, remove. */
-.edit-member {
-  grid-template-columns: 16px 8px 160px minmax(0, 1fr) auto 24px 24px 24px;
-}
-.edit-member:focus-visible {
-  outline: none;
+/* A form field's label takes 96px. */
+.form-row {
+  grid-template-columns: 96px minmax(0, 1fr);
 }
 </style>

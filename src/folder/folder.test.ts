@@ -108,6 +108,10 @@ describe("the folder view's Changes", () => {
     expect(names(wrapper)).toEqual(["api", "web"]);
     const web = wrapper.get('[data-root="/code/web"]');
     expect(web.get('[data-testid="folder-section-branch"]').text()).toBe("feat/tiles");
+    // The branch's dot is its lane among the Overview's branch groups: main (two), feat/tiles.
+    const lane = (root: string) =>
+      wrapper.get(`[data-root="${root}"] [data-lane]`).attributes("data-lane");
+    expect([lane("/code/api"), lane("/code/web")]).toEqual(["1", "2"]);
     expect(web.get('[data-testid="folder-section-count"]').text()).toBe("1");
     // A section shows the lists that hold files.
     expect(web.find('[data-testid="staged-list"]').exists()).toBe(false);

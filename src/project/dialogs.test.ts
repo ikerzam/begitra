@@ -152,6 +152,31 @@ describe("the new-project dialog", () => {
     wrapper.unmount();
   });
 
+  it("walks the checklist with the arrows and j/k from one tab stop", async () => {
+    await load([]);
+    const wrapper = mountWithI18n(NewProjectDialog, { attachTo: document.body });
+    await flush();
+    const boxes = () => qa('[data-testid="checklist-item"] input');
+    const stops = () => boxes().filter((box) => box.tabIndex === 0);
+    expect(stops()).toEqual([boxes()[0]]);
+    boxes()[0]?.focus();
+    boxes()[0]?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    await flush();
+    expect(document.activeElement).toBe(boxes()[1]);
+    document.activeElement?.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "j", bubbles: true }),
+    );
+    await flush();
+    expect(document.activeElement).toBe(boxes()[2]);
+    expect(stops()).toEqual([boxes()[2]]);
+    document.activeElement?.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "k", bubbles: true }),
+    );
+    await flush();
+    expect(document.activeElement).toBe(boxes()[1]);
+    wrapper.unmount();
+  });
+
   it("adds a repository the index does not know yet, checked", async () => {
     const repositories = [...indexed];
     const calls = await load([], repositories);
@@ -222,6 +247,27 @@ describe("the edit dialog", () => {
       id: 1,
       paths: [web.path, api.path, infra.path],
     });
+    wrapper.unmount();
+  });
+
+  it("moves the focus with the arrows and removes the focused member with Delete", async () => {
+    const { calls, wrapper } = await editing();
+    const rows = () => qa('[data-testid="edit-project-members"] li[data-member]');
+    expect(rows().map((row) => row.tabIndex)).toEqual([0, -1, -1]);
+    rows()[0]?.focus();
+    rows()[0]?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    await flush();
+    expect(document.activeElement).toBe(rows()[1]);
+    expect(rows().map((row) => row.tabIndex)).toEqual([-1, 0, -1]);
+    rows()[1]?.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true }));
+    await flush();
+    expect(members()).toEqual(["api", "gone"]);
+    // The focus stays on the row that took the removed one's place.
+    expect(document.activeElement).toBe(rows()[1]);
+    expect(q('[data-testid="edit-project-dialog"]')?.textContent).toContain(
+      "Ctrl ↑ and Ctrl ↓ move the focused repository and Delete removes it.",
+    );
+    expect(of(calls, "project_set_members")).toHaveLength(0);
     wrapper.unmount();
   });
 

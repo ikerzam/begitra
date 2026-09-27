@@ -1,7 +1,8 @@
 // The Overview of the project view: one row per member of the view's source in its
 // order, filled from the index at once and read again when the view shows and on refresh, four
-// at a time (the scan's summary workers are four too); a member whose summary cannot be read
-// keeps its row with the reason. Above the rows, the branches the members are on, most common
+// at a time (the scan's summary workers are four too) and without a status of the working tree,
+// whose changed files the member's lists count; a member whose summary cannot be read keeps its
+// row with the reason. Above the rows, the branches the members are on, most common
 // first. The selection (Space, Ctrl+A) is what the bulk actions act on, every row when empty.
 
 import { defineStore } from "pinia";
@@ -10,11 +11,12 @@ import { computed, reactive, ref, shallowReactive, watch } from "vue";
 import type { AppError } from "@/ipc/errors";
 import type { OperationState, RepoSummary } from "@/ipc/schemas";
 import { laneIndex } from "@/components/lanes";
-import { sameFolder } from "@/shell/format";
+
+import { newOpId } from "@/ipc/invoke";
 
 import { useFolderStore } from "./folder";
 import { useIndexStore } from "./index";
-import { useRepoStore } from "./repo";
+import { useOperationsStore } from "./operations";
 
 /** Summaries read at once. */
 export const READS_AT_ONCE = 4;
@@ -56,7 +58,7 @@ export interface BranchGroup {
 export const useOverviewStore = defineStore("overview", () => {
   const folder = useFolderStore();
   const index = useIndexStore();
-  const repo = useRepoStore();
+  const operations = useOperationsStore();
 
   const errors = shallowReactive(new Map<string, AppError>());
   const selection = reactive(new Set<string>());
@@ -109,13 +111,40 @@ export const useOverviewStore = defineStore("overview", () => {
   const running = ref(0);
   const waiting = ref(0);
   let reading = false;
+  /** The status bar's "Reading N repositories" for the reads of one refresh. */
+  let readOp: string | null = null;
+  let readTotal = 0;
+  let readDone = 0;
+
+  function counted(): void {
+    if (!readOp) return;
+    readDone += 1;
+    if (running.value === 0 && queue.length === 0) {
+      operations.finish(readOp);
+      readOp = null;
+    } else {
+      operations.progress(readOp, readDone, readTotal);
+    }
+  }
+
+  function track(added: number): void {
+    if (added === 0) return;
+    if (!readOp) {
+      readOp = newOpId("reading");
+      readTotal = 0;
+      readDone = 0;
+      readTotal += added;
+      operations.start(readOp, "operations.readingRepositories", readTotal, {
+        params: { n: String(readTotal) },
+      });
+    } else {
+      readTotal += added;
+      operations.setParams(readOp, { n: String(readTotal) });
+      operations.progress(readOp, readDone, readTotal);
+    }
+  }
   /** Summaries still to read or being read, for the status bar's line. */
   const readsLeft = computed(() => running.value + waiting.value);
-
-  function isOpen(path: string): boolean {
-    const open = repo.repo?.root;
-    return open !== undefined && sameFolder(open, path);
-  }
 
   function pump(): void {
     while (reading && running.value < READS_AT_ONCE && queue.length > 0) {
@@ -123,9 +152,11 @@ export const useOverviewStore = defineStore("overview", () => {
       waiting.value = queue.length;
       if (path === undefined) return;
       running.value += 1;
-      // The open repository's dirty flag is left alone while it is open (see the index store).
+      // HEAD, the upstream and its counts, the operation, the fetch and the tip, without the
+      // status: the member's lists give its changed files, and a status of a 50,000-file tree
+      // costs seconds where the rest costs milliseconds.
       void index
-        .refresh(path, !isOpen(path))
+        .refresh(path, false)
         .then((failed) => {
           if (failed === null || failed.code === "repo.not_found") errors.delete(path);
           else errors.set(path, failed);
@@ -133,6 +164,7 @@ export const useOverviewStore = defineStore("overview", () => {
         .finally(() => {
           running.value -= 1;
           pump();
+          counted();
         });
     }
   }
@@ -140,11 +172,14 @@ export const useOverviewStore = defineStore("overview", () => {
   /** Reads every present member's summary again, four at a time, in the source's order. */
   function refresh(): void {
     reading = true;
+    let added = 0;
     for (const row of rows.value) {
       if (row.missing || queue.includes(row.path)) continue;
       queue.push(row.path);
+      added += 1;
     }
     waiting.value = queue.length;
+    track(added);
     pump();
   }
 
@@ -163,6 +198,8 @@ export const useOverviewStore = defineStore("overview", () => {
     reading = false;
     queue.length = 0;
     waiting.value = 0;
+    if (readOp) operations.finish(readOp);
+    readOp = null;
   }
 
   // --- Selection and focus --------------------------------------------------------------------

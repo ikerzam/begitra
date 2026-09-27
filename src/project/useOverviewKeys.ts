@@ -39,11 +39,13 @@ export function useOverviewKeys(options: OverviewKeysOptions) {
   });
 
   function onKeydown(event: KeyboardEvent): void {
+    // A row's own button or checkbox keeps Enter and Space ("Show", "Remove from project").
+    const target = event.target;
+    const own = target instanceof HTMLElement && target.closest("button, input") !== null;
+    if (own && (event.key === "Enter" || event.key === " ")) return;
     if (navigation.onKeydown(event)) return;
     const registry = shortcutRegistry();
     if (event.key === " " && !event.ctrlKey && !event.metaKey && !event.altKey) {
-      // A checkbox with the focus toggles itself.
-      if (event.target instanceof HTMLInputElement) return;
       const row = overview.rows[overview.focused];
       if (!row) return;
       event.preventDefault();

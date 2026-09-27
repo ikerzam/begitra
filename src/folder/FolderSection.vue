@@ -1,9 +1,10 @@
 <script setup lang="ts">
-// A repository of the folder view: its header, a disclosure that closes and
-// opens the section (the chevron, the repository's path under the folder in the section-title
-// role, and its branch and number of changed files 16px apart), with "Open {name}" in graph
-// focus after it; under it its Unstaged and Staged lists as the changes screen draws them, on
-// the repository's own model. Only the section the selection is in marks its row.
+// A repository of the folder view: its header on `--bg-raised`, a disclosure
+// that closes and opens the section (the chevron, the repository's path under the folder in the
+// section-title role, and its branch with the Overview's lane dot and number of changed files
+// 16px apart), with "Open {name}" in graph focus after it; under it its Unstaged and Staged
+// lists as the changes screen draws them, on the repository's own model. Only the section the
+// selection is in marks its row.
 
 import { ChevronDown, ChevronRight, FolderGit2 } from "@lucide/vue";
 import { computed, ref, useId } from "vue";
@@ -12,8 +13,10 @@ import { useI18n } from "vue-i18n";
 import ChangeLists from "@/changes/ChangeLists.vue";
 import ChangesScope from "@/changes/ChangesScope.vue";
 import IconButton from "@/components/IconButton.vue";
+import LaneDot from "@/components/LaneDot.vue";
 import type { FileChange } from "@/ipc/schemas";
 import type { FolderRepository } from "@/stores/folder";
+import { useOverviewStore } from "@/stores/overview";
 
 import type { SectionHandle } from "./useFolderKeys";
 
@@ -35,12 +38,19 @@ const emit = defineEmits<{
 }>();
 
 const { t, n } = useI18n();
+const overview = useOverviewStore();
 const listsId = useId();
 const lists = ref<SectionHandle | null>(null);
 /** The changed files; unknown while the lists load or when they failed. */
 const count = computed(() => props.repository.view.counts?.changed ?? null);
 const branch = computed(() =>
   props.repository.detached ? t("statusBar.detached") : props.repository.branch,
+);
+/** The branch's lane in the Overview's branch groups; 0 when it has none (detached, unread). */
+const lane = computed(() =>
+  props.repository.detached || !props.repository.branch
+    ? 0
+    : (overview.lanes.get(props.repository.branch) ?? 0),
 );
 
 defineExpose({
@@ -57,7 +67,7 @@ defineExpose({
     data-testid="folder-section"
     :data-root="props.repository.root"
   >
-    <div class="flex h-panel-header shrink-0 items-center gap-2 pr-2">
+    <div class="flex h-panel-header shrink-0 items-center gap-2 bg-raised pr-2">
       <button
         type="button"
         class="flex h-full min-w-0 flex-1 items-center gap-2 pl-3 text-left hover:bg-hover"
@@ -82,8 +92,9 @@ defineExpose({
           {{ props.repository.name }}
         </span>
         <span class="flex min-w-0 items-center gap-4 text-sm text-fg-muted">
-          <span v-if="branch" class="truncate" data-testid="folder-section-branch">
-            {{ branch }}
+          <span v-if="branch" class="flex min-w-0 items-center gap-2">
+            <LaneDot v-if="lane > 0" :lane="lane" />
+            <span class="truncate" data-testid="folder-section-branch">{{ branch }}</span>
           </span>
           <template v-if="count !== null">
             <span

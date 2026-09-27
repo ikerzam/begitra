@@ -121,6 +121,10 @@ describe("the Overview", () => {
     overview.refresh();
     await settled();
     expect(of(calls, "refresh_repository")).toHaveLength(READS_AT_ONCE);
+    // No status of the working tree: the lists count the changed files.
+    expect(of(calls, "refresh_repository").every((call) => call.args["dirty"] === false)).toBe(
+      true,
+    );
     expect(overview.readsLeft).toBe(5);
     await new Promise((resolve) => setTimeout(resolve, 120));
     await settled();

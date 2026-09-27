@@ -185,7 +185,8 @@
     },
     "repositoryRows": "repositorios",
     "spaceKey": "Espacio",
-    "select": "seleccionar"
+    "select": "seleccionar",
+    "indexFailed": "No se ha podido leer el índice"
   },
   "operations": {
     "opening": "Abriendo {name}",
@@ -235,7 +236,8 @@
       "push": "Push de {done} de {total} repositorios",
       "switch": "Cambiando de rama {done} de {total} repositorios",
       "create": "Creando la rama en {done} de {total} repositorios"
-    }
+    },
+    "readingRepositories": "Leyendo {n} repositorio | Leyendo {n} repositorios"
   },
   "home": {
     "title": "Repositorios",
@@ -1102,7 +1104,8 @@
       "changes": "Cambios",
       "status": "Estado",
       "lastCommit": "Último commit",
-      "fetched": "Fetch"
+      "fetched": "Fetch",
+      "actions": "Acciones"
     },
     "selectAll": "Seleccionar todos los repositorios",
     "select": "Seleccionar {name}",
@@ -1134,7 +1137,7 @@
     "hint": "Espacio selecciona un repositorio y {selectAll} todos; las acciones actúan sobre la selección, o sobre todos los repositorios si no hay ninguno seleccionado.",
     "groupCount": "{n} de {total}",
     "groups": "Ramas de los repositorios del proyecto",
-    "empty": "No hay repositorios en {project}.",
+    "empty": "No hay repositorios en {project}. Añade los que lo forman.",
     "run": {
       "queued": "En cola",
       "stopped": "Detenido",
@@ -1263,11 +1266,12 @@
       "moveDown": "Bajar {name}",
       "remove": "Quitar {name} del proyecto",
       "none": "Aún no hay repositorios.",
-      "hint": "{up} y {down} mueven el repositorio con el foco. Quitar uno del proyecto deja su carpeta y su entrada del índice como están.",
+      "hint": "{up} y {down} mueven el repositorio con el foco y {remove} lo quita. Quitar uno del proyecto deja su carpeta y su entrada del índice como están.",
       "delete": "Borrar proyecto…",
       "deleteTitle": "¿Borrar {name}?",
       "deleteBody": "Se borra el proyecto; sus repositorios, sus carpetas y sus entradas del índice se quedan como están.",
       "deleteConfirm": "Borrar proyecto"
-    }
+    },
+    "loadFailed": "No se ha podido leer la lista de repositorios. {message}"
   }
 }
