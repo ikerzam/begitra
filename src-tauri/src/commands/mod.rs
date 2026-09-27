@@ -7,6 +7,7 @@ pub mod diff;
 pub mod external;
 pub mod git;
 pub mod index;
+pub mod projects;
 pub mod remotes;
 pub mod repo;
 pub mod review;

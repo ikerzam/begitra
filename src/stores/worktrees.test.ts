@@ -18,6 +18,9 @@ const summaries = {
     ahead: null,
     behind: null,
     lastCommitAt: 1_699_000_000,
+    upstream: null,
+    operation: null,
+    fetchedAt: null,
     dirty: true,
   },
 };

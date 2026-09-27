@@ -163,12 +163,17 @@ describe("remotes store", () => {
     expect(await store.fetch("origin", true)).toBe(true);
     expect(of(calls, "fetch")[0]?.args).toMatchObject({ remote: "origin", prune: true });
     expect(useToastsStore().toasts.at(-1)?.key).toBe("remotes.fetched");
-    expect(await store.pull({ remote: null, branch: null, rebase: true })).toBe(true);
+    expect(await store.pull({ remote: null, branch: null, rebase: true, ffOnly: false })).toBe(
+      true,
+    );
     expect(of(calls, "pull")[0]?.args["request"]).toEqual({
       remote: null,
       branch: null,
       rebase: true,
+      ffOnly: false,
     });
+    // A single repository's pull may prompt for a sign-in; only a batch may not.
+    expect(of(calls, "pull")[0]?.args["batch"]).toBe(false);
     expect(useToastsStore().toasts.at(-1)?.key).toBe("remotes.pulled");
     clearMocks();
     fakeBackend({
@@ -181,7 +186,9 @@ describe("remotes store", () => {
       operation: "merge",
       conflicts: [{ path: "src/a.ts", kind: "both-modified" }],
     });
-    expect(await store.pull({ remote: "origin", branch: "main", rebase: false })).toBe(true);
+    expect(
+      await store.pull({ remote: "origin", branch: "main", rebase: false, ffOnly: false }),
+    ).toBe(true);
     await settled();
     expect(useShellStore().layoutMode).toBe("changes");
     expect(useSequencerStore().conflicts).toHaveLength(1);

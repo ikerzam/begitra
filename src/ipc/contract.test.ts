@@ -1,6 +1,7 @@
 // Contract test: every JSON fixture written by `cargo test -p begitra` (src-tauri/src/fixtures.rs)
-// must parse with the schema of its type. A Rust field renamed without updating the schema
-// fails here; a fixture without a schema, or a schema without a fixture, fails too.
+// must parse with the schema of its type, and the parse must keep every field. A Rust field
+// renamed, added or removed without updating the schema fails here; a fixture without a
+// schema, or a schema without a fixture, fails too.
 
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
@@ -23,6 +24,7 @@ import {
   NetworkEventSchema,
   OperationStateSchema,
   OutcomeSchema,
+  ProjectSchema,
   PullRequestSchema,
   PushRequestSchema,
   RemoteSchema,
@@ -99,6 +101,7 @@ const schemas: Record<string, v.GenericSchema> = {
   "annotations.json": v.array(AnnotationSchema),
   "annotation-write.json": AnnotationWriteSchema,
   "index-entries.json": v.array(IndexEntrySchema),
+  "projects.json": v.array(ProjectSchema),
   "scan-messages.json": v.array(ScanMessageSchema),
   "scan-stream-page.json": streamMessageSchema(ScanMessageSchema),
   "scan-options.json": v.array(ScanOptionsSchema),
@@ -137,6 +140,9 @@ describe("IPC contract", () => {
             (issue) => `${issue.path?.map((p) => String(p.key)).join(".")}: ${issue.message}`,
           );
       expect(issues).toEqual([]);
+      // valibot drops keys a schema does not name: a field the backend added and the
+      // frontend never reads shows here as a difference.
+      if (result.success) expect(result.output).toEqual(data);
     });
   }
 

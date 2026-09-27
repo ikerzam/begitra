@@ -1,0 +1,20 @@
+[
+  {
+    "id": 1,
+    "name": "geoportal",
+    "members": [
+      "/home/iker/code/geoportal",
+      "/home/iker/code/claude-auth",
+      "/home/iker/wt/gone"
+    ],
+    "createdAt": 1704060000,
+    "updatedAt": 1704070000
+  },
+  {
+    "id": 2,
+    "name": "empty",
+    "members": [],
+    "createdAt": 1704080000,
+    "updatedAt": 1704080000
+  }
+]

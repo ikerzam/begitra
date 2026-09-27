@@ -206,6 +206,7 @@ describe("NetworkDialog", () => {
       remote: "origin",
       branch: "develop",
       rebase: true,
+      ffOnly: false,
     });
     wrapper.unmount();
   });

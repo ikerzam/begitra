@@ -73,7 +73,12 @@ function confirm(): void {
       forceWithLease: forceWithLease.value,
     });
   } else {
-    void remotes.pull({ remote: remote.value, branch: remoteBranch.value, rebase: rebase.value });
+    void remotes.pull({
+      remote: remote.value,
+      branch: remoteBranch.value,
+      rebase: rebase.value,
+      ffOnly: false,
+    });
   }
 }
 </script>

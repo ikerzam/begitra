@@ -21,7 +21,7 @@ use serde::Serialize;
 use syntax::{Highlight, Symbol, SymbolKind, Token, TokenClass};
 
 use repo_index::{
-    Annotation, AnnotationKind, IndexEntry, Operation as IndexOperation, RepoKind,
+    Annotation, AnnotationKind, IndexEntry, Operation as IndexOperation, Project, RepoKind,
     RepoSummary as IndexSummary, ScanOptions,
 };
 
@@ -720,6 +720,29 @@ fn write_fixtures() {
         ],
     );
     write("scan-messages", &scan_messages());
+    write(
+        "projects",
+        &[
+            Project {
+                id: 1,
+                name: "geoportal".to_owned(),
+                members: vec![
+                    PathBuf::from("/home/iker/code/geoportal"),
+                    PathBuf::from("/home/iker/code/claude-auth"),
+                    PathBuf::from("/home/iker/wt/gone"),
+                ],
+                created_at: 1_704_060_000,
+                updated_at: 1_704_070_000,
+            },
+            Project {
+                id: 2,
+                name: "empty".to_owned(),
+                members: Vec::new(),
+                created_at: 1_704_080_000,
+                updated_at: 1_704_080_000,
+            },
+        ],
+    );
     write(
         "scan-stream-page",
         &StreamMessage::Page {

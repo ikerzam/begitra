@@ -22,6 +22,7 @@ import type {
   OperationState,
   Outcome,
   PatchSelection,
+  Project,
   Ref,
   Remote,
   RepoSummary,
@@ -126,6 +127,10 @@ export interface FakeBackendOptions {
   failNetwork?: boolean;
   /** `stash_push` answers false (nothing to save). */
   stashNothing?: boolean;
+  /** The projects `projects` answers at start; the project writes change the list. */
+  projects?: Project[];
+  /** Every project command rejects with `index.database`. */
+  failProjects?: boolean;
 }
 
 /** The hash the operations that move HEAD answer. */
@@ -299,6 +304,18 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
   const annotations: Record<string, Annotation[]> = options.annotations ?? {};
   let worktrees: Worktree[] = (options.worktrees ?? []).map((worktree) => ({ ...worktree }));
   let remotes: Remote[] = (options.remotes ?? []).map((remote) => ({ ...remote }));
+  let projects: Project[] = (options.projects ?? []).map((project) => ({
+    ...project,
+    members: [...project.members],
+  }));
+  /** The clock of the project writes: one tick per write. */
+  let projectClock = 1_704_100_000;
+  const byName = (a: Project, b: Project) =>
+    a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.id - b.id;
+  const unique = (paths: string[]) => [...new Set(paths)];
+  const projectFailure = () =>
+    // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+    Promise.reject({ code: "index.database", message: "database is locked" });
   let unstaged: FileChange[] = [...(options.changes?.unstaged ?? [])];
   let staged: FileChange[] = [...(options.changes?.staged ?? [])];
   const byRepo = new Map(
@@ -945,6 +962,44 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
           return (options.repositories ?? []).map((entry) => ({ ...entry }));
         case "open_external":
           return null;
+        case "projects":
+          if (options.failProjects) return projectFailure();
+          return [...projects].sort(byName).map((project) => ({
+            ...project,
+            members: [...project.members],
+          }));
+        case "project_create": {
+          if (options.failProjects) return projectFailure();
+          projectClock += 1;
+          const project: Project = {
+            id: Math.max(0, ...projects.map((known) => known.id)) + 1,
+            name: (args["name"] as string).trim(),
+            members: unique(args["paths"] as string[]),
+            createdAt: projectClock,
+            updatedAt: projectClock,
+          };
+          projects = [...projects, project];
+          return { ...project, members: [...project.members] };
+        }
+        case "project_rename":
+        case "project_set_members": {
+          if (options.failProjects) return projectFailure();
+          const known = projects.find((project) => project.id === args["id"]);
+          if (!known) return null;
+          projectClock += 1;
+          const changed: Project =
+            cmd === "project_rename"
+              ? { ...known, name: (args["name"] as string).trim(), updatedAt: projectClock }
+              : { ...known, members: unique(args["paths"] as string[]), updatedAt: projectClock };
+          projects = projects.map((project) => (project.id === changed.id ? changed : project));
+          return { ...changed, members: [...changed.members] };
+        }
+        case "project_delete": {
+          if (options.failProjects) return projectFailure();
+          const before = projects.length;
+          projects = projects.filter((project) => project.id !== args["id"]);
+          return projects.length < before;
+        }
         case "app_info":
           return {
             version: "0.1.0",

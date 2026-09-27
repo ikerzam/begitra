@@ -32,6 +32,7 @@ import {
   HighlightSchema,
   IndexEntrySchema,
   PongSchema,
+  ProjectSchema,
   AppInfoSchema,
   RefSchema,
   RepoSchema,
@@ -278,15 +279,19 @@ export function remoteRemove(repo: string, name: string, opId = newOpId("remote-
   return call("remote_remove", { repo, name, opId }, v.null());
 }
 
-/** Fetches (every remote when `remote` is null), git's progress lines as pages. */
+/**
+ * Fetches (every remote when `remote` is null), git's progress lines as pages. In a `batch`
+ * (an operation over many repositories) nothing may ask for a sign-in.
+ */
 export function fetch(
   repo: string,
   remote: string | null,
   prune: boolean,
   onEvent: (event: NetworkEvent, seq: number) => void,
   opId?: string,
+  batch = false,
 ): StreamHandle {
-  return stream("fetch", { repo, remote, prune }, NetworkEventSchema, onEvent, opId);
+  return stream("fetch", { repo, remote, prune, batch }, NetworkEventSchema, onEvent, opId);
 }
 
 /** Pulls with the progress streamed; the last page carries the outcome. */
@@ -295,8 +300,9 @@ export function pull(
   request: PullRequest,
   onEvent: (event: NetworkEvent, seq: number) => void,
   opId?: string,
+  batch = false,
 ): StreamHandle {
-  return stream("pull", { repo, request }, NetworkEventSchema, onEvent, opId);
+  return stream("pull", { repo, request, batch }, NetworkEventSchema, onEvent, opId);
 }
 
 /** Pushes with the progress streamed; the last page carries git's ref lines. */
@@ -305,8 +311,9 @@ export function push(
   request: PushRequest,
   onEvent: (event: NetworkEvent, seq: number) => void,
   opId?: string,
+  batch = false,
 ): StreamHandle {
-  return stream("push", { repo, request }, NetworkEventSchema, onEvent, opId);
+  return stream("push", { repo, request, batch }, NetworkEventSchema, onEvent, opId);
 }
 
 /** Stashes the working tree or the given paths; false when there was nothing to save. */
@@ -546,6 +553,29 @@ export function refreshRepository(path: string, dirty: boolean, opId = newOpId("
 
 export function removeScanRoot(root: string) {
   return call("remove_scan_root", { root }, v.null());
+}
+
+export function listProjects() {
+  return call("projects", {}, v.array(ProjectSchema));
+}
+
+export function createProject(name: string, paths: string[]) {
+  return call("project_create", { name, paths }, ProjectSchema);
+}
+
+/** Renames a project; null when it no longer exists. */
+export function renameProject(id: number, name: string) {
+  return call("project_rename", { id, name }, v.nullable(ProjectSchema));
+}
+
+/** Replaces a project's members and their order; null when it no longer exists. */
+export function setProjectMembers(id: number, paths: string[]) {
+  return call("project_set_members", { id, paths }, v.nullable(ProjectSchema));
+}
+
+/** Deletes a project, never a repository; whether it existed. */
+export function deleteProject(id: number) {
+  return call("project_delete", { id }, v.boolean());
 }
 
 /** Scans `folders` and streams found entries, their summaries, counts and folder states. */

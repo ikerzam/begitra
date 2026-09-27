@@ -70,6 +70,7 @@ describe("checkArgs", () => {
         checkArgs("push", {
           repo: "/r",
           request: { remote: "--mirror", branch: null, setUpstream: false, forceWithLease: false },
+          batch: false,
           opId: "op",
         }),
       ),

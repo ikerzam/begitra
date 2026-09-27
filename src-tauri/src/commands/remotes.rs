@@ -4,8 +4,9 @@
 //! runs, the result (the ref lines git printed, or the outcome of a pull) is the last page,
 //! and a cancel kills git's process tree, which ends the transport too (a pull honours it
 //! until its fetch is done; the merge or rebase that follows runs whole). git's own
-//! credential prompt fails at once (`GIT_TERMINAL_PROMPT=0`, set by the engine); a helper
-//! with a window of its own still opens it, and the timeout bounds that.
+//! credential prompt never reads the terminal (`GIT_TERMINAL_PROMPT=0`, set by the engine);
+//! a helper or an askpass program with a window of its own still opens it, and the timeout
+//! bounds that, unless the call is part of a batch (`batch`), where nothing may ask.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -79,6 +80,36 @@ fn validate_optional_name(field: &str, value: Option<&str>) -> Result<(), AppErr
     }
 }
 
+/// The prompts a network command allows: none in a batch (an operation over many
+/// repositories), a helper's window otherwise.
+fn prompts(batch: bool) -> Prompts {
+    if batch {
+        Prompts::Never
+    } else {
+        Prompts::Allowed
+    }
+}
+
+/// A pull request: names git accepts, a branch only with its remote, and a fast-forward
+/// only never with a rebase.
+fn validate_pull(request: &PullRequest) -> Result<(), AppError> {
+    validate_optional_name("remote", request.remote.as_deref())?;
+    validate_optional_name("branch", request.branch.as_deref())?;
+    if request.branch.is_some() && request.remote.is_none() {
+        return Err(AppError::invalid_argument(
+            "remote",
+            "a branch without a remote",
+        ));
+    }
+    if request.rebase && request.ff_only {
+        return Err(AppError::invalid_argument(
+            "request",
+            "a rebase and a fast-forward only",
+        ));
+    }
+    Ok(())
+}
+
 /// The remotes with their URLs.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state))]
@@ -132,7 +163,8 @@ pub async fn remote_remove(
 }
 
 /// Fetches from a remote (every remote, `--all`, when `null`), streaming git's progress;
-/// `prune` drops the tracking branches gone on the remote.
+/// `prune` drops the tracking branches gone on the remote, and in a `batch` nothing may ask
+/// for a sign-in.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state, on_page))]
 pub async fn fetch(
@@ -140,6 +172,7 @@ pub async fn fetch(
     repo: PathBuf,
     remote: Option<String>,
     prune: bool,
+    batch: bool,
     op_id: String,
     on_page: Channel<StreamMessage<NetworkEvent>>,
 ) -> Result<(), AppError> {
@@ -161,7 +194,7 @@ pub async fn fetch(
             let result: NetworkResult = engine.fetch(
                 remote.as_deref(),
                 prune,
-                Prompts::Allowed,
+                prompts(batch),
                 &mut on_line,
                 &cancel,
             )?;
@@ -175,24 +208,19 @@ pub async fn fetch(
 }
 
 /// Pulls with the fetch's progress streamed; the last page is the outcome of the merge or
-/// the rebase (a stop on conflicts included). A cancel is honoured until the fetch is done.
+/// the rebase (a stop on conflicts included). A cancel is honoured until the fetch is done;
+/// in a `batch` nothing may ask for a sign-in.
 #[tauri::command]
-#[tracing::instrument(level = "debug", skip(state, on_page), fields(rebase = request.rebase))]
+#[tracing::instrument(level = "debug", skip(state, on_page), fields(rebase = request.rebase, ff_only = request.ff_only))]
 pub async fn pull(
     state: State<'_, AppState>,
     repo: PathBuf,
     request: PullRequest,
+    batch: bool,
     op_id: String,
     on_page: Channel<StreamMessage<NetworkEvent>>,
 ) -> Result<(), AppError> {
-    validate_optional_name("remote", request.remote.as_deref())?;
-    validate_optional_name("branch", request.branch.as_deref())?;
-    if request.branch.is_some() && request.remote.is_none() {
-        return Err(AppError::invalid_argument(
-            "remote",
-            "a branch without a remote",
-        ));
-    }
+    validate_pull(&request)?;
     let app = state.inner().clone();
     let worker = app.clone();
     run_stream(
@@ -207,7 +235,7 @@ pub async fn pull(
                     line: line.to_owned(),
                 });
             };
-            let outcome = engine.pull(&request, Prompts::Allowed, &mut on_line, &cancel)?;
+            let outcome = engine.pull(&request, prompts(batch), &mut on_line, &cancel)?;
             stream.page(NetworkEvent::Outcome { outcome });
             Ok::<(), AppError>(())
         },
@@ -216,13 +244,14 @@ pub async fn pull(
 }
 
 /// Pushes with the progress streamed; a rejected push is git's message in the terminal
-/// error.
+/// error. In a `batch` nothing may ask for a sign-in.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state, on_page), fields(set_upstream = request.set_upstream, force = request.force_with_lease))]
 pub async fn push(
     state: State<'_, AppState>,
     repo: PathBuf,
     request: PushRequest,
+    batch: bool,
     op_id: String,
     on_page: Channel<StreamMessage<NetworkEvent>>,
 ) -> Result<(), AppError> {
@@ -248,7 +277,7 @@ pub async fn push(
                     line: line.to_owned(),
                 });
             };
-            let result = engine.push(&request, Prompts::Allowed, &mut on_line, &cancel)?;
+            let result = engine.push(&request, prompts(batch), &mut on_line, &cancel)?;
             stream.page(NetworkEvent::Result {
                 summary: result.summary,
             });
@@ -285,6 +314,35 @@ mod tests {
         }
         let long = "x".repeat(MAX_URL_CHARS + 1);
         assert_eq!(code(validate_url("url", &long)), "ipc.invalid_argument");
+    }
+
+    #[test]
+    fn pulls_name_a_branch_with_its_remote_and_never_rebase_a_fast_forward_only() {
+        let request = PullRequest {
+            remote: None,
+            branch: None,
+            rebase: false,
+            ff_only: true,
+        };
+        assert!(validate_pull(&request).is_ok());
+        let both = PullRequest {
+            rebase: true,
+            ..request.clone()
+        };
+        assert_eq!(code(validate_pull(&both)), "ipc.invalid_argument");
+        let orphan = PullRequest {
+            branch: Some("main".to_owned()),
+            ..request.clone()
+        };
+        assert_eq!(code(validate_pull(&orphan)), "ipc.invalid_argument");
+        let named = PullRequest {
+            remote: Some("origin".to_owned()),
+            branch: Some("main".to_owned()),
+            ..request
+        };
+        assert!(validate_pull(&named).is_ok());
+        assert_eq!(prompts(true), Prompts::Never);
+        assert_eq!(prompts(false), Prompts::Allowed);
     }
 
     #[test]

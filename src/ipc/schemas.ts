@@ -553,6 +553,8 @@ export const PullRequestSchema = v.object({
   remote: v.nullable(v.string()),
   branch: v.nullable(v.string()),
   rebase: v.boolean(),
+  /** Move the branch only as a fast-forward, whatever `pull.ff` says; never with `rebase`. */
+  ffOnly: v.boolean(),
 });
 export type PullRequest = v.InferOutput<typeof PullRequestSchema>;
 
@@ -617,8 +619,14 @@ export type RepoKind = v.InferOutput<typeof RepoKindSchema>;
 export const RepoSummarySchema = v.object({
   currentBranch: v.nullable(v.string()),
   detached: v.boolean(),
+  /** Short name of the branch's upstream (`origin/main`); null without one. */
+  upstream: v.nullable(v.string()),
   ahead: v.nullable(count),
   behind: v.nullable(count),
+  /** The operation in progress; null until a summary has read it. */
+  operation: v.nullable(OperationStateSchema),
+  /** Unix seconds of the working tree's last fetch; null before any. */
+  fetchedAt: v.nullable(v.number()),
   lastCommitAt: v.nullable(v.number()),
   dirty: v.nullable(v.boolean()),
 });
@@ -637,6 +645,17 @@ export const IndexEntrySchema = v.object({
   missing: v.boolean(),
 });
 export type IndexEntry = v.InferOutput<typeof IndexEntrySchema>;
+
+/** A named, ordered group of repositories and worktrees, kept by path. */
+export const ProjectSchema = v.object({
+  id: v.pipe(v.number(), v.integer()),
+  name: v.string(),
+  /** Member paths in the user's order; a path need not have an index entry. */
+  members: v.array(v.string()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+});
+export type Project = v.InferOutput<typeof ProjectSchema>;
 
 export const ScanOptionsSchema = v.object({
   skip: v.array(v.string()),
@@ -728,6 +747,17 @@ const remoteUrl = v.pipe(
   v.maxLength(2048),
   v.check((url) => !url.startsWith("-"), "starts with a dash"),
 );
+/** A project's name: not blank, at most 100 characters, on one line. */
+const projectName = v.pipe(
+  v.string(),
+  v.trim(),
+  v.minLength(1),
+  v.maxLength(100),
+  v.check((name) => !/[\u0000-\u001f\u007f-\u009f]/.test(name), "a control character"),
+);
+const projectId = v.pipe(v.number(), v.integer());
+/** At most 500 member paths. */
+const memberPaths = v.pipe(v.array(path), v.maxLength(500));
 /** One to 100 revisions for a cherry-pick or a revert. */
 const revisions = v.pipe(v.array(revision), v.minLength(1), v.maxLength(100));
 /** A stash is named by its full commit hash, lowercase, as the refs listing gives it. */
@@ -840,14 +870,25 @@ export const commandArgs = {
   remotes: v.object({ repo: path, opId }),
   remote_add: v.object({ repo: path, name: refName, url: remoteUrl, opId }),
   remote_remove: v.object({ repo: path, name: refName, opId }),
-  fetch: v.object({ repo: path, remote: v.nullable(refName), prune: v.boolean(), opId }),
+  fetch: v.object({
+    repo: path,
+    remote: v.nullable(refName),
+    prune: v.boolean(),
+    batch: v.boolean(),
+    opId,
+  }),
   pull: v.object({
     repo: path,
-    request: v.object({
-      remote: v.nullable(refName),
-      branch: v.nullable(refName),
-      rebase: v.boolean(),
-    }),
+    request: v.pipe(
+      v.object({
+        remote: v.nullable(refName),
+        branch: v.nullable(refName),
+        rebase: v.boolean(),
+        ffOnly: v.boolean(),
+      }),
+      v.check((request) => !(request.rebase && request.ffOnly), "a rebase and a fast-forward only"),
+    ),
+    batch: v.boolean(),
     opId,
   }),
   push: v.object({
@@ -858,6 +899,7 @@ export const commandArgs = {
       setUpstream: v.boolean(),
       forceWithLease: v.boolean(),
     }),
+    batch: v.boolean(),
     opId,
   }),
   stash_push: v.object({
@@ -947,6 +989,11 @@ export const commandArgs = {
   record_repository_open: v.object({ path }),
   refresh_repository: v.object({ path, dirty: v.boolean(), opId }),
   remove_scan_root: v.object({ root: path }),
+  projects: v.object({}),
+  project_create: v.object({ name: projectName, paths: memberPaths }),
+  project_rename: v.object({ id: projectId, name: projectName }),
+  project_set_members: v.object({ id: projectId, paths: memberPaths }),
+  project_delete: v.object({ id: projectId }),
   scan_folders: v.object({
     folders: v.array(path),
     options: ScanOptionsSchema,

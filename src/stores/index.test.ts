@@ -21,6 +21,9 @@ function summary(over: Partial<RepoSummary> = {}): RepoSummary {
     ahead: 0,
     behind: 0,
     lastCommitAt: 1_704_000_000,
+    upstream: null,
+    operation: null,
+    fetchedAt: null,
     dirty: false,
     ...over,
   };
