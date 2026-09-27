@@ -61,6 +61,7 @@ interface ActionOptions {
   pinned?: boolean | null;
   hasScanFolders?: boolean;
   hasReviewNotes?: boolean;
+  hasActiveProject?: boolean;
 }
 
 function actions(options: ActionOptions | boolean = {}): PaletteActions & { calls: string[] } {
@@ -69,6 +70,7 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
     pinned = false,
     hasScanFolders = true,
     hasReviewNotes = false,
+    hasActiveProject = false,
   } = typeof options === "boolean" ? { hasRepository: options } : options;
   const calls: string[] = [];
   const record = (name: string) => () => {
@@ -209,6 +211,21 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
     addWorktree: record("addWorktree"),
     hasPrunableWorktrees: () => false,
     pruneWorktrees: record("pruneWorktrees"),
+    hasActiveProject: () => hasActiveProject,
+    newProject: record("newProject"),
+    editProject: record("editProject"),
+    showProject: (tab) => {
+      calls.push(`showProject:${tab}`);
+      return Promise.resolve();
+    },
+    fetchProject: () => {
+      calls.push("fetchProject");
+      return Promise.resolve();
+    },
+    projectNeighbour: (step) => {
+      calls.push(`projectNeighbour:${step}`);
+      return Promise.resolve();
+    },
   };
 }
 
@@ -267,6 +284,7 @@ describe("usePalette", () => {
       "settings",
       "show-worktrees",
       "add-worktree",
+      "new-project",
       "checkout",
       "create-branch",
       "merge-into",
@@ -286,6 +304,27 @@ describe("usePalette", () => {
     palette.query.value = "rev focus";
     expect(palette.rows.value.map((r) => r.label)).toEqual(["Switch to review focus"]);
     expect(palette.isEmpty.value).toBe(false);
+  });
+
+  it("offers the project's commands once a project was shown, and runs them", async () => {
+    const { palette, acts } = setup({ hasActiveProject: true });
+    const ids = palette.rows.value.map((r) => r.command.id);
+    for (const id of [
+      "new-project",
+      "edit-project",
+      "show-project-overview",
+      "show-project-changes",
+      "fetch-project",
+      "next-project-repo",
+      "previous-project-repo",
+    ]) {
+      expect(ids, id).toContain(id);
+    }
+    const next = palette.rows.value.find((r) => r.command.id === "next-project-repo");
+    expect(next?.command.shortcutId).toBe("next-project-repo");
+    await palette.rows.value.find((r) => r.command.id === "fetch-project")?.command.run();
+    await next?.command.run();
+    expect(acts.calls).toEqual(["fetchProject", "projectNeighbour:1"]);
   });
 
   it("offers to copy the review notes only when the target has some, and runs it", async () => {

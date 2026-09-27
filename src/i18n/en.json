@@ -476,6 +476,7 @@
     "placeholder": "Search or run a command…",
     "recent": "Recent",
     "commands": "Commands",
+    "projects": "Projects",
     "empty": "No matches for \"{query}\". Try a command, branch, file or repository.",
     "move": "move",
     "run": "run",
@@ -542,7 +543,14 @@
       "stash-changes": "Stash changes…",
       "continue-operation": "Continue the operation",
       "abort-operation": "Abort the operation…",
-      "show-folder-changes": "Show folder changes"
+      "show-folder-changes": "Show folder changes",
+      "new-project": "New project…",
+      "edit-project": "Edit project…",
+      "show-project-overview": "Show project overview",
+      "show-project-changes": "Show project changes",
+      "fetch-project": "Fetch the project",
+      "next-project-repo": "Next repository of the project",
+      "previous-project-repo": "Previous repository of the project"
     },
     "repos": "Repos"
   },
@@ -1029,7 +1037,8 @@
         "commit": "Commit",
         "push": "Push",
         "markResolved": "Mark resolved",
-        "zoom": "Zoom in / out / reset"
+        "zoom": "Zoom in / out / reset",
+        "nextPreviousProjectRepo": "Next / previous repository of the project"
       }
     },
     "about": {

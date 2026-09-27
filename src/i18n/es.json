@@ -476,6 +476,7 @@
     "placeholder": "Buscar o ejecutar un comando…",
     "recent": "Recientes",
     "commands": "Comandos",
+    "projects": "Proyectos",
     "empty": "Nada coincide con \"{query}\". Prueba con un comando, una rama, un fichero o un repositorio.",
     "move": "mover",
     "run": "ejecutar",
@@ -542,7 +543,14 @@
       "stash-changes": "Guardar los cambios en el stash…",
       "continue-operation": "Continuar la operación",
       "abort-operation": "Abortar la operación…",
-      "show-folder-changes": "Ver los cambios de la carpeta"
+      "show-folder-changes": "Ver los cambios de la carpeta",
+      "new-project": "Nuevo proyecto…",
+      "edit-project": "Editar proyecto…",
+      "show-project-overview": "Mostrar el resumen del proyecto",
+      "show-project-changes": "Mostrar los cambios del proyecto",
+      "fetch-project": "Fetch del proyecto",
+      "next-project-repo": "Siguiente repositorio del proyecto",
+      "previous-project-repo": "Repositorio anterior del proyecto"
     },
     "repos": "Repos"
   },
@@ -1029,7 +1037,8 @@
         "commit": "Commit",
         "push": "Push",
         "markResolved": "Marcar como resuelto",
-        "zoom": "Acercar / alejar / restablecer"
+        "zoom": "Acercar / alejar / restablecer",
+        "nextPreviousProjectRepo": "Repositorio siguiente / anterior del proyecto"
       }
     },
     "about": {

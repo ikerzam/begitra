@@ -63,6 +63,10 @@ export const shortcutRows: readonly ShortcutRow[] = [
   { key: "openTerminal", groups: [["open-terminal"]] },
   { key: "openEditor", groups: [["open-editor"]] },
   { key: "addWorktree", groups: [["add-worktree"]] },
+  {
+    key: "nextPreviousProjectRepo",
+    groups: [["next-project-repo"], ["previous-project-repo"]],
+  },
   { key: "settings", groups: [["settings"]] },
   { key: "zoom", groups: [["zoom-in"], ["zoom-out"], ["zoom-reset"]] },
 ];

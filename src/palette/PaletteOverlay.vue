@@ -35,7 +35,7 @@ import { useShellStore } from "@/stores/shell";
 
 import { paletteCommands } from "./commands";
 import { usePalette, type PaletteRow } from "./usePalette";
-import { usePaletteActions, usePaletteRepos } from "./usePaletteActions";
+import { usePaletteActions, usePaletteProjects, usePaletteRepos } from "./usePaletteActions";
 
 const { t } = useI18n();
 const shell = useShellStore();
@@ -44,6 +44,7 @@ const actions = usePaletteActions();
 
 const commands = computed(() => paletteCommands(actions));
 const repos = usePaletteRepos();
+const projects = usePaletteProjects();
 /* The recents live in the settings, so they survive closing the palette and relaunching. */
 const recents = computed({
   get: () => settings.values.paletteRecents,
@@ -55,6 +56,7 @@ const palette = usePalette({
   onClose: () => shell.closePalette(),
   recents,
   repos,
+  projects,
 });
 
 const icons: Record<string, typeof Search> = {
@@ -108,15 +110,22 @@ function optionId(index: number): string {
 const sections = computed(() => {
   const recent = palette.rows.value.filter((row) => row.section === "recent");
   const rest = palette.rows.value.filter((row) => row.section === "commands");
+  const projectRows = palette.rows.value.filter((row) => row.section === "projects");
   const repoRows = palette.rows.value.filter((row) => row.section === "repos");
   return [
     { id: "recent", label: t("palette.recent"), rows: recent, offset: 0 },
     { id: "commands", label: t("palette.commands"), rows: rest, offset: recent.length },
     {
+      id: "projects",
+      label: t("palette.projects"),
+      rows: projectRows,
+      offset: recent.length + rest.length,
+    },
+    {
       id: "repos",
       label: t("palette.repos"),
       rows: repoRows,
-      offset: recent.length + rest.length,
+      offset: recent.length + rest.length + projectRows.length,
     },
   ].filter((section) => section.rows.length > 0);
 });

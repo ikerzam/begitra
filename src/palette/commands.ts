@@ -78,6 +78,15 @@ export interface PaletteActions {
   /** Whether some worktree entry can be pruned (its folder is gone). */
   hasPrunableWorktrees: () => boolean;
   pruneWorktrees: () => void;
+  /** Whether a project was shown last (the active project). */
+  hasActiveProject: () => boolean;
+  newProject: () => void;
+  editProject: () => void;
+  showProject: (tab: "overview" | "changes") => Promise<void>;
+  /** Fetches every member of the active project from its Overview. */
+  fetchProject: () => Promise<void>;
+  /** Opens the member after (1) or before (-1) the open repository in the active project. */
+  projectNeighbour: (step: 1 | -1) => Promise<void>;
 }
 
 export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
@@ -283,6 +292,50 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       labelKey: "palette.commandsById.prune-worktrees",
       enabled: () => withRepo() && actions.hasPrunableWorktrees(),
       run: actions.pruneWorktrees,
+    },
+    {
+      id: "new-project",
+      labelKey: "palette.commandsById.new-project",
+      enabled: always,
+      run: actions.newProject,
+    },
+    {
+      id: "edit-project",
+      labelKey: "palette.commandsById.edit-project",
+      enabled: actions.hasActiveProject,
+      run: actions.editProject,
+    },
+    {
+      id: "show-project-overview",
+      labelKey: "palette.commandsById.show-project-overview",
+      enabled: actions.hasActiveProject,
+      run: () => actions.showProject("overview"),
+    },
+    {
+      id: "show-project-changes",
+      labelKey: "palette.commandsById.show-project-changes",
+      enabled: actions.hasActiveProject,
+      run: () => actions.showProject("changes"),
+    },
+    {
+      id: "fetch-project",
+      labelKey: "palette.commandsById.fetch-project",
+      enabled: actions.hasActiveProject,
+      run: actions.fetchProject,
+    },
+    {
+      id: "next-project-repo",
+      labelKey: "palette.commandsById.next-project-repo",
+      shortcutId: "next-project-repo",
+      enabled: actions.hasActiveProject,
+      run: () => actions.projectNeighbour(1),
+    },
+    {
+      id: "previous-project-repo",
+      labelKey: "palette.commandsById.previous-project-repo",
+      shortcutId: "previous-project-repo",
+      enabled: actions.hasActiveProject,
+      run: () => actions.projectNeighbour(-1),
     },
     ...["stage-file", "unstage-file", "discard-file", "commit"].map((id) => ({
       id,

@@ -172,6 +172,8 @@ useShortcut("changes-focus", () => {
 useShortcut("diff-from", () => {
   if (repo.state.kind === "ready") picker.open({ kind: "diff-from" });
 });
+useShortcut("next-project-repo", () => void projects.openNeighbour(1));
+useShortcut("previous-project-repo", () => void projects.openNeighbour(-1));
 useShortcut("push", () => {
   const branch = repo.currentBranch?.name;
   if (repo.state.kind === "ready" && branch) remotes.ask({ kind: "push", branch });

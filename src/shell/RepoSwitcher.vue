@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // The repository switcher of the top bar: the current name, and a menu (overlay treatment,
-// under the button) with the pinned repositories, the five most recent, "Go to repositories"
-// and "Open folder…". The current repository is marked; ↑↓ move, ↵ picks, esc closes.
+// under the button) with the active project's members while the open repository is one of
+// them, the pinned repositories, the five most recent, "Go to repositories" and "Open
+// folder…". The current repository is marked; ↑↓ move, ↵ picks, esc closes.
 
 import { Check, ChevronDown, FolderGit2, FolderOpen, LayoutGrid, ListTree } from "@lucide/vue";
 import { computed, nextTick, ref } from "vue";
@@ -13,6 +14,7 @@ import ContextMenuSeparator from "@/components/ContextMenuSeparator.vue";
 import { useDiscoveryFormat } from "@/discovery/useDiscoveryFormat";
 import type { IndexEntry } from "@/ipc/schemas";
 import { useIndexStore } from "@/stores/index";
+import { useProjectsStore } from "@/stores/projects";
 import { useRepoStore } from "@/stores/repo";
 
 const props = defineProps<{
@@ -25,6 +27,7 @@ const emit = defineEmits<{ openFolder: [] }>();
 
 const { t } = useI18n();
 const index = useIndexStore();
+const projects = useProjectsStore();
 const repo = useRepoStore();
 const format = useDiscoveryFormat();
 
@@ -32,7 +35,17 @@ const open = ref(false);
 const button = ref<HTMLElement | null>(null);
 
 const label = computed(() => props.repositoryName ?? t("topBar.noRepository"));
-const hasEntries = computed(() => index.pinned.length > 0 || index.recent.length > 0);
+/** The active project's members that are there, while the open repository is one of them. */
+const members = computed(() =>
+  projects.openIsMember
+    ? projects.activeMembers.flatMap((member) =>
+        member.entry && !member.missing ? [member.entry] : [],
+      )
+    : [],
+);
+const hasEntries = computed(
+  () => members.value.length > 0 || index.pinned.length > 0 || index.recent.length > 0,
+);
 
 function toggle(): void {
   open.value = !open.value;
@@ -90,6 +103,21 @@ function goToRepositories(): void {
       data-testid="repo-switcher-menu"
       @close="close"
     >
+      <template v-if="members.length > 0">
+        <p class="px-2 pt-1 pb-1 text-sm text-fg-muted" data-testid="switcher-project">
+          {{ projects.active?.name }}
+        </p>
+        <ContextMenuItem
+          v-for="entry in members"
+          :key="`project:${entry.path}`"
+          :label="entry.name"
+          :icon="icon(entry)"
+          :context="format.displayPath(entry.path)"
+          :aria-current="entry.path === props.repositoryRoot ? 'true' : undefined"
+          :data-path="entry.path"
+          @select="choose(entry)"
+        />
+      </template>
       <template v-if="index.pinned.length > 0">
         <p class="px-2 pt-1 pb-1 text-sm text-fg-muted">{{ t("switcher.pinned") }}</p>
         <ContextMenuItem

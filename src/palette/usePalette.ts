@@ -8,7 +8,7 @@ import type { PaletteCommand } from "./commands";
 
 export const RECENT_LIMIT = 3;
 
-export type PaletteSection = "recent" | "commands" | "repos";
+export type PaletteSection = "recent" | "commands" | "projects" | "repos";
 
 /** An indexed repository the Repos section can open. */
 export interface PaletteRepo {
@@ -41,6 +41,8 @@ export interface PaletteOptions {
   recents?: Ref<string[]>;
   /** The repositories of the Repos section. */
   repos?: Ref<PaletteRepo[]> | ComputedRef<PaletteRepo[]>;
+  /** The projects of the Projects section, listed whole while the query is empty. */
+  projects?: Ref<PaletteRepo[]> | ComputedRef<PaletteRepo[]>;
 }
 
 export interface Palette {
@@ -72,6 +74,11 @@ export function repoRowId(path: string): string {
   return `repo:${path}`;
 }
 
+/** The id of the row that opens the project at `key` (`project:<id>`). */
+export function projectRowId(key: string): string {
+  return `project:${key}`;
+}
+
 export function usePalette(options: PaletteOptions): Palette {
   const query = ref("");
   const cursor = ref(0);
@@ -93,23 +100,25 @@ export function usePalette(options: PaletteOptions): Palette {
     const rest = matching
       .filter((entry) => !recentRows.some((row) => row.command.id === entry.command.id))
       .map((entry): PaletteRow => ({ ...entry, section: "commands" }));
-    const repoRows = (options.repos?.value ?? [])
-      .filter((repo) =>
-        empty ? repo.featured : matchesQuery(`${repo.name} ${repo.context}`, query.value),
-      )
-      .map((repo): PaletteRow => ({
-        command: {
-          id: repoRowId(repo.path),
-          labelKey: "",
-          enabled: () => true,
-          run: repo.run,
-        },
-        label: repo.name,
-        context: repo.context,
-        icon: repo.icon,
-        section: "repos",
-      }));
-    return [...recentRows, ...rest, ...repoRows];
+    const rowsOf = (
+      entries: PaletteRepo[],
+      section: "projects" | "repos",
+      id: (key: string) => string,
+    ): PaletteRow[] =>
+      entries
+        .filter((repo) =>
+          empty ? repo.featured : matchesQuery(`${repo.name} ${repo.context}`, query.value),
+        )
+        .map((repo) => ({
+          command: { id: id(repo.path), labelKey: "", enabled: () => true, run: repo.run },
+          label: repo.name,
+          context: repo.context,
+          icon: repo.icon,
+          section,
+        }));
+    const projectRows = rowsOf(options.projects?.value ?? [], "projects", projectRowId);
+    const repoRows = rowsOf(options.repos?.value ?? [], "repos", repoRowId);
+    return [...recentRows, ...rest, ...projectRows, ...repoRows];
   });
 
   const isEmpty = computed(() => rows.value.length === 0);
@@ -129,7 +138,7 @@ export function usePalette(options: PaletteOptions): Palette {
   }
 
   async function run(row: PaletteRow): Promise<void> {
-    if (row.section !== "repos") {
+    if (row.section !== "repos" && row.section !== "projects") {
       recents.value = [
         row.command.id,
         ...recents.value.filter((id) => id !== row.command.id),
