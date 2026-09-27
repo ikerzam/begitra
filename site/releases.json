@@ -1,5 +1,18 @@
 [
   {
+    "version": "0.4.0",
+    "date": "2026-09-27",
+    "title": { "en": "Projects", "es": "Proyectos" },
+    "highlight": {
+      "en": "Projects: every repository of a product in one view",
+      "es": "Proyectos: todos los repositorios de un producto en una vista"
+    },
+    "notes": {
+      "en": "Group repositories and worktrees from any folder into a project. Its Overview shows where each one stands (branch, ahead and behind, changes, an operation in progress, the last commit and the last fetch) and fetches, pulls fast-forward only, pushes, switches or creates a branch in all of them at once, four at a time, without a sign-in window for each; a failure keeps git's words one click away. Alt+Down and Alt+Up move between the project's repositories.",
+      "es": "Agrupa repositorios y worktrees de cualquier carpeta en un proyecto. Su Resumen muestra cómo está cada uno (rama, adelante y atrás, cambios, una operación en curso, el último commit y el último fetch) y hace fetch, pull solo fast-forward, push, cambia o crea una rama en todos a la vez, de cuatro en cuatro, sin una ventana de inicio de sesión por cada uno; un fallo deja las palabras de git a un clic. Alt+Abajo y Alt+Arriba pasan de un repositorio del proyecto a otro."
+    }
+  },
+  {
     "version": "0.3.0",
     "date": "2026-09-25",
     "title": { "en": "The folder view", "es": "La vista de carpeta" },
