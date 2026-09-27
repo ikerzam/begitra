@@ -1051,5 +1051,97 @@
     "scanAgain": "Scan again",
     "allClean": "Nothing to commit in {n} repository. | Nothing to commit in {n} repositories.",
     "allCleanDetail": "Nothing to commit in {folder}. Edit files, or let an agent, and they show up here."
+  },
+  "project": {
+    "overview": "Overview",
+    "changes": "Changes",
+    "tabs": "Project view",
+    "repositories": "{n} repository | {n} repositories",
+    "readingMeta": "reading {n} repository | reading {n} repositories",
+    "changesMeta": "{n} repository with changes, {without} without | {n} repositories with changes, {without} without",
+    "refresh": "Read every repository again",
+    "edit": "Edit project…",
+    "saveAsProject": "Save as project",
+    "columns": {
+      "repository": "Repository",
+      "branch": "Branch",
+      "ahead": "Ahead",
+      "changes": "Changes",
+      "status": "Status",
+      "lastCommit": "Last commit",
+      "fetched": "Fetched"
+    },
+    "selectAll": "Select every repository",
+    "select": "Select {name}",
+    "worktree": "Linked worktree",
+    "files": "{n} file | {n} files",
+    "neverFetched": "never fetched",
+    "fetchedWith": "fetched with {name}",
+    "operation": {
+      "merge": "Merging",
+      "rebase": "Rebasing",
+      "cherry-pick": "Cherry-picking",
+      "revert": "Reverting"
+    },
+    "operationWord": {
+      "merge": "merge",
+      "rebase": "rebase",
+      "cherry-pick": "cherry-pick",
+      "revert": "revert"
+    },
+    "missing": "Folder missing",
+    "removeFromProject": "Remove from project",
+    "readFailed": "Couldn't read it",
+    "showOutput": "Show output",
+    "hideOutput": "Hide",
+    "terminal": "Open {name} in terminal",
+    "editor": "Open {name} in editor",
+    "hint": "Space selects a repository and {selectAll} all of them; the actions work on the selection, or on every repository when none is selected.",
+    "groupCount": "{n} of {total}",
+    "groups": "Branches of the project's repositories",
+    "empty": "No repositories in {project}.",
+    "run": {
+      "queued": "Queued",
+      "stopped": "Stopped",
+      "skipped": "Skipped: {reason}",
+      "running": {
+        "fetch": "Fetching",
+        "pull": "Pulling",
+        "push": "Pushing",
+        "switch": "Switching",
+        "create": "Creating"
+      },
+      "done": {
+        "fetched": "Fetched",
+        "fetched-with": "Fetched with {name}",
+        "fast-forward": "Pulled, fast-forward",
+        "up-to-date": "Up to date",
+        "pushed": "Pushed",
+        "switched": "Switched to {name}",
+        "created": "Created {name}"
+      }
+    },
+    "skip": {
+      "missing": "folder missing",
+      "detached": "detached HEAD",
+      "no-upstream": "no upstream",
+      "local-upstream": "its upstream is a local branch",
+      "other-name": "its upstream has another name",
+      "nothing-to-push": "nothing to push",
+      "operation": "a {operation} is in progress",
+      "uncommitted": "uncommitted changes",
+      "same-branch": "already on it",
+      "unread": "couldn't read it",
+      "push-remote": "pushes go to {remote}"
+    },
+    "failure": {
+      "sign-in": "Sign-in needed",
+      "rejected": "Rejected by the remote",
+      "diverged": "Diverged from its upstream",
+      "local-changes": "Local changes in the way",
+      "network": "Network unreachable",
+      "upstream-gone": "Its upstream left the remote",
+      "branch-exists": "The branch already exists"
+    }
   }
 }

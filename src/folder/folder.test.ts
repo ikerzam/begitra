@@ -17,7 +17,7 @@ import { mountWithI18n } from "@/test/mount";
 
 import { useOpenFolder } from "@/shell/useOpenFolder";
 
-import FolderLayout from "./FolderLayout.vue";
+import ProjectLayout from "@/project/ProjectLayout.vue";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 const { open: pickFolder } = await import("@tauri-apps/plugin-dialog");
@@ -70,7 +70,8 @@ async function mountFolder(options: FakeBackendOptions = {}) {
   });
   await useIndexStore().load();
   await useFolderStore().open(CODE);
-  const wrapper = mountWithI18n(FolderLayout, { attachTo: document.body });
+  // The folder view is the Changes tab of the view of the folder.
+  const wrapper = mountWithI18n(ProjectLayout, { attachTo: document.body });
   for (let i = 0; i < 4; i += 1) await settled();
   return { wrapper, calls };
 }
@@ -101,7 +102,7 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-describe("FolderLayout", () => {
+describe("the folder view's Changes", () => {
   it("shows a section per repository with changes and the others in the group", async () => {
     const { wrapper } = await mountFolder();
     expect(names(wrapper)).toEqual(["api", "web"]);

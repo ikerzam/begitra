@@ -78,7 +78,7 @@ describe("App", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     await flushPromises();
     const commands = calls.filter((cmd) => !cmd.startsWith("plugin:"));
-    expect(commands.slice(0, 2)).toEqual(["list_repositories", "open_repository"]);
+    expect(commands.slice(0, 3)).toEqual(["list_repositories", "projects", "open_repository"]);
     expect(useRepoStore().repo?.root).toBe("/r");
     expect(wrapper.get('[data-testid="top-bar"]').text()).toContain("r");
     expect(calls).toContain("watch_repository");

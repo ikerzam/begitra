@@ -1,12 +1,12 @@
 <script setup lang="ts">
-// The folder view: the list panel (the folder with the number of repositories
-// with changes and the refresh button, the scan's line while it walks, a section per repository
-// with changes, the group of the others, and the commit box of the repository the selection is
-// in), the divider of the changes screen, and the viewer of the selected file. The keys are
-// `useFolderKeys`'s; a discard confirms once and names the repository.
+// The Changes tab of the project view and the folder view: the list
+// panel (the scan's line while it walks, a section per repository with changes, the group of
+// the others, and the commit box of the repository the selection is in), the divider of the
+// changes screen, and the viewer of the selected file. The header, the refresh and the view's
+// lifecycle are `ProjectLayout`'s. The keys are `useFolderKeys`'s; a discard confirms once and
+// names the repository.
 
-import { RefreshCw } from "@lucide/vue";
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ChangesScope from "@/changes/ChangesScope.vue";
@@ -17,8 +17,6 @@ import Button from "@/components/Button.vue";
 import Dialog from "@/components/Dialog.vue";
 import EmptyState from "@/components/EmptyState.vue";
 import ErrorBanner from "@/components/ErrorBanner.vue";
-import IconButton from "@/components/IconButton.vue";
-import PanelHeader from "@/components/PanelHeader.vue";
 import SkeletonRow from "@/components/SkeletonRow.vue";
 import { useDiscoveryFormat } from "@/discovery/useDiscoveryFormat";
 import { errorText } from "@/shell/errorMessage";
@@ -87,9 +85,6 @@ watch(
     if (before === null && now !== null && idle) void nextTick(() => keys.focusActive());
   },
 );
-
-onMounted(() => folder.show());
-onBeforeUnmount(() => folder.hide());
 </script>
 
 <template>
@@ -99,21 +94,6 @@ onBeforeUnmount(() => folder.hide());
       :style="{ width: listsWidth }"
       data-testid="folder-panel"
     >
-      <PanelHeader
-        :title="shownFolder"
-        mono
-        :tooltip="folder.folder ?? undefined"
-        :count="folder.state === 'changes' ? folder.sections.length : undefined"
-      >
-        <template #actions>
-          <IconButton
-            :label="t('folder.refresh')"
-            :icon="RefreshCw"
-            data-testid="folder-refresh"
-            @click="folder.refresh()"
-          />
-        </template>
-      </PanelHeader>
       <div class="flex min-h-0 flex-1 flex-col overflow-y-auto" data-testid="folder-sections">
         <p
           v-if="reading || folder.scanning"

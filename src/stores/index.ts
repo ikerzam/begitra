@@ -403,13 +403,17 @@ export const useIndexStore = defineStore("index", () => {
   /**
    * Describes one entry again and stores the result; a vanished one is flagged missing. Without
    * `dirty` the working tree is not scanned and the stored dirty flag stays: for the open
-   * repository, whose flag nothing shows until it is no longer open.
+   * repository, whose flag nothing shows until it is no longer open. Resolves with the reason
+   * the entry could not be read, null when it was.
    */
-  async function refresh(path: string, dirty = true): Promise<void> {
+  async function refresh(path: string, dirty = true): Promise<AppError | null> {
     try {
       upsert(await ipc.refreshRepository(path, dirty));
+      return null;
     } catch (error) {
-      if (toAppError(error).code === "repo.not_found") markMissing([path]);
+      const failed = toAppError(error);
+      if (failed.code === "repo.not_found") markMissing([path]);
+      return failed;
     }
   }
 

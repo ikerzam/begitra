@@ -1051,5 +1051,97 @@
     "scanAgain": "Escanear de nuevo",
     "allClean": "Nada que commitear en {n} repositorio. | Nada que commitear en {n} repositorios.",
     "allCleanDetail": "Nada que commitear en {folder}. Edita ficheros, o deja que lo haga un agente, y aparecerán aquí."
+  },
+  "project": {
+    "overview": "Resumen",
+    "changes": "Cambios",
+    "tabs": "Vista del proyecto",
+    "repositories": "{n} repositorio | {n} repositorios",
+    "readingMeta": "leyendo {n} repositorio | leyendo {n} repositorios",
+    "changesMeta": "{n} repositorio con cambios, {without} sin cambios | {n} repositorios con cambios, {without} sin cambios",
+    "refresh": "Volver a leer todos los repositorios",
+    "edit": "Editar proyecto…",
+    "saveAsProject": "Guardar como proyecto",
+    "columns": {
+      "repository": "Repositorio",
+      "branch": "Rama",
+      "ahead": "Adelante",
+      "changes": "Cambios",
+      "status": "Estado",
+      "lastCommit": "Último commit",
+      "fetched": "Fetch"
+    },
+    "selectAll": "Seleccionar todos los repositorios",
+    "select": "Seleccionar {name}",
+    "worktree": "Worktree enlazado",
+    "files": "{n} fichero | {n} ficheros",
+    "neverFetched": "sin fetch",
+    "fetchedWith": "fetch con {name}",
+    "operation": {
+      "merge": "Merge en curso",
+      "rebase": "Rebase en curso",
+      "cherry-pick": "Cherry-pick en curso",
+      "revert": "Revert en curso"
+    },
+    "operationWord": {
+      "merge": "merge",
+      "rebase": "rebase",
+      "cherry-pick": "cherry-pick",
+      "revert": "revert"
+    },
+    "missing": "Carpeta no encontrada",
+    "removeFromProject": "Quitar del proyecto",
+    "readFailed": "No se ha podido leer",
+    "showOutput": "Ver salida",
+    "hideOutput": "Ocultar",
+    "terminal": "Abrir {name} en el terminal",
+    "editor": "Abrir {name} en el editor",
+    "hint": "Espacio selecciona un repositorio y {selectAll} todos; las acciones actúan sobre la selección, o sobre todos los repositorios si no hay ninguno seleccionado.",
+    "groupCount": "{n} de {total}",
+    "groups": "Ramas de los repositorios del proyecto",
+    "empty": "No hay repositorios en {project}.",
+    "run": {
+      "queued": "En cola",
+      "stopped": "Detenido",
+      "skipped": "Omitido: {reason}",
+      "running": {
+        "fetch": "Haciendo fetch",
+        "pull": "Haciendo pull",
+        "push": "Haciendo push",
+        "switch": "Cambiando de rama",
+        "create": "Creando"
+      },
+      "done": {
+        "fetched": "Fetch hecho",
+        "fetched-with": "Fetch con {name}",
+        "fast-forward": "Pull hecho, fast-forward",
+        "up-to-date": "Al día",
+        "pushed": "Push hecho",
+        "switched": "En {name}",
+        "created": "{name} creada"
+      }
+    },
+    "skip": {
+      "missing": "carpeta no encontrada",
+      "detached": "HEAD separado",
+      "no-upstream": "sin upstream",
+      "local-upstream": "su upstream es una rama local",
+      "other-name": "su upstream tiene otro nombre",
+      "nothing-to-push": "nada que subir",
+      "operation": "hay un {operation} en curso",
+      "uncommitted": "cambios sin commitear",
+      "same-branch": "ya está en ella",
+      "unread": "no se ha podido leer",
+      "push-remote": "sus push van a {remote}"
+    },
+    "failure": {
+      "sign-in": "Hace falta iniciar sesión",
+      "rejected": "Rechazado por el remoto",
+      "diverged": "Divergió de su upstream",
+      "local-changes": "Cambios locales en medio",
+      "network": "Red inaccesible",
+      "upstream-gone": "Su upstream ya no está en el remoto",
+      "branch-exists": "La rama ya existe"
+    }
   }
 }

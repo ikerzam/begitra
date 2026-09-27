@@ -64,6 +64,10 @@ export interface FakeBackendOptions {
   worktrees?: Worktree[];
   /** What `refresh_repository` answers for a path; a path not listed answers nothing. */
   summaries?: Record<string, RepoSummary>;
+  /** `refresh_repository` rejects with these errors, per path. */
+  summaryErrors?: Record<string, { code: string; message: string; detail?: string }>;
+  /** `refresh_repository` answers after this many milliseconds. */
+  summaryDelayMs?: number;
   /** `worktree_remove` without `force` rejects with `worktree.dirty` for these paths. */
   dirtyWorktrees?: string[];
   /** `worktree_add` rejects with `git.cli_failed`. */
@@ -938,11 +942,17 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
           } satisfies CommitContext;
         case "refresh_repository": {
           const path = args["path"] as string;
+          const failure = options.summaryErrors?.[path];
+          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+          if (failure) return Promise.reject(failure);
           const summary = options.summaries?.[path];
           if (!summary) return null;
           // A listed repository keeps its row, as the index does; the summary is new.
           const known = options.repositories?.find((entry) => entry.path === path);
-          return known ? { ...known, summary } : entryFor(path, summary);
+          const answer = known ? { ...known, summary } : entryFor(path, summary);
+          const delay = options.summaryDelayMs;
+          if (delay) return new Promise((resolve) => setTimeout(() => resolve(answer), delay));
+          return answer;
         }
         case "watch_repository":
         case "record_repository_open":

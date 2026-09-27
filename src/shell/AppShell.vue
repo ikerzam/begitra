@@ -18,7 +18,7 @@ import { useDragDrop } from "@/discovery/useDragDrop";
 import type { FileChange } from "@/ipc/schemas";
 import PaletteOverlay from "@/palette/PaletteOverlay.vue";
 import CompareLayout from "@/compare/CompareLayout.vue";
-import FolderLayout from "@/folder/FolderLayout.vue";
+import ProjectLayout from "@/project/ProjectLayout.vue";
 import PickerOverlay from "@/picker/PickerOverlay.vue";
 import { baseName, shortHash } from "@/shell/format";
 import { isOverlayTarget } from "@/shortcuts/registry";
@@ -33,6 +33,7 @@ import { usePickerStore } from "@/stores/picker";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
 import { useFolderStore } from "@/stores/folder";
+import { useProjectsStore } from "@/stores/projects";
 import { useSettingsStore } from "@/stores/settings";
 import { paneLimits, useShellStore } from "@/stores/shell";
 import { useToastsStore } from "@/stores/toasts";
@@ -65,6 +66,7 @@ const repo = useRepoStore();
 const index = useIndexStore();
 const settings = useSettingsStore();
 const folder = useFolderStore();
+const projects = useProjectsStore();
 const toasts = useToastsStore();
 const changes = useChangesStore();
 const worktrees = useWorktreesStore();
@@ -90,7 +92,7 @@ const compareLayout = ref<{ focusSides(): void } | null>(null);
 const worktreesLayout = ref<{ focusRows(): void } | null>(null);
 const settingsLayout = ref<{ focus(): void } | null>(null);
 const changesLayout = ref<{ focusLists(): void } | null>(null);
-const folderLayout = ref<{ focusLists(): void } | null>(null);
+const projectLayout = ref<{ focus(): void } | null>(null);
 
 const repositoryName = computed(() => (repo.repo ? baseName(repo.repo.root) : null));
 const reviewMode = computed(() => shell.layoutMode === "review" && repo.state.kind === "ready");
@@ -105,9 +107,11 @@ const worktreesMode = computed(
 );
 const settingsMode = computed(() => shell.layoutMode === "settings");
 const changesMode = computed(() => shell.layoutMode === "changes" && repo.state.kind === "ready");
-/** The folder view shows with or without an open repository. */
-const folderMode = computed(
-  () => shell.layoutMode === "folder" && settings.values.folderView !== null,
+/** The project view and the folder view show with or without an open repository. */
+const projectMode = computed(
+  () =>
+    (shell.layoutMode === "folder" && settings.values.folderView !== null) ||
+    (shell.layoutMode === "project" && settings.values.activeProject !== null),
 );
 /**
  * One sidebar for every layout but review focus and the settings (which show the rail), so
@@ -197,6 +201,7 @@ async function launch(): Promise<void> {
   settingsScreen.applyOverrides();
   await settingsScreen.applyAtLaunch();
   void index.load();
+  void projects.load();
   const last = settings.values.lastRepository;
   if (!last) return;
   const failed = await index.restore(last);
@@ -259,8 +264,8 @@ watch(settingsMode, (on) => {
 watch(changesMode, (on) => {
   if (on) void nextTick(() => changesLayout.value?.focusLists());
 });
-watch(folderMode, (on) => {
-  if (on) void nextTick(() => folderLayout.value?.focusLists());
+watch(projectMode, (on) => {
+  if (on) void nextTick(() => projectLayout.value?.focus());
 });
 
 /** Switches to review focus, on `file` when the detail tree chose one. */
@@ -312,7 +317,7 @@ async function removeFromList(): Promise<void> {
       <WorktreesLayout v-else-if="worktreesMode" ref="worktreesLayout" />
       <SettingsLayout v-else-if="settingsMode" ref="settingsLayout" />
       <ChangesLayout v-else-if="changesMode" ref="changesLayout" />
-      <FolderLayout v-else-if="folderMode" ref="folderLayout" />
+      <ProjectLayout v-else-if="projectMode" ref="projectLayout" />
       <GraphFocusLayout
         v-else
         ref="graphLayout"

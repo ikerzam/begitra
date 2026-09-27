@@ -425,8 +425,8 @@ describe("launch and the watcher", () => {
     backend();
     const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
     await settle();
-    expect(wrapper.find('[data-testid="folder-view"]').exists()).toBe(true);
-    expect(wrapper.find('[data-testid="folder-panel"]').text()).toContain("/code");
+    expect(wrapper.find('[data-testid="project-view"]').exists()).toBe(true);
+    expect(wrapper.get('[data-testid="project-title"]').text()).toContain("/code");
     wrapper.unmount();
   });
 

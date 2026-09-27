@@ -229,13 +229,18 @@ export const useProjectsStore = defineStore("projects", () => {
     return true;
   }
 
-  /** Shows the view of project `id` on `tab` (the tab it was on when none is given). */
+  /**
+   * Shows the view of project `id` on `tab` (the tab it was on when none is given). The
+   * settings change at once and reach the disk together, so the view shows without waiting.
+   */
   async function open(id: number, tab?: ProjectTab): Promise<void> {
-    if (settings.values.activeProject !== id) await settings.update("activeProject", id);
+    const writes: Promise<void>[] = [];
+    if (settings.values.activeProject !== id) writes.push(settings.update("activeProject", id));
     if (tab !== undefined && settings.values.projectTab !== tab) {
-      await settings.update("projectTab", tab);
+      writes.push(settings.update("projectTab", tab));
     }
-    await shell.setLayoutMode("project");
+    writes.push(shell.setLayoutMode("project"));
+    await Promise.all(writes);
   }
 
   /** Opens the member after (1) or before (-1) the open repository in the active project. */
