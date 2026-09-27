@@ -246,14 +246,14 @@ fn plain_refspec(branch: Option<&str>) -> GitResult<()> {
     }
 }
 
-/// The environment of the merge or rebase half of a pull: the reflog names the pull.
-const PULL_ENV: [(&str, &str); 5] = [
-    WRITE_ENV[0],
-    WRITE_ENV[1],
-    WRITE_ENV[2],
-    WRITE_ENV[3],
-    ("GIT_REFLOG_ACTION", "pull"),
-];
+/// The environment of the merge or rebase half of a pull: the fetch's, since the checkout
+/// can still ask for a sign-in (a Git LFS smudge asks the credential helpers for its
+/// server), and the reflog names the pull.
+fn pull_env(prompts: Prompts) -> Vec<(&'static str, &'static str)> {
+    let mut env = network_env(prompts);
+    env.push(("GIT_REFLOG_ACTION", "pull"));
+    env
+}
 
 /// How long the merge or rebase half of a pull may run: it ignores the user's cancel on
 /// purpose (a killed merge leaves half an operation), so this is what stops a hook or a
@@ -267,8 +267,11 @@ const FINISH_LIMIT: std::time::Duration = std::time::Duration::from_secs(600);
 /// at any point, so the two halves run here as `git-pull.sh` ran them: `git merge
 /// FETCH_HEAD` with `pull.ff`, or `git rebase --onto FETCH_HEAD <fork point>` with the fork
 /// point `git pull --rebase` computes from the tracking branch's reflog. A fetch that
-/// brought nothing to merge (no upstream) is refused, as `git pull` refuses it. A
-/// fast-forward-only pull runs `git merge --ff-only FETCH_HEAD` whatever `pull.ff` says.
+/// brought nothing to merge is refused, as `git pull` refuses it: [`GitError::RefNotFound`]
+/// naming the upstream's branch when the branch has one (it left the remote), no upstream
+/// otherwise. A fast-forward-only pull runs `git merge --ff-only --no-autostash FETCH_HEAD`
+/// whatever `pull.ff` and `merge.autoStash` say: an autostash applied back after the
+/// fast-forward could conflict, and a local change in the way refuses instead.
 #[tracing::instrument(level = "debug", skip_all, fields(remote = ?request.remote, branch = ?request.branch, rebase = request.rebase, ff_only = request.ff_only, prompts = ?prompts))]
 pub(super) fn pull(
     engine: &Git2Engine,
@@ -301,12 +304,16 @@ pub(super) fn pull(
     let fetched = fetch_head(engine)?;
     if fetched.is_empty() {
         // `git pull` refuses before fetching; here the fetch happened and nothing else did.
-        return Err(GitError::Git(
-            "the fetch brought nothing to merge: the branch has no upstream".to_owned(),
-        ));
+        return Err(match upstream_merge(engine, request)? {
+            Some(merge) => GitError::RefNotFound(format!("{merge} on the remote")),
+            None => GitError::Git(
+                "the fetch brought nothing to merge: the branch has no upstream".to_owned(),
+            ),
+        });
     }
     let root = &GitEngine::repo(engine).root;
     let never = Cancel::never();
+    let env = pull_env(prompts);
     if request.rebase {
         let Some(onto) = fetched.first() else {
             return Err(GitError::Git(
@@ -321,7 +328,7 @@ pub(super) fn pull(
         let fork = fork_point(engine, request, &never)?;
         let upstream = fork.as_deref().unwrap_or(onto);
         let args = ["rebase", "--onto", onto, upstream];
-        let exit = run_git_env_within(root, &args, &PULL_ENV, &never, FINISH_LIMIT)?;
+        let exit = run_git_env_within(root, &args, &env, &never, FINISH_LIMIT)?;
         let outcome = sequencer::outcome(engine, &args, exit, OutcomeKind::Done, None, &never)?;
         let outcome = sequencer::after_autostash(engine, outcome, &never)?;
         if outcome.kind == OutcomeKind::Done && outcome.hash == before {
@@ -335,6 +342,7 @@ pub(super) fn pull(
     let mut args = vec!["merge"];
     if request.ff_only {
         args.push("--ff-only");
+        args.push("--no-autostash");
     } else {
         match pull_ff(engine)?.as_deref() {
             Some("only") => args.push("--ff-only"),
@@ -344,7 +352,7 @@ pub(super) fn pull(
         }
     }
     args.push("FETCH_HEAD");
-    let exit = run_git_env_within(root, &args, &PULL_ENV, &never, FINISH_LIMIT)?;
+    let exit = run_git_env_within(root, &args, &env, &never, FINISH_LIMIT)?;
     let outcome = sequencer::outcome(engine, &args, exit, OutcomeKind::Merged, None, &never)?;
     let outcome = sequencer::after_autostash(engine, outcome, &never)?;
     if outcome.kind != OutcomeKind::Merged {
@@ -372,6 +380,26 @@ fn fetch_head(engine: &Git2Engine) -> GitResult<Vec<String>> {
         .filter(|hash| hash.len() >= 40 && hash.chars().all(|c| c.is_ascii_hexdigit()))
         .map(str::to_owned)
         .collect())
+}
+
+/// The ref a pull would merge from its remote: the named branch, or the current branch's
+/// `branch.<name>.merge`; `None` when neither names one.
+fn upstream_merge(engine: &Git2Engine, request: &PullRequest) -> GitResult<Option<String>> {
+    if let Some(branch) = request.branch.as_deref() {
+        return Ok(Some(format!("refs/heads/{branch}")));
+    }
+    engine.with_repo(|repo| {
+        let Ok(head) = repo.head() else {
+            return Ok(None);
+        };
+        let Ok(name) = head.name() else {
+            return Ok(None);
+        };
+        match repo.branch_upstream_merge(name) {
+            Ok(buf) => Ok(buf.as_str().ok().map(str::to_owned)),
+            Err(_) => Ok(None),
+        }
+    })
 }
 
 /// The `pull.ff` setting (`only`, `false` or `true`), when set.

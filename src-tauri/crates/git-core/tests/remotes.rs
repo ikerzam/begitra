@@ -414,7 +414,10 @@ fn a_fast_forward_only_pull_moves_says_up_to_date_or_refuses_whatever_the_config
             &never(),
         )
         .expect_err("rebase and fast-forward only");
-    assert!(!matches!(error, GitError::Cli { .. }), "{error:?}");
+    assert!(
+        error.to_string().contains("rebase or a fast-forward only"),
+        "{error}"
+    );
     assert_eq!(f.head(), before);
     f.tick();
 }
@@ -538,6 +541,118 @@ fn nothing_may_prompt_in_a_fetch_pull_or_push_that_asks_so_and_a_local_remote_wo
         }
     }
     f.tick();
+}
+
+/// Commits `file` on `main` and pushes it to `origin`, then takes local `main` back one
+/// commit: the next pull fast-forwards onto it.
+fn upstream_one_ahead(f: &mut Fixture, file: &str, content: &str) -> String {
+    f.write(file, content);
+    let tip = f.commit(&format!("upstream: {file}"));
+    f.git(&["push", "-q", "origin", "main"]);
+    f.git(&["reset", "-q", "--hard", "HEAD~1"]);
+    tip
+}
+
+#[test]
+fn a_bulk_pull_checks_out_what_it_brought_with_nothing_allowed_to_prompt() {
+    let mut f = Fixture::basic().with_remote();
+    let e = engine(&f);
+    // A smudge filter stands for Git LFS, which asks the credential helpers for its server
+    // while the fast-forward checks the file out.
+    let out = f.sibling("smudge-env.txt");
+    let out_sh = out.to_str().expect("utf-8 temp path").replace('\\', "/");
+    f.git(&[
+        "config",
+        "filter.probe.smudge",
+        &format!("env > '{out_sh}'; cat"),
+    ]);
+    f.git(&["config", "filter.probe.clean", "cat"]);
+    fs::write(
+        f.git_dir().join("info").join("attributes"),
+        "*.probe filter=probe\n",
+    )
+    .expect("attributes");
+    let tip = upstream_one_ahead(&mut f, "tiles.probe", "tile\n");
+    let _ = fs::remove_file(&out);
+    let request = PullRequest {
+        remote: None,
+        branch: None,
+        rebase: false,
+        ff_only: true,
+    };
+    let outcome = e
+        .pull(&request, Prompts::Never, &mut |_| {}, &never())
+        .expect("pull");
+    assert_eq!(outcome.kind, OutcomeKind::FastForward);
+    assert_eq!(f.head(), tip);
+    let listing = fs::read_to_string(&out).expect("the smudge filter ran");
+    assert_eq!(env_value(&listing, "GCM_INTERACTIVE"), Some("never"));
+    assert_eq!(env_value(&listing, "SSH_ASKPASS_REQUIRE"), Some("never"));
+    assert_eq!(env_value(&listing, "GIT_ASKPASS"), Some(""));
+    assert_eq!(env_value(&listing, "GIT_REFLOG_ACTION"), Some("pull"));
+    f.tick();
+}
+
+#[test]
+fn a_fast_forward_only_pull_never_stashes_whatever_merge_autostash_says() {
+    let mut f = Fixture::basic().with_remote();
+    let e = engine(&f);
+    f.git(&["config", "merge.autoStash", "true"]);
+    upstream_one_ahead(&mut f, "README.md", "# Fixture\nfrom upstream\n");
+    let before = f.head();
+    // A local change to the file the upstream changed: a stash, the fast-forward and the
+    // stash back would conflict in a repository nobody is looking at.
+    f.write("README.md", "# Fixture\nlocal edit\n");
+    let request = PullRequest {
+        remote: None,
+        branch: None,
+        rebase: false,
+        ff_only: true,
+    };
+    let error = e
+        .pull(&request, Prompts::Never, &mut |_| {}, &never())
+        .expect_err("the local change is in the way");
+    match &error {
+        GitError::Cli { stderr, .. } => {
+            assert!(stderr.contains("would be overwritten"), "{stderr}");
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(f.head(), before);
+    assert_eq!(f.git(&["stash", "list"]), "");
+    assert_eq!(f.git(&["status", "--porcelain"]), " M README.md");
+    assert_eq!(
+        fs::read_to_string(f.root.join("README.md")).expect("readme"),
+        "# Fixture\nlocal edit\n"
+    );
+    f.tick();
+}
+
+#[test]
+fn a_pull_whose_upstream_left_the_remote_says_which_ref_was_not_fetched() {
+    let f = Fixture::basic().with_remote();
+    let e = engine(&f);
+    f.git(&["switch", "-q", "develop"]);
+    // Someone else deletes the branch on the remote; the tracking ref stays until a prune,
+    // so the summary still names the upstream.
+    let origin = f.sibling("origin.git");
+    f.git_in(&origin, &["branch", "-q", "-D", "develop"]);
+    assert!(f.try_git(&["rev-parse", "--verify", "origin/develop"]).0);
+    let request = PullRequest {
+        remote: None,
+        branch: None,
+        rebase: false,
+        ff_only: true,
+    };
+    let error = e
+        .pull(&request, Prompts::Never, &mut |_| {}, &never())
+        .expect_err("nothing to merge");
+    assert_eq!(error.code(), "refs.not_found", "{error}");
+    assert!(error.to_string().contains("refs/heads/develop"), "{error}");
+    // `git pull` refuses the same way, in its own words.
+    let (ok, _, stderr) = f.try_git(&["pull", "--ff-only"]);
+    assert!(!ok);
+    assert!(stderr.contains("no such ref was fetched"), "{stderr}");
 }
 
 #[test]
