@@ -12,6 +12,7 @@ pub mod cancel;
 pub mod error;
 pub mod index;
 pub mod migrations;
+pub mod projects;
 pub mod scanner;
 pub mod types;
 
@@ -19,6 +20,6 @@ pub use cancel::Cancel;
 pub use error::{IndexError, IndexResult};
 pub use index::Index;
 pub use types::{
-    Annotation, AnnotationKey, AnnotationKind, Found, IndexEntry, RepoKind, RepoSummary, ScanEvent,
-    ScanOptions,
+    Annotation, AnnotationKey, AnnotationKind, Found, IndexEntry, Operation, Project, RepoKind,
+    RepoSummary, ScanEvent, ScanOptions,
 };

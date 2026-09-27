@@ -21,7 +21,8 @@ use serde::Serialize;
 use syntax::{Highlight, Symbol, SymbolKind, Token, TokenClass};
 
 use repo_index::{
-    Annotation, AnnotationKind, IndexEntry, RepoKind, RepoSummary as IndexSummary, ScanOptions,
+    Annotation, AnnotationKind, IndexEntry, Operation as IndexOperation, RepoKind,
+    RepoSummary as IndexSummary, ScanOptions,
 };
 
 use crate::channels::StreamMessage;
@@ -463,8 +464,15 @@ fn index_entry(name: &str, kind: RepoKind, parent: Option<&str>) -> IndexEntry {
         summary: IndexSummary {
             current_branch: Some("main".to_owned()),
             detached: false,
+            upstream: Some("origin/main".to_owned()),
             ahead: Some(2),
             behind: Some(0),
+            operation: Some(if kind == RepoKind::Main {
+                IndexOperation::None
+            } else {
+                IndexOperation::Rebase
+            }),
+            fetched_at: (kind == RepoKind::Main).then_some(1_704_069_000),
             last_commit_at: Some(1_704_067_200),
             dirty: Some(true),
         },

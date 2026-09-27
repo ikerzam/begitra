@@ -7,7 +7,7 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::error::IndexResult;
 use crate::migrations;
-use crate::types::{Found, IndexEntry, RepoKind, RepoSummary};
+use crate::types::{Found, IndexEntry, Operation, RepoKind, RepoSummary};
 
 /// The index database.
 pub struct Index {
@@ -32,7 +32,7 @@ impl Index {
         Self::prepare(Connection::open_in_memory()?)
     }
 
-    fn prepare(mut connection: Connection) -> IndexResult<Self> {
+    pub(crate) fn prepare(mut connection: Connection) -> IndexResult<Self> {
         migrations::migrate(&mut connection)?;
         Ok(Self { connection })
     }
@@ -76,7 +76,8 @@ impl Index {
     pub fn update_summary(&self, path: &Path, summary: &RepoSummary, now: i64) -> IndexResult<()> {
         self.connection.execute(
             "UPDATE repos SET current_branch = ?2, detached = ?3, dirty = ?4, ahead = ?5,
-               behind = ?6, last_commit_at = ?7, refreshed_at = ?8, missing = 0
+               behind = ?6, last_commit_at = ?7, refreshed_at = ?8, missing = 0,
+               upstream = ?9, operation = ?10, fetched_at = ?11
              WHERE path = ?1",
             params![
                 path_text(path),
@@ -87,6 +88,9 @@ impl Index {
                 summary.behind,
                 summary.last_commit_at,
                 now,
+                summary.upstream,
+                summary.operation.map(operation_text),
+                summary.fetched_at,
             ],
         )?;
         Ok(())
@@ -96,7 +100,8 @@ impl Index {
     pub fn list(&self) -> IndexResult<Vec<IndexEntry>> {
         let mut statement = self.connection.prepare(
             "SELECT path, name, kind, parent_path, scan_root, current_branch, detached, dirty,
-                    ahead, behind, last_commit_at, pinned, last_opened_at, refreshed_at, missing
+                    ahead, behind, last_commit_at, pinned, last_opened_at, refreshed_at, missing,
+                    upstream, operation, fetched_at
              FROM repos ORDER BY pinned DESC, name COLLATE NOCASE ASC, path ASC",
         )?;
         let rows = statement.query_map([], entry_from_row)?;
@@ -109,7 +114,8 @@ impl Index {
             .connection
             .query_row(
                 "SELECT path, name, kind, parent_path, scan_root, current_branch, detached, dirty,
-                        ahead, behind, last_commit_at, pinned, last_opened_at, refreshed_at, missing
+                        ahead, behind, last_commit_at, pinned, last_opened_at, refreshed_at, missing,
+                        upstream, operation, fetched_at
                  FROM repos WHERE path = ?1",
                 params![path_text(path)],
                 entry_from_row,
@@ -204,8 +210,30 @@ impl Index {
     }
 }
 
-fn path_text(path: &Path) -> String {
+pub(crate) fn path_text(path: &Path) -> String {
     path.to_string_lossy().into_owned()
+}
+
+fn operation_text(operation: Operation) -> &'static str {
+    match operation {
+        Operation::None => "none",
+        Operation::Merge => "merge",
+        Operation::Rebase => "rebase",
+        Operation::CherryPick => "cherry-pick",
+        Operation::Revert => "revert",
+    }
+}
+
+/// The stored operation; a word this version does not know reads as unknown.
+fn operation_from_text(text: &str) -> Option<Operation> {
+    Some(match text {
+        "none" => Operation::None,
+        "merge" => Operation::Merge,
+        "rebase" => Operation::Rebase,
+        "cherry-pick" => Operation::CherryPick,
+        "revert" => Operation::Revert,
+        _ => return None,
+    })
 }
 
 fn kind_text(kind: RepoKind) -> &'static str {
@@ -220,6 +248,7 @@ fn entry_from_row(row: &Row<'_>) -> rusqlite::Result<IndexEntry> {
     let parent: Option<String> = row.get(3)?;
     let root: Option<String> = row.get(4)?;
     let path: String = row.get(0)?;
+    let operation: Option<String> = row.get(16)?;
     Ok(IndexEntry {
         path: PathBuf::from(path),
         name: row.get(1)?,
@@ -233,9 +262,12 @@ fn entry_from_row(row: &Row<'_>) -> rusqlite::Result<IndexEntry> {
         summary: RepoSummary {
             current_branch: row.get(5)?,
             detached: row.get(6)?,
+            upstream: row.get(15)?,
             dirty: row.get(7)?,
             ahead: row.get(8)?,
             behind: row.get(9)?,
+            operation: operation.as_deref().and_then(operation_from_text),
+            fetched_at: row.get(17)?,
             last_commit_at: row.get(10)?,
         },
         pinned: row.get(11)?,
@@ -248,6 +280,7 @@ fn entry_from_row(row: &Row<'_>) -> rusqlite::Result<IndexEntry> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::Operation;
 
     fn found(path: &str, kind: RepoKind, parent: Option<&str>) -> Found {
         Found {
@@ -350,17 +383,135 @@ mod tests {
     #[test]
     fn five_hundred_entries_list_quickly() {
         let index = Index::in_memory().expect("index");
+        let summary = RepoSummary {
+            current_branch: Some("main".to_owned()),
+            upstream: Some("origin/main".to_owned()),
+            ahead: Some(1),
+            behind: Some(0),
+            operation: Some(Operation::None),
+            fetched_at: Some(1_700_000_000),
+            last_commit_at: Some(1_700_000_000),
+            dirty: Some(false),
+            ..RepoSummary::default()
+        };
         for i in 0..500 {
+            let entry = found(&format!("/code/repo-{i:03}"), RepoKind::Main, None);
+            index.upsert_found(&entry, 1).expect("insert");
             index
-                .upsert_found(
-                    &found(&format!("/code/repo-{i:03}"), RepoKind::Main, None),
-                    1,
-                )
-                .expect("insert");
+                .update_summary(&entry.path, &summary, 2)
+                .expect("summary");
         }
         let started = std::time::Instant::now();
         let list = index.list().expect("list");
+        let elapsed = started.elapsed();
         assert_eq!(list.len(), 500);
-        assert!(started.elapsed() < std::time::Duration::from_millis(50));
+        assert_eq!(list[0].summary, summary);
+        assert!(
+            elapsed < std::time::Duration::from_millis(50),
+            "{elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn a_summary_keeps_the_upstream_the_operation_and_the_last_fetch() {
+        let index = Index::in_memory().expect("index");
+        let alpha = found("/code/alpha", RepoKind::Main, None);
+        index.upsert_found(&alpha, 1).expect("insert");
+        let fresh = index.get(&alpha.path).expect("get").expect("alpha");
+        assert_eq!(fresh.summary.upstream, None);
+        assert_eq!(
+            fresh.summary.operation, None,
+            "unknown until a summary reads it"
+        );
+        assert_eq!(fresh.summary.fetched_at, None);
+        for operation in [
+            Operation::Merge,
+            Operation::Rebase,
+            Operation::CherryPick,
+            Operation::Revert,
+            Operation::None,
+        ] {
+            let summary = RepoSummary {
+                current_branch: Some("develop".to_owned()),
+                upstream: Some("origin/develop".to_owned()),
+                operation: Some(operation),
+                fetched_at: Some(1_700_000_100),
+                ..RepoSummary::default()
+            };
+            index
+                .update_summary(&alpha.path, &summary, 2)
+                .expect("summary");
+            assert_eq!(
+                index.get(&alpha.path).expect("get").expect("alpha").summary,
+                summary
+            );
+            assert_eq!(index.list().expect("list")[0].summary, summary);
+        }
+    }
+
+    #[test]
+    fn an_index_of_version_3_keeps_its_rows_pins_recents_and_notes() {
+        let mut connection = Connection::open_in_memory().expect("database");
+        migrations::migrate_to(&mut connection, 3).expect("version 3");
+        for i in 0..40 {
+            connection
+                .execute(
+                    "INSERT INTO repos (path, name, kind, scan_root, current_branch, dirty, ahead,
+                       behind, last_commit_at, pinned, last_opened_at, refreshed_at)
+                     VALUES (?1, ?2, 'main', '/code', 'main', 0, 1, 2, 1700000000, ?3, ?4, 5)",
+                    params![
+                        format!("/code/repo-{i:02}"),
+                        format!("repo-{i:02}"),
+                        i < 3,
+                        (i % 10 == 0).then_some(1_700_000_000 + i64::from(i)),
+                    ],
+                )
+                .expect("row");
+        }
+        connection
+            .execute(
+                "INSERT INTO annotations (repo, target, path, hunk, kind, value, updated_at)
+                 VALUES ('/code/repo-00', 'HEAD', 'src/lib.rs', '', 'note', 'check', 9)",
+                [],
+            )
+            .expect("note");
+
+        let index = Index::prepare(connection).expect("migrated");
+        let version: u32 = index
+            .connection()
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .expect("version");
+        assert_eq!(version, migrations::CURRENT_VERSION);
+        let list = index.list().expect("list");
+        assert_eq!(list.len(), 40);
+        assert_eq!(list.iter().filter(|entry| entry.pinned).count(), 3);
+        assert_eq!(
+            list.iter()
+                .filter(|entry| entry.last_opened_at.is_some())
+                .count(),
+            4
+        );
+        let first = index
+            .get(Path::new("/code/repo-00"))
+            .expect("get")
+            .expect("repo-00");
+        assert!(first.pinned);
+        assert_eq!(first.last_opened_at, Some(1_700_000_000));
+        assert_eq!(
+            first.summary,
+            RepoSummary {
+                current_branch: Some("main".to_owned()),
+                dirty: Some(false),
+                ahead: Some(1),
+                behind: Some(2),
+                last_commit_at: Some(1_700_000_000),
+                ..RepoSummary::default()
+            }
+        );
+        assert!(index.projects().expect("projects").is_empty());
+        let notes = index
+            .list_annotations(Path::new("/code/repo-00"), "HEAD")
+            .expect("notes");
+        assert_eq!(notes.len(), 1);
     }
 }

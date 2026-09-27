@@ -11,7 +11,7 @@ pub enum MigrationError {
 }
 
 /// Schema version after applying every migration in [`MIGRATIONS`].
-pub const CURRENT_VERSION: u32 = 3;
+pub const CURRENT_VERSION: u32 = 4;
 
 /// SQL for each migration, indexed by version minus one.
 const MIGRATIONS: &[&str] = &[
@@ -83,12 +83,38 @@ const MIGRATIONS: &[&str] = &[
         updated_at INTEGER NOT NULL,
         PRIMARY KEY (repo, target, path, hunk, kind)
     );",
+    // Version 4: the upstream, the operation in progress and the last fetch of each entry,
+    // and projects. A member is a path, not a reference to a row of `repos`: scans and
+    // forgets delete rows, and a project keeps its member until the user removes it.
+    "ALTER TABLE repos ADD COLUMN upstream TEXT;
+    ALTER TABLE repos ADD COLUMN operation TEXT;
+    ALTER TABLE repos ADD COLUMN fetched_at INTEGER;
+    CREATE TABLE projects (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE project_members (
+        project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL,
+        path TEXT NOT NULL,
+        scope TEXT,
+        PRIMARY KEY (project_id, path)
+    );",
 ];
 
 /// Applies every pending migration and returns the resulting schema version.
 pub fn migrate(connection: &mut Connection) -> Result<u32, MigrationError> {
+    migrate_to(connection, CURRENT_VERSION)
+}
+
+/// Applies the pending migrations up to `target` (an index of an older version, for the
+/// upgrade tests) and returns the resulting schema version.
+pub(crate) fn migrate_to(connection: &mut Connection, target: u32) -> Result<u32, MigrationError> {
     let mut version: u32 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    while (version as usize) < MIGRATIONS.len() {
+    let target = (target as usize).min(MIGRATIONS.len());
+    while (version as usize) < target {
         let transaction = connection.transaction()?;
         transaction.execute_batch(MIGRATIONS[version as usize])?;
         version += 1;
@@ -115,7 +141,10 @@ mod tests {
             .expect("query runs")
             .collect::<Result<_, _>>()
             .expect("rows read");
-        assert_eq!(tables, vec!["annotations", "repos"]);
+        assert_eq!(
+            tables,
+            vec!["annotations", "project_members", "projects", "repos"]
+        );
     }
 
     #[test]

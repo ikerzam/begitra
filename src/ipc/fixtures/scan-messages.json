@@ -20,8 +20,11 @@
       "summary": {
         "currentBranch": null,
         "detached": false,
+        "upstream": null,
         "ahead": null,
         "behind": null,
+        "operation": null,
+        "fetchedAt": null,
         "lastCommitAt": null,
         "dirty": null
       },
@@ -42,8 +45,11 @@
       "summary": {
         "currentBranch": "main",
         "detached": false,
+        "upstream": "origin/main",
         "ahead": 2,
         "behind": 0,
+        "operation": "none",
+        "fetchedAt": 1704069000,
         "lastCommitAt": 1704067200,
         "dirty": true
       },

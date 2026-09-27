@@ -5,7 +5,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use git_core::engine::Cancel;
 use git_core::summary::{describe, describe_head, RepoSummary};
-use repo_index::{Found, IndexEntry, RepoKind};
+use git_core::types::OperationState;
+use repo_index::{Found, IndexEntry, Operation, RepoKind};
 use tauri::State;
 
 use crate::error::AppError;
@@ -45,10 +46,24 @@ pub fn index_summary(summary: &RepoSummary) -> repo_index::RepoSummary {
     repo_index::RepoSummary {
         current_branch: summary.current_branch.clone(),
         detached: summary.detached,
+        upstream: summary.upstream.clone(),
         ahead: summary.ahead,
         behind: summary.behind,
+        operation: Some(index_operation(summary.operation)),
+        fetched_at: summary.fetched_at,
         last_commit_at: summary.last_commit_at,
         dirty: summary.dirty,
+    }
+}
+
+/// The index's word for the engine's operation in progress.
+fn index_operation(operation: OperationState) -> Operation {
+    match operation {
+        OperationState::None => Operation::None,
+        OperationState::Merge => Operation::Merge,
+        OperationState::Rebase => Operation::Rebase,
+        OperationState::CherryPick => Operation::CherryPick,
+        OperationState::Revert => Operation::Revert,
     }
 }
 

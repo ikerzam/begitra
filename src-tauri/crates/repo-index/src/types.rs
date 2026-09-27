@@ -166,6 +166,22 @@ pub enum ScanEvent {
     },
 }
 
+/// The operation a working tree is in the middle of.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Operation {
+    /// Nothing in progress.
+    None,
+    /// A merge stopped on conflicts.
+    Merge,
+    /// A rebase.
+    Rebase,
+    /// A cherry-pick.
+    CherryPick,
+    /// A revert.
+    Revert,
+}
+
 /// The state of a repository as `git-core` describes it for the index.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -174,14 +190,38 @@ pub struct RepoSummary {
     pub current_branch: Option<String>,
     /// Whether HEAD is detached.
     pub detached: bool,
+    /// Short name of the branch's upstream (`origin/main`), `None` without one.
+    pub upstream: Option<String>,
     /// Commits ahead of the upstream, `None` without an upstream.
     pub ahead: Option<u32>,
     /// Commits behind the upstream, `None` without an upstream.
     pub behind: Option<u32>,
+    /// The operation in progress; `None` until a summary has read it (an entry an older
+    /// version stored).
+    pub operation: Option<Operation>,
+    /// When the working tree last fetched, unix seconds; `None` before any fetch or until a
+    /// summary has read it.
+    pub fetched_at: Option<i64>,
     /// Committer time of the tip, unix seconds.
     pub last_commit_at: Option<i64>,
     /// Whether the working tree has changes; `None` when status did not finish in time.
     pub dirty: Option<bool>,
+}
+
+/// A named, ordered group of repositories and worktrees.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Project {
+    /// Stable id.
+    pub id: i64,
+    /// The name the user gave it.
+    pub name: String,
+    /// Member paths in the user's order; a path need not have an index entry.
+    pub members: Vec<PathBuf>,
+    /// Creation time, unix seconds.
+    pub created_at: i64,
+    /// Time of the last rename or change of members, unix seconds.
+    pub updated_at: i64,
 }
 
 /// One row of the index, as the home screen lists it.
