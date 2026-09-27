@@ -422,11 +422,13 @@ export const useIndexStore = defineStore("index", () => {
   /**
    * Adds the repository or worktree at `path` to the index without opening it ("Add
    * repository…"): the entry the backend stores, spelled as the index spells it, or why it
-   * could not (`repo.not_found` for a folder that lies in no repository).
+   * could not (`repo.not_found` for a folder that lies in no repository). Its summary is read
+   * without a status of the working tree, seconds on a large one: the dirty flag stays unknown
+   * until a scan reads it, and a project's lists count the changes anyway.
    */
   async function add(path: string): Promise<IndexEntry | AppError> {
     try {
-      const entry = await ipc.refreshRepository(path, true);
+      const entry = await ipc.refreshRepository(path, false);
       upsert(entry);
       return entry;
     } catch (error) {

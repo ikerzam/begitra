@@ -108,6 +108,25 @@ describe("a bulk operation", () => {
     );
   });
 
+  it("reads a member's lists again after a pull, not after a fetch", async () => {
+    const calls = await showProject({}, [api, web]);
+    for (let i = 0; i < 6; i += 1) await settled();
+    const bulk = useBulkStore();
+    const lists = () => of(calls, "diff").filter((call) => call.args["repo"] === api.path).length;
+    const before = lists();
+    expect(before).toBeGreaterThan(0);
+    bulk.ask("fetch");
+    await finished(bulk);
+    for (let i = 0; i < 6; i += 1) await settled();
+    expect(lists()).toBe(before);
+    bulk.dismiss();
+    bulk.ask("pull");
+    bulk.confirm();
+    await finished(bulk);
+    for (let i = 0; i < 6; i += 1) await settled();
+    expect(lists()).toBeGreaterThan(before);
+  });
+
   it("does nothing while the Overview has no rows", async () => {
     fakeBackend({ repositories: [], projects: [projectOf(1, "Empty", [])] });
     const projects = useProjectsStore();

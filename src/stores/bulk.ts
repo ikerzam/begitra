@@ -212,9 +212,13 @@ export const useBulkStore = defineStore("bulk", () => {
           inFlight -= 1;
           families.delete(lane);
           handles.delete(job.path);
+          // A pull or a switch changes the working tree or the index, so the member's lists
+          // read again; a fetch, a push and a new branch at HEAD change neither, and a reload
+          // is a status of the whole tree, seconds on a large one.
+          const touchesTree = kind.value === "pull" || kind.value === "switch";
           for (const path of [job.path, ...job.riders]) {
             overview.refreshOne(path);
-            folder.reload(path);
+            if (touchesTree) folder.reload(path);
           }
           count();
           pump();
