@@ -103,8 +103,12 @@ export const useBulkStore = defineStore("bulk", () => {
     return row?.mainPath ?? path;
   }
 
-  /** Checks the selection (every row without one) for `next`; a fetch starts at once. */
+  /**
+   * Checks the selection (every row without one) for `next`; a fetch starts at once. Nothing
+   * happens while there is no row (the rows not known yet).
+   */
   function ask(next: BulkKind, target: string | null = null): void {
+    if (overview.targets.length === 0) return;
     const checked = precheck(next, overview.targets, target);
     if (next === "fetch") start(checked);
     else plan.value = checked;

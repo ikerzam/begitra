@@ -143,7 +143,7 @@ function toggle(path: string, on: boolean): void {
       />
     </template>
     <p v-if="shown.length === 0" class="py-2 text-sm text-fg-muted" data-testid="checklist-empty">
-      {{ t("project.checklistEmpty") }}
+      {{ props.query.trim() ? t("project.checklistEmpty") : t("project.checklistNothing") }}
     </p>
   </div>
 </template>

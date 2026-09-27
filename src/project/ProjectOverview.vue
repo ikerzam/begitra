@@ -71,6 +71,7 @@ defineExpose({ focusRows: (): void => table.value?.focusRows() });
           :message="problem.message"
           :output="problem.output"
           open
+          plain-output
           :action="t('changes.tryAgain')"
           @action="retry"
         />
@@ -89,7 +90,7 @@ defineExpose({ focusRows: (): void => table.value?.focusRows() });
         </Button>
       </EmptyState>
       <template v-else>
-        <OverviewTable ref="table" :loading="loading" />
+        <OverviewTable ref="table" :loading="loading" :rows-known="overview.rowsKnown" />
         <p class="px-3 py-3 text-sm text-fg-muted" data-testid="overview-hint">
           {{ t("project.hint", { selectAll: selectAllKeys }) }}
         </p>

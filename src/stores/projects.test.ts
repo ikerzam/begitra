@@ -63,6 +63,13 @@ describe("project members", () => {
     expect(member?.path).toBe("C:\\Code\\geo\\api");
   });
 
+  it("flags no member missing until the index is read", () => {
+    const members = resolveMembers(geoportal, [], false);
+    expect(members.map((member) => member.missing)).toEqual([false, false, false, false]);
+    expect(attentionOf(members)).toEqual({ changes: 0, behind: 0, operations: {}, missing: 0 });
+    expect(neighbourOf(members, null, 1)).toBeNull();
+  });
+
   it("counts what needs attention", () => {
     const attention = attentionOf(resolveMembers(geoportal, [api, web, webAuth, gone]));
     expect(attention).toEqual({ changes: 1, behind: 1, operations: { rebase: 1 }, missing: 1 });

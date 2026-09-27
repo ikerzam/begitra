@@ -1,8 +1,9 @@
 <script setup lang="ts">
-// The members of the edit dialog: 32px rows with the grip, the lane dot (grey for a
-// missing member), the name, the path in mono, "missing", and move up, move down and remove.
-// One tab stop: ↑↓ and j/k move the focus, Ctrl ↑ and Ctrl ↓ (⌘ on macOS) move the focused
-// member, Delete removes it.
+// The members of the edit dialog: 32px rows with the grip, the lane dot (its branch's
+// among these members, as the Overview colours them; grey for a missing member), the name, the
+// path in mono, "missing", and move up, move down and remove. One tab stop: ↑↓ and j/k move the
+// focus, Ctrl ↑ and Ctrl ↓ (⌘ on macOS) move the focused member, Delete removes it; the focus
+// stays in the list, on the list itself once it is empty. Ten rows, then the list scrolls.
 
 import { ChevronDown, ChevronUp, GripVertical, X } from "@lucide/vue";
 import { computed, nextTick, ref } from "vue";
@@ -14,30 +15,44 @@ import { useDiscoveryFormat } from "@/discovery/useDiscoveryFormat";
 import { matchesKeys } from "@/shortcuts/platform";
 import { shortcutRegistry } from "@/shortcuts/registry";
 import { rowStep } from "@/shortcuts/useListNavigation";
-import { useOverviewStore } from "@/stores/overview";
+import { branchGroups } from "@/stores/overview";
 import type { ProjectMember } from "@/stores/projects";
 
 const props = defineProps<{ members: ProjectMember[] }>();
 const emit = defineEmits<{ move: [at: number, step: -1 | 1]; remove: [at: number] }>();
 
 const { t } = useI18n();
-const overview = useOverviewStore();
 const format = useDiscoveryFormat();
 const list = ref<HTMLElement | null>(null);
 const focused = ref(0);
 
 const stop = computed(() => Math.min(focused.value, props.members.length - 1));
 
+const branchOf = (member: ProjectMember): string | null =>
+  member.missing ? null : (member.entry?.summary.currentBranch ?? null);
+
+/** The members' branches as lanes, most common first, as the Overview colours them. */
+const lanes = computed(
+  () =>
+    new Map(branchGroups(props.members.map(branchOf)).map((group) => [group.branch, group.lane])),
+);
+
 function lane(member: ProjectMember): number {
-  const branch = member.entry?.summary.currentBranch;
-  return branch ? (overview.lanes.get(branch) ?? 0) : 0;
+  const branch = branchOf(member);
+  return branch === null ? 0 : (lanes.value.get(branch) ?? 0);
 }
 
+/** Focuses row `at` once the list shows the change, clamped to its rows; the list without any. */
 function focusRow(at: number): void {
-  focused.value = Math.max(0, Math.min(at, props.members.length - 1));
-  void nextTick(() =>
-    list.value?.querySelectorAll<HTMLElement>("[data-member]")[focused.value]?.focus(),
-  );
+  void nextTick(() => {
+    const rows = Array.from(list.value?.querySelectorAll<HTMLElement>("[data-member]") ?? []);
+    if (rows.length === 0) {
+      list.value?.focus();
+      return;
+    }
+    focused.value = Math.max(0, Math.min(at, rows.length - 1));
+    rows[focused.value]?.focus();
+  });
 }
 
 function onKeydown(event: KeyboardEvent, at: number): void {
@@ -67,7 +82,8 @@ function onKeydown(event: KeyboardEvent, at: number): void {
 <template>
   <ul
     ref="list"
-    class="flex flex-col overflow-y-auto rounded-md border border-line"
+    tabindex="-1"
+    class="members flex flex-col overflow-y-auto rounded-md border border-line"
     :aria-label="t('project.new.repositories')"
     data-testid="edit-project-members"
   >
@@ -129,7 +145,8 @@ function onKeydown(event: KeyboardEvent, at: number): void {
 .edit-member {
   grid-template-columns: 14px 8px 130px minmax(0, 1fr) auto 24px 24px 24px;
 }
-.edit-member:focus-visible {
-  outline: none;
+/* Ten rows, then the list scrolls, so Save stays in the window. */
+.members {
+  max-height: 320px;
 }
 </style>

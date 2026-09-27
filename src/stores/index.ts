@@ -105,6 +105,8 @@ export const useIndexStore = defineStore("index", () => {
   const loaded = ref(false);
   const loading = ref(false);
   const loadError = ref<AppError | null>(null);
+  /** Whether `entries` are the index's: listed, and the last listing did not fail. */
+  const read = computed(() => loaded.value && loadError.value === null);
   const scan = ref<ScanState>({ kind: "idle" });
   /** The error that ended the last scan, other than a stop. */
   const scanError = ref<AppError | null>(null);
@@ -537,6 +539,7 @@ export const useIndexStore = defineStore("index", () => {
     loaded,
     loading,
     loadError,
+    read,
     scan,
     scanError,
     folderErrors,

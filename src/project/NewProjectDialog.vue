@@ -72,8 +72,8 @@ async function create(): Promise<void> {
     @confirm="() => void create()"
     @cancel="dialogs.close()"
   >
-    <label class="form-row grid items-center gap-4 text-md text-fg-secondary">
-      <span>{{ t("project.new.name") }}</span>
+    <label class="form-row grid items-start gap-3 text-md text-fg-secondary">
+      <span class="flex h-6 items-center">{{ t("project.new.name") }}</span>
       <Input
         v-model="name"
         class="flex-1"
@@ -83,8 +83,8 @@ async function create(): Promise<void> {
         @keydown.enter.prevent="() => void create()"
       />
     </label>
-    <label class="form-row grid items-center gap-4 text-md text-fg-secondary">
-      <span>{{ t("project.new.repositories") }}</span>
+    <label class="form-row grid items-start gap-3 text-md text-fg-secondary">
+      <span class="flex h-6 items-center">{{ t("project.new.repositories") }}</span>
       <Input
         v-model="query"
         class="flex-1"
@@ -110,8 +110,8 @@ async function create(): Promise<void> {
 </template>
 
 <style scoped>
-/* A form field's label takes 96px. */
+/* A form field's label takes 88px, 12px before its field. */
 .form-row {
-  grid-template-columns: 96px minmax(0, 1fr);
+  grid-template-columns: 88px minmax(0, 1fr);
 }
 </style>

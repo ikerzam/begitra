@@ -1,12 +1,12 @@
 <script setup lang="ts">
-// A repository of the folder view: its header on `--bg-raised`, a disclosure
-// that closes and opens the section (the chevron, the repository's path under the folder in the
-// section-title role, and its branch with the Overview's lane dot and number of changed files
-// 16px apart), with "Open {name}" in graph focus after it; under it its Unstaged and Staged
-// lists as the changes screen draws them, on the repository's own model. Only the section the
-// selection is in marks its row.
+// A repository of the folder view: its 32px header on `--bg-raised`, a
+// disclosure that closes and opens the section (the chevron, the repository's path under the
+// folder, its branch with the Overview's lane dot, and "4 files" at the end), with "Open {name}"
+// in graph focus after it; under it its Unstaged and Staged lists as the changes
+// screen draws them, on the repository's own model. Only the section the selection is in marks
+// its row.
 
-import { ChevronDown, ChevronRight, FolderGit2 } from "@lucide/vue";
+import { ChevronDown, ChevronRight, SquareArrowOutUpRight } from "@lucide/vue";
 import { computed, ref, useId } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -70,46 +70,40 @@ defineExpose({
     <div class="flex h-panel-header shrink-0 items-center gap-2 bg-raised pr-2">
       <button
         type="button"
-        class="flex h-full min-w-0 flex-1 items-center gap-2 pl-3 text-left hover:bg-hover"
+        class="flex h-full min-w-0 flex-1 items-center gap-2 pl-2 text-left hover:bg-hover"
         :aria-expanded="!props.collapsed"
         :aria-controls="listsId"
         data-testid="folder-section-toggle"
         @click="emit('toggle')"
       >
-        <span class="flex size-icon shrink-0 items-center justify-center">
-          <component
-            :is="props.collapsed ? ChevronRight : ChevronDown"
-            :size="12"
-            :stroke-width="1.5"
-            aria-hidden="true"
-          />
-        </span>
+        <component
+          :is="props.collapsed ? ChevronRight : ChevronDown"
+          :size="14"
+          :stroke-width="1.5"
+          aria-hidden="true"
+          class="shrink-0 text-fg-muted"
+        />
         <span
-          class="min-w-0 truncate text-lg font-semibold text-fg"
+          class="min-w-0 truncate text-md font-medium text-fg"
           :data-tooltip="props.repository.root"
           data-testid="folder-section-name"
         >
           {{ props.repository.name }}
         </span>
-        <span class="flex min-w-0 items-center gap-4 text-sm text-fg-muted">
-          <span v-if="branch" class="flex min-w-0 items-center gap-2">
-            <LaneDot v-if="lane > 0" :lane="lane" />
-            <span class="truncate" data-testid="folder-section-branch">{{ branch }}</span>
-          </span>
-          <template v-if="count !== null">
-            <span
-              class="shrink-0 tabular-nums"
-              aria-hidden="true"
-              data-testid="folder-section-count"
-            >
-              {{ n(count) }}
-            </span>
-            <span class="sr-only">{{ t("folder.changedFiles", { n: n(count) }, count) }}</span>
-          </template>
+        <span v-if="branch" class="flex min-w-0 items-center gap-2 text-sm text-fg-secondary">
+          <LaneDot v-if="lane > 0" :lane="lane" />
+          <span class="truncate" data-testid="folder-section-branch">{{ branch }}</span>
+        </span>
+        <span
+          v-if="count !== null"
+          class="ml-auto shrink-0 text-sm text-fg-muted tabular-nums"
+          data-testid="folder-section-count"
+        >
+          {{ t("project.files", { n: n(count) }, count) }}
         </span>
       </button>
       <IconButton
-        :icon="FolderGit2"
+        :icon="SquareArrowOutUpRight"
         :label="t('folder.openRepositoryNamed', { name: props.repository.name })"
         :tooltip="t('folder.openRepository')"
         data-testid="folder-section-open"

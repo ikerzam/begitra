@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // Home's projects: above the table while there are any, each with its name, its
 // number of repositories and what needs attention ("2 with changes · 1 behind · 1 rebasing"),
-// the warnings in `--warn`; ↵ or a click opens its view; "New project…" on the header. ↑↓ and
-// j/k move between the projects.
+// the warnings in `--warn`; ↵ or a click opens its view; "New project…" on the header. One tab
+// stop: ↑↓ and j/k move between the projects.
 
 import { ChevronRight, Layers, Plus } from "@lucide/vue";
 import { computed, ref } from "vue";
@@ -18,6 +18,8 @@ const { t, n } = useI18n();
 const projects = useProjectsStore();
 const dialogs = useProjectDialogsStore();
 const list = ref<HTMLElement | null>(null);
+/** The project row that takes the Tab stop. */
+const focused = ref(0);
 
 /** Each project's line: its parts, the warnings flagged. */
 function attention(project: Project): { text: string; warn: boolean }[] {
@@ -42,6 +44,8 @@ const rows = computed(() =>
   projects.projects.map((project) => ({ project, attention: attention(project) })),
 );
 
+const stop = computed(() => Math.min(focused.value, rows.value.length - 1));
+
 function onKeydown(event: KeyboardEvent, at: number): void {
   const step = rowStep(event);
   if (step === 0) return;
@@ -54,11 +58,11 @@ function onKeydown(event: KeyboardEvent, at: number): void {
 <template>
   <section
     v-if="projects.projects.length > 0"
-    class="flex flex-col px-5 pt-4"
+    class="project-section flex flex-col px-5 pb-3"
     :aria-label="t('home.projects.title')"
     data-testid="home-projects"
   >
-    <div class="flex h-panel-header items-center">
+    <div class="flex h-control items-center">
       <h2 class="text-md font-medium text-fg">{{ t("home.projects.title") }}</h2>
       <Button
         class="ml-auto"
@@ -70,13 +74,15 @@ function onKeydown(event: KeyboardEvent, at: number): void {
         {{ t("project.new.open") }}
       </Button>
     </div>
-    <ul ref="list" class="flex flex-col">
+    <ul ref="list" class="project-list flex flex-col">
       <li v-for="(row, at) in rows" :key="row.project.id">
         <button
           type="button"
           data-project
-          class="flex h-row-list w-full items-center gap-3 rounded-md px-2 text-left text-md hover:bg-hover focus-visible:bg-selected"
+          :tabindex="at === stop ? 0 : -1"
+          class="flex h-row-list w-full items-center gap-3 rounded-sm px-2 text-left text-md hover:bg-hover focus-visible:bg-selected"
           data-testid="home-project"
+          @focus="focused = at"
           @click="() => void projects.open(row.project.id, 'overview')"
           @keydown="(event) => onKeydown(event, at)"
         >
@@ -119,3 +125,11 @@ function onKeydown(event: KeyboardEvent, at: number): void {
     </ul>
   </section>
 </template>
+
+<style scoped>
+/* The header and the projects sit 2px apart; no spacing step is 2. */
+.project-section,
+.project-list {
+  gap: 2px;
+}
+</style>

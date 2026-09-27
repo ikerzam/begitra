@@ -1,9 +1,10 @@
 // The Overview of the project view: one row per member of the view's source in its
-// order, filled from the index at once and read again when the view shows and on refresh, four
-// at a time (the scan's summary workers are four too) and without a status of the working tree,
-// whose changed files the member's lists count; a member whose summary cannot be read keeps its
-// row with the reason. Above the rows, the branches the members are on, most common
-// first. The selection (Space, Ctrl+A) is what the bulk actions act on, every row when empty.
+// order, filled from the index at once; each member's summary is read again once the rows are
+// known, when it joins the source and on refresh, four at a time (the scan's summary workers
+// are four too) and without a status of the working tree, whose changed files the member's
+// lists count; a member whose summary cannot be read keeps its row with the reason. Above the
+// rows, the branches the members are on, most common first. The selection (Space, Ctrl+A) is
+// what the bulk actions act on, every row when empty.
 
 import { defineStore } from "pinia";
 import { computed, reactive, ref, shallowReactive, watch } from "vue";
@@ -17,6 +18,7 @@ import { newOpId } from "@/ipc/invoke";
 import { useFolderStore } from "./folder";
 import { useIndexStore } from "./index";
 import { useOperationsStore } from "./operations";
+import { useProjectsStore } from "./projects";
 
 /** Summaries read at once. */
 export const READS_AT_ONCE = 4;
@@ -55,10 +57,26 @@ export interface BranchGroup {
   lane: number;
 }
 
+/**
+ * The branches of `branches` (one per member, null for none), most common first, then by name,
+ * each with its lane: the Overview's groups, and the dots of any list of members.
+ */
+export function branchGroups(branches: readonly (string | null)[]): BranchGroup[] {
+  const counts = new Map<string, number>();
+  for (const branch of branches) {
+    if (branch === null) continue;
+    counts.set(branch, (counts.get(branch) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort(([a, left], [b, right]) => right - left || a.localeCompare(b))
+    .map(([branch, count], at) => ({ branch, count, lane: laneIndex(at + 1) }));
+}
+
 export const useOverviewStore = defineStore("overview", () => {
   const folder = useFolderStore();
   const index = useIndexStore();
   const operations = useOperationsStore();
+  const projects = useProjectsStore();
 
   const errors = shallowReactive(new Map<string, AppError>());
   const selection = reactive(new Set<string>());
@@ -92,17 +110,20 @@ export const useOverviewStore = defineStore("overview", () => {
     }),
   );
 
-  /** The branches of the present members, most common first, then by name. */
-  const groups = computed<BranchGroup[]>(() => {
-    const counts = new Map<string, number>();
-    for (const row of rows.value) {
-      if (row.missing || row.branch === null) continue;
-      counts.set(row.branch, (counts.get(row.branch) ?? 0) + 1);
-    }
-    return [...counts.entries()]
-      .sort(([a, left], [b, right]) => right - left || a.localeCompare(b))
-      .map(([branch, count], at) => ({ branch, count, lane: laneIndex(at + 1) }));
+  /**
+   * Whether the rows are the source's: the index read and, for a project, its list read and
+   * holding it. Until then the Overview shows skeleton rows and reads nothing.
+   */
+  const rowsKnown = computed(() => {
+    if (!index.read) return false;
+    if (folder.source?.kind !== "project") return true;
+    return projects.loaded && projects.loadError === null && folder.project !== null;
   });
+
+  /** The branches of the present members, most common first, then by name. */
+  const groups = computed<BranchGroup[]>(() =>
+    branchGroups(rows.value.map((row) => (row.missing ? null : row.branch))),
+  );
   const lanes = computed(() => new Map(groups.value.map((group) => [group.branch, group.lane])));
 
   // --- Reads ----------------------------------------------------------------------------------
@@ -111,6 +132,8 @@ export const useOverviewStore = defineStore("overview", () => {
   const running = ref(0);
   const waiting = ref(0);
   let reading = false;
+  /** The members read since the view showed, its source changed or it was refreshed. */
+  const read = new Set<string>();
   /** The status bar's "Reading N repositories" for the reads of one refresh. */
   let readOp: string | null = null;
   let readTotal = 0;
@@ -169,18 +192,29 @@ export const useOverviewStore = defineStore("overview", () => {
     }
   }
 
-  /** Reads every present member's summary again, four at a time, in the source's order. */
-  function refresh(): void {
+  /**
+   * Reads the summary of every present member not read yet, four at a time, in the source's
+   * order: all of them once the rows are known, then the ones that join the source.
+   */
+  function readNew(): void {
+    if (!rowsKnown.value) return;
     reading = true;
     let added = 0;
     for (const row of rows.value) {
-      if (row.missing || queue.includes(row.path)) continue;
+      if (row.missing || read.has(row.path) || queue.includes(row.path)) continue;
+      read.add(row.path);
       queue.push(row.path);
       added += 1;
     }
     waiting.value = queue.length;
     track(added);
     pump();
+  }
+
+  /** Reads every present member's summary again (the refresh button). */
+  function refresh(): void {
+    read.clear();
+    readNew();
   }
 
   /** Reads one member's summary again (after a bulk operation), before the others waiting. */
@@ -196,6 +230,7 @@ export const useOverviewStore = defineStore("overview", () => {
   /** The view left: the reads not started are dropped. */
   function stop(): void {
     reading = false;
+    read.clear();
     queue.length = 0;
     waiting.value = 0;
     if (readOp) operations.finish(readOp);
@@ -232,6 +267,7 @@ export const useOverviewStore = defineStore("overview", () => {
     () => {
       selection.clear();
       errors.clear();
+      read.clear();
       focused.value = -1;
     },
   );
@@ -252,7 +288,9 @@ export const useOverviewStore = defineStore("overview", () => {
     selection,
     focused,
     targets,
+    rowsKnown,
     readsLeft,
+    readNew,
     refresh,
     refreshOne,
     stop,

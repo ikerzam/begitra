@@ -1,9 +1,10 @@
 <script setup lang="ts">
 // The project view and the folder view: the header (the project's
 // name or the folder's path, its count, the Overview and Changes tabs, refresh, and "Save as
-// project" for a folder) over the tab's content. The view's lifecycle lives here: the models,
-// the reads and the folder watchers start when it mounts and stop when it goes, so switching
-// tabs keeps them, and the two tabs are mounted one at a time, so their keys never both listen.
+// project" for a folder) over the tab's content. The view's lifecycle lives here: the models and
+// the folder watchers start when it mounts and stop when it goes, and the members' summaries are
+// read once the rows are known and as members join, so switching tabs keeps them; the two tabs
+// are mounted one at a time, so their keys never both listen.
 
 import { Layers, Pencil, RefreshCw } from "@lucide/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
@@ -50,7 +51,13 @@ const meta = computed(() => {
   // A list that could not be read has no count to give.
   if (index.loadError || (isProject.value && projects.loadError)) return "";
   if (tab.value === "overview") {
-    const left = overview.readsLeft;
+    // While the rows are not known, how many the project's list names.
+    if (!overview.rowsKnown) {
+      const named = folder.project?.members.length ?? 0;
+      return named > 0 ? t("project.readingMeta", { n: n(named) }, named) : "";
+    }
+    // A bulk run reads its members again as they finish; the count stays.
+    const left = bulk.kind === null ? overview.readsLeft : 0;
     if (left > 0) return t("project.readingMeta", { n: n(left) }, left);
     const count = overview.rows.length;
     return t("project.repositories", { n: n(count) }, count);
@@ -100,17 +107,33 @@ function focus(): void {
 
 defineExpose({ focus });
 
-// A project deleted meanwhile (another window, a stale setting at launch) leaves the view.
+// A project deleted meanwhile (another window, a stale setting at launch) leaves the view; a
+// list that could not be read keeps it, with its error.
 watch(
-  () => [isProject.value, projects.loaded, folder.project] as const,
-  ([project, loaded, shown]) => {
-    if (project && loaded && shown === null) void shell.setLayoutMode("graph");
+  () => [isProject.value, projects.loaded, projects.loadError, folder.project] as const,
+  ([project, loaded, failed, shown]) => {
+    if (project && loaded && failed === null && shown === null) void shell.setLayoutMode("graph");
   },
+);
+
+// Each member's summary is read once the rows are known (a launch into the view, another
+// project shown) and when a member joins the source.
+watch(
+  () =>
+    overview.rowsKnown
+      ? overview.rows
+          .filter((row) => !row.missing)
+          .map((row) => row.path)
+          .join("\n")
+      : null,
+  (paths) => {
+    if (paths !== null) overview.readNew();
+  },
+  { immediate: true },
 );
 
 onMounted(() => {
   folder.show();
-  overview.refresh();
 });
 onBeforeUnmount(() => {
   overview.stop();

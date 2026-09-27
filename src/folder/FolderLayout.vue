@@ -23,6 +23,7 @@ import { errorText } from "@/shell/errorMessage";
 import PaneResizer from "@/shell/PaneResizer.vue";
 import { useFolderStore } from "@/stores/folder";
 import { useIndexStore } from "@/stores/index";
+import { useOverviewStore } from "@/stores/overview";
 import { paneLimits, useShellStore } from "@/stores/shell";
 
 import FolderGroup from "./FolderGroup.vue";
@@ -32,6 +33,7 @@ import { useFolderKeys } from "./useFolderKeys";
 const { t, n } = useI18n();
 const folder = useFolderStore();
 const index = useIndexStore();
+const overview = useOverviewStore();
 const shell = useShellStore();
 const format = useDiscoveryFormat();
 const discard = useDiscardDialog();
@@ -48,6 +50,13 @@ const activeBranch = computed(() => {
   const active = folder.active;
   if (!active) return "";
   return active.detached ? t("statusBar.detached") : (active.branch ?? "");
+});
+
+/** The lane of the box's branch among the Overview's groups; 0 for none (detached, unread). */
+const activeLane = computed(() => {
+  const active = folder.active;
+  if (!active || active.detached || !active.branch) return 0;
+  return overview.lanes.get(active.branch) ?? 0;
 });
 
 /** The banner of an index that did not load or a scan of the folder that failed. */
@@ -149,7 +158,11 @@ watch(
         <FolderGroup v-if="folder.state !== 'loading'" />
       </div>
       <ChangesScope v-if="folder.active" :key="folder.active.root" :view="folder.active.view">
-        <CommitBox :target-name="folder.active.name" :target-branch="activeBranch" />
+        <CommitBox
+          :target-name="folder.active.name"
+          :target-branch="activeBranch"
+          :target-lane="activeLane"
+        />
       </ChangesScope>
     </div>
     <PaneResizer

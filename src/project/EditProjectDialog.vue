@@ -32,11 +32,13 @@ const name = ref(project.value?.name ?? "");
 const paths = ref<string[]>([...(project.value?.members ?? [])]);
 const adding = ref(false);
 const deleting = ref(false);
+const saving = ref(false);
 
 const members = computed(() =>
   resolveMembers(
     { id: props.id, name: name.value, members: paths.value, createdAt: 0, updatedAt: 0 },
     index.entries,
+    index.read,
   ),
 );
 const trimmed = computed(() => name.value.trim());
@@ -75,14 +77,21 @@ function add(added: string[]): void {
   adding.value = false;
 }
 
+/** Writes the changes; a refused write keeps the dialog and its edits (its toast says why). */
 async function save(): Promise<void> {
   const current = project.value;
-  if (!current || !nameValid.value) return;
-  if (trimmed.value !== current.name) await projects.rename(current.id, trimmed.value);
-  if (paths.value.join("\n") !== current.members.join("\n")) {
-    await projects.setMembers(current.id, paths.value);
+  if (!current || !nameValid.value || saving.value) return;
+  saving.value = true;
+  try {
+    if (trimmed.value !== current.name && !(await projects.rename(current.id, trimmed.value))) {
+      return;
+    }
+    const reordered = paths.value.join("\n") !== current.members.join("\n");
+    if (reordered && !(await projects.setMembers(current.id, paths.value))) return;
+    dialogs.close();
+  } finally {
+    saving.value = false;
   }
-  dialogs.close();
 }
 
 async function confirmDelete(): Promise<void> {
@@ -97,13 +106,13 @@ async function confirmDelete(): Promise<void> {
     size="lg"
     :title="t('project.editDialog.title')"
     :confirm-label="t('project.editDialog.save')"
-    :confirm-disabled="!nameValid || !changed"
+    :confirm-disabled="saving || !nameValid || !changed"
     data-testid="edit-project-dialog"
     @confirm="() => void save()"
     @cancel="dialogs.close()"
   >
-    <label class="form-row grid items-center gap-4 text-md text-fg-secondary">
-      <span>{{ t("project.new.name") }}</span>
+    <label class="form-row grid items-start gap-3 text-md text-fg-secondary">
+      <span class="flex h-6 items-center">{{ t("project.new.name") }}</span>
       <Input
         v-model="name"
         size="lg"
@@ -152,8 +161,8 @@ async function confirmDelete(): Promise<void> {
 </template>
 
 <style scoped>
-/* A form field's label takes 96px. */
+/* A form field's label takes 88px, 12px before its field. */
 .form-row {
-  grid-template-columns: 96px minmax(0, 1fr);
+  grid-template-columns: 88px minmax(0, 1fr);
 }
 </style>

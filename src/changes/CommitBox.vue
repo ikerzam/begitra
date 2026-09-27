@@ -4,7 +4,7 @@
 // empty box, off on an unborn branch) and "Sign off", the author line git will use (or the
 // commit being amended), and "Commit" with ⌘↵, enabled only with a subject and something to
 // commit. The draft lives in the store, so leaving the screen keeps it. In the folder view a
-// line above the fields names the repository the box commits and its branch.
+// line above the fields reads "Commit to" with the repository and its branch.
 
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
@@ -13,6 +13,7 @@ import Button from "@/components/Button.vue";
 import Checkbox from "@/components/Checkbox.vue";
 import Input from "@/components/Input.vue";
 import Kbd from "@/components/Kbd.vue";
+import LaneDot from "@/components/LaneDot.vue";
 import Textarea from "@/components/Textarea.vue";
 import { shortHash } from "@/shell/format";
 import { useShortcutHint } from "@/shortcuts/useShortcut";
@@ -26,8 +27,10 @@ const props = withDefaults(
     targetName?: string;
     /** That repository's branch ("detached HEAD" when detached); none when unknown. */
     targetBranch?: string;
+    /** The branch's lane dot; 0 for none. */
+    targetLane?: number;
   }>(),
-  { targetName: "", targetBranch: "" },
+  { targetName: "", targetBranch: "", targetLane: 0 },
 );
 
 /** Git wraps the subject at this width in its logs; the count shows past it. */
@@ -94,15 +97,17 @@ function onSubjectKeydown(event: KeyboardEvent): void {
     data-testid="commit-box"
     @submit.prevent="onSubmit"
   >
-    <!-- No middle dot between the two: 16px apart, as metadata is. -->
+    <!-- "Commit to", the repository and its branch with its lane dot. -->
     <span
       v-if="props.targetName"
-      class="flex min-w-0 items-center gap-4 text-sm"
+      class="flex min-w-0 items-center gap-2 text-sm"
       data-testid="commit-target"
     >
-      <span class="truncate text-fg-secondary">{{ props.targetName }}</span>
-      <span v-if="props.targetBranch" class="truncate text-fg-muted">
-        {{ props.targetBranch }}
+      <span class="shrink-0 text-fg-muted">{{ t("changes.commitTo") }}</span>
+      <span class="truncate font-medium text-fg">{{ props.targetName }}</span>
+      <span v-if="props.targetBranch" class="flex min-w-0 items-center gap-2 text-fg-secondary">
+        <LaneDot v-if="props.targetLane > 0" :lane="props.targetLane" />
+        <span class="truncate">{{ props.targetBranch }}</span>
       </span>
     </span>
     <!-- Subject and description sit 8px apart, the rest 12px. -->

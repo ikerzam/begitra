@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// The Overview's table: the column header, one `MemberRow` per member with git's
-// output under a row that asks for it, and skeleton rows while the rows are not known. One
-// roving tab stop; the keys are `useOverviewKeys`'s.
+// The Overview's table: the column header, one `MemberRow` per member once the rows
+// are known, with git's output under a row that asks for it, and skeleton rows while the view
+// loads (after the rows found so far while a folder's scan walks it). One roving tab stop; the
+// keys are `useOverviewKeys`'s.
 
 import { computed, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
@@ -19,7 +20,11 @@ import MemberRow from "./MemberRow.vue";
 import { rowStatus } from "./status";
 import { useOverviewKeys } from "./useOverviewKeys";
 
-const props = defineProps<{ loading: boolean }>();
+const props = defineProps<{
+  loading: boolean;
+  /** Whether the rows are the source's (`overview.rowsKnown`); none show until they are. */
+  rowsKnown: boolean;
+}>();
 
 const { t } = useI18n();
 const bulk = useBulkStore();
@@ -124,10 +129,7 @@ defineExpose({ focusRows: (): void => keys.focus() });
       <span role="columnheader">{{ t("project.columns.fetched") }}</span>
       <span role="columnheader" class="sr-only">{{ t("project.columns.actions") }}</span>
     </div>
-    <div v-if="props.loading && overview.rows.length === 0" role="row" aria-hidden="true">
-      <SkeletonRow v-for="k in 6" :key="k" :index="k" height="list" />
-    </div>
-    <template v-for="(row, at) in overview.rows" :key="row.path">
+    <template v-for="(row, at) in props.rowsKnown ? overview.rows : []" :key="row.path">
       <MemberRow
         :row="row"
         :lane="overview.lanes.get(row.branch ?? '') ?? 0"
@@ -150,11 +152,14 @@ defineExpose({ focusRows: (): void => keys.focus() });
       <div v-if="outputs.has(row.path) && statuses.get(row.path)?.output" role="row">
         <pre
           role="gridcell"
-          class="member-output overflow-x-auto rounded-md border border-line bg-raised p-3 font-mono text-mono-sm text-fg-secondary"
+          class="member-output overflow-x-auto rounded-md border border-line bg-raised px-3 py-2 font-mono text-mono-sm text-fg-secondary"
           data-testid="member-output"
           >{{ statuses.get(row.path)?.output }}</pre>
       </div>
     </template>
+    <div v-if="props.loading" role="row" aria-hidden="true">
+      <SkeletonRow v-for="k in 6" :key="k" :index="k" height="list" />
+    </div>
   </div>
 </template>
 
@@ -163,9 +168,9 @@ defineExpose({ focusRows: (): void => keys.focus() });
 .member-header {
   grid-template-columns: 14px 180px 180px 64px 64px 200px minmax(0, 1fr) 80px 52px;
 }
-/* Under its row from the name column to 12px before the edge, 4px above and 8px below
-   */
+/* Under its row from the name column (44px in) to 12px before the edge, 4px above and 8px
+   below. */
 .member-output {
-  margin: 4px 12px 8px 44px;
+  margin: var(--space-1) var(--space-3) var(--space-2) 44px;
 }
 </style>

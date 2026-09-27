@@ -97,6 +97,86 @@ describe("the project view", () => {
     wrapper.unmount();
   });
 
+  it("shows skeleton rows, and no member as missing, until the index is read", async () => {
+    const calls = fakeBackend({
+      repositories: indexed,
+      projects: [projectOf(1, "Geoportal", [api.path, web.path, gone])],
+      summaries: Object.fromEntries(indexed.map((entry) => [entry.path, entry.summary])),
+      rootIsPath: true,
+    });
+    const projects = useProjectsStore();
+    await projects.load();
+    await projects.open(1, "overview");
+    const wrapper = mountWithI18n(ProjectLayout, { attachTo: document.body });
+    await flush();
+    expect(wrapper.findAll('[data-testid="member-row"]')).toHaveLength(0);
+    expect(wrapper.findAll('[data-testid="skeleton-row"]').length).toBeGreaterThan(0);
+    expect(wrapper.find('[data-testid="member-remove"]').exists()).toBe(false);
+    expect(wrapper.get('[data-testid="project-meta"]').text()).toBe("reading 3 repositories");
+    expect(of(calls, "refresh_repository")).toHaveLength(0);
+    // Once the index is read the rows show, and each present member's summary is read again.
+    await useIndexStore().load();
+    await flush();
+    expect(rowNames(wrapper)).toEqual(["api", "web", "old-spike"]);
+    expect(wrapper.findAll('[data-testid="skeleton-row"]')).toHaveLength(0);
+    expect(of(calls, "refresh_repository").map((call) => call.args["path"])).toEqual([
+      api.path,
+      web.path,
+    ]);
+    wrapper.unmount();
+  });
+
+  it("reads the members of another project shown while the view is open", async () => {
+    const { calls, wrapper } = await mountProject({
+      projects: [
+        projectOf(1, "Geoportal", [api.path, web.path]),
+        projectOf(2, "Infra", [infra.path]),
+      ],
+    });
+    const reads = () => of(calls, "refresh_repository").map((call) => call.args["path"]);
+    expect(reads()).not.toContain(infra.path);
+    await useProjectsStore().open(2, "overview");
+    await flush();
+    expect(rowNames(wrapper)).toEqual(["infra"]);
+    expect(reads()).toContain(infra.path);
+    wrapper.unmount();
+  });
+
+  it("keeps the view with its error when the projects cannot be read", async () => {
+    fakeBackend({ repositories: indexed, failProjects: true });
+    const projects = useProjectsStore();
+    await Promise.all([projects.load(), useIndexStore().load()]);
+    await projects.open(1, "overview");
+    const wrapper = mountWithI18n(ProjectLayout, { attachTo: document.body });
+    await flush();
+    expect(useShellStore().layoutMode).toBe("project");
+    const banner = wrapper.get('[data-testid="overview-error"]');
+    expect(banner.text()).toContain("Try again");
+    // The output is the index's, not git's.
+    expect(banner.text()).toContain("Hide output");
+    expect(wrapper.find('[data-testid="project-meta"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("reaches a row's buttons with the right and left arrows", async () => {
+    const { wrapper } = await mountProject();
+    const apiRow = row(wrapper, "api");
+    const element = apiRow.element as HTMLElement;
+    element.focus();
+    await apiRow.trigger("keydown", { key: "ArrowRight" });
+    expect(document.activeElement).toBe(apiRow.get('[data-testid="member-terminal"]').element);
+    await apiRow.get('[data-testid="member-terminal"]').trigger("keydown", { key: "ArrowRight" });
+    expect(document.activeElement).toBe(apiRow.get('[data-testid="member-editor"]').element);
+    await apiRow.get('[data-testid="member-editor"]').trigger("keydown", { key: "ArrowLeft" });
+    await apiRow.get('[data-testid="member-terminal"]').trigger("keydown", { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(element);
+    // A missing member's "Remove from project" is one of its row's buttons, not a Tab stop.
+    const remove = row(wrapper, "old-spike").get('[data-testid="member-remove"]');
+    expect(remove.attributes("tabindex")).toBe("-1");
+    expect(remove.attributes("data-row-action")).toBeDefined();
+    wrapper.unmount();
+  });
+
   it("removes a missing member from the project from its row", async () => {
     const { calls, wrapper } = await mountProject();
     await row(wrapper, "old-spike").get('[data-testid="member-remove"]').trigger("click");

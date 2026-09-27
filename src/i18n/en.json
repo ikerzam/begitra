@@ -47,7 +47,9 @@
   },
   "errorBanner": {
     "showGitOutput": "Show git output",
-    "hideGitOutput": "Hide git output"
+    "hideGitOutput": "Hide git output",
+    "showOutput": "Show output",
+    "hideOutput": "Hide output"
   },
   "contextMenu": {
     "label": "Context menu"
@@ -759,7 +761,8 @@
       "and": "and",
       "andMore": "{names} and {n} more",
       "bodyUntrackedClause": ", and {names} is deleted: it is not tracked yet. | , and {names} are deleted: they are not tracked yet."
-    }
+    },
+    "commitTo": "Commit to"
   },
   "branches": {
     "menu": "Branch actions",
@@ -1074,7 +1077,6 @@
     "collapse": "Hide {name}",
     "openRepository": "Open repository",
     "openRepositoryNamed": "Open {name}",
-    "changedFiles": "{n} changed file | {n} changed files",
     "clean": "{n} repository without changes | {n} repositories without changes",
     "reading": "{n} being read",
     "readingLine": "Reading {n} repository… | Reading {n} repositories…",
@@ -1272,6 +1274,7 @@
       "deleteBody": "The project goes; its repositories, their folders and their index entries stay as they are.",
       "deleteConfirm": "Delete project"
     },
-    "loadFailed": "Couldn't read the list of repositories. {message}"
+    "loadFailed": "Couldn't read the list of repositories. {message}",
+    "checklistNothing": "No repository to add."
   }
 }

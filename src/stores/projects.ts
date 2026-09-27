@@ -1,8 +1,9 @@
 // Projects: named, ordered groups of repositories and worktrees kept in the index by
 // path. The store keeps the list, the active project (the last one whose view was shown), each
 // project's members resolved against the index (a path the index no longer lists, or whose
-// folder is gone, is a missing member), what needs attention on Home, and the next or previous
-// member for Alt ↓ and Alt ↑. Making, editing or deleting a project writes to no repository.
+// folder is gone, is a missing member; none is while the index is not read), what needs
+// attention on Home, and the next or previous member for Alt ↓ and Alt ↑. Making, editing or
+// deleting a project writes to no repository.
 
 import { defineStore } from "pinia";
 import { computed, ref, shallowRef } from "vue";
@@ -25,7 +26,7 @@ export interface ProjectMember {
   path: string;
   /** Its index entry; null when the index does not list the path. */
   entry: IndexEntry | null;
-  /** No index entry, or a folder the index found gone. */
+  /** No index entry, or a folder the index found gone; never while the index is not read. */
   missing: boolean;
   /** The entry's name (the folder's name without one), with its parent folder when another
    * member shares it. */
@@ -54,15 +55,20 @@ function parentName(path: string): string {
 
 /**
  * The members of `project` in its order against the index `entries`: each path with its entry
- * (spelled as the index spells it), missing when there is none or its folder is gone.
+ * (spelled as the index spells it), missing when there is none or its folder is gone. Until the
+ * index is `read`, no member is missing: its entry is only not known yet.
  */
-export function resolveMembers(project: Project, entries: readonly IndexEntry[]): ProjectMember[] {
+export function resolveMembers(
+  project: Project,
+  entries: readonly IndexEntry[],
+  read = true,
+): ProjectMember[] {
   const members = project.members.map((path) => {
     const entry = entries.find((candidate) => sameFolder(candidate.path, path)) ?? null;
     return {
       path: entry?.path ?? path,
       entry,
-      missing: entry === null || entry.missing,
+      missing: read && (entry === null || entry.missing),
       name: entry?.name ?? baseName(path),
     };
   });
@@ -82,10 +88,8 @@ export function resolveMembers(project: Project, entries: readonly IndexEntry[])
 export function attentionOf(members: readonly ProjectMember[]): ProjectAttention {
   const attention: ProjectAttention = { changes: 0, behind: 0, operations: {}, missing: 0 };
   for (const member of members) {
-    if (member.missing || !member.entry) {
-      attention.missing += 1;
-      continue;
-    }
+    if (member.missing) attention.missing += 1;
+    if (member.missing || !member.entry) continue;
     const summary = member.entry.summary;
     if (summary.dirty === true) attention.changes += 1;
     if ((summary.behind ?? 0) > 0) attention.behind += 1;
@@ -107,7 +111,7 @@ export function neighbourOf(
   current: string | null,
   step: 1 | -1,
 ): ProjectMember | null {
-  const present = members.filter((member) => !member.missing);
+  const present = members.filter((member) => !member.missing && member.entry !== null);
   if (present.length === 0) return null;
   const at = current === null ? -1 : present.findIndex((m) => sameFolder(m.path, current));
   if (at < 0) return step === 1 ? (present[0] ?? null) : (present[present.length - 1] ?? null);
@@ -135,7 +139,7 @@ export const useProjectsStore = defineStore("projects", () => {
   }
 
   function members(project: Project): ProjectMember[] {
-    return resolveMembers(project, index.entries);
+    return resolveMembers(project, index.entries, index.read);
   }
 
   /** The active project's members; empty without one. */

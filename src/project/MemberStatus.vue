@@ -54,6 +54,8 @@ const iconTones = {
   <button
     v-if="props.status.output"
     type="button"
+    tabindex="-1"
+    data-row-action
     class="shrink-0 text-link hover:underline"
     :aria-expanded="props.outputOpen"
     :aria-label="props.outputOpen ? t('project.hideOutputLabel') : t('project.showOutputLabel')"

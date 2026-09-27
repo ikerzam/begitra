@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ChevronDown, ChevronRight, CircleAlert } from "@lucide/vue";
-import { ref, useId, type Component } from "vue";
+import { computed, ref, useId, type Component } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Button from "./Button.vue";
@@ -19,8 +19,17 @@ const props = withDefaults(
     open?: boolean;
     /** What the disclosure names when the output is not git's ("Show details"). */
     outputLabel?: string;
+    /** The output is not git's: the disclosure reads "Show output" and "Hide output". */
+    plainOutput?: boolean;
   }>(),
-  { output: "", action: "", actionIcon: undefined, open: false, outputLabel: "" },
+  {
+    output: "",
+    action: "",
+    actionIcon: undefined,
+    open: false,
+    outputLabel: "",
+    plainOutput: false,
+  },
 );
 
 const emit = defineEmits<{ action: [] }>();
@@ -29,6 +38,13 @@ const { t } = useI18n();
 
 const expanded = ref(props.open);
 const outputId = useId();
+const toggleLabel = computed(() => {
+  if (props.outputLabel) return props.outputLabel;
+  if (props.plainOutput) {
+    return expanded.value ? t("errorBanner.hideOutput") : t("errorBanner.showOutput");
+  }
+  return expanded.value ? t("errorBanner.hideGitOutput") : t("errorBanner.showGitOutput");
+});
 </script>
 
 <template>
@@ -68,10 +84,7 @@ const outputId = useId();
             :stroke-width="1.5"
             aria-hidden="true"
           />
-          {{
-            props.outputLabel ||
-            (expanded ? t("errorBanner.hideGitOutput") : t("errorBanner.showGitOutput"))
-          }}
+          {{ toggleLabel }}
         </button>
         <pre
           v-if="expanded"

@@ -3,8 +3,8 @@
 // icon for a linked worktree), the branch with its lane dot and dirty dot, ahead and behind,
 // the changed files, the status, the last commit, the last fetch, and the terminal and editor
 // actions, or "Remove from project" across the last two columns for a missing member. The
-// table owns the focus, the selection, the roving tab stop and the keys; the row's own buttons
-// keep Enter and Space.
+// table owns the focus, the selection, the roving tab stop and the keys; → and ← reach the row's
+// own buttons (`useRowActions`), which keep Enter and Space.
 
 import { Code, ListTree, Terminal } from "@lucide/vue";
 import { computed } from "vue";
@@ -15,6 +15,7 @@ import Checkbox from "@/components/Checkbox.vue";
 import DirtyDot from "@/components/DirtyDot.vue";
 import IconButton from "@/components/IconButton.vue";
 import LaneDot from "@/components/LaneDot.vue";
+import { onRowActionsKeydown } from "@/components/useRowActions";
 import type { OverviewRow } from "@/stores/overview";
 
 import MemberStatus from "./MemberStatus.vue";
@@ -77,6 +78,7 @@ const hasCounts = computed(() => props.row.ahead !== null && props.row.behind !=
     :class="props.focused ? 'border-accent bg-selected' : 'border-transparent hover:bg-hover'"
     @click="emit('focus')"
     @dblclick="emit('open')"
+    @keydown="onRowActionsKeydown"
   >
     <span role="gridcell" class="flex items-center" @click.stop>
       <Checkbox
@@ -142,7 +144,9 @@ const hasCounts = computed(() => props.row.ahead !== null && props.row.behind !=
       <button
         v-if="props.removable"
         type="button"
-        class="text-sm text-fg-secondary hover:text-fg hover:underline"
+        tabindex="-1"
+        data-row-action
+        class="h-5 rounded-sm px-3 text-sm text-fg-secondary hover:bg-hover hover:text-fg"
         data-testid="member-remove"
         @click.stop="emit('remove')"
       >
@@ -158,6 +162,7 @@ const hasCounts = computed(() => props.row.ahead !== null && props.row.behind !=
           :label="t('project.terminal', { name: props.row.name })"
           :icon="Terminal"
           tabindex="-1"
+          data-row-action
           data-testid="member-terminal"
           @click.stop="emit('terminal')"
         />
@@ -165,6 +170,7 @@ const hasCounts = computed(() => props.row.ahead !== null && props.row.behind !=
           :label="t('project.editor', { name: props.row.name })"
           :icon="Code"
           tabindex="-1"
+          data-row-action
           data-testid="member-editor"
           @click.stop="emit('editor')"
         />

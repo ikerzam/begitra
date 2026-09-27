@@ -108,6 +108,18 @@ describe("a bulk operation", () => {
     );
   });
 
+  it("does nothing while the Overview has no rows", async () => {
+    fakeBackend({ repositories: [], projects: [projectOf(1, "Empty", [])] });
+    const projects = useProjectsStore();
+    await Promise.all([projects.load(), useIndexStore().load()]);
+    await projects.open(1, "overview");
+    const bulk = useBulkStore();
+    bulk.ask("fetch");
+    bulk.ask("pull");
+    expect(bulk.kind).toBeNull();
+    expect(bulk.plan).toBeNull();
+  });
+
   it("runs four at a time and never a repository and its worktree together", async () => {
     const calls = await showProject({ networkDelayMs: 40 });
     const overview = useOverviewStore();

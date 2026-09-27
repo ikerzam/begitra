@@ -82,6 +82,16 @@ describe("Home's projects", () => {
       "Geoportal4 repositories1 with changes · 1 behind · 1 rebasing · 1 missing",
       "Tiles1 repositoryup to date",
     ]);
+    // One Tab stop, which follows the focus as ↓ moves it.
+    const stops = () =>
+      wrapper
+        .findAll('[data-testid="home-project"]')
+        .map((button) => button.attributes("tabindex"));
+    expect(stops()).toEqual(["0", "-1"]);
+    (rows[0]?.element as HTMLElement).focus();
+    await rows[0]?.trigger("keydown", { key: "ArrowDown" });
+    expect(document.activeElement).toBe(rows[1]?.element);
+    expect(stops()).toEqual(["-1", "0"]);
     await rows[1]?.trigger("click");
     await flush();
     expect(useShellStore().layoutMode).toBe("project");
@@ -177,6 +187,21 @@ describe("the new-project dialog", () => {
     wrapper.unmount();
   });
 
+  it("says when there is no repository to add, and when none matches the filter", async () => {
+    await load([], []);
+    const wrapper = mountWithI18n(NewProjectDialog, { attachTo: document.body });
+    await flush();
+    const empty = () => q('[data-testid="checklist-empty"]')?.textContent?.trim();
+    expect(empty()).toBe("No repository to add.");
+    const filter = q<HTMLInputElement>('[data-testid="new-project-filter"]');
+    if (!filter) throw new Error("no filter");
+    filter.value = "tiles";
+    filter.dispatchEvent(new Event("input"));
+    await flush();
+    expect(empty()).toBe("No repository matches.");
+    wrapper.unmount();
+  });
+
   it("adds a repository the index does not know yet, checked", async () => {
     const repositories = [...indexed];
     const calls = await load([], repositories);
@@ -268,6 +293,44 @@ describe("the edit dialog", () => {
       "Ctrl ↑ and Ctrl ↓ move the focused repository and Delete removes it.",
     );
     expect(of(calls, "project_set_members")).toHaveLength(0);
+    wrapper.unmount();
+  });
+
+  it("keeps the focus in the dialog as Delete removes the last members", async () => {
+    const { wrapper } = await editing();
+    const rows = () => qa('[data-testid="edit-project-members"] li[data-member]');
+    const press = (at: number) =>
+      rows()[at]?.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true }));
+    rows()[2]?.focus();
+    press(2);
+    await flush();
+    expect(members()).toEqual(["api", "web"]);
+    expect(document.activeElement).toBe(rows()[1]);
+    press(1);
+    await flush();
+    press(0);
+    await flush();
+    expect(rows()).toHaveLength(0);
+    expect(document.activeElement).toBe(q('[data-testid="edit-project-members"]'));
+    wrapper.unmount();
+  });
+
+  it("stays open with its edits when the index refuses the save", async () => {
+    const { wrapper } = await editing();
+    const name = q<HTMLInputElement>('[data-testid="edit-project-name"]');
+    if (!name) throw new Error("no name field");
+    name.value = "Geo";
+    name.dispatchEvent(new Event("input"));
+    await flush();
+    // From here on the index refuses every project write.
+    const refusing = fakeBackend({ repositories: [...indexed], failProjects: true });
+    q<HTMLButtonElement>(
+      '[data-testid="edit-project-dialog"] [data-testid="dialog-confirm"]',
+    )?.click();
+    await flush();
+    expect(of(refusing, "project_rename")).toHaveLength(1);
+    expect(useProjectDialogsStore().editing).toBe(1);
+    expect(q<HTMLInputElement>('[data-testid="edit-project-name"]')?.value).toBe("Geo");
     wrapper.unmount();
   });
 

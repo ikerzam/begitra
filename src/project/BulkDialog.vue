@@ -91,8 +91,8 @@ function confirm(): void {
     @confirm="confirm"
     @cancel="bulk.cancelPlan()"
   >
-    <label v-if="needsName" class="form-row grid items-center gap-4 text-md text-fg-secondary">
-      <span>{{ t("project.bulk.name") }}</span>
+    <label v-if="needsName" class="form-row grid items-start gap-3 text-md text-fg-secondary">
+      <span class="flex h-6 items-center">{{ t("project.bulk.name") }}</span>
       <Input
         v-model="name"
         class="flex-1"
@@ -105,7 +105,7 @@ function confirm(): void {
     </label>
     <section v-if="plan.acting.length > 0" class="flex flex-col gap-1">
       <h3 class="text-sm text-fg-muted">{{ t(`project.bulk.acting.${kind}`) }}</h3>
-      <ul class="flex flex-col" data-testid="bulk-acting">
+      <ul class="bulk-list flex flex-col overflow-y-auto" data-testid="bulk-acting">
         <li
           v-for="item in plan.acting"
           :key="item.path"
@@ -127,7 +127,7 @@ function confirm(): void {
     </section>
     <section v-if="plan.skipped.length > 0" class="flex flex-col gap-1">
       <h3 class="text-sm text-fg-muted">{{ t("project.bulk.skipped") }}</h3>
-      <ul class="flex flex-col" data-testid="bulk-skipped">
+      <ul class="bulk-list flex flex-col overflow-y-auto" data-testid="bulk-skipped">
         <li
           v-for="item in plan.skipped"
           :key="item.path"
@@ -154,8 +154,12 @@ function confirm(): void {
 .bulk-item {
   grid-template-columns: 8px 96px minmax(0, 1fr) auto;
 }
-/* A form field's label takes 96px. */
+/* A form field's label takes 88px, 12px before its field. */
 .form-row {
-  grid-template-columns: 96px minmax(0, 1fr);
+  grid-template-columns: 88px minmax(0, 1fr);
+}
+/* About eight rows, then a list scrolls, so the buttons stay in the window. */
+.bulk-list {
+  max-height: 240px;
 }
 </style>

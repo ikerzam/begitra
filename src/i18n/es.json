@@ -47,7 +47,9 @@
   },
   "errorBanner": {
     "showGitOutput": "Ver la salida de git",
-    "hideGitOutput": "Ocultar la salida de git"
+    "hideGitOutput": "Ocultar la salida de git",
+    "showOutput": "Ver la salida",
+    "hideOutput": "Ocultar la salida"
   },
   "contextMenu": {
     "label": "Menú contextual"
@@ -759,7 +761,8 @@
       "and": "y",
       "andMore": "{names} y {n} más",
       "bodyUntrackedClause": ", y {names} se borra: aún no está en seguimiento. | , y {names} se borran: aún no están en seguimiento."
-    }
+    },
+    "commitTo": "Commit en"
   },
   "branches": {
     "menu": "Acciones de la rama",
@@ -1074,7 +1077,6 @@
     "collapse": "Ocultar {name}",
     "openRepository": "Abrir repositorio",
     "openRepositoryNamed": "Abrir {name}",
-    "changedFiles": "{n} fichero cambiado | {n} ficheros cambiados",
     "clean": "{n} repositorio sin cambios | {n} repositorios sin cambios",
     "reading": "{n} en lectura",
     "readingLine": "Leyendo {n} repositorio… | Leyendo {n} repositorios…",
@@ -1272,6 +1274,7 @@
       "deleteBody": "Se borra el proyecto; sus repositorios, sus carpetas y sus entradas del índice se quedan como están.",
       "deleteConfirm": "Borrar proyecto"
     },
-    "loadFailed": "No se ha podido leer la lista de repositorios. {message}"
+    "loadFailed": "No se ha podido leer la lista de repositorios. {message}",
+    "checklistNothing": "No hay ningún repositorio que añadir."
   }
 }

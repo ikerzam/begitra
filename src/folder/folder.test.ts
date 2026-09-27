@@ -83,12 +83,11 @@ function row(wrapper: ReturnType<typeof mountWithI18n>, root: string, path: stri
   return wrapper.get(`[data-root="${root}"] [data-path="${path}"]`);
 }
 
-/** The commit box's line: the repository, then its branch. */
+/** The commit box's line: "Commit to", the repository, then its branch. */
 const target = (wrapper: ReturnType<typeof mountWithI18n>) =>
-  wrapper
-    .get('[data-testid="commit-target"]')
-    .findAll("span")
-    .map((part) => part.text());
+  Array.from(wrapper.get('[data-testid="commit-target"]').element.children).map(
+    (part) => part.textContent?.trim() ?? "",
+  );
 
 beforeEach(async () => {
   setActivePinia(createPinia());
@@ -112,11 +111,11 @@ describe("the folder view's Changes", () => {
     const lane = (root: string) =>
       wrapper.get(`[data-root="${root}"] [data-lane]`).attributes("data-lane");
     expect([lane("/code/api"), lane("/code/web")]).toEqual(["1", "2"]);
-    expect(web.get('[data-testid="folder-section-count"]').text()).toBe("1");
+    expect(web.get('[data-testid="folder-section-count"]').text()).toBe("1 file");
     // A section shows the lists that hold files.
     expect(web.find('[data-testid="staged-list"]').exists()).toBe(false);
-    // The box names the repository and its branch, 16px apart and without a middle dot.
-    expect(target(wrapper)).toEqual(["api", "main"]);
+    // The box reads "Commit to" with the repository and its branch.
+    expect(target(wrapper)).toEqual(["Commit to", "api", "main"]);
     const group = wrapper.get('[data-testid="folder-group"]');
     expect(group.text()).toContain("1 repository without changes");
     expect(group.get('[data-testid="folder-group-list"]').isVisible()).toBe(false);
@@ -141,7 +140,7 @@ describe("the folder view's Changes", () => {
     const first = row(wrapper, "/code/web", "tiles.ts");
     expect(first.attributes("aria-selected")).toBe("true");
     expect(document.activeElement).toBe(first.element);
-    expect(target(wrapper)).toEqual(["web", "feat/tiles"]);
+    expect(target(wrapper)).toEqual(["Commit to", "web", "feat/tiles"]);
     // The section the selection left marks no row.
     expect(last.attributes("aria-selected")).toBe("false");
     await first.trigger("keydown", { key: "k" });
