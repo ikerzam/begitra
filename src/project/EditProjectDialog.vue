@@ -14,7 +14,7 @@ import IconButton from "@/components/IconButton.vue";
 import Input from "@/components/Input.vue";
 import LaneDot from "@/components/LaneDot.vue";
 import { useDiscoveryFormat } from "@/discovery/useDiscoveryFormat";
-import { matchesKeys } from "@/shortcuts/platform";
+import { formatShortcut, matchesKeys } from "@/shortcuts/platform";
 import { shortcutRegistry } from "@/shortcuts/registry";
 import { useOverviewStore } from "@/stores/overview";
 import { useProjectDialogsStore } from "@/stores/projectDialogs";
@@ -52,6 +52,15 @@ const changed = computed(
     trimmed.value !== project.value?.name ||
     paths.value.join("\n") !== (project.value?.members ?? []).join("\n"),
 );
+
+/** The keys that move a row, as this platform writes them ("Ctrl ↑", "⌘↑"). */
+const moveKeys = computed(() => {
+  const platform = shortcutRegistry().platform;
+  return {
+    up: formatShortcut("mod+arrowup", platform),
+    down: formatShortcut("mod+arrowdown", platform),
+  };
+});
 
 function lane(branch: string | null | undefined): number {
   return branch ? (overview.lanes.get(branch) ?? 0) : 0;
@@ -192,7 +201,7 @@ async function confirmDelete(): Promise<void> {
         {{ t("project.editDialog.none") }}
       </li>
     </ul>
-    <p class="text-sm text-fg-muted">{{ t("project.editDialog.hint") }}</p>
+    <p class="text-sm text-fg-muted">{{ t("project.editDialog.hint", moveKeys) }}</p>
     <template #footer-start>
       <Button
         variant="ghost"

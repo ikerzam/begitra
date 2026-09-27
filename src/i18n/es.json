@@ -1263,7 +1263,7 @@
       "moveDown": "Bajar {name}",
       "remove": "Quitar {name} del proyecto",
       "none": "Aún no hay repositorios.",
-      "hint": "Ctrl ↑ y Ctrl ↓ mueven el repositorio con el foco. Quitar uno del proyecto deja su carpeta y su entrada del índice como están.",
+      "hint": "{up} y {down} mueven el repositorio con el foco. Quitar uno del proyecto deja su carpeta y su entrada del índice como están.",
       "delete": "Borrar proyecto…",
       "deleteTitle": "¿Borrar {name}?",
       "deleteBody": "Se borra el proyecto; sus repositorios, sus carpetas y sus entradas del índice se quedan como están.",

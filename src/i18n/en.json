@@ -1263,7 +1263,7 @@
       "moveDown": "Move {name} down",
       "remove": "Remove {name} from the project",
       "none": "No repositories yet.",
-      "hint": "Ctrl ↑ and Ctrl ↓ move the focused repository. Removing one from the project leaves its folder and its index entry as they are.",
+      "hint": "{up} and {down} move the focused repository. Removing one from the project leaves its folder and its index entry as they are.",
       "delete": "Delete project…",
       "deleteTitle": "Delete {name}?",
       "deleteBody": "The project goes; its repositories, their folders and their index entries stay as they are.",
