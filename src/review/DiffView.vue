@@ -11,6 +11,7 @@ import ErrorBanner from "@/components/ErrorBanner.vue";
 import SkeletonRow from "@/components/SkeletonRow.vue";
 import type { FileChange, Hunk } from "@/ipc/schemas";
 import { errorText } from "@/shell/errorMessage";
+import { useCodeTheme } from "@/shell/useTheme";
 import { useShortcut } from "@/shortcuts/useShortcut";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
@@ -38,6 +39,7 @@ const emit = defineEmits<{ showOverview: []; openInReview: [] }>();
 const { t } = useI18n();
 const repo = useRepoStore();
 const review = useReviewStore();
+const codeTheme = useCodeTheme();
 
 const root = computed(() => repo.repo?.root ?? null);
 const revealed = computed(() => (props.file ? review.revealed.has(props.file.path) : false));
@@ -100,7 +102,8 @@ useShortcut("mark-reviewed", () => {
 
     <div
       v-if="loading && !props.file"
-      class="min-h-0 flex-1 overflow-hidden"
+      class="min-h-0 flex-1 overflow-hidden bg-app"
+      :data-theme="codeTheme"
       data-testid="diff-loading"
     >
       <SkeletonRow v-for="n in 24" :key="`skeleton-${n}`" :index="n" height="diff" />

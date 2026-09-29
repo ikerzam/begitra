@@ -956,7 +956,7 @@
     "appearance": {
       "title": "Apariencia",
       "theme": "Tema",
-      "hint": "Sistema sigue el tema de la plataforma, entre Oscuro y Claro.",
+      "hint": "«Sistema» sigue el tema de la plataforma: Oscuro o Claro.",
       "themes": {
         "system": "Sistema",
         "dark": "Oscuro",

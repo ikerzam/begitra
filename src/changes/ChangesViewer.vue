@@ -23,6 +23,7 @@ import ImageDiff from "@/review/ImageDiff.vue";
 import { imageType } from "@/review/sides";
 import { useFileOpener } from "@/review/useFileOpener";
 import { errorText } from "@/shell/errorMessage";
+import { useCodeTheme } from "@/shell/useTheme";
 import { lineKey, type ChangeList } from "@/stores/changes";
 import { useReviewStore, type ReviewTarget } from "@/stores/review";
 import { useSequencerStore } from "@/stores/sequencer";
@@ -41,6 +42,7 @@ const sequencer = useSequencerStore();
 
 const root = computed(() => changes.root);
 const opener = useFileOpener(root);
+const codeTheme = useCodeTheme();
 const list = computed<ChangeList | null>(() => changes.selected?.list ?? null);
 const file = computed(() => changes.selectedFile);
 const target = computed<ReviewTarget | null>(() =>
@@ -280,7 +282,8 @@ defineExpose({ actOnSelection, selectedCount });
 
     <div
       v-if="changes.loading && !file"
-      class="min-h-0 flex-1 overflow-hidden"
+      class="min-h-0 flex-1 overflow-hidden bg-app"
+      :data-theme="codeTheme"
       data-testid="changes-diff-loading"
     >
       <SkeletonRow v-for="k in 24" :key="`skeleton-${k}`" :index="k" height="diff" />

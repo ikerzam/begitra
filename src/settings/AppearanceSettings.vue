@@ -113,13 +113,7 @@ const codeWeight = computed({
       for="settings-theme"
       :hint="t('settings.appearance.hint')"
     >
-      <Select
-        id="settings-theme"
-        v-model="theme"
-        class="settings-theme"
-        :options="themes"
-        data-testid="theme"
-      />
+      <Select id="settings-theme" v-model="theme" :options="themes" data-testid="theme" />
     </SettingsField>
     <SettingsField
       :label="t('settings.appearance.codeTheme')"
@@ -129,7 +123,6 @@ const codeWeight = computed({
       <Select
         id="settings-code-theme"
         v-model="codeTheme"
-        class="settings-theme"
         :options="codeThemes"
         data-testid="code-theme"
       />

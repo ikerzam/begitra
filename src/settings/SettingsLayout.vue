@@ -87,9 +87,9 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 defineExpose({
-  /** The theme's chosen radio first: the screen opens on Appearance. */
+  /** The theme's select first: the screen opens on Appearance. */
   focus: () => {
-    const theme = page.value?.querySelector<HTMLElement>('[data-testid="theme"] input:checked');
+    const theme = page.value?.querySelector<HTMLElement>("#settings-theme");
     (theme ?? page.value?.querySelector<HTMLElement>("input, select, button"))?.focus();
   },
 });

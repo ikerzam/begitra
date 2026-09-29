@@ -8,6 +8,7 @@ import { computed, ref, toRef } from "vue";
 import { useI18n } from "vue-i18n";
 
 import type { FileChange } from "@/ipc/schemas";
+import { useCodeTheme } from "@/shell/useTheme";
 import type { ReviewTarget } from "@/stores/review";
 
 import { useImageSides } from "./useImageSides";
@@ -15,6 +16,7 @@ import { useImageSides } from "./useImageSides";
 const props = defineProps<{ root: string; target: ReviewTarget; file: FileChange }>();
 
 const { t, n } = useI18n();
+const codeTheme = useCodeTheme();
 
 const { before, after } = useImageSides(
   toRef(props, "root"),
@@ -56,7 +58,11 @@ const afterLine = computed(() => {
 
 <template>
   <!-- 24px margins and gap, boxes on the app background with the hairline. -->
-  <div class="grid grid-cols-2 gap-5 p-5" data-testid="image-diff">
+  <div
+    class="grid min-h-0 flex-1 grid-cols-2 content-start gap-5 bg-app p-5 text-fg"
+    :data-theme="codeTheme"
+    data-testid="image-diff"
+  >
     <div class="flex flex-col gap-2">
       <span class="text-sm text-fg-secondary">{{ t("review.image.before") }}</span>
       <div

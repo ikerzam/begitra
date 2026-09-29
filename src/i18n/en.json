@@ -956,7 +956,7 @@
     "appearance": {
       "title": "Appearance",
       "theme": "Theme",
-      "hint": "System follows the platform's theme, between Dark and Light.",
+      "hint": "System follows the platform's theme: Dark or Light.",
       "themes": {
         "system": "System",
         "dark": "Dark",

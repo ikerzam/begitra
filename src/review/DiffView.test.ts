@@ -178,6 +178,11 @@ describe("DiffView", () => {
     await nextTick();
     expect(body.attributes("data-theme")).toBeUndefined();
     wrapper.unmount();
+    // The card of a file behind "Show anyway" takes it too.
+    await settings.update("codeTheme", "ayu-light");
+    const generated = await mountView({ file: file([[line(1)]], { isGenerated: true }) });
+    expect(generated.get('[data-testid="diff-guard"]').attributes("data-theme")).toBe("ayu-light");
+    generated.unmount();
   });
 
   it("renders a header row per hunk and the lines with their emphasis spans", async () => {

@@ -10,6 +10,7 @@ import { useI18n } from "vue-i18n";
 import Button from "@/components/Button.vue";
 import { statusOf } from "@/detail/groupFiles";
 import type { FileChange } from "@/ipc/schemas";
+import { useCodeTheme } from "@/shell/useTheme";
 import { useReviewStore } from "@/stores/review";
 
 import { useFileOpener } from "./useFileOpener";
@@ -31,6 +32,7 @@ const emit = defineEmits<{ reveal: [] }>();
 const { t, n, locale } = useI18n();
 const review = useReviewStore();
 const opener = useFileOpener(toRef(props, "root"));
+const codeTheme = useCodeTheme();
 
 const reviewed = computed(() => review.isReviewed(props.file.path));
 const binaryStatus = computed(() =>
@@ -60,7 +62,7 @@ const canShow = computed(() => props.reason === "large" || props.reason === "gen
 
 <template>
   <!-- The card sits 24px from the header and the panel edges. -->
-  <div class="p-5" data-testid="diff-guard">
+  <div class="min-h-0 flex-1 bg-app p-5 text-fg" :data-theme="codeTheme" data-testid="diff-guard">
     <div
       class="flex flex-col items-start rounded-md border border-line-strong p-5 text-md text-fg-secondary"
     >
