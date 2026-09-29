@@ -5,7 +5,7 @@ import { defineComponent, h, nextTick } from "vue";
 
 import { memoryStorage, useSettingsStore } from "@/stores/settings";
 
-import { applyTheme, resolveTheme, useTheme } from "./useTheme";
+import { applyTheme, brightnessOf, resolveTheme, useCodeTheme, useTheme } from "./useTheme";
 
 /** A `matchMedia` whose light query answers `light`, with its listeners exposed. */
 function fakeMatchMedia(light: boolean) {
@@ -66,6 +66,28 @@ describe("useTheme", () => {
     await nextTick();
     expect(document.documentElement.dataset["theme"]).toBe("dark");
     wrapper.unmount();
+  });
+
+  it("writes a palette theme as it is and knows its brightness", async () => {
+    const settings = useSettingsStore();
+    const wrapper = mount(Host);
+    await settings.update("theme", "ayu-light");
+    await nextTick();
+    expect(document.documentElement.dataset["theme"]).toBe("ayu-light");
+    expect(brightnessOf("ayu-light")).toBe("light");
+    expect(brightnessOf("tokyo-night")).toBe("dark");
+    expect(brightnessOf("light")).toBe("light");
+    wrapper.unmount();
+  });
+
+  it("gives the diff's body the code theme, nothing for the window's", async () => {
+    const settings = useSettingsStore();
+    const codeTheme = useCodeTheme();
+    expect(codeTheme.value).toBeUndefined();
+    await settings.update("codeTheme", "solarized-light");
+    expect(codeTheme.value).toBe("solarized-light");
+    await settings.update("codeTheme", "app");
+    expect(codeTheme.value).toBeUndefined();
   });
 
   it("follows the platform for system, while it runs, and lets go on unmount", async () => {

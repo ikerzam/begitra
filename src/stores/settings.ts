@@ -9,6 +9,7 @@ import { computed, ref } from "vue";
 
 import { defaultSkipFolders } from "@/ipc/commands";
 import { detectPlatform, type Platform } from "@/shortcuts/platform";
+import { PALETTE_THEMES, type PaletteThemeId } from "@/styles/themes";
 
 export type LayoutMode =
   "graph" | "review" | "compare" | "worktrees" | "settings" | "changes" | "folder" | "project";
@@ -23,8 +24,18 @@ export interface HideByDefault {
   tests: boolean;
 }
 export type Locale = "en" | "es";
-/** The theme: `system` follows `prefers-color-scheme`. */
-export type Theme = "system" | "dark" | "light";
+/** A theme: Begitra's own dark and light, or one of design/themes.json's palettes. */
+export type ThemeName = "dark" | "light" | PaletteThemeId;
+/** The theme of the window: `system` follows `prefers-color-scheme` between dark and light. */
+export type Theme = "system" | ThemeName;
+/** The theme of the diff's code: `app` is the window's. */
+export type CodeTheme = "app" | ThemeName;
+/** Every theme, Begitra's own first, then the palettes by name. */
+export const themeNames: readonly ThemeName[] = [
+  "dark",
+  "light",
+  ...PALETTE_THEMES.map((theme) => theme.id),
+];
 /** A font weight as a step from the design's: -1, 0, +1 and +2 hundreds. */
 export type FontWeight = "light" | "regular" | "medium" | "semibold";
 /** The order of the Branches tab: by the last commit, or by name. */
@@ -108,6 +119,8 @@ export interface Settings {
   shortcuts: Record<string, string>;
   /** The theme of the window. */
   theme: Theme;
+  /** The theme of the diff's code, or the window's. */
+  codeTheme: CodeTheme;
   /** An installed font for the interface, before Geist; empty for Geist. */
   uiFont: string;
   /** The interface's weight step. */
@@ -173,7 +186,8 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   tabWidth: v.picklist([2, 4, 8]),
   hideByDefault: v.object({ generated: v.boolean(), lockfiles: v.boolean(), tests: v.boolean() }),
   shortcuts: v.record(v.string(), v.pipe(v.string(), v.minLength(1), v.maxLength(40))),
-  theme: v.picklist(["system", "dark", "light"]),
+  theme: v.picklist<Theme[]>(["system", ...themeNames]),
+  codeTheme: v.picklist<CodeTheme[]>(["app", ...themeNames]),
   uiFont: v.pipe(v.string(), v.maxLength(64)),
   uiWeight: v.picklist(fontWeights),
   codeFont: v.pipe(v.string(), v.maxLength(64)),
@@ -239,6 +253,7 @@ export function defaultSettings(platform: Platform): Settings {
     hideByDefault: { generated: true, lockfiles: true, tests: false },
     shortcuts: {},
     theme: "system",
+    codeTheme: "app",
     uiFont: "",
     uiWeight: "regular",
     codeFont: "",

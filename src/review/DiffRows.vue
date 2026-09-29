@@ -12,6 +12,7 @@ import DiffRow from "@/components/DiffRow.vue";
 import HunkRow from "@/components/HunkRow.vue";
 import type { FileChange, Hunk } from "@/ipc/schemas";
 import { useShortcut } from "@/shortcuts/useShortcut";
+import { useCodeTheme } from "@/shell/useTheme";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore, type ReviewTarget } from "@/stores/review";
 
@@ -58,6 +59,7 @@ const emit = defineEmits<{ select: [keys: string[], extend: boolean] }>();
 
 const repo = useRepoStore();
 const review = useReviewStore();
+const codeTheme = useCodeTheme();
 const body = ref<HTMLElement | null>(null);
 
 const root = computed(() => (props.root === undefined ? (repo.repo?.root ?? null) : props.root));
@@ -236,7 +238,8 @@ defineExpose({ moveSymbol, changedSymbols: symbols.changed, focus: () => body.va
 <template>
   <div
     ref="body"
-    class="diff-body relative min-h-0 flex-1 overflow-auto font-mono text-code"
+    class="diff-body relative min-h-0 flex-1 overflow-auto bg-app font-mono text-code text-fg"
+    :data-theme="codeTheme"
     :style="{ '--diff-tab-width': review.tabWidth }"
     data-testid="diff-body"
     tabindex="0"

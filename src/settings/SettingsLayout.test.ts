@@ -239,19 +239,30 @@ describe("SettingsLayout", () => {
     expect(document.activeElement).toBe(row.get('[data-testid="shortcut-change"]').element);
   });
 
-  it("applies the theme at once from the Appearance radios", async () => {
+  it("applies the theme and the code theme at once from their selects", async () => {
     const wrapper = await mountSettings();
     const settings = useSettingsStore();
-    const group = wrapper.get('[data-testid="theme"]');
-    expect(group.attributes("role")).toBe("radiogroup");
-    expect(group.findAll("label").map((l) => l.text())).toEqual(["System", "Dark", "Light"]);
-    expect(group.get<HTMLInputElement>('[data-testid="radio-system"] input').element.checked).toBe(
-      true,
-    );
-    await group.get('[data-testid="radio-light"] input').setValue(true);
-    await nextTick();
+    const theme = wrapper.get('[data-testid="theme"]');
+    expect(shownLabel(theme)).toBe("System");
+    const labels = await optionLabels(theme);
+    // Begitra's own first, then the palettes by name.
+    expect(labels.slice(0, 5)).toEqual(["System", "Dark", "Light", "Ayu Dark", "Ayu Light"]);
+    expect(labels).toContain("One Dark");
+    expect(labels).toHaveLength(15);
+    await chooseOption(theme, "light");
     // `useTheme` (mounted by App) writes it on the document root.
     expect(settings.values.theme).toBe("light");
+    await chooseOption(theme, "ayu-mirage");
+    expect(settings.values.theme).toBe("ayu-mirage");
+
+    const code = wrapper.get('[data-testid="code-theme"]');
+    expect(shownLabel(code)).toBe("Same as the app");
+    expect((await optionLabels(code)).slice(0, 3)).toEqual(["Same as the app", "Dark", "Light"]);
+    expect(wrapper.text()).toContain(
+      "Colours the diffs. The rest of the window keeps the app's theme.",
+    );
+    await chooseOption(code, "one-dark");
+    expect(settings.values.codeTheme).toBe("one-dark");
   });
 
   it("takes the fonts on Enter or blur with suggestions, and the weights from their radios", async () => {

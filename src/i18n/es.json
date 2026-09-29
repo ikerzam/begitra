@@ -950,12 +950,15 @@
     "appearance": {
       "title": "Apariencia",
       "theme": "Tema",
-      "hint": "«Sistema» sigue el tema de la plataforma.",
+      "hint": "Sistema sigue el tema de la plataforma, entre Oscuro y Claro.",
       "themes": {
         "system": "Sistema",
         "dark": "Oscuro",
         "light": "Claro"
       },
+      "codeTheme": "Tema del código",
+      "codeThemeHint": "Colorea los diffs. El resto de la ventana mantiene el tema de la app.",
+      "sameAsApp": "El mismo que la app",
       "uiFont": "Fuente de la interfaz",
       "uiFontHint": "Una fuente instalada en este equipo. Vacío para Geist.",
       "uiWeight": "Grosor de la interfaz",

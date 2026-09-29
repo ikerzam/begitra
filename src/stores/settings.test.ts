@@ -137,10 +137,15 @@ describe("settings store", () => {
         projectTab: "history",
         locale: "es",
         terminalCommand: "",
+        theme: "monokai",
+        codeTheme: "one-dark",
       }),
       "windows",
     );
     expect(store.loaded).toBe(true);
+    // An unknown theme falls back; a known one is kept.
+    expect(store.values.theme).toBe("system");
+    expect(store.values.codeTheme).toBe("one-dark");
     expect(store.values.paneSizes.detail).toBe(520);
     expect(store.values.layoutMode).toBe("graph");
     expect(store.values.activeProject).toBeNull();

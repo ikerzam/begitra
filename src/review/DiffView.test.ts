@@ -9,6 +9,7 @@ import { ShortcutRegistry, setShortcutRegistry } from "@/shortcuts/registry";
 import { installShortcuts } from "@/shortcuts/useShortcut";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
+import { memoryStorage, useSettingsStore } from "@/stores/settings";
 import { fakeBackend, settled } from "@/test/backend";
 import { mountWithI18n } from "@/test/mount";
 
@@ -85,6 +86,25 @@ async function mountView(props: { file: FileChange | null }) {
 }
 
 describe("DiffView", () => {
+  it("paints its body of rows in the code theme, or leaves it to the window's", async () => {
+    fakeBackend();
+    const settings = useSettingsStore();
+    await settings.init(memoryStorage(), "windows");
+    const wrapper = await mountView({ file: file([[line(1), line(2, "added")]]) });
+    const body = wrapper.get('[data-testid="diff-body"]');
+    // "Same as the app": no attribute, so the rows inherit the document root's theme.
+    expect(body.attributes("data-theme")).toBeUndefined();
+    // The body paints its own background, so a code theme fills it to the edges.
+    expect(body.classes()).toEqual(expect.arrayContaining(["bg-app", "text-fg"]));
+    await settings.update("codeTheme", "one-dark");
+    await nextTick();
+    expect(body.attributes("data-theme")).toBe("one-dark");
+    await settings.update("codeTheme", "app");
+    await nextTick();
+    expect(body.attributes("data-theme")).toBeUndefined();
+    wrapper.unmount();
+  });
+
   it("renders a header row per hunk and the lines with their emphasis spans", async () => {
     fakeBackend();
     const wrapper = await mountView({

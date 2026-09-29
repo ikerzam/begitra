@@ -950,12 +950,15 @@
     "appearance": {
       "title": "Appearance",
       "theme": "Theme",
-      "hint": "System follows the platform's theme.",
+      "hint": "System follows the platform's theme, between Dark and Light.",
       "themes": {
         "system": "System",
         "dark": "Dark",
         "light": "Light"
       },
+      "codeTheme": "Code theme",
+      "codeThemeHint": "Colours the diffs. The rest of the window keeps the app's theme.",
+      "sameAsApp": "Same as the app",
       "uiFont": "Interface font",
       "uiFontHint": "A font installed on this computer. Empty for Geist.",
       "uiWeight": "Interface weight",
