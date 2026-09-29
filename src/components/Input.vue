@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, useId } from "vue";
+import { computed, useAttrs, useId } from "vue";
 import type { Component } from "vue";
 
 import type { ControlSize } from "./types";
@@ -33,9 +33,17 @@ const model = defineModel<string>({ default: "" });
 defineOptions({ inheritAttrs: false });
 
 const id = useId();
+const attrs = useAttrs();
 const errorId = `${id}-error`;
 const hasError = computed(() => props.error !== "");
 const invalid = computed(() => hasError.value || props.invalid);
+/** The description the caller names (a settings hint) and the error under the field. */
+const describedBy = computed(() => {
+  const named = attrs["aria-describedby"];
+  const ids = [typeof named === "string" ? named : "", hasError.value ? errorId : ""];
+  const joined = ids.filter((part) => part !== "").join(" ");
+  return joined === "" ? undefined : joined;
+});
 </script>
 
 <template>
@@ -57,7 +65,7 @@ const invalid = computed(() => hasError.value || props.invalid);
         :placeholder="props.placeholder"
         :disabled="props.disabled"
         :aria-invalid="invalid ? 'true' : undefined"
-        :aria-describedby="hasError ? errorId : undefined"
+        :aria-describedby="describedBy"
         class="w-full rounded-sm border bg-app pr-3 text-md text-fg placeholder:text-fg-muted disabled:border-line disabled:text-fg-disabled disabled:placeholder:text-fg-disabled"
         :class="[
           invalid ? 'border-danger' : 'border-line-strong',

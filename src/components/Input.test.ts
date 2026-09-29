@@ -48,6 +48,17 @@ describe("Input", () => {
     expect(input.attributes("aria-describedby")).toBe(message.attributes("id"));
   });
 
+  it("keeps the description the caller names beside its own error", () => {
+    const hinted = mountWithI18n(Input, { attrs: { "aria-describedby": "settings-hint" } });
+    expect(hinted.get("input").attributes("aria-describedby")).toBe("settings-hint");
+    const failed = mountWithI18n(Input, {
+      props: { error: "Not a valid ref or range" },
+      attrs: { "aria-describedby": "settings-hint" },
+    });
+    const errorId = failed.get("p").attributes("id");
+    expect(failed.get("input").attributes("aria-describedby")).toBe(`settings-hint ${errorId}`);
+  });
+
   it("disables the field", () => {
     const wrapper = mountWithI18n(Input, { props: { disabled: true } });
     const input = wrapper.get("input");
