@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// The settings' Diff section: the viewer's three toggles, the tab width and the filters a review
-// starts with ("Hide by default").
+// The Diff settings: the toggles of the viewer (Whole file among them, which the file header's
+// toggle changes too), the tab width and the filters a review starts with ("Hide by default").
 
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
@@ -53,6 +53,14 @@ function setHide(key: keyof HideByDefault, value: boolean): void {
         :label="t('settings.diff.wordWrap')"
         data-testid="diff-wrap"
         @update:model-value="(on) => void settings.update('diffWrap', on)"
+      />
+    </SettingsField>
+    <SettingsField :label="t('settings.diff.wholeFile')" :hint="t('settings.diff.wholeFileHint')">
+      <Toggle
+        :model-value="settings.values.diffWholeFile"
+        :label="t('settings.diff.wholeFile')"
+        data-testid="diff-whole-file"
+        @update:model-value="(on) => void settings.update('diffWholeFile', on)"
       />
     </SettingsField>
     <SettingsField :label="t('settings.diff.sideBySide')">

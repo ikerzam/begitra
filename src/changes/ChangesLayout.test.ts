@@ -142,6 +142,39 @@ describe("ChangesLayout", () => {
     wrapper.unmount();
   });
 
+  it("keeps the cursor on its line when the whole file shows, and never lands on an unchanged one", async () => {
+    const { wrapper } = await mountScreen();
+    for (let i = 0; i < 4; i += 1) await settled();
+    // The file's last line is outside the hunk: folded into one row.
+    expect(wrapper.findAll('[data-testid="gap-row"]').map((row) => row.text())).toEqual([
+      "1 unchanged line",
+    ]);
+    const body = wrapper.get('[data-testid="diff-body"]');
+    await body.trigger("keydown", { key: "ArrowDown" });
+    await body.trigger("keydown", { key: "ArrowDown" });
+    await useReviewStore().setWholeFile(true);
+    await nextTick();
+    let rows = wrapper.findAll('[data-testid="diff-row"]');
+    expect(rows.map((row) => row.attributes("data-kind"))).toEqual([
+      "context",
+      "del",
+      "add",
+      "add",
+      "context",
+    ]);
+    expect(rows[2]?.classes()).toContain("diff-row-cursor");
+    // The cursor stops at the last changed line; the shown line cannot be picked.
+    await body.trigger("keydown", { key: "ArrowDown" });
+    await body.trigger("keydown", { key: "ArrowDown" });
+    await nextTick();
+    rows = wrapper.findAll('[data-testid="diff-row"]');
+    expect(rows[3]?.classes()).toContain("diff-row-cursor");
+    await rows[4]!.trigger("click");
+    await nextTick();
+    expect(wrapper.findAll('[data-selected="true"]')).toHaveLength(0);
+    wrapper.unmount();
+  });
+
   it("moves a cursor over the changed lines with the arrows and picks with Space, on both layouts", async () => {
     const { wrapper } = await mountScreen();
     const body = wrapper.get('[data-testid="diff-body"]');

@@ -268,6 +268,128 @@ describe("DiffView", () => {
     generated.unmount();
   });
 
+  describe("unchanged lines", () => {
+    /** A working tree file of `count` lines "line N", its diff's hunks computed from it. */
+    async function mountWorktreeFile(
+      hunkLines: DiffLine[][],
+      count: number,
+      starts: number[],
+      text?: string,
+    ) {
+      fakeBackend({
+        blobTexts: {
+          "src/app.ts": text ?? Array.from({ length: count }, (_, i) => `line ${i + 1}\n`).join(""),
+        },
+      });
+      await useSettingsStore().init(memoryStorage(), "windows");
+      await useRepoStore().open("/r");
+      useReviewStore().setTarget({ kind: "worktree" });
+      await settled();
+      const changed = file(hunkLines);
+      changed.hunks.forEach((hunk, i) => {
+        hunk.newStart = starts[i] ?? hunk.newStart;
+        hunk.oldStart = starts[i] ?? hunk.oldStart;
+      });
+      const wrapper = await mountView({ file: changed });
+      for (let i = 0; i < 4; i += 1) await settled();
+      await nextTick();
+      return wrapper;
+    }
+    const gaps = (wrapper: ReturnType<typeof mountWithI18n>) =>
+      wrapper.findAll('[data-testid="gap-row"]').map((row) => row.text());
+    const newNumbers = (wrapper: ReturnType<typeof mountWithI18n>) =>
+      wrapper
+        .findAll('[data-testid="diff-row"]')
+        .map((row) => Number(row.find('[data-testid="diff-row-new"]').text()));
+
+    it("folds the lines between and after the hunks and shows a gap's on a click", async () => {
+      const wrapper = await mountWorktreeFile(
+        [
+          [line(1), line(2, "added"), line(3)],
+          [line(11), line(12)],
+        ],
+        30,
+        [1, 11],
+      );
+      expect(gaps(wrapper)).toEqual(["7 unchanged lines", "18 unchanged lines"]);
+      // Short runs show whole on one click: no 20-line controls.
+      expect(wrapper.find('[data-testid="gap-next"]').exists()).toBe(false);
+      await wrapper.get('[data-testid="gap-all"]').trigger("click");
+      await nextTick();
+      expect(gaps(wrapper)).toEqual(["18 unchanged lines"]);
+      expect(newNumbers(wrapper).slice(0, 10)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+      wrapper.unmount();
+    });
+
+    it("shows twenty lines at a time from either side of a long run", async () => {
+      const wrapper = await mountWorktreeFile(
+        [
+          [line(1), line(2, "added"), line(3)],
+          [line(101), line(102)],
+        ],
+        102,
+        [1, 101],
+      );
+      expect(gaps(wrapper)).toEqual(["97 unchanged lines"]);
+      await wrapper.get('[data-testid="gap-next"]').trigger("click");
+      await nextTick();
+      // The twenty lines take the gap's place under the first hunk; the gap moved below the
+      // ten rows the test's viewport holds.
+      expect(newNumbers(wrapper).slice(3, 6)).toEqual([4, 5, 6]);
+      const body = wrapper.get('[data-testid="diff-body"]');
+      body.element.scrollTop = 28 + 23 * 20 - 100;
+      await body.trigger("scroll");
+      expect(gaps(wrapper)).toEqual(["77 unchanged lines"]);
+      await wrapper.get('[data-testid="gap-previous"]').trigger("click");
+      await nextTick();
+      expect(gaps(wrapper)).toEqual(["57 unchanged lines"]);
+      wrapper.unmount();
+    });
+
+    it("shows the whole file with e, the header's toggle pressed, and keeps it", async () => {
+      const wrapper = await mountWorktreeFile(
+        [
+          [line(1), line(2, "added"), line(3)],
+          [line(11), line(12)],
+        ],
+        30,
+        [1, 11],
+      );
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "e", bubbles: true }));
+      await flushPromises();
+      expect(useSettingsStore().values.diffWholeFile).toBe(true);
+      expect(gaps(wrapper)).toEqual([]);
+      expect(wrapper.get('[data-testid="toggle-whole-file"]').attributes("aria-pressed")).toBe(
+        "true",
+      );
+      await wrapper.get('[data-testid="toggle-whole-file"]').trigger("click");
+      await flushPromises();
+      expect(useSettingsStore().values.diffWholeFile).toBe(false);
+      expect(gaps(wrapper)).toHaveLength(2);
+      wrapper.unmount();
+    });
+
+    it("keeps the lines folded and their controls disabled when the file moved", async () => {
+      const moved = [
+        "// added on disk since",
+        ...Array.from({ length: 30 }, (_, i) => `line ${i + 1}`),
+      ];
+      const wrapper = await mountWorktreeFile(
+        [
+          [line(1), line(2, "added"), line(3)],
+          [line(11), line(12)],
+        ],
+        30,
+        [1, 11],
+        `${moved.join("\n")}\n`,
+      );
+      // The run after the last hunk needs the file's length: it is not shown.
+      expect(gaps(wrapper)).toEqual(["7 unchanged lines"]);
+      expect(wrapper.get('[data-testid="gap-all"]').attributes("disabled")).toBeDefined();
+      wrapper.unmount();
+    });
+  });
+
   it("renders a header row per hunk and the lines with their emphasis spans", async () => {
     fakeBackend();
     const wrapper = await mountView({

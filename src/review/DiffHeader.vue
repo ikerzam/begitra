@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // The file header of the diff panel: the mono path, the generated
-// and binary flags, the stats, the layout, wrap and whitespace toggles, "Open in editor" (the
+// and binary flags, the stats, the layout, wrap, whitespace and Whole file toggles, "Open in
+// editor" (the
 // working tree's file at its first change),
 // "Mark reviewed" and, with the review rail collapsed, the control that brings it back.
 
@@ -12,6 +13,7 @@ import {
   FileDiff,
   PanelRightOpen,
   Rows3,
+  UnfoldVertical,
   WrapText,
 } from "@lucide/vue";
 import { computed, toRef } from "vue";
@@ -22,6 +24,7 @@ import DiffStat from "@/components/DiffStat.vue";
 import IconButton from "@/components/IconButton.vue";
 import { statusOf } from "@/detail/groupFiles";
 import type { FileChange } from "@/ipc/schemas";
+import { useShortcutHint } from "@/shortcuts/useShortcut";
 import { useReviewStore } from "@/stores/review";
 
 import DiffPath from "./DiffPath.vue";
@@ -45,6 +48,7 @@ const emit = defineEmits<{ showOverview: []; openInReview: [] }>();
 const { t, locale } = useI18n();
 const review = useReviewStore();
 const opener = useFileOpener(toRef(props, "root"));
+const wholeFileKeys = useShortcutHint("toggle-whole-file");
 
 const reviewed = computed(() => (props.file ? review.isReviewed(props.file.path) : false));
 /** The editor button names the line it opens at when the diff tells it. */
@@ -110,6 +114,14 @@ const binaryStatus = computed(() =>
         :pressed="review.ignoreWhitespace"
         data-testid="toggle-whitespace"
         @click="() => void review.setIgnoreWhitespace(!review.ignoreWhitespace)"
+      />
+      <IconButton
+        :label="t('review.wholeFile')"
+        :icon="UnfoldVertical"
+        :pressed="review.wholeFile"
+        :keys="wholeFileKeys"
+        data-testid="toggle-whole-file"
+        @click="() => void review.setWholeFile(!review.wholeFile)"
       />
       <IconButton
         :label="editorLabel"

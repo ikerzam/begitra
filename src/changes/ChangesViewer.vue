@@ -6,7 +6,17 @@
 // which turn into "… lines" once lines are picked. The picked lines live here, keyed
 // `hunk:line`, and clear when the file changes or a write starts.
 
-import { Check, Code, Columns2, Minus, Plus, Rows3, Undo2, WrapText } from "@lucide/vue";
+import {
+  Check,
+  Code,
+  Columns2,
+  Minus,
+  Plus,
+  Rows3,
+  Undo2,
+  UnfoldVertical,
+  WrapText,
+} from "@lucide/vue";
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -24,6 +34,7 @@ import ImageDiff from "@/review/ImageDiff.vue";
 import { imageType } from "@/review/sides";
 import { headerLine, useFileOpener, useOpenFileShortcut } from "@/review/useFileOpener";
 import { errorText } from "@/shell/errorMessage";
+import { useShortcutHint } from "@/shortcuts/useShortcut";
 import { useCodeTheme } from "@/shell/useTheme";
 import { lineKey, type ChangeList } from "@/stores/changes";
 import { useReviewStore, type ReviewTarget } from "@/stores/review";
@@ -44,6 +55,7 @@ const sequencer = useSequencerStore();
 const root = computed(() => changes.root);
 const opener = useFileOpener(root);
 const codeTheme = useCodeTheme();
+const wholeFileKeys = useShortcutHint("toggle-whole-file");
 const list = computed<ChangeList | null>(() => changes.selected?.list ?? null);
 const file = computed(() => changes.selectedFile);
 const target = computed<ReviewTarget | null>(() =>
@@ -242,6 +254,14 @@ defineExpose({ actOnSelection, selectedCount });
           :pressed="review.wrap"
           data-testid="toggle-wrap"
           @click="() => void review.setWrap(!review.wrap)"
+        />
+        <IconButton
+          :label="t('review.wholeFile')"
+          :icon="UnfoldVertical"
+          :pressed="review.wholeFile"
+          :keys="wholeFileKeys"
+          data-testid="toggle-whole-file"
+          @click="() => void review.setWholeFile(!review.wholeFile)"
         />
         <IconButton
           :label="editorLabel"

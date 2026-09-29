@@ -1,12 +1,13 @@
 <script setup lang="ts">
 // The virtualised rows of one file: hunk headers with their reviewed control (or the actions
 // the changes screen puts there), unified lines or side-by-side pairs with the intra-line
-// emphasis and the syntax colours, heights from the wrap setting and the measured
-// column width, n/p over hunks and ]/[ over the changed symbols. In `selectable` mode the
-// changed lines can be picked for a partial stage: a click toggles a line, shift-click extends
-// from the last click, and the arrows move a cursor that Space toggles.
+// emphasis and the syntax colours, the unchanged lines around the hunks folded into gap rows
+// or shown (a gap's controls, Whole file and `e`), heights from the wrap setting and the
+// measured column width, n/p over hunks and ]/[ over the changed symbols. In `selectable`
+// mode the changed lines can be picked for a partial stage: a click toggles a line,
+// shift-click extends from the last click, and the arrows move a cursor that Space toggles.
 
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 
 import DiffRow from "@/components/DiffRow.vue";
 import HunkRow from "@/components/HunkRow.vue";
@@ -30,6 +31,7 @@ import {
   selectableRowIndexes,
   type DiffRowModel,
 } from "./diffRows";
+import GapRow from "./GapRow.vue";
 import LineContent from "./LineContent.vue";
 import LineMenu from "./LineMenu.vue";
 import SideBySideRow from "./SideBySideRow.vue";
@@ -37,6 +39,7 @@ import { useColumns } from "./useColumns";
 import { useHighlight } from "./useHighlight";
 import { useHunkNavigation } from "./useHunkNavigation";
 import { jumpToSymbol, useSymbols } from "./useSymbols";
+import { useUnchangedLines } from "./useUnchangedLines";
 import { useVariableRows } from "./useVariableRows";
 
 const props = withDefaults(
@@ -71,7 +74,16 @@ const root = computed(() => (props.root === undefined ? (repo.repo?.root ?? null
 const target = computed(() => (props.target === undefined ? review.target : props.target));
 const file = computed<FileChange | null>(() => props.file);
 const layout = computed(() => review.layout);
-const rows = computed(() => rowsOf(props.hunks, review.layout));
+const hunks = computed(() => props.hunks);
+/** The lines around the hunks: for rows of the file's own hunks, not "Show new file"'s. */
+const unchangedLines = useUnchangedLines(
+  root,
+  target,
+  file,
+  hunks,
+  computed(() => props.highlighted && props.hunks === props.file.hunks),
+);
+const rows = computed(() => rowsOf(props.hunks, review.layout, unchangedLines.unchanged.value));
 
 const { columns } = useColumns(body, layout);
 const heights = computed(() => rowHeights(rows.value, review.wrap, columns.value));
@@ -82,8 +94,9 @@ const highlight = useHighlight(
   root,
   target,
   file,
-  computed(() => props.hunks),
+  hunks,
   computed(() => props.highlighted),
+  unchangedLines.shownRanges,
 );
 const symbols = useSymbols(root, target, file, rows);
 
@@ -96,10 +109,19 @@ const rendered = computed(() => {
 
 // --- Line selection ---------------------------------------------------------------------
 
-/** The row of the last plain click or toggle, where a shift-click extends from. */
-const anchorRow = ref<number | null>(null);
-/** The row the keyboard cursor rests on, if any. */
-const cursorRow = ref<number | null>(null);
+/** The row of the last plain click or toggle, where a shift-click extends from, by key. */
+const anchorKey = ref<string | null>(null);
+/** The row the keyboard cursor rests on, if any, by key. */
+const cursorKey = ref<string | null>(null);
+/** Rows by key: a reveal inserts rows above them, so the anchor and the cursor keep keys. */
+const indexByKey = computed(() => new Map(rows.value.map((row, index) => [row.key, index])));
+const anchorRow = computed(() =>
+  anchorKey.value === null ? null : (indexByKey.value.get(anchorKey.value) ?? null),
+);
+const cursorRow = computed(() =>
+  cursorKey.value === null ? null : (indexByKey.value.get(cursorKey.value) ?? null),
+);
+const keyAt = (index: number): string | null => rows.value[index]?.key ?? null;
 const selectableRows = computed(() => selectableRowIndexes(rows.value));
 
 function isSelected(row: DiffRowModel, side?: "left" | "right"): boolean {
@@ -125,7 +147,7 @@ function pick(index: number, keys: string[], extend: boolean): void {
     emit("select", keysBetween(anchorRow.value, index), true);
   } else {
     emit("select", keys, false);
-    anchorRow.value = index;
+    anchorKey.value = keyAt(index);
   }
 }
 
@@ -163,7 +185,7 @@ function moveCursor(step: 1 | -1): void {
   }
   const index = candidates[next];
   if (index === undefined) return;
-  cursorRow.value = index;
+  cursorKey.value = keyAt(index);
   revealRow(index);
 }
 
@@ -194,7 +216,7 @@ function onKeydown(event: KeyboardEvent): void {
     if (row) pick(cursorRow.value, rowLineKeys(row), event.shiftKey);
   } else if (event.key === "Escape" && cursorRow.value !== null) {
     event.preventDefault();
-    cursorRow.value = null;
+    cursorKey.value = null;
   }
 }
 
@@ -203,15 +225,16 @@ watch(
   () => props.file.path,
   () => {
     virtual.scrollToTop(0);
-    anchorRow.value = null;
-    cursorRow.value = null;
+    anchorKey.value = null;
+    cursorKey.value = null;
+    topLine = null;
   },
 );
 
-// A layout change renumbers the rows.
+// A layout change renames the rows.
 watch(layout, () => {
-  anchorRow.value = null;
-  cursorRow.value = null;
+  anchorKey.value = null;
+  cursorKey.value = null;
 });
 
 function scrollTo(top: number): void {
@@ -240,7 +263,33 @@ useShortcut("previous-symbol", () => moveSymbol(-1));
 function onScroll(): void {
   virtual.onScroll();
   review.currentSymbol = null;
+  noteTopLine();
 }
+
+// --- Unchanged lines --------------------------------------------------------------------
+
+/** The new side's line at the top of the view, noted on every scroll. */
+let topLine: number | null = null;
+
+function noteTopLine(): void {
+  const index = topRowIndex();
+  const row = index === null ? undefined : rows.value[index];
+  topLine = row ? newLineOfRow(row, props.hunks) : null;
+}
+
+// Whole file inserts or folds the lines around the hunks: the line on top stays on top.
+watch(
+  () => review.wholeFile,
+  async () => {
+    const line = topLine;
+    if (line === null) return;
+    await nextTick();
+    const index = rows.value.findIndex((row) => (newLineOfRow(row, props.hunks) ?? 0) >= line);
+    if (index >= 0) scrollTo(virtual.rowTop(index));
+  },
+);
+
+useShortcut("toggle-whole-file", () => void review.setWholeFile(!review.wholeFile));
 
 // --- Open in editor ---------------------------------------------------------------------
 
@@ -412,6 +461,39 @@ defineExpose({
                 :wrap="review.wrap"
               />
             </DiffRow>
+          </template>
+          <template v-else-if="rows[index]?.kind === 'gap'">
+            <GapRow
+              :count="rows[index].newEnd - rows[index].newStart + 1"
+              :place="rows[index].place"
+              :disabled="!unchangedLines.available.value"
+              @show-all="unchangedLines.reveal(rows[index], 'all')"
+              @show-next="unchangedLines.reveal(rows[index], 'next')"
+              @show-previous="unchangedLines.reveal(rows[index], 'previous')"
+            />
+          </template>
+          <template v-else-if="rows[index]?.kind === 'context'">
+            <DiffRow
+              v-if="layout === 'unified'"
+              kind="context"
+              :old-number="rows[index].line.oldNumber ?? undefined"
+              :new-number="rows[index].line.newNumber ?? undefined"
+              :class="{ 'h-auto min-h-row-diff': review.wrap }"
+            >
+              <LineContent
+                :line="rows[index].line"
+                :tokens="highlight.tokens.value.new(rows[index].line)"
+                :wrap="review.wrap"
+              />
+            </DiffRow>
+            <SideBySideRow
+              v-else
+              :left="rows[index].line"
+              :right="rows[index].line"
+              :left-tokens="highlight.tokens.value.new(rows[index].line)"
+              :right-tokens="highlight.tokens.value.new(rows[index].line)"
+              :wrap="review.wrap"
+            />
           </template>
           <template v-else-if="rows[index]?.kind === 'pair'">
             <SideBySideRow

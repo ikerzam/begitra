@@ -201,6 +201,14 @@ describe("SettingsLayout", () => {
     expect(settings.values.diffLayout).toBe("side-by-side");
     await wrapper.get('[data-testid="diff-wrap"]').trigger("click");
     expect(settings.values.diffWrap).toBe(true);
+    // Whole file, the header toggle's setting, with its hint.
+    const wholeFile = wrapper.get('[data-testid="diff-whole-file"]');
+    expect(wholeFile.element.closest('[data-testid="settings-field"]')?.textContent).toContain(
+      "Shows every unchanged line of a file.",
+    );
+    await wholeFile.trigger("click");
+    expect(settings.values.diffWholeFile).toBe(true);
+    expect(review.wholeFile).toBe(true);
     await chooseOption(wrapper.get('[data-testid="tab-width"]'), "8");
     expect(settings.values.tabWidth).toBe(8);
     expect(review.tabWidth).toBe(8);
