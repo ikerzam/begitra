@@ -204,7 +204,7 @@ describe("SettingsLayout", () => {
     // Whole file, the header toggle's setting, with its hint.
     const wholeFile = wrapper.get('[data-testid="diff-whole-file"]');
     expect(wholeFile.element.closest('[data-testid="settings-field"]')?.textContent).toContain(
-      "Shows every unchanged line of a file.",
+      "When off, unchanged lines fold into rows that open on a click.",
     );
     await wholeFile.trigger("click");
     expect(settings.values.diffWholeFile).toBe(true);

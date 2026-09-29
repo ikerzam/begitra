@@ -15,6 +15,13 @@ import type { ReviewTarget } from "@/stores/review";
 import { fileSides } from "./sides";
 import { matchesHunks, splitLines } from "./unchanged";
 
+/**
+ * Where the new side's lines stand: `ready` (they match the hunks shown), `loading` (being
+ * read), `stale` (read, but the file moved since its hunks were computed) or `failed` (not
+ * read: an error, a binary side, or nothing to read).
+ */
+export type NewSideState = "ready" | "loading" | "stale" | "failed";
+
 export function useNewSide(
   root: Ref<string | null>,
   target: Ref<ReviewTarget | null>,
@@ -95,5 +102,11 @@ export function useNewSide(
     return text !== null && matchesHunks(hunks.value, text) ? text : null;
   });
 
-  return { lines, loading };
+  const state = computed<NewSideState>(() => {
+    if (lines.value !== null) return "ready";
+    if (loading.value) return "loading";
+    return read.value !== null ? "stale" : "failed";
+  });
+
+  return { lines, loading, state };
 }

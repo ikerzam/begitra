@@ -37,7 +37,9 @@ describe("useNewSide", () => {
     const first = changedFile("src/main.rs", { newId: "blob-b" });
     const { side, file, scope, reads } = reading(first);
     expect(side.loading.value).toBe(true);
+    expect(side.state.value).toBe("loading");
     await arrived();
+    expect(side.state.value).toBe("ready");
     expect(reads()).toHaveLength(1);
     expect(reads()[0]?.args).toMatchObject({ path: "src/main.rs", at: { kind: "working-tree" } });
     expect(side.lines.value).toEqual(FAKE_LINES);
@@ -74,6 +76,7 @@ describe("useNewSide", () => {
     });
     await arrived();
     expect(side.lines.value).toBeNull();
+    expect(side.state.value).toBe("stale");
     scope.stop();
   });
 
@@ -87,6 +90,7 @@ describe("useNewSide", () => {
       await arrived();
       expect(reads()).toHaveLength(0);
       expect(side.lines.value).toBeNull();
+      expect(side.state.value).toBe("failed");
       scope.stop();
     }
     // Disabled (a card shows the file, or "Show new file" its own hunk): nothing until enabled.

@@ -104,11 +104,13 @@ describe("ChangesLayout", () => {
   it("picks lines with a click and stages them, the rest staying unstaged", async () => {
     const { wrapper, calls } = await mountScreen();
     const rows = wrapper.findAll('[data-testid="diff-row"]');
+    // The hunk's lines, then the file's last line, which a one-line fold would only hide.
     expect(rows.map((row) => row.attributes("data-kind"))).toEqual([
       "context",
       "del",
       "add",
       "add",
+      "context",
     ]);
     await rows[1]!.trigger("click");
     await rows[3]!.trigger("click", { shiftKey: true });
@@ -145,10 +147,8 @@ describe("ChangesLayout", () => {
   it("keeps the cursor on its line when the whole file shows, and never lands on an unchanged one", async () => {
     const { wrapper } = await mountScreen();
     for (let i = 0; i < 4; i += 1) await settled();
-    // The file's last line is outside the hunk: folded into one row.
-    expect(wrapper.findAll('[data-testid="gap-row"]').map((row) => row.text())).toEqual([
-      "1 unchanged line",
-    ]);
+    // The file's last line is outside the hunk; one line shows as it is rather than folded.
+    expect(wrapper.findAll('[data-testid="gap-row"]')).toHaveLength(0);
     const body = wrapper.get('[data-testid="diff-body"]');
     await body.trigger("keydown", { key: "ArrowDown" });
     await body.trigger("keydown", { key: "ArrowDown" });

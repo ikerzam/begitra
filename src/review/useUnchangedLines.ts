@@ -58,12 +58,13 @@ export function useUnchangedLines(
     return lines.length > 0 ? [{ start: 1, end: lines.length }] : [];
   });
 
-  /** Whether the gap rows can show their lines. */
-  const available = computed(() => side.lines.value !== null);
-
+  /**
+   * Records a gap's lines as shown; they show once the new side is there, so a reveal made
+   * while it is read waits for it.
+   */
   function reveal(gap: GapRowModel, which: RevealWhich): void {
     revealed.value = [...revealed.value, revealedRange(gap, which)];
   }
 
-  return { unchanged, shownRanges, available, reveal };
+  return { unchanged, shownRanges, state: side.state, reveal };
 }

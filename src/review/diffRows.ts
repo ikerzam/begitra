@@ -161,10 +161,31 @@ function shownParts(run: UnchangedRun, unchanged: Unchanged): LineRange[] {
   return mergeRanges(clipped);
 }
 
-/** The rows of an unchanged run: its shown lines as context rows, the rest as gap rows. */
+/**
+ * The rows of an unchanged run: its shown lines as context rows, the rest as gap rows. A
+ * single folded line shows as it is once the lines are known: its fold would take more room.
+ */
 function runRows(rows: DiffRowModel[], run: UnchangedRun, unchanged: Unchanged): void {
   const oldOf = (newNumber: number) => run.oldStart + (newNumber - run.newStart);
-  const gap = (newStart: number, newEnd: number): void => {
+  const shown = (n: number): void => {
+    rows.push({
+      kind: "context",
+      key: `c${n}`,
+      line: {
+        kind: "context",
+        oldNumber: oldOf(n),
+        newNumber: n,
+        text: unchanged.lines?.[n - 1] ?? "",
+        spans: [],
+        noNewline: false,
+      },
+    });
+  };
+  const folded = (newStart: number, newEnd: number): void => {
+    if (newStart === newEnd && unchanged.lines !== null) {
+      shown(newStart);
+      return;
+    }
     rows.push({
       kind: "gap",
       key: `g${newStart}`,
@@ -176,24 +197,11 @@ function runRows(rows: DiffRowModel[], run: UnchangedRun, unchanged: Unchanged):
   };
   let at = run.newStart;
   for (const part of shownParts(run, unchanged)) {
-    if (part.start > at) gap(at, part.start - 1);
-    for (let n = part.start; n <= part.end; n += 1) {
-      rows.push({
-        kind: "context",
-        key: `c${n}`,
-        line: {
-          kind: "context",
-          oldNumber: oldOf(n),
-          newNumber: n,
-          text: unchanged.lines?.[n - 1] ?? "",
-          spans: [],
-          noNewline: false,
-        },
-      });
-    }
+    if (part.start > at) folded(at, part.start - 1);
+    for (let n = part.start; n <= part.end; n += 1) shown(n);
     at = part.end + 1;
   }
-  if (at <= run.newEnd) gap(at, run.newEnd);
+  if (at <= run.newEnd) folded(at, run.newEnd);
 }
 
 /**

@@ -20,6 +20,7 @@ import { useRepoStore } from "@/stores/repo";
 import { useReviewStore, type ReviewTarget } from "@/stores/review";
 
 import {
+  EXPAND_STEP,
   hunkRange,
   hunkRowIndexes,
   hunkSymbol,
@@ -30,6 +31,7 @@ import {
   rowsOf,
   selectableRowIndexes,
   type DiffRowModel,
+  type GapRowModel,
 } from "./diffRows";
 import GapRow from "./GapRow.vue";
 import LineContent from "./LineContent.vue";
@@ -39,7 +41,7 @@ import { useColumns } from "./useColumns";
 import { useHighlight } from "./useHighlight";
 import { useHunkNavigation } from "./useHunkNavigation";
 import { jumpToSymbol, useSymbols } from "./useSymbols";
-import { useUnchangedLines } from "./useUnchangedLines";
+import { useUnchangedLines, type RevealWhich } from "./useUnchangedLines";
 import { useVariableRows } from "./useVariableRows";
 
 const props = withDefaults(
@@ -228,6 +230,7 @@ watch(
     anchorKey.value = null;
     cursorKey.value = null;
     topLine = null;
+    landOnChange = true;
   },
 );
 
@@ -264,6 +267,7 @@ function onScroll(): void {
   virtual.onScroll();
   review.currentSymbol = null;
   noteTopLine();
+  if ((body.value?.scrollTop ?? 0) > 0) landOnChange = false;
 }
 
 // --- Unchanged lines --------------------------------------------------------------------
@@ -281,6 +285,7 @@ function noteTopLine(): void {
 watch(
   () => review.wholeFile,
   async () => {
+    landOnChange = false;
     const line = topLine;
     if (line === null) return;
     await nextTick();
@@ -288,6 +293,62 @@ watch(
     if (index >= 0) scrollTo(virtual.rowTop(index));
   },
 );
+
+/**
+ * A file opened with Whole file on lands on its first change once its lines are in, rather
+ * than at line 1, unless the reviewer scrolled first.
+ */
+let landOnChange = true;
+
+watch(
+  () => [rows.value, unchangedLines.state.value] as const,
+  async () => {
+    if (!landOnChange || !review.wholeFile || unchangedLines.state.value !== "ready") return;
+    landOnChange = false;
+    const index = rows.value.findIndex((row) => row.kind === "hunk");
+    if (index <= 0) return;
+    await nextTick();
+    scrollTo(virtual.rowTop(index));
+  },
+);
+
+/**
+ * Shows a gap's lines. From the keyboard (a press of Enter or Space: `detail` 0) the focus
+ * goes on with the gap that continues: the same row for the lines before the change below,
+ * the row after the shown ones for the lines after the change above, on its step control
+ * while it has one, else on its "show all". A control whose row went leaves the focus to the
+ * rows, so their keys keep working.
+ */
+function revealGapAt(index: number, which: RevealWhich, event: MouseEvent): void {
+  const row = rows.value[index];
+  if (row?.kind === "gap") void revealGap(row, which, event);
+}
+
+async function revealGap(gap: GapRowModel, which: RevealWhich, event: MouseEvent): Promise<void> {
+  unchangedLines.reveal(gap, which);
+  await nextTick();
+  const element = body.value;
+  if (!element) return;
+  if (event.detail === 0 && which !== "all") {
+    const key = which === "next" ? `g${gap.newStart + EXPAND_STEP}` : `g${gap.newStart}`;
+    const index = rows.value.findIndex((row) => row.key === key);
+    if (index >= 0) {
+      revealRow(index);
+      await nextTick();
+      const row = element.querySelector(`[data-row="${index}"]`);
+      const step = which === "next" ? "gap-next" : "gap-previous";
+      const control =
+        row?.querySelector<HTMLElement>(`[data-testid="${step}"]:not(:disabled)`) ??
+        row?.querySelector<HTMLElement>('[data-testid="gap-all"]:not(:disabled)');
+      if (control) {
+        control.focus();
+        return;
+      }
+    }
+  }
+  const active = document.activeElement;
+  if (active === null || active === document.body) element.focus({ preventScroll: true });
+}
 
 useShortcut("toggle-whole-file", () => void review.setWholeFile(!review.wholeFile));
 
@@ -466,10 +527,11 @@ defineExpose({
             <GapRow
               :count="rows[index].newEnd - rows[index].newStart + 1"
               :place="rows[index].place"
-              :disabled="!unchangedLines.available.value"
-              @show-all="unchangedLines.reveal(rows[index], 'all')"
-              @show-next="unchangedLines.reveal(rows[index], 'next')"
-              @show-previous="unchangedLines.reveal(rows[index], 'previous')"
+              :state="unchangedLines.state.value"
+              :layout="layout"
+              @show-all="(event: MouseEvent) => revealGapAt(index, 'all', event)"
+              @show-next="(event: MouseEvent) => revealGapAt(index, 'next', event)"
+              @show-previous="(event: MouseEvent) => revealGapAt(index, 'previous', event)"
             />
           </template>
           <template v-else-if="rows[index]?.kind === 'context'">

@@ -275,6 +275,7 @@ describe("DiffView", () => {
       count: number,
       starts: number[],
       text?: string,
+      whole = false,
     ) {
       fakeBackend({
         blobTexts: {
@@ -282,6 +283,7 @@ describe("DiffView", () => {
         },
       });
       await useSettingsStore().init(memoryStorage(), "windows");
+      if (whole) await useSettingsStore().update("diffWholeFile", true);
       await useRepoStore().open("/r");
       useReviewStore().setTarget({ kind: "worktree" });
       await settled();
@@ -295,6 +297,13 @@ describe("DiffView", () => {
       await nextTick();
       return wrapper;
     }
+    /** A click as a mouse gives it (detail 1); a press of Enter or Space gives detail 0. */
+    const mouseClick = async (wrapper: ReturnType<typeof mountWithI18n>, testid: string) => {
+      wrapper
+        .get(`[data-testid="${testid}"]`)
+        .element.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+      await nextTick();
+    };
     const gaps = (wrapper: ReturnType<typeof mountWithI18n>) =>
       wrapper.findAll('[data-testid="gap-row"]').map((row) => row.text());
     const newNumbers = (wrapper: ReturnType<typeof mountWithI18n>) =>
@@ -331,7 +340,8 @@ describe("DiffView", () => {
         [1, 101],
       );
       expect(gaps(wrapper)).toEqual(["97 unchanged lines"]);
-      await wrapper.get('[data-testid="gap-next"]').trigger("click");
+      // A mouse click (detail 1) reveals in place, without moving the view.
+      await mouseClick(wrapper, "gap-next");
       await nextTick();
       // The twenty lines take the gap's place under the first hunk; the gap moved below the
       // ten rows the test's viewport holds.
@@ -340,9 +350,85 @@ describe("DiffView", () => {
       body.element.scrollTop = 28 + 23 * 20 - 100;
       await body.trigger("scroll");
       expect(gaps(wrapper)).toEqual(["77 unchanged lines"]);
-      await wrapper.get('[data-testid="gap-previous"]').trigger("click");
+      await mouseClick(wrapper, "gap-previous");
       await nextTick();
       expect(gaps(wrapper)).toEqual(["57 unchanged lines"]);
+      wrapper.unmount();
+    });
+
+    it("keeps the keyboard on the gap that continues, and on the rows once it is gone", async () => {
+      const wrapper = await mountWorktreeFile(
+        [
+          [line(1), line(2, "added"), line(3)],
+          [line(101), line(102)],
+        ],
+        102,
+        [1, 101],
+      );
+      const press = async (testid: string) => {
+        const control = document.activeElement?.closest('[data-testid="gap-row"]')
+          ? (document.activeElement as HTMLElement)
+          : (wrapper.get(`[data-testid="${testid}"]`).element as HTMLElement);
+        control.focus();
+        control.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 }));
+        await flushPromises();
+        await nextTick();
+      };
+      const focusedGap = () =>
+        document.activeElement?.closest('[data-testid="gap-row"]')?.textContent?.trim();
+      // Enter on "the next 20" shows them and lands on the same control of the rest.
+      await press("gap-next");
+      expect(focusedGap()).toBe("77 unchanged lines");
+      expect((document.activeElement as HTMLElement).dataset["testid"]).toBe("gap-next");
+      // "The previous 20" keeps the row, which keeps the focus.
+      (wrapper.get('[data-testid="gap-previous"]').element as HTMLElement).focus();
+      await press("gap-previous");
+      expect(focusedGap()).toBe("57 unchanged lines");
+      expect((document.activeElement as HTMLElement).dataset["testid"]).toBe("gap-previous");
+      // "Show all" takes the row away: the rows keep the focus.
+      (wrapper.get('[data-testid="gap-all"]').element as HTMLElement).focus();
+      await press("gap-all");
+      expect(document.activeElement).toBe(wrapper.get('[data-testid="diff-body"]').element);
+      wrapper.unmount();
+    });
+
+    it("keeps the line on top in place when Whole file turns on and off", async () => {
+      const wrapper = await mountWorktreeFile(
+        [
+          [line(1), line(2, "added"), line(3)],
+          [line(101), line(102)],
+        ],
+        102,
+        [1, 101],
+      );
+      const body = wrapper.get('[data-testid="diff-body"]');
+      // The second hunk's header at the top: its first new line is 101.
+      body.element.scrollTop = 28 + 3 * 20 + 28;
+      await body.trigger("scroll");
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "e", bubbles: true }));
+      await flushPromises();
+      await nextTick();
+      // Lines 4 to 100 now sit above it.
+      expect(body.element.scrollTop).toBe(28 + 3 * 20 + 97 * 20);
+      await body.trigger("scroll");
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "e", bubbles: true }));
+      await flushPromises();
+      await nextTick();
+      expect(body.element.scrollTop).toBe(28 + 3 * 20 + 28);
+      wrapper.unmount();
+    });
+
+    it("opens a file with Whole file on at its first change once its lines are in", async () => {
+      const wrapper = await mountWorktreeFile(
+        [[line(101), line(102, "added")]],
+        102,
+        [101],
+        undefined,
+        true,
+      );
+      const body = wrapper.get('[data-testid="diff-body"]');
+      // Lines 1 to 100 above the hunk's header, which is the first row in view.
+      expect(body.element.scrollTop).toBe(100 * 20);
       wrapper.unmount();
     });
 
@@ -385,7 +471,12 @@ describe("DiffView", () => {
       );
       // The run after the last hunk needs the file's length: it is not shown.
       expect(gaps(wrapper)).toEqual(["7 unchanged lines"]);
-      expect(wrapper.get('[data-testid="gap-all"]').attributes("disabled")).toBeDefined();
+      const all = wrapper.get('[data-testid="gap-all"]');
+      expect(all.attributes("disabled")).toBeDefined();
+      // The tooltip says why, on the button's own box since a disabled button takes no pointer.
+      expect(all.element.parentElement?.dataset["tooltip"]).toBe(
+        "The file changed on disk; its lines show after the reload.",
+      );
       wrapper.unmount();
     });
   });
