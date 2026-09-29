@@ -33,6 +33,11 @@ pub async fn open_external(
     line: Option<u32>,
 ) -> Result<Vec<String>, AppError> {
     let line = valid_line(line)?;
+    // Every caller passes an absolute path (a root, an index entry, a root and a file in it);
+    // a relative one would start the command in whatever folder the app runs from.
+    if !path.is_absolute() {
+        return Err(AppError::invalid_argument("path", "must be absolute"));
+    }
     tokio::task::spawn_blocking(move || open_with(&templates, &path, line))
         .await
         .map_err(|join| AppError::internal(format!("spawn task failed: {join}")))?

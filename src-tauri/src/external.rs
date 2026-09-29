@@ -6,10 +6,13 @@ use std::process::{Command, Stdio};
 
 use crate::error::{codes, AppError};
 
-/// Splits a template into argv after replacing `{path}` and `{line}` in each word.
+/// Splits a template into argv after replacing `{line}` and then `{path}` in each word, so a
+/// file named `{line}.ts` keeps its name.
 ///
-/// Splitting happens before substitution, so a path with spaces stays one argument. Fails with
-/// `external.spawn_failed` when the template is empty or has unbalanced quotes.
+/// Splitting happens before substitution, so a path with spaces stays one argument. Windows
+/// Terminal (`wt`) reads an unescaped `;` in any argument as the start of another command, so
+/// the path's semicolons are escaped for it. Fails with `external.spawn_failed` when the
+/// template is empty or has unbalanced quotes.
 pub fn argv(template: &str, path: &Path, line: Option<u32>) -> Result<Vec<String>, AppError> {
     let words = split_template(template).map_err(|error| {
         AppError::new(
@@ -24,12 +27,52 @@ pub fn argv(template: &str, path: &Path, line: Option<u32>) -> Result<Vec<String
             "The command template is empty",
         ));
     }
-    let path = path.to_string_lossy();
+    let mut path = path.to_string_lossy().into_owned();
+    if words
+        .first()
+        .map(|program| program_name(program))
+        .as_deref()
+        == Some("wt")
+    {
+        path = path.replace(';', "\\;");
+    }
     let line = line.map(|line| line.to_string()).unwrap_or_default();
     Ok(words
         .into_iter()
-        .map(|word| word.replace("{path}", &path).replace("{line}", &line))
+        .map(|word| word.replace("{line}", &line).replace("{path}", &path))
         .collect())
+}
+
+/// A program's file name without its folder and extension, in lower case: `cmd` for
+/// `C:\Windows\System32\CMD.EXE`.
+fn program_name(program: &str) -> String {
+    let file = program.rsplit(['/', '\\']).next().unwrap_or(program);
+    let lower = file.to_ascii_lowercase();
+    [".exe", ".cmd", ".bat", ".com"]
+        .iter()
+        .find_map(|extension| lower.strip_suffix(extension))
+        .unwrap_or(&lower)
+        .to_owned()
+}
+
+/// The characters a shell reads in a command line it is given, by shell, for a template that
+/// runs one: a path holding one of them is refused rather than handed to it.
+fn shell_specials(program: &str) -> Option<&'static str> {
+    match program_name(program).as_str() {
+        "cmd" => Some("&|<>^%!\"()"),
+        "powershell" | "pwsh" => Some(";&|$`(){}<>\"'@#"),
+        "sh" | "bash" | "zsh" | "dash" | "fish" | "ksh" | "wsl" => Some(";&|$`(){}<>\"'\\*?[]~!#"),
+        _ => None,
+    }
+}
+
+/// Why a template that runs a shell may not take `path`: the first character of the path that
+/// shell would read; `None` for any other program, or a path it reads as plain text.
+fn shell_refusal(program: &str, path: &Path) -> Option<char> {
+    let specials = shell_specials(program)?;
+    path.to_string_lossy()
+        .chars()
+        .find(|c| specials.contains(*c) || c.is_control())
 }
 
 /// The folder a command starts in: `path` itself when it is a folder, else its parent, since
@@ -121,27 +164,37 @@ fn spawn_detached(argv: &[String], cwd: &Path) -> std::io::Result<()> {
         command.process_group(0);
     }
     let mut child = command.spawn()?;
-    std::thread::spawn(move || {
-        let _ = child.wait();
-    });
+    // A thread the platform refuses leaves the child unreaped, never the open undone.
+    let _ = std::thread::Builder::new()
+        .name("begitra-external-wait".to_owned())
+        .spawn(move || {
+            let _ = child.wait();
+        });
     Ok(())
 }
 
 /// Opens `path` (a folder, or a file at `line`) with the first template that spawns, started
-/// in the folder it opens or holds; a template that names `{line}` waits for a line. A path
-/// that is not on disk fails with `external.not_found` before any template runs; when no
-/// template spawns, `external.spawn_failed`, whose `detail` lists every argv that was tried and
-/// why it failed.
-#[tracing::instrument(level = "debug", skip_all, fields(path = %path.display(), line))]
+/// in the folder it opens or holds; a template that names `{line}` waits for a line, and one
+/// that runs a shell (`cmd /C …`, `sh -c …`) is skipped for a path holding a character that
+/// shell would read. A path that is not on disk fails with `external.not_found` before any
+/// template runs; when no template spawns, `external.spawn_failed`, whose `detail` lists every
+/// argv that was tried and why it failed.
+#[tracing::instrument(level = "debug", skip_all, fields(path = %path.display(), line = ?line))]
 pub fn open_with(
     templates: &[String],
     path: &Path,
     line: Option<u32>,
 ) -> Result<Vec<String>, AppError> {
     // An editor opens a missing path as a new, unsaved file, each in its own way; the
-    // refusal is Begitra's, before anything starts.
-    if let Err(error) = std::fs::symlink_metadata(path) {
-        if error.kind() == std::io::ErrorKind::NotFound {
+    // refusal is Begitra's, before anything starts. A link is followed: one whose target is
+    // gone is not on disk either. A name the platform cannot hold (`?` on Windows) and a
+    // path through a file are not there the same way.
+    if let Err(error) = std::fs::metadata(path) {
+        use std::io::ErrorKind;
+        if matches!(
+            error.kind(),
+            ErrorKind::NotFound | ErrorKind::NotADirectory | ErrorKind::InvalidFilename
+        ) {
             return Err(
                 AppError::new(codes::EXTERNAL_NOT_FOUND, "The path is not on disk")
                     .with_detail(path.display().to_string()),
@@ -162,6 +215,15 @@ pub fn open_with(
                 continue;
             }
         };
+        if let Some(special) = argv
+            .first()
+            .and_then(|program| shell_refusal(program, path))
+        {
+            attempts.push(format!(
+                "{template}: runs a shell, which would read {special:?} in the path"
+            ));
+            continue;
+        }
         match spawn_detached(&argv, cwd) {
             Ok(()) => return Ok(argv),
             Err(error) => attempts.push(format!("{}: {error}", argv.join(" "))),
@@ -206,6 +268,47 @@ mod tests {
     }
 
     #[test]
+    fn a_path_named_like_a_placeholder_keeps_its_name() {
+        let path = Path::new("C:/r/{line}.ts");
+        let words = argv("code.cmd -g {path}:{line}", path, Some(42)).expect("argv");
+        assert_eq!(words, vec!["code.cmd", "-g", "C:/r/{line}.ts:42"]);
+        let words = argv("code.cmd {path}", path, None).expect("argv");
+        assert_eq!(words, vec!["code.cmd", "C:/r/{line}.ts"]);
+    }
+
+    #[test]
+    fn windows_terminal_gets_its_semicolons_escaped() {
+        let path = Path::new("C:/code/a;calc");
+        let words = argv("wt -d {path}", path, None).expect("argv");
+        assert_eq!(words, vec!["wt", "-d", r"C:/code/a\;calc"]);
+        let words = argv("code.cmd {path}", path, None).expect("argv");
+        assert_eq!(words, vec!["code.cmd", "C:/code/a;calc"]);
+    }
+
+    #[test]
+    fn a_shell_never_gets_a_path_it_would_read() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let hostile = dir.path().join("a&md PWNED&.ts");
+        std::fs::write(&hostile, "x\n").expect("write");
+        let templates = vec![
+            "cmd /C start \"\" editor.exe {path}".to_owned(),
+            "C:/Windows/System32/CMD.EXE /C echo {path}".to_owned(),
+            "sh -c \"editor {path}\"".to_owned(),
+        ];
+        let error = open_with(&templates, &hostile, None).expect_err("every template skipped");
+        assert_eq!(error.code, codes::EXTERNAL_SPAWN_FAILED);
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail.matches("runs a shell").count(), 3, "{detail}");
+        assert!(!dir.path().join("PWNED").exists());
+        // A plain path goes to the same shell template.
+        assert_eq!(
+            shell_refusal("cmd", Path::new("C:/code/geo/src/a.ts")),
+            None
+        );
+        assert_eq!(shell_refusal("code.cmd", &hostile), None);
+    }
+
+    #[test]
     fn a_line_goes_where_its_placeholder_is() {
         let path = Path::new("C:/repos/my project/src/a.ts");
         let words = argv("code.cmd -g {path}:{line}", path, Some(42)).expect("argv");
@@ -241,7 +344,12 @@ mod tests {
         ];
         // Without a line the first template is skipped, not run with a literal `{line}`.
         let argv = open_with(&templates, dir.path(), None).expect("the second spawns");
-        assert_eq!(argv[0], harmless().split(' ').next().expect("program"));
+        let expected: Vec<String> = harmless().split(' ').map(str::to_owned).collect();
+        assert_eq!(argv, expected);
+        // With a line, a template that names it runs, with the line in its place.
+        let with_line = format!("{} {{line}}", harmless());
+        let argv = open_with(&[with_line], dir.path(), Some(5)).expect("spawns with the line");
+        assert_eq!(argv.last().map(String::as_str), Some("5"));
         let error = open_with(&templates[..1], dir.path(), None).expect_err("nothing to run");
         assert_eq!(error.code, codes::EXTERNAL_SPAWN_FAILED);
         assert!(error.detail.expect("detail").contains("needs a line"));

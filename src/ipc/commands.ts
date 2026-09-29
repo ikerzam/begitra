@@ -480,8 +480,10 @@ export function deleteAnnotation(repo: string, target: string, annotation: Annot
   return call("delete_annotation", { repo, target, annotation }, v.boolean());
 }
 
-/** Opens `path` with the first template that spawns; resolves with the argv that ran. */
-/** Opens `path`, a folder or a file (at `line` when given), with the first template that spawns. */
+/**
+ * Opens `path`, a folder or a file (at `line` when given), with the first template that
+ * spawns; resolves with the argv that ran.
+ */
 export function openExternal(templates: string[], path: string, line: number | null = null) {
   return call("open_external", { templates, path, line }, v.array(v.string()));
 }
