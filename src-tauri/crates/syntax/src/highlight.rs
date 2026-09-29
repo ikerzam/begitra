@@ -82,8 +82,9 @@ fn syntax_set() -> &'static SyntaxSet {
     SET.get_or_init(two_face::syntax::extra_newlines)
 }
 
-/// The syntaxes whose grammars the warm-up loads with the set: the languages most diffs are in.
-const WARM: [&str; 10] = [
+/// The syntaxes whose grammars [`warm_up`] unpacks after the set: the languages most diffs are
+/// in.
+pub const WARM_SYNTAXES: [&str; 10] = [
     "TypeScript",
     "TypeScriptReact",
     "JavaScript (Babel)",
@@ -102,7 +103,7 @@ const WARM: [&str; 10] = [
 pub fn warm_up() {
     let started = Instant::now();
     let set = syntax_set();
-    for name in WARM {
+    for name in WARM_SYNTAXES {
         if let Some(syntax) = set.find_syntax_by_name(name) {
             let _ = ParseState::new(syntax);
         }

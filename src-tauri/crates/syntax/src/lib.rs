@@ -12,7 +12,9 @@
 pub mod highlight;
 pub mod symbols;
 
-pub use highlight::{highlight, highlight_within, warm_up, Highlight, Token, TokenClass};
+pub use highlight::{
+    highlight, highlight_within, warm_up, Highlight, Token, TokenClass, WARM_SYNTAXES,
+};
 pub use symbols::{symbols, Symbol, SymbolKind};
 
 /// Largest text either function works on, in bytes; above it the result is empty.

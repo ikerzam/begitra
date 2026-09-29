@@ -1,8 +1,9 @@
 //! Criterion benches of the `syntax` crate on synthetic sources: highlighting a 10,000-line
 //! Rust file (the budget scenario of the viewer) and a TypeScript one, listing the symbols of
-//! a 500-line TypeScript file, and loading the syntax set. No repository is needed.
+//! a 500-line TypeScript file, and the warm-up the app runs at launch. No repository is needed.
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use syntect::parsing::ParseState;
 
 /// A Rust file of `lines` lines: functions with comments, strings, numbers and a struct.
 fn rust_source(lines: usize) -> String {
@@ -77,12 +78,22 @@ fn symbols_typical(c: &mut Criterion) {
     group.finish();
 }
 
-/// The `bat` project's syntax set, deserialised: the first part of the app's warm-up at launch
-/// (the grammars it then unpacks are measured by the first iteration of each highlight bench).
-fn load_set(c: &mut Criterion) {
+/// What `syntax::warm_up` does at launch, on a fresh set each time: the `bat` project's syntax
+/// set deserialised, then the grammars of the common languages unpacked (the set keeps each
+/// syntax's contexts compressed until a parse state asks for them).
+fn warm_up(c: &mut Criterion) {
     let mut group = c.benchmark_group("syntax");
     group.sample_size(10);
-    group.bench_function("load_set", |b| b.iter(two_face::syntax::extra_newlines));
+    group.bench_function("warm_up", |b| {
+        b.iter(|| {
+            let set = two_face::syntax::extra_newlines();
+            for name in syntax::WARM_SYNTAXES {
+                let found = set.find_syntax_by_name(name).expect("a warmed syntax");
+                let _ = ParseState::new(found);
+            }
+            set
+        });
+    });
     group.finish();
 }
 
@@ -91,6 +102,6 @@ criterion_group!(
     highlight_large_file,
     highlight_large_typescript,
     symbols_typical,
-    load_set
+    warm_up
 );
 criterion_main!(benches);
