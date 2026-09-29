@@ -11,6 +11,8 @@ import { defaultSkipFolders } from "@/ipc/commands";
 import { detectPlatform, type Platform } from "@/shortcuts/platform";
 import { PALETTE_THEMES, type PaletteThemeId } from "@/styles/themes";
 
+import { lineTemplates } from "./externalTemplates";
+
 export type LayoutMode =
   "graph" | "review" | "compare" | "worktrees" | "settings" | "changes" | "folder" | "project";
 /** The tab of the project view (and of the folder view, a project of its folder). */
@@ -76,6 +78,9 @@ export interface PaneSizes {
 export interface Settings {
   terminalCommand: string;
   editorCommand: string;
+  /** "Editor at a line": a template with `{path}` and `{line}`; empty derives it from the
+   * editor command for the editors Begitra knows (`externalTemplates.ts`). */
+  editorLineCommand: string;
   paneSizes: PaneSizes;
   columnWidths: ColumnWidths;
   sidebarCollapsed: boolean;
@@ -151,6 +156,7 @@ const endpoint = v.object({
 const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } = {
   terminalCommand: v.pipe(v.string(), v.minLength(1)),
   editorCommand: v.pipe(v.string(), v.minLength(1)),
+  editorLineCommand: v.pipe(v.string(), v.maxLength(400)),
   paneSizes: v.object({ sidebar: px, detail: v.nullable(px), files: px, reviewRail: px }),
   columnWidths: v.object({
     home: v.object({ name: px, branch: px, ahead: px, commit: px }),
@@ -229,6 +235,7 @@ export function defaultSettings(platform: Platform): Settings {
   return {
     terminalCommand: defaults.terminal[0] ?? "",
     editorCommand: defaults.editor[0] ?? "",
+    editorLineCommand: "",
     paneSizes: { sidebar: 240, detail: null, files: 280, reviewRail: 280 },
     columnWidths: defaultColumnWidths(),
     sidebarCollapsed: false,
@@ -374,5 +381,21 @@ export const useSettingsStore = defineStore("settings", () => {
     ...platformDefaults(platform.value).editor.filter((t) => t !== values.value.editorCommand),
   ]);
 
-  return { platform, values, loaded, init, update, flush, terminalTemplates, editorTemplates };
+  /** The templates for a file at a line: "Editor at a line", then each editor template's
+   * at-line form when known, then the template itself. */
+  const editorLineTemplates = computed(() =>
+    lineTemplates(values.value.editorLineCommand, editorTemplates.value),
+  );
+
+  return {
+    platform,
+    values,
+    loaded,
+    init,
+    update,
+    flush,
+    terminalTemplates,
+    editorTemplates,
+    editorLineTemplates,
+  };
 });

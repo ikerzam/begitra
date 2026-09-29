@@ -43,13 +43,10 @@ async function copyPath(): Promise<void> {
   }
 }
 
-/** The file on disk: the repository's root and the path, which the editor takes either way. */
+/** The file of the open repository's working tree. */
 function openInEditor(): void {
   const root = repo.repo?.root;
-  if (!root) return;
-  const separator = root.includes("\\") ? "\\" : "/";
-  const relative = separator === "\\" ? props.file.path.replaceAll("/", "\\") : props.file.path;
-  void external.openEditor(`${root.replace(/[\\/]+$/, "")}${separator}${relative}`);
+  if (root) void external.openFile(root, props.file.path);
 }
 </script>
 
