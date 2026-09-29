@@ -477,7 +477,7 @@
     },
     "binaryFileBody": "Binary files have no lines to read; the viewer shows images only.",
     "unmergedTitle": "Unmerged file",
-    "unmergedFile": "This file carries conflict markers. Resolve the conflict in a terminal, then review the result.",
+    "unmergedFile": "This file carries conflict markers. Resolve the conflict in your editor, then review the result.",
     "wouldConflict": "would conflict"
   },
   "palette": {

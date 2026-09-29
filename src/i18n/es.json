@@ -64,7 +64,7 @@
   },
   "lineMenu": {
     "label": "Acciones de la línea",
-    "openAtLine": "Abrir en el editor en la línea {line}"
+    "openAtLine": "Abrir en el editor por la línea {line}"
   },
   "fileMenu": {
     "label": "Acciones del fichero",
@@ -477,7 +477,7 @@
     },
     "binaryFileBody": "Los ficheros binarios no tienen líneas que leer; el visor solo muestra imágenes.",
     "unmergedTitle": "Fichero sin fusionar",
-    "unmergedFile": "Este fichero lleva marcas de conflicto. Resuelve el conflicto en un terminal y revisa el resultado.",
+    "unmergedFile": "Este fichero lleva marcas de conflicto. Resuelve el conflicto en el editor y revisa el resultado.",
     "wouldConflict": "entraría en conflicto"
   },
   "palette": {
@@ -498,7 +498,7 @@
       "zoom-reset": "Restablecer el zoom",
       "open-terminal": "Abrir en la terminal",
       "open-editor": "Abrir en el editor",
-      "open-file-editor": "Abrir el archivo en el editor",
+      "open-file-editor": "Abrir el fichero en el editor",
       "pin-repository": "Fijar el repositorio",
       "unpin-repository": "Desfijar el repositorio",
       "go-to-repositories": "Ir a los repositorios",
@@ -1046,7 +1046,7 @@
         "markReviewed": "Marcar como revisado",
         "openTerminal": "Abrir en la terminal",
         "openEditor": "Abrir en el editor",
-        "openFileEditor": "Abrir el archivo en el editor",
+        "openFileEditor": "Abrir el fichero en el editor",
         "addWorktree": "Añadir worktree",
         "settings": "Ajustes",
         "stageUnstageFile": "Preparar / quitar de preparados el fichero o las líneas",

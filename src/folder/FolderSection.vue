@@ -107,6 +107,7 @@ defineExpose({
       <IconButton
         :icon="Code"
         :label="t('project.editor', { name: props.repository.name })"
+        :tooltip="t('fileMenu.openInEditor')"
         data-testid="folder-section-editor"
         @click="() => void external.openEditor(props.repository.root)"
       />
