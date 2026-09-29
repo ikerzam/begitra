@@ -200,6 +200,11 @@ describe("DiffView", () => {
     const rows = wrapper.findAll('[data-testid="diff-row"]');
     expect(rows.map((row) => row.attributes("data-kind"))).toEqual(["add", "add", "add", "add"]);
     expect(rows[0]?.text()).toContain("fn main() {");
+    // The lines read whole take the new side's colours, as any file's do.
+    await flushPromises();
+    await nextTick();
+    const first = wrapper.findAll('[data-testid="diff-row"]')[0];
+    expect(first?.find(".text-syntax-keyword").text()).toBe("fn");
     wrapper.unmount();
   });
 

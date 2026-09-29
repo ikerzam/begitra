@@ -75,6 +75,7 @@ const highlight = useHighlight(
   root,
   target,
   file,
+  computed(() => props.hunks),
   computed(() => props.highlighted),
 );
 const symbols = useSymbols(root, target, file, rows);

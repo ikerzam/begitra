@@ -121,7 +121,7 @@ useShortcut("mark-reviewed", () => {
       v-else-if="hunks.length > 0 || !failed"
       :file="props.file"
       :hunks="hunks"
-      :highlighted="!shownHunk"
+      :highlighted="true"
     />
   </section>
 </template>
