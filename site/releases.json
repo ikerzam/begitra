@@ -1,5 +1,18 @@
 [
   {
+    "version": "0.5.0",
+    "date": "2026-09-30",
+    "title": { "en": "Themes and the whole file", "es": "Temas y el fichero entero" },
+    "highlight": {
+      "en": "Your editor's colours, the whole file in the diff, and Open in editor at the line you read",
+      "es": "Los colores de tu editor, el fichero entero en el diff y Abrir en el editor en la línea que lees"
+    },
+    "notes": {
+      "en": "Twelve themes from their authors' palettes for the window (One Dark, One Light, Ayu Dark, Mirage and Light, Catppuccin Mocha and Latte, Dracula, Nord, Tokyo Night, Gruvbox Dark, Solarized Light), and a code theme of its own for the diffs, so the code can read like your editor inside a light or a dark window. The diff folds the unchanged lines around each change into a row that opens on a click, twenty lines at a time or all of them, and Whole file (E) shows every file entire. Open in editor lands on the line you are reading: from the diff's header, a line's menu, Ctrl+Shift+E, the rows of the changes screen, a conflict at its first marker, the folder view and the comparison; Editor at a line is worked out for VS Code, Cursor, Zed, Sublime Text, the JetBrains IDEs and Notepad++. Highlighting covers TypeScript, TSX, JSX, Vue, Svelte, Kotlin, Swift, PowerShell and many more languages, and keeps its colours while a file reloads.",
+      "es": "Doce temas con las paletas de sus autores para la ventana (One Dark, One Light, Ayu Dark, Mirage y Light, Catppuccin Mocha y Latte, Dracula, Nord, Tokyo Night, Gruvbox Dark, Solarized Light) y un tema propio para el código de los diffs, para que el código se lea como en tu editor dentro de una ventana clara u oscura. El diff pliega las líneas sin cambios alrededor de cada cambio en una fila que se abre con un clic, de veinte en veinte o todas, y Fichero entero (E) muestra cada fichero completo. Abrir en el editor va a la línea que estás leyendo: desde la cabecera del diff, el menú de una línea, Ctrl+Mayús+E, las filas de la pantalla de cambios, un conflicto en su primera marca, la vista de carpeta y la comparación; Editor en una línea concreta se deduce para VS Code, Cursor, Zed, Sublime Text, los IDE de JetBrains y Notepad++. El resaltado cubre TypeScript, TSX, JSX, Vue, Svelte, Kotlin, Swift, PowerShell y muchos lenguajes más, y conserva sus colores mientras un fichero se recarga."
+    }
+  },
+  {
     "version": "0.4.0",
     "date": "2026-09-27",
     "title": { "en": "Projects", "es": "Proyectos" },
