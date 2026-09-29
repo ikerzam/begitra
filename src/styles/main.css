@@ -4,6 +4,7 @@
 @source not "../../bench";
 @source not "../../src-tauri";
 @import "./tokens.css";
+@import "./themes.css";
 @import "./tailwind-theme.css";
 
 @layer base {
