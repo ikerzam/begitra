@@ -1,4 +1,5 @@
-import { ref } from "vue";
+import { mount } from "@vue/test-utils";
+import { defineComponent, nextTick, ref } from "vue";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { detectPlatform, formatShortcut, matchesKeys, parseKeys } from "./platform";
@@ -10,6 +11,7 @@ import {
   shortcutRegistry,
 } from "./registry";
 import { useListNavigation } from "./useListNavigation";
+import { useShortcut } from "./useShortcut";
 
 function key(
   k: string,
@@ -165,6 +167,33 @@ describe("ShortcutRegistry", () => {
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     expect(isEditableTarget(checkbox)).toBe(false);
+  });
+});
+
+describe("useShortcut", () => {
+  it("attaches while the component is mounted and while its condition holds", async () => {
+    setShortcutRegistry(new ShortcutRegistry("windows"));
+    const active = ref(false);
+    const handler = vi.fn();
+    const Probe = defineComponent({
+      setup() {
+        useShortcut("mark-reviewed", handler, () => active.value);
+        return () => null;
+      },
+    });
+    const wrapper = mount(Probe);
+    expect(shortcutRegistry().isActive("mark-reviewed")).toBe(false);
+    active.value = true;
+    await nextTick();
+    expect(shortcutRegistry().run("mark-reviewed")).toBe(true);
+    expect(handler).toHaveBeenCalledTimes(1);
+    active.value = false;
+    await nextTick();
+    expect(shortcutRegistry().isActive("mark-reviewed")).toBe(false);
+    active.value = true;
+    await nextTick();
+    wrapper.unmount();
+    expect(shortcutRegistry().isActive("mark-reviewed")).toBe(false);
   });
 });
 

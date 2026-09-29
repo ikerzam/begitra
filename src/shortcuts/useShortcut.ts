@@ -2,19 +2,33 @@
 // `useShortcutHint` gives the platform hint text, and `installShortcuts` wires one keydown
 // listener on the window.
 
-import { computed, onBeforeUnmount, onMounted, type ComputedRef } from "vue";
+import { computed, onBeforeUnmount, onMounted, watch, type ComputedRef } from "vue";
 
 import { shortcutRegistry, type ShortcutHandler } from "./registry";
 
-/** Runs `handler` while the calling component is mounted. */
-export function useShortcut(id: string, handler: ShortcutHandler): void {
+/**
+ * Runs `handler` while the calling component is mounted and, when `active` is given, while it
+ * holds: an inactive binding leaves its key to the next handler and its palette row disabled.
+ */
+export function useShortcut(id: string, handler: ShortcutHandler, active?: () => boolean): void {
   let detach: (() => void) | undefined;
+  let mounted = false;
+  const sync = (): void => {
+    const wanted = mounted && (active?.() ?? true);
+    if (wanted && !detach) detach = shortcutRegistry().register(id, handler);
+    else if (!wanted && detach) {
+      detach();
+      detach = undefined;
+    }
+  };
   onMounted(() => {
-    detach = shortcutRegistry().register(id, handler);
+    mounted = true;
+    sync();
   });
+  if (active) watch(active, sync);
   onBeforeUnmount(() => {
-    detach?.();
-    detach = undefined;
+    mounted = false;
+    sync();
   });
 }
 

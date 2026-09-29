@@ -6,7 +6,7 @@
 // changed lines can be picked for a partial stage: a click toggles a line, shift-click extends
 // from the last click, and the arrows move a cursor that Space toggles.
 
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 
 import DiffRow from "@/components/DiffRow.vue";
 import HunkRow from "@/components/HunkRow.vue";
@@ -267,11 +267,11 @@ function openAtLine(line: number | null): void {
   if (at && !deleted.value) void external.openFile(at, props.file.path, line);
 }
 
-// ⇧⌘E and the palette's "Open file in editor": the file at the line at the top of the diff.
-useShortcut("open-file-editor", () => {
+/** Where ⇧⌘E opens the file (the viewer binds it): the cursor's line, else the top row's. */
+function lineAtTop(): number | null {
   const index = cursorRow.value ?? topRowIndex();
-  openAtLine(index === null ? null : lineOfIndex(index));
-});
+  return index === null ? null : lineOfIndex(index);
+}
 
 interface MenuRequest {
   x: number;
@@ -280,6 +280,33 @@ interface MenuRequest {
   selection: string;
 }
 const menu = ref<MenuRequest | null>(null);
+/** Where the keyboard's menu opens: past the two numbers and the marker (110px), at the code. */
+const MENU_INDENT = 116;
+
+// The menu names a line of the file it opened on.
+watch(
+  () => props.file.path,
+  () => {
+    menu.value = null;
+  },
+);
+
+/** The menu closed: the focus comes back to the rows unless an item moved it elsewhere. */
+function closeMenu(): void {
+  menu.value = null;
+  void nextTick(() => {
+    const active = document.activeElement;
+    if (active === null || active === document.body) body.value?.focus({ preventScroll: true });
+  });
+}
+
+/** The text selected inside the rows, if any. */
+function selectionInRows(): string {
+  const selection = typeof window.getSelection === "function" ? window.getSelection() : null;
+  const element = body.value;
+  if (!selection || selection.isCollapsed || !element) return "";
+  return element.contains(selection.anchorNode) ? selection.toString() : "";
+}
 
 /** A right click on a row: its line, and the selected text when the click is inside it. */
 function onContextMenu(event: MouseEvent): void {
@@ -300,19 +327,32 @@ function onContextMenu(event: MouseEvent): void {
   };
 }
 
-/** The menu key: the menu of the cursor's row, else of the row at the top of the diff. */
+/**
+ * The menu key: the menu of the cursor's row, else of the row at the top of the diff, opened
+ * under that row (brought into view first) at the code, with the text selected in the rows.
+ */
 function openMenuAtKeyboard(): void {
-  const rect = body.value?.getBoundingClientRect();
+  const element = body.value;
+  if (!element) return;
   const index = cursorRow.value ?? topRowIndex();
+  if (index !== null) revealRow(index);
+  const rect = element.getBoundingClientRect();
+  const bottom =
+    index === null ? 0 : virtual.rowTop(index) + (heights.value[index] ?? 0) - element.scrollTop;
   menu.value = {
-    x: (rect?.left ?? 0) + 16,
-    y: (rect?.top ?? 0) + 16,
+    x: rect.left + MENU_INDENT,
+    y: rect.top + Math.min(Math.max(bottom, 0), element.clientHeight),
     line: index === null ? null : lineOfIndex(index),
-    selection: "",
+    selection: selectionInRows(),
   };
 }
 
-defineExpose({ moveSymbol, changedSymbols: symbols.changed, focus: () => body.value?.focus() });
+defineExpose({
+  moveSymbol,
+  changedSymbols: symbols.changed,
+  focus: () => body.value?.focus(),
+  lineAtTop,
+});
 </script>
 
 <template>
@@ -399,7 +439,7 @@ defineExpose({ moveSymbol, changedSymbols: symbols.changed, focus: () => body.va
       :line="menu.line"
       :selection="menu.selection"
       @open="openAtLine"
-      @close="menu = null"
+      @close="closeMenu"
     />
   </div>
 </template>

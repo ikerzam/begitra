@@ -3,7 +3,7 @@
 // open file or one of its states: the card (large, generated, binary and
 // unmerged files go behind it), the image view, and the empty, loading and error states.
 
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import EmptyState from "@/components/EmptyState.vue";
@@ -21,6 +21,7 @@ import DiffHeader from "./DiffHeader.vue";
 import DiffRows from "./DiffRows.vue";
 import ImageDiff from "./ImageDiff.vue";
 import { imageType } from "./sides";
+import { useOpenFileShortcut } from "./useFileOpener";
 
 const props = withDefaults(
   defineProps<{
@@ -75,6 +76,14 @@ const failedMessage = computed(() => {
 useShortcut("mark-reviewed", () => {
   if (props.file) review.toggleReviewed(props.file.path);
 });
+
+/** The rows' own line at the top, read by ⇧⌘E. */
+const rows = ref<{ lineAtTop: () => number | null } | null>(null);
+useOpenFileShortcut(
+  root,
+  computed(() => props.file),
+  () => rows.value?.lineAtTop(),
+);
 </script>
 
 <template>
@@ -124,6 +133,7 @@ useShortcut("mark-reviewed", () => {
     />
     <DiffRows
       v-else-if="hunks.length > 0 || !failed"
+      ref="rows"
       :file="props.file"
       :hunks="hunks"
       :highlighted="true"

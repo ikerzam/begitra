@@ -7,6 +7,7 @@ import type { Ref } from "vue";
 import { readBlob } from "@/ipc/commands";
 import type { FileChange } from "@/ipc/schemas";
 import { useExternal } from "@/shell/useExternal";
+import { useShortcut } from "@/shortcuts/useShortcut";
 
 import { firstChangedLine } from "./diffRows";
 
@@ -27,6 +28,16 @@ async function conflictLine(root: string, path: string): Promise<number | null> 
   }
 }
 
+/** Whether `file` is a conflict whose diff is empty: its line is its first marker, read later. */
+function markersOnly(file: FileChange): boolean {
+  return file.status === "unmerged" && file.hunks.length === 0;
+}
+
+/** The line the header opens `file` at when its diff tells: the new side's first change. */
+export function headerLine(file: FileChange): number | null {
+  return markersOnly(file) ? null : firstChangedLine(file.hunks);
+}
+
 /** Opens files of the working tree at `root` in the editor. */
 export function useFileOpener(root: Ref<string | null>) {
   const external = useExternal();
@@ -40,10 +51,7 @@ export function useFileOpener(root: Ref<string | null>) {
   async function openFile(file: FileChange): Promise<boolean> {
     const at = root.value;
     if (at === null || !canOpen(file)) return false;
-    const line =
-      file.status === "unmerged" && file.hunks.length === 0
-        ? await conflictLine(at, file.path)
-        : firstChangedLine(file.hunks);
+    const line = markersOnly(file) ? await conflictLine(at, file.path) : headerLine(file);
     return external.openFile(at, file.path, line);
   }
 
@@ -55,4 +63,31 @@ export function useFileOpener(root: Ref<string | null>) {
   }
 
   return { canOpen, openFile, openConflict };
+}
+
+/**
+ * A viewer's ⇧⌘E ("Open file in editor"): the shown file at `lineAtTop` (the line at the
+ * cursor or at the top of its rows), or, where no rows show it (a card, an image), where its
+ * header's button opens it. Bound only while the file can be opened, so a deleted file leaves
+ * the key and the palette row inactive.
+ */
+export function useOpenFileShortcut(
+  root: Ref<string | null>,
+  file: Ref<FileChange | null>,
+  lineAtTop: () => number | null | undefined,
+): void {
+  const opener = useFileOpener(root);
+  const external = useExternal();
+  useShortcut(
+    "open-file-editor",
+    () => {
+      const open = file.value;
+      const at = root.value;
+      if (!open || at === null) return;
+      const line = lineAtTop();
+      if (line === undefined) void opener.openFile(open);
+      else void external.openFile(at, open.path, line);
+    },
+    () => file.value !== null && opener.canOpen(file.value),
+  );
 }

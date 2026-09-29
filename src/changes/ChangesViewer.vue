@@ -18,10 +18,11 @@ import IconButton from "@/components/IconButton.vue";
 import SkeletonRow from "@/components/SkeletonRow.vue";
 import type { FileChange } from "@/ipc/schemas";
 import DiffGuard from "@/review/DiffGuard.vue";
+import DiffPath from "@/review/DiffPath.vue";
 import DiffRows from "@/review/DiffRows.vue";
 import ImageDiff from "@/review/ImageDiff.vue";
 import { imageType } from "@/review/sides";
-import { useFileOpener } from "@/review/useFileOpener";
+import { headerLine, useFileOpener, useOpenFileShortcut } from "@/review/useFileOpener";
 import { errorText } from "@/shell/errorMessage";
 import { useCodeTheme } from "@/shell/useTheme";
 import { lineKey, type ChangeList } from "@/stores/changes";
@@ -85,6 +86,15 @@ const conflicted = computed(
     sequencer.conflicts.some((entry) => entry.path === file.value?.path),
 );
 const selectedCount = computed(() => selected.value.size);
+
+/** The editor button names the line it opens at when the diff tells it. */
+const editorLabel = computed(() => {
+  const line = file.value ? headerLine(file.value) : null;
+  return line === null ? t("fileMenu.openInEditor") : t("lineMenu.openAtLine", { line });
+});
+/** The rows' own line at the top, read by ⇧⌘E. */
+const rows = ref<{ lineAtTop: () => number | null } | null>(null);
+useOpenFileShortcut(root, file, () => rows.value?.lineAtTop());
 
 /** The keys of every changed line of a hunk. */
 function hunkKeys(open: FileChange, hunkIndex: number): Set<string> {
@@ -196,12 +206,7 @@ defineExpose({ actOnSelection, selectedCount });
     >
       <template v-if="file">
         <span class="flex min-w-0 flex-1 items-center gap-3">
-          <span
-            class="min-w-0 truncate font-mono text-mono-sm text-fg-secondary"
-            data-testid="changes-path"
-          >
-            {{ file.path }}
-          </span>
+          <DiffPath :path="file.path" data-testid="changes-path" />
           <span v-if="file.isGenerated" class="text-sm text-fg-muted">
             {{ t("detail.generatedLabel") }}
           </span>
@@ -239,7 +244,7 @@ defineExpose({ actOnSelection, selectedCount });
           @click="() => void review.setWrap(!review.wrap)"
         />
         <IconButton
-          :label="t('fileMenu.openInEditor')"
+          :label="editorLabel"
           :icon="Code"
           :disabled="!opener.canOpen(file)"
           data-testid="open-in-editor"
@@ -308,6 +313,7 @@ defineExpose({ actOnSelection, selectedCount });
     />
     <DiffRows
       v-else
+      ref="rows"
       :file="file"
       :hunks="file.hunks"
       :highlighted="true"

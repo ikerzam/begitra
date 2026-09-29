@@ -161,6 +161,89 @@ describe("DiffView", () => {
     expect(shortcutRegistry().isActive("open-file-editor")).toBe(false);
   });
 
+  it("binds Open file in editor while a file can be opened, behind a card too", async () => {
+    const calls = fakeBackend();
+    await useSettingsStore().init(memoryStorage(), "windows");
+    await useRepoStore().open("/r");
+    await settled();
+    // A generated file sits behind its card: the key opens it where the header's button does.
+    const generated = await mountView({
+      file: file([[line(1), line(2, "added")]], { isGenerated: true }),
+    });
+    expect(generated.find('[data-testid="diff-guard"]').exists()).toBe(true);
+    expect(shortcutRegistry().run("open-file-editor")).toBe(true);
+    await flushPromises();
+    const opened = calls.filter((call) => call.cmd === "open_external").at(-1);
+    expect(opened?.args).toMatchObject({ path: "/r/src/app.ts", line: 2 });
+    generated.unmount();
+    // A deleted file has nothing to open: the key and its palette row stay inactive.
+    const deleted = await mountView({
+      file: file([[line(1, "removed")]], { status: "deleted" }),
+    });
+    expect(shortcutRegistry().isActive("open-file-editor")).toBe(false);
+    deleted.unmount();
+  });
+
+  it("names the line its header button opens at, and keeps the file name whole", async () => {
+    fakeBackend();
+    await useSettingsStore().init(memoryStorage(), "windows");
+    await useRepoStore().open("/r");
+    await settled();
+    const wrapper = await mountView({
+      file: file([[line(1), line(2, "added")]], { path: "packages/map/src/tile-cache.ts" }),
+    });
+    const button = wrapper.get('[data-testid="open-in-editor"]');
+    expect(button.attributes("aria-label")).toBe("Open in editor at line 2");
+    const path = wrapper.get('[data-testid="diff-path"]');
+    expect(path.text()).toBe("packages/map/src/tile-cache.ts");
+    expect(path.attributes("data-tooltip")).toBe("packages/map/src/tile-cache.ts");
+    // The folder truncates; the name does not shrink.
+    const [folder, name] = path.findAll("span");
+    expect(folder?.classes()).toContain("truncate");
+    expect(name?.text()).toBe("tile-cache.ts");
+    expect(name?.classes()).toContain("shrink-0");
+    wrapper.unmount();
+  });
+
+  it("opens the keyboard's menu under the row it names and gives the focus back on close", async () => {
+    fakeBackend();
+    await useSettingsStore().init(memoryStorage(), "windows");
+    await useRepoStore().open("/r");
+    await settled();
+    const wrapper = await mountView({
+      file: file([[line(1), line(2, "added")]]),
+    });
+    const body = wrapper.get('[data-testid="diff-body"]');
+    (body.element as HTMLElement).focus();
+    await body.trigger("keydown", { key: "ContextMenu" });
+    await nextTick();
+    const menu = wrapper.findComponent({ name: "LineMenu" });
+    // The top row is the hunk's header (28px): the menu opens under it, at the code.
+    expect(menu.props("y")).toBe(28);
+    expect(menu.props("x")).toBe(116);
+    expect(menu.props("line")).toBe(1);
+    // Escape closes it and the rows take the focus back, so the keys keep working.
+    lineMenu()?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await flushPromises();
+    expect(lineMenu()).toBeNull();
+    expect(document.activeElement).toBe(body.element);
+    wrapper.unmount();
+  });
+
+  it("closes the line menu when another file opens", async () => {
+    fakeBackend();
+    await useSettingsStore().init(memoryStorage(), "windows");
+    await useRepoStore().open("/r");
+    await settled();
+    const wrapper = await mountView({ file: file([[line(1), line(2, "added")]]) });
+    await wrapper.findAll('[data-testid="diff-row"]')[1]!.trigger("contextmenu");
+    expect(lineMenu()).not.toBeNull();
+    await wrapper.setProps({ file: file([[line(1), line(2, "added")]], { path: "src/b.ts" }) });
+    await nextTick();
+    expect(lineMenu()).toBeNull();
+    wrapper.unmount();
+  });
+
   it("paints its body of rows in the code theme, or leaves it to the window's", async () => {
     fakeBackend();
     const settings = useSettingsStore();

@@ -24,7 +24,8 @@ import { statusOf } from "@/detail/groupFiles";
 import type { FileChange } from "@/ipc/schemas";
 import { useReviewStore } from "@/stores/review";
 
-import { useFileOpener } from "./useFileOpener";
+import DiffPath from "./DiffPath.vue";
+import { headerLine, useFileOpener } from "./useFileOpener";
 
 const props = withDefaults(
   defineProps<{
@@ -46,6 +47,11 @@ const review = useReviewStore();
 const opener = useFileOpener(toRef(props, "root"));
 
 const reviewed = computed(() => (props.file ? review.isReviewed(props.file.path) : false));
+/** The editor button names the line it opens at when the diff tells it. */
+const editorLabel = computed(() => {
+  const line = props.file ? headerLine(props.file) : null;
+  return line === null ? t("fileMenu.openInEditor") : t("lineMenu.openAtLine", { line });
+});
 
 /* The status word of the binary flag, in lower case ("binary, added"). */
 const binaryStatus = computed(() =>
@@ -61,12 +67,7 @@ const binaryStatus = computed(() =>
   >
     <template v-if="props.file">
       <span class="flex min-w-0 flex-1 items-center gap-3">
-        <span
-          class="min-w-0 truncate font-mono text-mono-sm text-fg-secondary"
-          data-testid="diff-path"
-        >
-          {{ props.file.path }}
-        </span>
+        <DiffPath :path="props.file.path" data-testid="diff-path" />
         <span v-if="props.conflict" class="text-sm text-danger" data-testid="diff-conflict">
           {{ t("review.wouldConflict") }}
         </span>
@@ -111,7 +112,7 @@ const binaryStatus = computed(() =>
         @click="() => void review.setIgnoreWhitespace(!review.ignoreWhitespace)"
       />
       <IconButton
-        :label="t('fileMenu.openInEditor')"
+        :label="editorLabel"
         :icon="Code"
         :disabled="!opener.canOpen(props.file)"
         data-testid="open-in-editor"

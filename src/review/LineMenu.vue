@@ -11,6 +11,8 @@ import ContextMenu from "@/components/ContextMenu.vue";
 import ContextMenuItem from "@/components/ContextMenuItem.vue";
 import ContextMenuSeparator from "@/components/ContextMenuSeparator.vue";
 import { copyText } from "@/shell/clipboard";
+import { formatShortcut } from "@/shortcuts/platform";
+import { shortcutRegistry } from "@/shortcuts/registry";
 import { useToastsStore } from "@/stores/toasts";
 
 const props = defineProps<{
@@ -27,6 +29,7 @@ const emit = defineEmits<{ close: []; open: [line: number] }>();
 
 const { t } = useI18n();
 const toasts = useToastsStore();
+const copyHint = formatShortcut("mod+c", shortcutRegistry().platform);
 
 async function copyPath(): Promise<void> {
   if (await copyText(props.path)) {
@@ -50,6 +53,7 @@ async function copyPath(): Promise<void> {
         <ContextMenuItem
           :label="t('textMenu.copy')"
           :icon="Copy"
+          :keys="copyHint"
           data-testid="line-menu-copy"
           @select="() => void copyText(props.selection)"
         />
