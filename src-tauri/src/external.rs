@@ -6,11 +6,11 @@ use std::process::{Command, Stdio};
 
 use crate::error::{codes, AppError};
 
-/// Splits a template into argv after replacing `{path}` in each word.
+/// Splits a template into argv after replacing `{path}` and `{line}` in each word.
 ///
 /// Splitting happens before substitution, so a path with spaces stays one argument. Fails with
 /// `external.spawn_failed` when the template is empty or has unbalanced quotes.
-pub fn argv(template: &str, path: &Path) -> Result<Vec<String>, AppError> {
+pub fn argv(template: &str, path: &Path, line: Option<u32>) -> Result<Vec<String>, AppError> {
     let words = split_template(template).map_err(|error| {
         AppError::new(
             codes::EXTERNAL_SPAWN_FAILED,
@@ -25,10 +25,22 @@ pub fn argv(template: &str, path: &Path) -> Result<Vec<String>, AppError> {
         ));
     }
     let path = path.to_string_lossy();
+    let line = line.map(|line| line.to_string()).unwrap_or_default();
     Ok(words
         .into_iter()
-        .map(|word| word.replace("{path}", &path))
+        .map(|word| word.replace("{path}", &path).replace("{line}", &line))
         .collect())
+}
+
+/// The folder a command starts in: `path` itself when it is a folder, else its parent, since
+/// no platform starts a process in a file.
+pub fn working_directory(path: &Path) -> &Path {
+    if path.is_dir() {
+        return path;
+    }
+    path.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or(path)
 }
 
 /// Splits a template into words: POSIX shell rules on Unix (`shell-words`), and on Windows
@@ -115,13 +127,35 @@ fn spawn_detached(argv: &[String], cwd: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Tries each template in order and returns on the first that spawns. When none does, fails
-/// with `external.spawn_failed`; `detail` lists every argv that was tried and why it failed.
-#[tracing::instrument(level = "debug", skip_all, fields(cwd = %cwd.display()))]
-pub fn open_with(templates: &[String], cwd: &Path) -> Result<Vec<String>, AppError> {
+/// Opens `path` (a folder, or a file at `line`) with the first template that spawns, started
+/// in the folder it opens or holds; a template that names `{line}` waits for a line. A path
+/// that is not on disk fails with `external.not_found` before any template runs; when no
+/// template spawns, `external.spawn_failed`, whose `detail` lists every argv that was tried and
+/// why it failed.
+#[tracing::instrument(level = "debug", skip_all, fields(path = %path.display(), line))]
+pub fn open_with(
+    templates: &[String],
+    path: &Path,
+    line: Option<u32>,
+) -> Result<Vec<String>, AppError> {
+    // An editor opens a missing path as a new, unsaved file, each in its own way; the
+    // refusal is Begitra's, before anything starts.
+    if let Err(error) = std::fs::symlink_metadata(path) {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            return Err(
+                AppError::new(codes::EXTERNAL_NOT_FOUND, "The path is not on disk")
+                    .with_detail(path.display().to_string()),
+            );
+        }
+    }
+    let cwd = working_directory(path);
     let mut attempts = Vec::new();
     for template in templates {
-        let argv = match argv(template, cwd) {
+        if line.is_none() && template.contains("{line}") {
+            attempts.push(format!("{template}: needs a line"));
+            continue;
+        }
+        let argv = match argv(template, path, line) {
             Ok(argv) => argv,
             Err(error) => {
                 attempts.push(error.detail.unwrap_or(error.message));
@@ -144,12 +178,22 @@ pub fn open_with(templates: &[String], cwd: &Path) -> Result<Vec<String>, AppErr
 mod tests {
     use super::*;
 
+    /// A template that spawns and exits at once.
+    fn harmless() -> String {
+        if cfg!(windows) {
+            "cmd /C exit 0".to_owned()
+        } else {
+            "true".to_owned()
+        }
+    }
+
     #[test]
     fn splits_before_substituting_so_spaces_survive() {
         let path = Path::new("C:/repos/my project");
-        let words = argv("wt -d {path}", path).expect("argv");
+        let words = argv("wt -d {path}", path, None).expect("argv");
         assert_eq!(words, vec!["wt", "-d", "C:/repos/my project"]);
-        let words = argv("x-terminal-emulator --working-directory={path}", path).expect("argv");
+        let words =
+            argv("x-terminal-emulator --working-directory={path}", path, None).expect("argv");
         assert_eq!(
             words,
             vec![
@@ -157,8 +201,59 @@ mod tests {
                 "--working-directory=C:/repos/my project"
             ]
         );
-        let words = argv(r#"code "{path}" --new-window"#, path).expect("argv");
+        let words = argv(r#"code "{path}" --new-window"#, path, None).expect("argv");
         assert_eq!(words, vec!["code", "C:/repos/my project", "--new-window"]);
+    }
+
+    #[test]
+    fn a_line_goes_where_its_placeholder_is() {
+        let path = Path::new("C:/repos/my project/src/a.ts");
+        let words = argv("code.cmd -g {path}:{line}", path, Some(42)).expect("argv");
+        assert_eq!(
+            words,
+            vec!["code.cmd", "-g", "C:/repos/my project/src/a.ts:42"]
+        );
+        let words = argv("idea64.exe --line {line} {path}", path, Some(7)).expect("argv");
+        assert_eq!(
+            words,
+            vec!["idea64.exe", "--line", "7", "C:/repos/my project/src/a.ts"]
+        );
+    }
+
+    #[test]
+    fn a_file_opens_with_its_folder_as_the_working_directory() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let file = dir.path().join("a file.ts");
+        std::fs::write(&file, "const a = 1;\n").expect("write");
+        // A file cannot be a process's working directory: the editor starts in its folder.
+        let argv = open_with(&[harmless()], &file, None).expect("spawns in the file's folder");
+        assert_eq!(argv[0], harmless().split(' ').next().expect("program"));
+        assert_eq!(working_directory(&file), dir.path());
+        assert_eq!(working_directory(dir.path()), dir.path());
+    }
+
+    #[test]
+    fn a_template_with_a_line_waits_for_one() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let templates = vec![
+            "begitra-no-such-editor -g {path}:{line}".to_owned(),
+            harmless(),
+        ];
+        // Without a line the first template is skipped, not run with a literal `{line}`.
+        let argv = open_with(&templates, dir.path(), None).expect("the second spawns");
+        assert_eq!(argv[0], harmless().split(' ').next().expect("program"));
+        let error = open_with(&templates[..1], dir.path(), None).expect_err("nothing to run");
+        assert_eq!(error.code, codes::EXTERNAL_SPAWN_FAILED);
+        assert!(error.detail.expect("detail").contains("needs a line"));
+    }
+
+    #[test]
+    fn a_path_not_on_disk_is_refused_before_any_template_runs() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let missing = dir.path().join("gone").join("tiles.ts");
+        let error = open_with(&[harmless()], &missing, Some(3)).expect_err("refused");
+        assert_eq!(error.code, codes::EXTERNAL_NOT_FOUND);
+        assert!(error.detail.expect("detail").contains("tiles.ts"));
     }
 
     #[test]
@@ -187,10 +282,10 @@ mod tests {
     fn rejects_empty_and_unbalanced_templates() {
         let path = Path::new("/r");
         assert_eq!(
-            argv("", path).expect_err("empty").code,
+            argv("", path, None).expect_err("empty").code,
             codes::EXTERNAL_SPAWN_FAILED
         );
-        let error = argv("code \"{path}", path).expect_err("unbalanced");
+        let error = argv("code \"{path}", path, None).expect_err("unbalanced");
         assert_eq!(error.code, codes::EXTERNAL_SPAWN_FAILED);
         assert!(error.detail.expect("detail").contains("code"));
     }
@@ -202,7 +297,7 @@ mod tests {
             "begitra-no-such-terminal-1 {path}".to_owned(),
             "begitra-no-such-terminal-2 --cwd {path}".to_owned(),
         ];
-        let error = open_with(&templates, &cwd).expect_err("must fail");
+        let error = open_with(&templates, &cwd, None).expect_err("must fail");
         assert_eq!(error.code, codes::EXTERNAL_SPAWN_FAILED);
         let detail = error.detail.expect("detail");
         assert!(detail.contains("begitra-no-such-terminal-1"));
@@ -212,12 +307,9 @@ mod tests {
     #[test]
     fn falls_through_to_the_next_template() {
         let cwd = std::env::temp_dir();
-        #[cfg(windows)]
-        let ok = "cmd /C exit 0";
-        #[cfg(not(windows))]
-        let ok = "true";
-        let templates = vec!["begitra-no-such-terminal {path}".to_owned(), ok.to_owned()];
-        let argv = open_with(&templates, &cwd).expect("second template spawns");
+        let ok = harmless();
+        let templates = vec!["begitra-no-such-terminal {path}".to_owned(), ok.clone()];
+        let argv = open_with(&templates, &cwd, None).expect("second template spawns");
         assert_eq!(argv[0], ok.split(' ').next().expect("program"));
     }
 }

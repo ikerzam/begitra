@@ -139,6 +139,9 @@ export interface FakeBackendOptions {
   projects?: Project[];
   /** Every project command rejects with `index.database`. */
   failProjects?: boolean;
+  /** `open_external` rejects these paths with `external.not_found`, as the backend does for a
+   * path that is not on disk. */
+  missingPaths?: string[];
 }
 
 /** The hash the operations that move HEAD answer. */
@@ -987,7 +990,16 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
           }
           return (options.repositories ?? []).map((entry) => ({ ...entry }));
         case "open_external":
-          return null;
+          if (options.missingPaths?.includes(String(args["path"]))) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({
+              code: "external.not_found",
+              message: "The path is not on disk",
+              detail: String(args["path"]),
+            });
+          }
+          // The argv that ran, as the backend answers: the first template's words.
+          return String((args["templates"] as string[] | undefined)?.[0] ?? "").split(" ");
         case "projects":
           if (options.failProjects) return projectFailure();
           return [...projects].sort(byName).map((project) => ({

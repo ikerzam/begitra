@@ -574,6 +574,7 @@
     "indexLock": "git no ha podido bloquear el índice (index.lock). Puede haber otro git en marcha; si no lo hay, borra .git/index.lock y vuelve a intentarlo. {message}",
     "gitFailed": "git devolvió un error. {message}",
     "spawnFailed": "No se pudo iniciar el comando. {message}",
+    "notOnDisk": "{path} no está en el disco.",
     "indexDatabase": "No se ha podido guardar la lista de repositorios. {message}",
     "indexFolder": "No se ha podido escanear {path}. {message}",
     "watcherUnavailable": "Los cambios en este repositorio no se detectarán automáticamente.",

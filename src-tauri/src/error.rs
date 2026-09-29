@@ -49,6 +49,9 @@ pub mod codes {
     pub const OP_UNKNOWN_WALK: &str = "op.unknown_walk";
     /// The terminal or editor command could not be started; `detail` carries the argv.
     pub const EXTERNAL_SPAWN_FAILED: &str = "external.spawn_failed";
+    /// The file or folder to open in the terminal or the editor is not on disk; `detail`
+    /// carries its path.
+    pub const EXTERNAL_NOT_FOUND: &str = "external.not_found";
     /// The settings file could not be read or written.
     pub const SETTINGS_IO: &str = "settings.io";
     /// The repository index database failed.
@@ -64,7 +67,7 @@ pub mod codes {
     pub const INTERNAL: &str = "internal";
 
     /// Every code, in the order of the declarations above.
-    pub const ALL: [&str; 24] = [
+    pub const ALL: [&str; 25] = [
         REPO_NOT_FOUND,
         REPO_INVALID,
         REPO_CORRUPT_OBJECT,
@@ -83,6 +86,7 @@ pub mod codes {
         OP_TIMEOUT,
         OP_UNKNOWN_WALK,
         EXTERNAL_SPAWN_FAILED,
+        EXTERNAL_NOT_FOUND,
         SETTINGS_IO,
         INDEX_DATABASE,
         INDEX_FOLDER,

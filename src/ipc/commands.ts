@@ -481,8 +481,9 @@ export function deleteAnnotation(repo: string, target: string, annotation: Annot
 }
 
 /** Opens `path` with the first template that spawns; resolves with the argv that ran. */
-export function openExternal(templates: string[], path: string) {
-  return call("open_external", { templates, path }, v.array(v.string()));
+/** Opens `path`, a folder or a file (at `line` when given), with the first template that spawns. */
+export function openExternal(templates: string[], path: string, line: number | null = null) {
+  return call("open_external", { templates, path, line }, v.array(v.string()));
 }
 
 // --- Discovery ------------------------------------------------------------------------------

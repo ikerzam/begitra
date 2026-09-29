@@ -340,6 +340,7 @@ describe("SettingsLayout", () => {
     expect(opened?.args).toEqual({
       templates: ["explorer {path}"],
       path: "/home/iker/.local/share/dev.begitra.app/logs",
+      line: null,
     });
   });
 

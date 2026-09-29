@@ -74,6 +74,10 @@
     "message": "Sample message for external.spawn_failed"
   },
   {
+    "code": "external.not_found",
+    "message": "Sample message for external.not_found"
+  },
+  {
     "code": "settings.io",
     "message": "Sample message for settings.io"
   },

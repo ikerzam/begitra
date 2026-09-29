@@ -574,6 +574,7 @@
     "indexLock": "git could not take the index lock (index.lock). Another git process may be running; if none is, delete .git/index.lock and try again. {message}",
     "gitFailed": "git reported an error. {message}",
     "spawnFailed": "The command could not be started. {message}",
+    "notOnDisk": "{path} is not on disk.",
     "indexDatabase": "The repository list could not be saved. {message}",
     "indexFolder": "Couldn't scan {path}. {message}",
     "watcherUnavailable": "Changes in this repository will not be detected automatically.",
