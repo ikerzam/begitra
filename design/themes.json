@@ -31,7 +31,8 @@
         "string": "#98C379",
         "number": "#D19A66",
         "comment": "#5C6370"
-      }
+      },
+      "lanes": ["#D19A66", "#98C379", "#56B6C2", "#C678DD", "#E06C75", "#BE5046", "#E5C07B", "#5C6370"]
     },
     {
       "id": "one-light",
@@ -62,13 +63,14 @@
         "string": "#50A14F",
         "number": "#986801",
         "comment": "#A0A1A7"
-      }
+      },
+      "lanes": ["#986801", "#50A14F", "#0184BC", "#A626A4", "#E45649", "#CA1243", "#C18401", "#A0A1A7"]
     },
     {
       "id": "ayu-dark",
       "name": "Ayu Dark",
       "brightness": "dark",
-      "source": "ayu 9.1.0 (ayu-theme/ayu-colors), dark",
+      "source": "ayu 9.1.0 (ayu-theme/ayu-colors), dark; the strong border derived",
       "bg": "#10141C",
       "raised": "#141821",
       "border": "#1B1F29",
@@ -91,7 +93,8 @@
         "string": "#AAD94C",
         "number": "#D2A6FF",
         "comment": "#5A6673"
-      }
+      },
+      "lanes": ["#FF8F40", "#AAD94C", "#59C2FF", "#D2A6FF", "#F07178", "#95E6CB", "#BFBDB6", "#5A6673"]
     },
     {
       "id": "ayu-mirage",
@@ -120,7 +123,8 @@
         "string": "#D5FF80",
         "number": "#DFBFFF",
         "comment": "#6E7C8F"
-      }
+      },
+      "lanes": ["#FFA659", "#D5FF80", "#73D0FF", "#DFBFFF", "#F28779", "#95E6CB", "#D9BE98", "#6E7C8F"]
     },
     {
       "id": "ayu-light",
@@ -149,16 +153,17 @@
         "string": "#86B300",
         "number": "#A37ACC",
         "comment": "#ADAEB1"
-      }
+      },
+      "lanes": ["#FA8532", "#86B300", "#22A4E6", "#A37ACC", "#F07171", "#4CBF99", "#5C6166", "#ADAEB1"]
     },
     {
       "id": "catppuccin-mocha",
       "name": "Catppuccin Mocha",
       "brightness": "dark",
-      "source": "catppuccin/palette, mocha; syntax per its style guide",
+      "source": "catppuccin/palette, mocha; syntax per its style guide; surface0 and surface1 as the borders",
       "bg": "#1E1E2E",
       "raised": "#181825",
-      "border": "#11111B",
+      "border": "#313244",
       "borderStrong": "#45475A",
       "text": "#CDD6F4",
       "secondary": "#BAC2DE",
@@ -180,7 +185,8 @@
         "string": "#A6E3A1",
         "number": "#FAB387",
         "comment": "#9399B2"
-      }
+      },
+      "lanes": ["#FAB387", "#A6E3A1", "#74C7EC", "#CBA6F7", "#F5C2E7", "#94E2D5", "#F9E2AF", "#9399B2"]
     },
     {
       "id": "catppuccin-latte",
@@ -211,7 +217,8 @@
         "string": "#40A02B",
         "number": "#FE640B",
         "comment": "#7C7F93"
-      }
+      },
+      "lanes": ["#FE640B", "#40A02B", "#04A5E5", "#8839EF", "#EA76CB", "#179299", "#DF8E1D", "#7C7F93"]
     },
     {
       "id": "dracula",
@@ -233,7 +240,7 @@
       "purple": "#BD93F9",
       "pink": "#FF79C6",
       "gray": "#6272A4",
-      "lanes": ["#FFB86C", "#50FA7B", "#8BE9FD", "#BD93F9", "#FF79C6", "#FF5555", "#F1FA8C", "#6272A4"],
+      "lanes": ["#FFB86C", "#50FA7B", "#8BE9FD", "#FF79C6", "#FF5555", "#F8F8F2", "#F1FA8C", "#6272A4"],
       "syntax": {
         "keyword": "#FF79C6",
         "function": "#50FA7B",
@@ -247,11 +254,11 @@
       "id": "nord",
       "name": "Nord",
       "brightness": "dark",
-      "source": "Nord's palette (nordtheme.com), nord0 to nord15, and its VS Code theme's comment colour",
+      "source": "Nord's palette (nordtheme.com), nord0 to nord15, and its VS Code theme's comment colour; nord2 and nord3 as the borders",
       "bg": "#2E3440",
       "raised": "#3B4252",
-      "border": "#3B4252",
-      "borderStrong": "#434C5E",
+      "border": "#434C5E",
+      "borderStrong": "#4C566A",
       "text": "#D8DEE9",
       "muted": "#616E88",
       "accent": "#88C0D0",
@@ -264,7 +271,7 @@
       "purple": "#B48EAD",
       "pink": "#BF616A",
       "gray": "#616E88",
-      "lanes": ["#D08770", "#A3BE8C", "#81A1C1", "#B48EAD", "#BF616A", "#8FBCBB", "#EBCB8B", "#616E88"],
+      "lanes": ["#D08770", "#A3BE8C", "#81A1C1", "#B48EAD", "#BF616A", "#E5E9F0", "#EBCB8B", "#616E88"],
       "syntax": {
         "keyword": "#81A1C1",
         "function": "#88C0D0",
@@ -278,10 +285,10 @@
       "id": "tokyo-night",
       "name": "Tokyo Night",
       "brightness": "dark",
-      "source": "folke/tokyonight.nvim, night",
+      "source": "folke/tokyonight.nvim, night; the keyword colour is its VS Code port's (the Neovim theme's @keyword is #9D7CD8); the border is its bg_highlight",
       "bg": "#1A1B26",
       "raised": "#16161E",
-      "border": "#15161E",
+      "border": "#292E42",
       "borderStrong": "#3B4261",
       "text": "#C0CAF5",
       "secondary": "#A9B1D6",
@@ -303,7 +310,8 @@
         "string": "#9ECE6A",
         "number": "#FF9E64",
         "comment": "#565F89"
-      }
+      },
+      "lanes": ["#FF9E64", "#9ECE6A", "#7DCFFF", "#BB9AF7", "#FF007C", "#73DACA", "#E0AF68", "#565F89"]
     },
     {
       "id": "gruvbox-dark",
@@ -334,13 +342,14 @@
         "string": "#B8BB26",
         "number": "#D3869B",
         "comment": "#928374"
-      }
+      },
+      "lanes": ["#FE8019", "#B8BB26", "#8EC07C", "#D3869B", "#FB4934", "#EBDBB2", "#FABD2F", "#928374"]
     },
     {
       "id": "solarized-light",
       "name": "Solarized Light",
       "brightness": "light",
-      "source": "Ethan Schoonover's Solarized (ethanschoonover.com/solarized), light",
+      "source": "Ethan Schoonover's Solarized (ethanschoonover.com/solarized), light; base01 as the text for its contrast, the borders derived between base3 and base2",
       "bg": "#FDF6E3",
       "raised": "#EEE8D5",
       "border": "#E6DFCA",
@@ -365,7 +374,8 @@
         "string": "#2AA198",
         "number": "#D33682",
         "comment": "#93A1A1"
-      }
+      },
+      "lanes": ["#CB4B16", "#859900", "#2AA198", "#6C71C4", "#D33682", "#586E75", "#B58900", "#93A1A1"]
     }
   ]
 }

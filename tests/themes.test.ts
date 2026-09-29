@@ -5,13 +5,18 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  composite,
   contrast,
+  deltaE,
   deriveTokens,
-  FLOORS,
+  LANE_DISTANCE,
   lift,
+  liftBorder,
+  liftOn,
   mix,
   mixToContrast,
   ON_FILL_FLOOR,
+  TINT_FLOORS,
   type Palette,
 } from "../scripts/themes.mjs";
 
@@ -37,12 +42,43 @@ function block(id: string): Map<string, string> {
   return map;
 }
 
+/** A token of a block, which every block defines. */
+function token(tokens: Map<string, string>, name: string): string {
+  const value = tokens.get(name);
+  if (value === undefined) throw new Error(`no ${name}`);
+  return value;
+}
+
+const TEXT_ON_SURFACES = [
+  ["--text", 7],
+  ["--text-secondary", 4.5],
+  ["--text-muted", 4.5],
+  ["--accent-text", 4.5],
+  ["--danger", 4.5],
+  ["--warn", 4.5],
+  ["--ok", 4.5],
+  ["--info", 4.5],
+  ["--reviewed", 4.5],
+] as const;
+const CODE = [
+  "--text-secondary",
+  "--syntax-keyword",
+  "--syntax-function",
+  "--syntax-type",
+  "--syntax-string",
+  "--syntax-number",
+  "--syntax-comment",
+];
+
 describe("theme derivation", () => {
-  it("measures contrast as WCAG does", () => {
+  it("measures contrast and colour difference as WCAG and CIEDE2000 do", () => {
     expect(contrast("#000000", "#ffffff")).toBeCloseTo(21, 5);
     expect(contrast("#767676", "#ffffff")).toBeCloseTo(4.54, 2);
     // A colour with alpha is measured over the background it sits on.
     expect(contrast("#00000000", "#ffffff")).toBeCloseTo(1, 5);
+    expect(deltaE("#61afef", "#61afef")).toBe(0);
+    // Red and green are as far apart as two colours get.
+    expect(deltaE("#ff0000", "#00ff00")).toBeGreaterThan(80);
   });
 
   it("lifts a colour to its floor in its own hue, away from the background", () => {
@@ -50,12 +86,21 @@ describe("theme derivation", () => {
     const onLight = lift("#eba400", "#fcfcfc", 3);
     expect(contrast(onLight, "#fcfcfc")).toBeGreaterThanOrEqual(3);
     expect(contrast(onLight, "#fcfcfc")).toBeLessThan(3.2);
-    expect(onLight).not.toBe("#eba400");
     // One Dark's comments: lighter on a dark background.
-    const onDark = lift("#5c6370", "#282c34", 3);
-    expect(contrast(onDark, "#282c34")).toBeGreaterThanOrEqual(3);
+    expect(contrast(lift("#5c6370", "#282c34", 3), "#282c34")).toBeGreaterThanOrEqual(3);
     // A colour already over its floor stays as it is.
     expect(lift("#98c379", "#282c34", 3)).toBe("#98c379");
+    // On several surfaces at once.
+    const both = liftOn("#7f848e", ["#282c34", "#21252b"], 4.5);
+    expect(contrast(both, "#282c34")).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(both, "#21252b")).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("moves a border on its own side of the background until it shows", () => {
+    // Tokyo Night's own border sits 1.05:1 on its background and gets darker.
+    const border = liftBorder("#15161e", ["#1a1b26", "#16161e"], 1.15);
+    expect(contrast(border, "#1a1b26")).toBeGreaterThanOrEqual(1.15);
+    expect(contrast(border, "#16161e")).toBeGreaterThanOrEqual(1.15);
   });
 
   it("mixes toward the background as far as a contrast allows", () => {
@@ -68,13 +113,14 @@ describe("theme derivation", () => {
   it("derives every colour token of a palette and nothing else", () => {
     const oneDark = palettes.find((palette) => palette.id === "one-dark");
     if (!oneDark) throw new Error("One Dark is missing");
-    const { tokens, lifts } = deriveTokens(oneDark, names);
+    const { tokens, lifts, clashes } = deriveTokens(oneDark, names);
     expect([...tokens.keys()]).toEqual(names);
     expect(tokens.get("--bg-app")).toBe("#282c34");
-    expect(tokens.get("--syntax-keyword")).toBe("#c678dd");
-    expect(tokens.get("--diff-add-bg")).toBe("#98c3792e");
+    // A lifted colour stays close to its palette's: the keyword is still One Dark's purple.
+    expect(deltaE(tokens.get("--syntax-keyword") ?? "", "#c678dd")).toBeLessThan(10);
     // The comment colour is under 3:1 in the original and is lifted.
     expect(lifts.map((l) => l.token)).toContain("--syntax-comment");
+    expect(clashes).toEqual([]);
   });
 });
 
@@ -88,10 +134,13 @@ describe("themes.css", () => {
     ).not.toThrow();
   });
 
-  it("gives Begitra's dark colours to the dark attribute, for a code theme in a light window", () => {
+  it("gives Begitra's own dark and light colours, whole, to their attributes", () => {
+    // Either can be the code theme inside any window, so neither may inherit a token.
     const dark = block("dark");
+    const light = block("light");
     for (const [name, values] of Object.entries(tokensJson.colors)) {
       expect(dark.get(name), name).toBe(values.dark.toLowerCase());
+      expect(light.get(name), name).toBe(values.light.toLowerCase());
     }
   });
 
@@ -100,19 +149,83 @@ describe("themes.css", () => {
     (id, palette) => {
       const tokens = block(id);
       expect([...tokens.keys()].sort()).toEqual([...names].sort());
-      const bg = tokens.get("--bg-app") ?? "";
+      const bg = token(tokens, "--bg-app");
+      const raised = token(tokens, "--bg-raised");
       expect(bg).toBe(palette.bg.toLowerCase());
-      for (const [name, floor] of Object.entries(FLOORS)) {
-        expect(contrast(tokens.get(name) ?? "", bg), `${id} ${name}`).toBeGreaterThanOrEqual(floor);
+      expect(themesCss).toContain(`[data-theme="${id}"] {\n  color-scheme: ${palette.brightness};`);
+
+      // Text on both surfaces.
+      for (const [name, floor] of TEXT_ON_SURFACES) {
+        for (const surface of [bg, raised]) {
+          expect(contrast(token(tokens, name), surface), `${id} ${name}`).toBeGreaterThanOrEqual(
+            floor,
+          );
+        }
       }
-      const white = tokens.get("--white") ?? "";
-      for (const fill of ["--danger", "--ref-current"]) {
+      // The text roles keep their order.
+      const on = (name: string) => contrast(token(tokens, name), bg);
+      expect(on("--text")).toBeGreaterThan(on("--text-secondary"));
+      expect(on("--text-secondary")).toBeGreaterThan(on("--text-muted"));
+      expect(on("--text-muted")).toBeGreaterThan(on("--text-disabled"));
+      // The hairlines show on both surfaces.
+      for (const name of ["--border", "--border-strong"]) {
+        for (const surface of [bg, raised]) {
+          expect(contrast(token(tokens, name), surface), `${id} ${name}`).toBeGreaterThanOrEqual(
+            1.15,
+          );
+        }
+      }
+      // The code on the plain background, the changed rows and the changed spans.
+      const addRow = composite(token(tokens, "--diff-add-bg"), bg);
+      const delRow = composite(token(tokens, "--diff-del-bg"), bg);
+      const addSpan = composite(token(tokens, "--diff-add-emphasis"), addRow);
+      const delSpan = composite(token(tokens, "--diff-del-emphasis"), delRow);
+      for (const surface of [bg, addRow, delRow, addSpan, delSpan]) {
+        expect(contrast(token(tokens, "--text"), surface), `${id} text`).toBeGreaterThanOrEqual(
+          TINT_FLOORS.text,
+        );
+        for (const name of CODE) {
+          expect(contrast(token(tokens, name), surface), `${id} ${name}`).toBeGreaterThanOrEqual(
+            TINT_FLOORS.code,
+          );
+        }
+      }
+      // A change still shows, and its markers read on its row.
+      expect(contrast(addRow, bg)).toBeGreaterThanOrEqual(1.1);
+      expect(contrast(addSpan, addRow)).toBeGreaterThanOrEqual(1.2);
+      expect(contrast(token(tokens, "--diff-add-fg"), addRow)).toBeGreaterThanOrEqual(
+        TINT_FLOORS.marker,
+      );
+      expect(contrast(token(tokens, "--diff-del-fg"), delRow)).toBeGreaterThanOrEqual(
+        TINT_FLOORS.marker,
+      );
+      // The accent shows as a bar, on a selected row too.
+      const accent = token(tokens, "--accent");
+      for (const surface of [bg, raised, composite(token(tokens, "--bg-selected"), bg)]) {
+        expect(contrast(accent, surface), `${id} accent`).toBeGreaterThanOrEqual(3);
+      }
+      // The destructive button's and the current badge's text, on each of their fills.
+      const white = token(tokens, "--white");
+      for (const fill of ["--danger", "--danger-hover", "--danger-active", "--ref-current"]) {
         expect(
-          contrast(white, tokens.get(fill) ?? ""),
+          contrast(white, token(tokens, fill)),
           `${id} --white on ${fill}`,
         ).toBeGreaterThanOrEqual(ON_FILL_FLOOR);
       }
-      expect(themesCss).toContain(`[data-theme="${id}"] {\n  color-scheme: ${palette.brightness};`);
+      // Lanes read as dots and stay apart from the accent and from each other.
+      const lanes = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => token(tokens, `--lane-${n}`));
+      lanes.forEach((lane, index) => {
+        expect(contrast(lane, bg), `${id} lane ${index + 1}`).toBeGreaterThanOrEqual(3);
+        expect(deltaE(lane, accent), `${id} lane ${index + 1} ~ accent`).toBeGreaterThanOrEqual(
+          LANE_DISTANCE,
+        );
+        lanes.slice(index + 1).forEach((other, offset) => {
+          expect(
+            deltaE(lane, other),
+            `${id} lanes ${index + 1}, ${index + offset + 2}`,
+          ).toBeGreaterThanOrEqual(LANE_DISTANCE);
+        });
+      });
     },
   );
 });

@@ -15,19 +15,25 @@ const { themes: palettes } = JSON.parse(readFileSync(resolve(root, "design/theme
 const names = Object.keys(tokens.colors);
 
 const dark = new Map(names.map((name) => [name, tokens.colors[name].dark.toLowerCase()]));
+const light = new Map(names.map((name) => [name, tokens.colors[name].light.toLowerCase()]));
 const themes = palettes.map((palette) => {
-  const { tokens: derived, lifts, onFill } = deriveTokens(palette, names);
+  const { tokens: derived, lifts, onFill, clashes, alphas } = deriveTokens(palette, names);
   for (const { token, from, to } of lifts) {
     console.log(`${palette.id}: ${token} ${from} -> ${to}`);
   }
+  const percent = (value) => `${Math.round(value * 100)}%`;
+  console.log(
+    `${palette.id}: diff tints ${percent(alphas.add)}/${percent(alphas.del)}, spans ${percent(alphas.addSpan)}/${percent(alphas.delSpan)}`,
+  );
   if (onFill < ON_FILL_FLOOR) {
     console.log(`${palette.id}: --white reads ${onFill.toFixed(2)}:1 on its fills`);
   }
+  for (const clash of clashes) console.log(`${palette.id}: ${clash}`);
   return { palette, tokens: derived };
 });
 
 const outputs = [
-  ["src/styles/themes.css", buildCss(dark, themes)],
+  ["src/styles/themes.css", buildCss(dark, light, themes)],
   ["src/styles/themes.ts", buildTs(palettes)],
 ];
 
