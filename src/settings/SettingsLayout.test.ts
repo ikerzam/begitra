@@ -117,9 +117,14 @@ describe("SettingsLayout", () => {
     await terminal.setValue("wezterm start --cwd {path}");
     await terminal.trigger("blur");
     expect(settings.values.terminalCommand).toBe("wezterm start --cwd {path}");
-    // Editor at a line takes any text, empty included: empty derives it from the editor.
+    // Editor at a line takes any text, empty included: empty derives it from the editor,
+    // which the placeholder shows.
     const line = input(wrapper, "editor-line-command");
-    expect(line.attributes("placeholder")).toBe("code -g {path}:{line}");
+    expect(line.attributes("placeholder")).toBe("code.cmd -g {path}:{line}");
+    const editor = input(wrapper, "editor-command");
+    await editor.setValue("subl {path}");
+    await editor.trigger("blur");
+    expect(line.attributes("placeholder")).toBe("subl {path}:{line}");
     await line.setValue(" idea64.exe --line {line} {path} ");
     await line.trigger("keydown", { key: "Enter" });
     expect(settings.values.editorLineCommand).toBe("idea64.exe --line {line} {path}");
@@ -141,6 +146,24 @@ describe("SettingsLayout", () => {
     expect(document.activeElement).toBe(page.element);
     await page.trigger("keydown", { key: "j" });
     expect(document.activeElement).toBe(input(wrapper, "editor-command").element);
+  });
+
+  it("names the placeholders in the command hints and shows what an empty line template runs", async () => {
+    const wrapper = await mountSettings();
+    const hints = wrapper.findAll('[data-testid="settings-hint"]').map((hint) => hint.text());
+    expect(hints).toContain(
+      '{path} is replaced with the folder or the file to open. Used by every "Open in terminal" and "Open in editor" action.',
+    );
+    expect(hints).toContain(
+      "{path} and {line} are replaced. Empty: derived from Editor when Begitra knows that editor.",
+    );
+    const line = input(wrapper, "editor-line-command");
+    expect(line.attributes("aria-describedby")).toBe("settings-editor-line-hint");
+    expect(input(wrapper, "editor-command").attributes("aria-describedby")).toBe(
+      "settings-editor-hint",
+    );
+    expect(wrapper.get("#settings-editor-line-hint").text()).toContain("{line}");
+    wrapper.unmount();
   });
 
   it("detects git with the loading line, then shows the version", async () => {
