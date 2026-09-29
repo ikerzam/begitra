@@ -58,7 +58,7 @@ fn highlight_large_file(c: &mut Criterion) {
     group.finish();
 }
 
-/// The slowest common grammar: TypeScript's takes several times longer per line than Rust's.
+/// TypeScript's grammar, about five times Rust's cost per line.
 fn highlight_large_typescript(c: &mut Criterion) {
     let mut group = c.benchmark_group("syntax");
     group.sample_size(10);
