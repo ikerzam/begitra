@@ -106,7 +106,7 @@ pub async fn highlight_file(
         let engine = worker.open(&repo)?;
         let root = engine.repo().root.clone();
         let Some((key, text)) = text_of(engine.as_ref(), &at, &path)? else {
-            return Ok(Highlight::default());
+            return Ok(Highlight::nothing());
         };
         let highlight = match worker.cached_highlight(&root, &key) {
             Some(cached) => cached,

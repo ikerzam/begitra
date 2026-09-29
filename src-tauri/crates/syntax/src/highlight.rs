@@ -1,13 +1,16 @@
-//! Token classes per line with syntect: the syntax is picked by extension, then by the first
-//! line; every scope of the stack is mapped to one of eight classes and adjacent tokens of one
-//! class are merged. Only the non-plain tokens are reported: what a line does not list is
-//! plain. The viewer paints each class in its syntax colour.
+//! Token classes per line with syntect and the `bat` project's syntax set (`two-face`): the
+//! syntax is picked by the whole file name, then by extension, then by the first line; every
+//! scope of the stack is mapped to one of eight classes (each scope's name read once per file)
+//! and adjacent tokens of one class are merged. Only the non-plain tokens are reported: what a
+//! line does not list is plain. The viewer paints each class in its syntax colour
+//! (the `--syntax-*` tokens).
 
+use std::collections::HashMap;
 use std::sync::OnceLock;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use syntect::parsing::{ParseState, ScopeStack, ScopeStackOp, SyntaxReference, SyntaxSet};
+use syntect::parsing::{ParseState, Scope, ScopeStack, ScopeStackOp, SyntaxReference, SyntaxSet};
 
 use crate::{within_caps, Cancelled, CANCEL_EVERY, TIME_BUDGET};
 
@@ -46,7 +49,7 @@ pub struct Token {
 }
 
 /// The tokens of a file, one vector per line (non-plain tokens only).
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Highlight {
     /// The syntax used, `None` when the file was not recognised or exceeded the caps.
@@ -54,58 +57,136 @@ pub struct Highlight {
     /// The non-plain tokens of each line, in order; a line without an entry (the time budget
     /// ran out, or the grammar failed mid-file) is plain.
     pub lines: Vec<Vec<Token>>,
-    /// Whether every line was classified; `false` when [`TIME_BUDGET`] ran out first.
+    /// Whether the file was classified to its end; `false` when [`TIME_BUDGET`] ran out
+    /// first or the grammar failed mid-file. A file with nothing to classify (no known syntax,
+    /// over the caps, binary) is complete.
     pub complete: bool,
 }
 
-fn syntax_set() -> &'static SyntaxSet {
-    static SET: OnceLock<SyntaxSet> = OnceLock::new();
-    SET.get_or_init(SyntaxSet::load_defaults_newlines)
-}
-
-/// Extensions the bundled syntaxes do not know, read with a close relative: TypeScript as
-/// JavaScript (comments, strings and keywords agree), Vue and Svelte files as HTML.
-fn alias(extension: &str) -> &str {
-    match extension {
-        "ts" | "mts" | "cts" | "tsx" | "jsx" | "mjs" | "cjs" => "js",
-        "vue" | "svelte" => "html",
-        "pyi" => "py",
-        "kts" => "kt",
-        _ => extension,
-    }
-}
-
-/// The syntax for `path`, by extension, then by the first line of `text`.
-fn syntax_for<'s>(set: &'s SyntaxSet, path: &str, text: &str) -> Option<&'s SyntaxReference> {
-    let name = path.rsplit('/').next().unwrap_or(path);
-    let by_extension = name
-        .rsplit_once('.')
-        .and_then(|(_, extension)| {
-            let lower = extension.to_ascii_lowercase();
-            set.find_syntax_by_extension(&lower)
-                .or_else(|| set.find_syntax_by_extension(alias(&lower)))
-        })
-        .or_else(|| set.find_syntax_by_extension(name));
-    by_extension.or_else(|| {
-        let first = text.lines().next().unwrap_or("");
-        set.find_syntax_by_first_line(first)
-    })
-}
-
-/// The class of a scope stack (the innermost scope that names a class wins) and whether
-/// that scope is an operator's, whose class also depends on its text (see [`worded`]).
-fn class_of(stack: &ScopeStack) -> (TokenClass, bool) {
-    for scope in stack.as_slice().iter().rev() {
-        let text = scope.build_string();
-        if let Some(class) = class_named(&text) {
-            // JavaScript scopes `=>` as the storage of a function, the others their
-            // operators as `keyword.operator`.
-            let operator =
-                text.starts_with("keyword.operator") || text.starts_with("storage.type.function");
-            return (class, operator);
+impl Highlight {
+    /// The answer for a file with nothing to classify (no known syntax, over the caps, binary):
+    /// no syntax, no tokens, and nothing left to compute, so it is cached like any other.
+    pub fn nothing() -> Self {
+        Highlight {
+            syntax: None,
+            lines: Vec::new(),
+            complete: true,
         }
     }
-    (TokenClass::Plain, false)
+}
+
+/// The syntax set, loaded once: the `bat` project's, which holds syntect's own and TypeScript,
+/// TSX, JSX, Vue, Svelte, TOML, Dockerfile and the rest.
+fn syntax_set() -> &'static SyntaxSet {
+    static SET: OnceLock<SyntaxSet> = OnceLock::new();
+    SET.get_or_init(two_face::syntax::extra_newlines)
+}
+
+/// The syntaxes whose grammars the warm-up loads with the set: the languages most diffs are in.
+const WARM: [&str; 10] = [
+    "TypeScript",
+    "TypeScriptReact",
+    "JavaScript (Babel)",
+    "Vue Component",
+    "Markdown",
+    "Rust",
+    "Python",
+    "JSON",
+    "YAML",
+    "CSS",
+];
+
+/// Loads the syntax set now, with the grammars of the most common languages (a parse state
+/// unpacks its syntax's contexts, which the set keeps compressed), so the first file
+/// highlighted does not wait for them.
+pub fn warm_up() {
+    let started = Instant::now();
+    let set = syntax_set();
+    for name in WARM {
+        if let Some(syntax) = set.find_syntax_by_name(name) {
+            let _ = ParseState::new(syntax);
+        }
+    }
+    tracing::debug!(elapsed = ?started.elapsed(), "syntax set loaded");
+}
+
+/// The syntax for an extension the set would give a rarer language: a `.h` header is read as
+/// C++, which reads C too (the set's reverse search picks Objective-C).
+fn preferred<'s>(set: &'s SyntaxSet, extension: &str) -> Option<&'s SyntaxReference> {
+    if extension.eq_ignore_ascii_case("h") {
+        set.find_syntax_by_name("C++")
+    } else {
+        None
+    }
+}
+
+/// The syntax for `path`, as `bat` looks it up: by the whole file name (`Dockerfile`,
+/// `CMakeLists.txt`, `.gitignore`), then by extension, then by the first line of `text`; the
+/// set compares both without case.
+fn syntax_for<'s>(set: &'s SyntaxSet, path: &str, text: &str) -> Option<&'s SyntaxReference> {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    let extension = name.rsplit_once('.').map(|(_, extension)| extension);
+    extension
+        .and_then(|extension| preferred(set, extension))
+        .or_else(|| set.find_syntax_by_extension(name))
+        .or_else(|| extension.and_then(|extension| set.find_syntax_by_extension(extension)))
+        .or_else(|| set.find_syntax_by_first_line(text.lines().next().unwrap_or("")))
+}
+
+/// What one scope says about the class of the token under it.
+#[derive(Clone, Copy)]
+enum Named {
+    /// A class, and whether the scope is an operator's, whose class also depends on its text
+    /// (see [`worded`]).
+    Class(TokenClass, bool),
+    /// A section's name (a C# region, a Git config section, a Markdown heading's text): the
+    /// class of a scope further out, a Markdown heading's, else a type.
+    Section,
+    /// No class: a scope further out decides.
+    Nothing,
+}
+
+fn named(text: &str) -> Named {
+    if text.starts_with("entity.name.section") {
+        return Named::Section;
+    }
+    match class_named(text) {
+        // JavaScript scopes `=>` as the storage of a function, the others their operators as
+        // `keyword.operator`.
+        Some(class) => Named::Class(
+            class,
+            text.starts_with("keyword.operator") || text.starts_with("storage.type.function"),
+        ),
+        None => Named::Nothing,
+    }
+}
+
+/// The classes the scopes of one file name, each scope's name built once: building it takes
+/// syntect's global scope lock and an allocation, and a file meets the same few scopes on
+/// every line.
+#[derive(Default)]
+struct Classifier {
+    named: HashMap<Scope, Named>,
+}
+
+impl Classifier {
+    /// The class of a scope stack (the innermost scope that names a class wins, a section's
+    /// name falling back to a type) and whether that scope is an operator's.
+    fn class_of(&mut self, stack: &ScopeStack) -> (TokenClass, bool) {
+        let mut fallback = TokenClass::Plain;
+        for scope in stack.as_slice().iter().rev() {
+            let said = *self
+                .named
+                .entry(*scope)
+                .or_insert_with(|| named(&scope.build_string()));
+            match said {
+                Named::Class(class, operator) => return (class, operator),
+                Named::Section => fallback = TokenClass::Type,
+                Named::Nothing => {}
+            }
+        }
+        (fallback, false)
+    }
 }
 
 fn class_named(text: &str) -> Option<TokenClass> {
@@ -130,7 +211,8 @@ fn class_named(text: &str) -> Option<TokenClass> {
             }
         }
         "support" => {
-            if text.starts_with("support.function") {
+            // A JSX or TSX component's tag takes the tag class, as HTML's tags do.
+            if text.starts_with("support.function") || text.starts_with("support.class.component") {
                 Some(TokenClass::Function)
             } else if text.starts_with("support.type") || text.starts_with("support.class") {
                 Some(TokenClass::Type)
@@ -141,6 +223,17 @@ fn class_named(text: &str) -> Option<TokenClass> {
         "variable" => text
             .starts_with("variable.function")
             .then_some(TokenClass::Function),
+        // Markdown: a heading in the keyword colour and inline code in the string colour; a
+        // fence's code keeps its own language's classes, the fence itself naming none.
+        "markup" => {
+            if text.starts_with("markup.heading") {
+                Some(TokenClass::Keyword)
+            } else if text.starts_with("markup.raw.inline") {
+                Some(TokenClass::String)
+            } else {
+                None
+            }
+        }
         // The delimiters of a comment or a string belong to it (the scope outside them wins);
         // other punctuation (terminators, brackets) is its own class.
         "punctuation" => {
@@ -158,19 +251,31 @@ pub fn highlight(
     text: &str,
     cancelled: &dyn Fn() -> bool,
 ) -> Result<Highlight, Cancelled> {
+    highlight_within(path, text, cancelled, TIME_BUDGET)
+}
+
+/// [`highlight`] with its own time budget, counted from the moment the syntax's grammar is
+/// loaded: loading it is the syntax's first use in the process, not this file's work.
+pub fn highlight_within(
+    path: &str,
+    text: &str,
+    cancelled: &dyn Fn() -> bool,
+    budget: Duration,
+) -> Result<Highlight, Cancelled> {
     if !within_caps(text) {
-        return Ok(Highlight::default());
+        return Ok(Highlight::nothing());
     }
     let set = syntax_set();
     let Some(syntax) = syntax_for(set, path, text) else {
-        return Ok(Highlight::default());
+        return Ok(Highlight::nothing());
     };
     if syntax.name == "Plain Text" {
-        return Ok(Highlight::default());
+        return Ok(Highlight::nothing());
     }
-    let started = Instant::now();
     let mut state = ParseState::new(syntax);
+    let started = Instant::now();
     let mut stack = ScopeStack::new();
+    let mut classifier = Classifier::default();
     let mut lines = Vec::new();
     let mut complete = true;
     // The newline-aware syntaxes expect the line terminator.
@@ -179,7 +284,7 @@ pub fn highlight(
             if cancelled() {
                 return Err(Cancelled);
             }
-            if index > 0 && started.elapsed() > TIME_BUDGET {
+            if index > 0 && started.elapsed() > budget {
                 complete = false;
                 break;
             }
@@ -192,7 +297,7 @@ pub fn highlight(
                 break;
             }
         };
-        let mut tokens = classify_line(line, &ops, &mut stack);
+        let mut tokens = classify_line(line, &ops, &mut stack, &mut classifier);
         tokens.shrink_to_fit();
         lines.push(tokens);
     }
@@ -209,11 +314,16 @@ fn split_lines(text: &str) -> impl Iterator<Item = &str> {
 }
 
 /// Applies the ops of one line to the stack and emits the non-plain, merged tokens.
-fn classify_line(line: &str, ops: &[(usize, ScopeStackOp)], stack: &mut ScopeStack) -> Vec<Token> {
+fn classify_line(
+    line: &str,
+    ops: &[(usize, ScopeStackOp)],
+    stack: &mut ScopeStack,
+    classifier: &mut Classifier,
+) -> Vec<Token> {
     let mut tokens: Vec<Token> = Vec::new();
     let length = line.trim_end_matches(['\n', '\r']).len();
     let mut at = 0usize;
-    let mut class = class_of(stack);
+    let mut class = classifier.class_of(stack);
     let class_at =
         |(class, operator): (TokenClass, bool), from: usize, to: usize| match line.get(from..to) {
             Some(text) if operator => worded(class, text),
@@ -226,7 +336,7 @@ fn classify_line(line: &str, ops: &[(usize, ScopeStackOp)], stack: &mut ScopeSta
             at = offset;
         }
         let _ = stack.apply(op);
-        class = class_of(stack);
+        class = classifier.class_of(stack);
     }
     if length > at {
         push(&mut tokens, at, length, class_at(class, at, length));
@@ -282,8 +392,7 @@ mod tests {
     fn typescript_comments_strings_and_keywords_are_classified() {
         let text = "// note\nconst x: number = 'text'; // tail\n";
         let result = highlight("src/a.ts", text, &never).expect("not cancelled");
-        // The bundled syntaxes have no TypeScript: read as JavaScript.
-        assert_eq!(result.syntax.as_deref(), Some("JavaScript"));
+        assert_eq!(result.syntax.as_deref(), Some("TypeScript"));
         assert_eq!(result.lines.len(), 2);
         let first = classes(&result.lines[0], "// note");
         assert!(first.iter().all(|(class, _)| *class == TokenClass::Comment));
@@ -419,12 +528,12 @@ mod tests {
     fn unknown_files_and_oversized_files_yield_nothing_and_cancel_stops() {
         assert_eq!(
             highlight("notes.unknownext", "hello\n", &never).expect("ok"),
-            Highlight::default()
+            Highlight::nothing()
         );
         let big = "x\n".repeat(60_000);
         assert_eq!(
             highlight("a.rs", &big, &never).expect("ok"),
-            Highlight::default()
+            Highlight::nothing()
         );
         let shebang = "#!/usr/bin/env python3\nprint('x')\n";
         assert_eq!(
@@ -443,13 +552,13 @@ mod tests {
         let wide = format!("{}\n", "x".repeat(10_000)).repeat(220);
         assert_eq!(
             highlight("a.rs", &wide, &never).expect("ok"),
-            Highlight::default()
+            Highlight::nothing()
         );
         // One line over 16 KB.
         let long_line = format!("let s = \"{}\";\n", "y".repeat(20_000));
         assert_eq!(
             highlight("a.rs", &long_line, &never).expect("ok"),
-            Highlight::default()
+            Highlight::nothing()
         );
         // A cancel raised after the first check is seen at the next one.
         let calls = std::cell::Cell::new(0usize);
@@ -467,5 +576,172 @@ mod tests {
         let result = highlight("a.rs", "fn a() {}\n", &never).expect("ok");
         assert!(result.complete);
         assert_eq!(result.lines.len(), 1);
+    }
+
+    /// The classes of the only line of `text` highlighted as `path`, with the syntax used.
+    fn line_classes(path: &str, line: &str) -> (Option<String>, Vec<(TokenClass, String)>) {
+        let result = highlight(path, &format!("{line}\n"), &never).expect("ok");
+        let tokens = result
+            .lines
+            .first()
+            .map(|t| classes(t, line))
+            .unwrap_or_default();
+        (result.syntax, tokens)
+    }
+
+    fn has(tokens: &[(TokenClass, String)], class: TokenClass, text: &str) -> bool {
+        tokens.iter().any(|(c, s)| *c == class && s == text)
+    }
+
+    #[test]
+    fn typescript_types_have_their_classes() {
+        let line = "interface Tile<T> { key: string; load(): Promise<T> }";
+        let (syntax, tokens) = line_classes("src/tile.ts", line);
+        assert_eq!(syntax.as_deref(), Some("TypeScript"));
+        assert!(has(&tokens, TokenClass::Keyword, "interface"), "{tokens:?}");
+        for name in ["Tile", "string", "Promise"] {
+            assert!(has(&tokens, TokenClass::Type, name), "{name}: {tokens:?}");
+        }
+        assert!(has(&tokens, TokenClass::Function, "load"), "{tokens:?}");
+    }
+
+    #[test]
+    fn tsx_markup_has_tag_and_attribute_classes() {
+        let line = "return <Button onClick={go}>Save</Button>;";
+        let (syntax, tokens) = line_classes("src/Save.tsx", line);
+        assert!(
+            syntax.as_deref().is_some_and(|s| s.contains("TypeScript")),
+            "{syntax:?}"
+        );
+        assert!(has(&tokens, TokenClass::Keyword, "return"), "{tokens:?}");
+        let tags = tokens
+            .iter()
+            .filter(|(c, s)| *c == TokenClass::Function && s == "Button")
+            .count();
+        assert_eq!(tags, 2, "{tokens:?}");
+        assert!(has(&tokens, TokenClass::Type, "onClick"), "{tokens:?}");
+        assert!(
+            !tokens.iter().any(|(_, s)| s.contains("Save")),
+            "{tokens:?}"
+        );
+    }
+
+    #[test]
+    fn a_vue_files_script_is_typescript() {
+        let text = "<template><p>{{ total }}</p></template>\n<script setup lang=\"ts\">\nconst total: number = 0;\n</script>\n";
+        let result = highlight("src/Total.vue", text, &never).expect("ok");
+        let open = classes(&result.lines[1], "<script setup lang=\"ts\">");
+        assert!(has(&open, TokenClass::Function, "script"), "{open:?}");
+        let line = "const total: number = 0;";
+        let tokens = classes(&result.lines[2], line);
+        assert!(has(&tokens, TokenClass::Keyword, "const"), "{tokens:?}");
+        assert!(has(&tokens, TokenClass::Type, "number"), "{tokens:?}");
+        assert!(has(&tokens, TokenClass::Number, "0"), "{tokens:?}");
+    }
+
+    #[test]
+    fn markdown_headings_inline_code_and_fences() {
+        let text = "# Tiles\nCall `load()` first.\n```rust\nfn main() {}\n```\n";
+        let result = highlight("docs/tiles.md", text, &never).expect("ok");
+        let heading = classes(&result.lines[0], "# Tiles");
+        assert!(
+            has(&heading, TokenClass::Keyword, "Tiles")
+                || heading
+                    .iter()
+                    .any(|(c, s)| *c == TokenClass::Keyword && s.contains("Tiles")),
+            "{heading:?}"
+        );
+        let inline = classes(&result.lines[1], "Call `load()` first.");
+        assert!(
+            inline
+                .iter()
+                .any(|(c, s)| *c == TokenClass::String && s.contains("load()")),
+            "{inline:?}"
+        );
+        let code = classes(&result.lines[3], "fn main() {}");
+        assert!(has(&code, TokenClass::Keyword, "fn"), "{code:?}");
+        assert!(has(&code, TokenClass::Function, "main"), "{code:?}");
+    }
+
+    #[test]
+    fn files_known_by_name() {
+        let (syntax, tokens) = line_classes("Dockerfile", "FROM node:20 AS build");
+        assert!(syntax.is_some(), "no syntax for a Dockerfile");
+        for word in ["FROM", "AS"] {
+            assert!(
+                has(&tokens, TokenClass::Keyword, word),
+                "{word}: {tokens:?}"
+            );
+        }
+        let (syntax, _) = line_classes("CMakeLists.txt", "cmake_minimum_required(VERSION 3.20)");
+        assert_eq!(syntax.as_deref(), Some("CMake"));
+        let (syntax, _) = line_classes("requirements.txt", "requests==2.32.0");
+        assert!(
+            syntax.as_deref().is_some_and(|s| s != "Plain Text"),
+            "{syntax:?}"
+        );
+        let line = "version = \"0.4.0\"";
+        let (syntax, tokens) = line_classes("Cargo.toml", line);
+        assert_eq!(syntax.as_deref(), Some("TOML"));
+        assert!(
+            tokens.iter().any(|(_, s)| s == "version"),
+            "version stays plain: {tokens:?}"
+        );
+        assert!(
+            tokens
+                .iter()
+                .any(|(c, s)| *c == TokenClass::String && s.contains("0.4.0")),
+            "{tokens:?}"
+        );
+    }
+
+    #[test]
+    fn headers_are_read_as_cpp() {
+        let (syntax, tokens) = line_classes("include/area.h", "static inline int area(int w);");
+        assert_eq!(syntax.as_deref(), Some("C++"));
+        assert!(has(&tokens, TokenClass::Keyword, "static"), "{tokens:?}");
+        let (_, tokens) = line_classes("include/Tile.h", "namespace geo { class Tile; }");
+        assert!(has(&tokens, TokenClass::Keyword, "namespace"), "{tokens:?}");
+    }
+
+    #[test]
+    fn section_names_are_types_unless_a_heading() {
+        let (_, tokens) = line_classes("Tiles.cs", "#region Tiles");
+        assert!(has(&tokens, TokenClass::Type, "Tiles"), "{tokens:?}");
+        let (syntax, tokens) = line_classes(".gitconfig", "[core]");
+        assert!(syntax.is_some(), "no syntax for .gitconfig");
+        assert!(has(&tokens, TokenClass::Type, "core"), "{tokens:?}");
+        let heading = line_classes("README.md", "# Tiles").1;
+        assert!(
+            heading
+                .iter()
+                .any(|(c, s)| *c == TokenClass::Keyword && s.contains("Tiles")),
+            "{heading:?}"
+        );
+    }
+
+    #[test]
+    fn a_budget_stops_the_work_with_the_lines_done() {
+        let text = "fn a() {}\n".repeat(1_200);
+        let result = highlight_within("a.rs", &text, &never, Duration::ZERO).expect("ok");
+        assert!(!result.complete);
+        assert_eq!(result.lines.len(), CANCEL_EVERY);
+    }
+
+    #[test]
+    fn the_set_loads_once() {
+        warm_up();
+        let first: *const SyntaxSet = syntax_set();
+        warm_up();
+        assert!(std::ptr::eq(first, syntax_set()));
+        assert!(syntax_set().find_syntax_by_name("TypeScript").is_some());
+    }
+
+    #[test]
+    fn unknown_files_answer_complete() {
+        let result = highlight("notes.unknownext", "hello\n", &never).expect("ok");
+        assert_eq!(result.syntax, None);
+        assert!(result.lines.is_empty());
+        assert!(result.complete, "nothing is left to compute");
     }
 }

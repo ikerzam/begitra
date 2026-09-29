@@ -27,9 +27,11 @@ shell-words = "1"
 criterion = "0.8"
 tempfile = "3"
 notify = "8"
-# Highlighting and symbols: syntect with the pure-Rust regex engine, tree-sitter
-# with the seven grammars below; isolated in the `syntax` crate.
-syntect = { version = "5.3", default-features = false, features = ["parsing", "default-syntaxes", "dump-load", "regex-fancy"] }
+# Highlighting and symbols: syntect on Oniguruma, the engine the `bat` project's
+# syntax set (two-face) is written for, and tree-sitter with the seven grammars below;
+# isolated in the `syntax` crate.
+syntect = { version = "5.3", default-features = false, features = ["parsing", "dump-load", "regex-onig"] }
+two-face = { version = "0.5", default-features = false, features = ["syntect-onig"] }
 tree-sitter = "0.27"
 tree-sitter-typescript = "0.23"
 tree-sitter-javascript = "0.25"

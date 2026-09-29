@@ -1,6 +1,6 @@
 [package]
 name = "syntax"
-description = "Token classes and declarations of source files for Begitra's diff viewer (syntect, tree-sitter)"
+description = "Token classes and declarations of source files for Begitra's diff viewer (syntect with the bat syntax set, tree-sitter)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,6 +11,7 @@ serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 syntect.workspace = true
+two-face.workspace = true
 tree-sitter.workspace = true
 tree-sitter-typescript.workspace = true
 tree-sitter-javascript.workspace = true
