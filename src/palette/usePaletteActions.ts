@@ -109,6 +109,7 @@ export function usePaletteActions(): PaletteActions {
     toggleWrap: () => review.setWrap(!review.wrap),
     toggleWhitespace: () => review.setIgnoreWhitespace(!review.ignoreWhitespace),
     runShortcut: (id) => void shortcutRegistry().run(id),
+    shortcutActive: (id) => shortcutRegistry().isActive(id),
     toggleOverview: () => {
       if (shell.reviewRailCollapsed) shell.showReviewRail();
       else shell.hideReviewRail();

@@ -148,6 +148,7 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
     runShortcut: (id) => {
       calls.push(`shortcut:${id}`);
     },
+    shortcutActive: () => false,
     toggleOverview: () => {
       calls.push("toggleOverview");
     },

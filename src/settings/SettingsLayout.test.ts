@@ -64,8 +64,11 @@ describe("SettingsLayout", () => {
     expect(input(wrapper, "skip-folders").element.value).toBe(defaultSkipFolders.join(", "));
     expect(input(wrapper, "max-depth").element.value).toBe("2");
     const rows = wrapper.findAll('[data-testid="shortcut-rows"] li');
-    expect(rows).toHaveLength(21);
+    expect(rows).toHaveLength(22);
     expect(rows[0]?.text()).toContain("Command palette");
+    expect(wrapper.get('[data-testid="shortcut-openFileEditor"]').find("kbd").text()).toBe(
+      "Ctrl Shift E",
+    );
     expect(rows[0]?.find("kbd").text()).toBe("Ctrl K");
     const pair = wrapper.get('[data-testid="shortcut-nextPreviousCommitOrFile"]');
     expect(pair.findAll("kbd").map((k) => k.text())).toEqual(["j", "k"]);

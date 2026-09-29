@@ -62,6 +62,7 @@ export const shortcutRows: readonly ShortcutRow[] = [
   { key: "markResolved", groups: [["mark-resolved"]] },
   { key: "openTerminal", groups: [["open-terminal"]] },
   { key: "openEditor", groups: [["open-editor"]] },
+  { key: "openFileEditor", groups: [["open-file-editor"]] },
   { key: "addWorktree", groups: [["add-worktree"]] },
   {
     key: "nextPreviousProjectRepo",

@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { DiffLine, Hunk } from "@/ipc/schemas";
 
 import {
+  firstChangedLine,
   hunkRange,
   hunkRowIndexes,
+  newLineAt,
+  newLineOfRow,
   hunkSymbol,
   lineKind,
   rowHeights,
@@ -116,6 +119,64 @@ describe("segments", () => {
       { text: "añade", emphasis: true, class: "plain" },
       { text: " x", emphasis: false, class: "plain" },
     ]);
+  });
+});
+
+/** Old and new numbers as git writes them: `removed` has only the old, `added` only the new. */
+function numbered(kind: DiffLine["kind"], old: number | null, now: number | null): DiffLine {
+  return { kind, oldNumber: old, newNumber: now, text: kind, spans: [], noNewline: false };
+}
+
+describe("the new side's line", () => {
+  // @@ -10,4 +10,3 @@: context 10, removed 11 and 12, added 11, context 12, removed 14.
+  const lines = [
+    numbered("context", 10, 10),
+    numbered("removed", 11, null),
+    numbered("removed", 12, null),
+    numbered("added", null, 11),
+    numbered("context", 13, 12),
+    numbered("removed", 14, null),
+  ];
+  const change: Hunk = {
+    oldStart: 10,
+    oldLines: 5,
+    newStart: 10,
+    newLines: 3,
+    header: "@@ -10,5 +10,3 @@",
+    lines,
+  };
+
+  it("is a line's own new number, or for a removed line the new line where it sat", () => {
+    expect(newLineAt(change, 0)).toBe(10);
+    expect(newLineAt(change, 1)).toBe(11);
+    expect(newLineAt(change, 2)).toBe(11);
+    expect(newLineAt(change, 3)).toBe(11);
+    // A removal at the end of its hunk sits after the hunk's last new line.
+    expect(newLineAt(change, 5)).toBe(13);
+  });
+
+  it("follows the rows of both layouts, a hunk's header its first new line", () => {
+    const unified = unifiedRows([change]);
+    expect(unified.map((row) => newLineOfRow(row, [change]))).toEqual([10, 10, 11, 11, 11, 12, 13]);
+    const sides = sideBySideRows([change]);
+    // Header, context, removed 11 paired with added 11, removed 12 alone, context, removed 14.
+    expect(sides.map((row) => newLineOfRow(row, [change]))).toEqual([10, 10, 11, 11, 12, 13]);
+  });
+
+  it("has nothing to open for a deleted file, and a file's first change is where it opens", () => {
+    const deleted: Hunk = {
+      oldStart: 1,
+      oldLines: 2,
+      newStart: 0,
+      newLines: 0,
+      header: "@@ -1,2 +0,0 @@",
+      lines: [numbered("removed", 1, null), numbered("removed", 2, null)],
+    };
+    expect(newLineOfRow(unifiedRows([deleted])[0]!, [deleted])).toBeNull();
+    expect(newLineAt(deleted, 0)).toBeNull();
+    expect(firstChangedLine([change])).toBe(11);
+    expect(firstChangedLine([deleted])).toBeNull();
+    expect(firstChangedLine([])).toBeNull();
   });
 });
 

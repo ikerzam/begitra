@@ -47,6 +47,8 @@ export interface PaletteActions {
   toggleWhitespace: () => Promise<void>;
   /** Runs the handler a review-scope key would run (hunks, files, symbols, mark reviewed). */
   runShortcut: (id: string) => void;
+  /** Whether a screen has attached a handler to the shortcut `id` (a file shown for ⇧⌘E). */
+  shortcutActive: (id: string) => boolean;
   toggleOverview: () => void;
   toggleFilter: (key: "hideGenerated" | "hideLockfiles" | "hideTests") => void;
   /** Opens the picker of "Compare with…" for the selected commit or the current branch. */
@@ -147,6 +149,13 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       shortcutId: "open-editor",
       enabled: withRepo,
       run: actions.openEditor,
+    },
+    {
+      id: "open-file-editor",
+      labelKey: "palette.commandsById.open-file-editor",
+      shortcutId: "open-file-editor",
+      enabled: () => actions.shortcutActive("open-file-editor"),
+      run: () => actions.runShortcut("open-file-editor"),
     },
     {
       id: "pin-repository",

@@ -12,6 +12,7 @@ import DiffRow from "@/components/DiffRow.vue";
 import HunkRow from "@/components/HunkRow.vue";
 import type { FileChange, Hunk } from "@/ipc/schemas";
 import { useShortcut } from "@/shortcuts/useShortcut";
+import { useExternal } from "@/shell/useExternal";
 import { useCodeTheme } from "@/shell/useTheme";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore, type ReviewTarget } from "@/stores/review";
@@ -21,6 +22,7 @@ import {
   hunkRowIndexes,
   hunkSymbol,
   lineKind,
+  newLineOfRow,
   rowHeights,
   rowLineKeys,
   rowsOf,
@@ -28,6 +30,7 @@ import {
   type DiffRowModel,
 } from "./diffRows";
 import LineContent from "./LineContent.vue";
+import LineMenu from "./LineMenu.vue";
 import SideBySideRow from "./SideBySideRow.vue";
 import { useColumns } from "./useColumns";
 import { useHighlight } from "./useHighlight";
@@ -60,6 +63,7 @@ const emit = defineEmits<{ select: [keys: string[], extend: boolean] }>();
 const repo = useRepoStore();
 const review = useReviewStore();
 const codeTheme = useCodeTheme();
+const external = useExternal();
 const body = ref<HTMLElement | null>(null);
 
 const root = computed(() => (props.root === undefined ? (repo.repo?.root ?? null) : props.root));
@@ -174,6 +178,11 @@ function revealRow(index: number): void {
 }
 
 function onKeydown(event: KeyboardEvent): void {
+  if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+    event.preventDefault();
+    openMenuAtKeyboard();
+    return;
+  }
   if (!props.selectable || event.ctrlKey || event.metaKey || event.altKey) return;
   if (event.key === "ArrowDown" || event.key === "ArrowUp") {
     event.preventDefault();
@@ -232,6 +241,77 @@ function onScroll(): void {
   review.currentSymbol = null;
 }
 
+// --- Open in editor ---------------------------------------------------------------------
+
+/** A deleted file has no new side to open. */
+const deleted = computed(() => props.file.status === "deleted");
+
+/** The new side's line of a row, or null for a deleted file. */
+function lineOfIndex(index: number): number | null {
+  const row = rows.value[index];
+  return row && !deleted.value ? newLineOfRow(row, props.hunks) : null;
+}
+
+/** The first row still in view at the scroll position: the line at the top of the diff. */
+function topRowIndex(): number | null {
+  const top = virtual.scrollTop.value;
+  for (let index = virtual.range.value.start; index < rows.value.length; index += 1) {
+    if (virtual.rowTop(index) + (heights.value[index] ?? 0) > top) return index;
+  }
+  return rows.value.length > 0 ? 0 : null;
+}
+
+/** Opens the working tree's file in the editor, at `line` when there is one. */
+function openAtLine(line: number | null): void {
+  const at = root.value;
+  if (at && !deleted.value) void external.openFile(at, props.file.path, line);
+}
+
+// ⇧⌘E and the palette's "Open file in editor": the file at the line at the top of the diff.
+useShortcut("open-file-editor", () => {
+  const index = cursorRow.value ?? topRowIndex();
+  openAtLine(index === null ? null : lineOfIndex(index));
+});
+
+interface MenuRequest {
+  x: number;
+  y: number;
+  line: number | null;
+  selection: string;
+}
+const menu = ref<MenuRequest | null>(null);
+
+/** A right click on a row: its line, and the selected text when the click is inside it. */
+function onContextMenu(event: MouseEvent): void {
+  const target = event.target instanceof Element ? event.target : null;
+  const element = target?.closest<HTMLElement>("[data-row]");
+  if (!element) return;
+  event.preventDefault();
+  const selection = typeof window.getSelection === "function" ? window.getSelection() : null;
+  const text =
+    selection && !selection.isCollapsed && target && selection.containsNode(target, true)
+      ? selection.toString()
+      : "";
+  menu.value = {
+    x: event.clientX,
+    y: event.clientY,
+    line: lineOfIndex(Number(element.dataset["row"])),
+    selection: text,
+  };
+}
+
+/** The menu key: the menu of the cursor's row, else of the row at the top of the diff. */
+function openMenuAtKeyboard(): void {
+  const rect = body.value?.getBoundingClientRect();
+  const index = cursorRow.value ?? topRowIndex();
+  menu.value = {
+    x: (rect?.left ?? 0) + 16,
+    y: (rect?.top ?? 0) + 16,
+    line: index === null ? null : lineOfIndex(index),
+    selection: "",
+  };
+}
+
 defineExpose({ moveSymbol, changedSymbols: symbols.changed, focus: () => body.value?.focus() });
 </script>
 
@@ -245,6 +325,7 @@ defineExpose({ moveSymbol, changedSymbols: symbols.changed, focus: () => body.va
     tabindex="0"
     @scroll.passive="onScroll"
     @keydown="onKeydown"
+    @contextmenu="onContextMenu"
   >
     <div
       class="relative"
@@ -310,6 +391,16 @@ defineExpose({ moveSymbol, changedSymbols: symbols.changed, focus: () => body.va
         </div>
       </template>
     </div>
+    <LineMenu
+      v-if="menu"
+      :x="menu.x"
+      :y="menu.y"
+      :path="props.file.path"
+      :line="menu.line"
+      :selection="menu.selection"
+      @open="openAtLine"
+      @close="menu = null"
+    />
   </div>
 </template>
 

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { nextTick } from "vue";
 
 import type { DiffLine, FileChange } from "@/ipc/schemas";
-import { ShortcutRegistry, setShortcutRegistry } from "@/shortcuts/registry";
+import { ShortcutRegistry, setShortcutRegistry, shortcutRegistry } from "@/shortcuts/registry";
 import { installShortcuts } from "@/shortcuts/useShortcut";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
@@ -85,7 +85,64 @@ async function mountView(props: { file: FileChange | null }) {
   return wrapper;
 }
 
+/** The menu the viewer teleports to the document's body. */
+function lineMenu(): HTMLElement | null {
+  return document.querySelector('[data-testid="line-menu"]');
+}
+
 describe("DiffView", () => {
+  it("opens a line in the editor from its menu, a removed line at the new line where it sat", async () => {
+    const calls = fakeBackend();
+    await useSettingsStore().init(memoryStorage(), "windows");
+    await useRepoStore().open("/r");
+    await settled();
+    const wrapper = await mountView({
+      file: file([[line(1), line(2, "removed"), line(3, "added"), line(4)]]),
+    });
+    const rows = wrapper.findAll('[data-testid="diff-row"]');
+    // The added line: its own new number.
+    await rows[2]!.trigger("contextmenu", { clientX: 40, clientY: 60 });
+    expect(lineMenu()?.textContent).toContain("Open in editor at line 3");
+    expect(lineMenu()?.textContent).toContain("Copy path");
+    // Nothing is selected, so there is no text to copy.
+    expect(lineMenu()?.querySelector('[data-testid="line-menu-copy"]')).toBeNull();
+    (lineMenu()?.querySelector('[data-testid="line-menu-editor"]') as HTMLElement).click();
+    await flushPromises();
+    const opened = calls.filter((call) => call.cmd === "open_external").at(-1);
+    expect(opened?.args).toMatchObject({ path: "/r/src/app.ts", line: 3 });
+    expect((opened?.args as { templates: string[] }).templates[0]).toBe(
+      "code.cmd -g {path}:{line}",
+    );
+    // The removed line: the new line where it sat, the next one with a new number.
+    await rows[1]!.trigger("contextmenu", { clientX: 40, clientY: 40 });
+    expect(lineMenu()?.textContent).toContain("Open in editor at line 3");
+    wrapper.unmount();
+    // A deleted file has no line to open, only its path to copy.
+    const deleted = await mountView({
+      file: file([[line(1, "removed"), line(2, "removed")]], { status: "deleted" }),
+    });
+    await deleted.findAll('[data-testid="diff-row"]')[0]!.trigger("contextmenu");
+    expect(lineMenu()?.querySelector('[data-testid="line-menu-editor"]')).toBeNull();
+    expect(lineMenu()?.textContent).toContain("Copy path");
+    deleted.unmount();
+  });
+
+  it("opens the file at the line at the top of the diff with Open file in editor", async () => {
+    const calls = fakeBackend();
+    await useSettingsStore().init(memoryStorage(), "windows");
+    await useRepoStore().open("/r");
+    await settled();
+    const wrapper = await mountView({ file: file([[line(1), line(2, "added")], [line(11)]]) });
+    expect(shortcutRegistry().isActive("open-file-editor")).toBe(true);
+    expect(shortcutRegistry().run("open-file-editor")).toBe(true);
+    await flushPromises();
+    const opened = calls.filter((call) => call.cmd === "open_external").at(-1);
+    // The first row is the first hunk's header: its first new line.
+    expect(opened?.args).toMatchObject({ path: "/r/src/app.ts", line: 1 });
+    wrapper.unmount();
+    expect(shortcutRegistry().isActive("open-file-editor")).toBe(false);
+  });
+
   it("paints its body of rows in the code theme, or leaves it to the window's", async () => {
     fakeBackend();
     const settings = useSettingsStore();

@@ -62,6 +62,10 @@
     "label": "Text actions",
     "copy": "Copy"
   },
+  "lineMenu": {
+    "label": "Line actions",
+    "openAtLine": "Open in editor at line {line}"
+  },
   "fileMenu": {
     "label": "File actions",
     "openInReview": "Open in review",
@@ -494,6 +498,7 @@
       "zoom-reset": "Reset zoom",
       "open-terminal": "Open in terminal",
       "open-editor": "Open in editor",
+      "open-file-editor": "Open file in editor",
       "pin-repository": "Pin repository",
       "unpin-repository": "Unpin repository",
       "go-to-repositories": "Go to repositories",
@@ -1039,6 +1044,7 @@
         "markReviewed": "Mark reviewed",
         "openTerminal": "Open in terminal",
         "openEditor": "Open in editor",
+        "openFileEditor": "Open file in editor",
         "addWorktree": "Add worktree",
         "settings": "Settings",
         "stageUnstageFile": "Stage / unstage file or lines",

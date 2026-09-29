@@ -216,6 +216,44 @@ export function lineKind(line: DiffLine): DiffLineKind {
   return line.kind === "added" ? "add" : line.kind === "removed" ? "del" : "context";
 }
 
+/**
+ * The new side's line of the line at `index` of `hunk`: its own new number, or for a removed
+ * line the new line where it sat (the next one with a new number in its hunk, else the one
+ * after the hunk's last); null when the hunk has no new side (a deleted file).
+ */
+export function newLineAt(hunk: Hunk, index: number): number | null {
+  if (hunk.newStart === 0 && hunk.newLines === 0) return null;
+  const own = hunk.lines[index]?.newNumber;
+  if (own !== null && own !== undefined) return own;
+  for (let i = index + 1; i < hunk.lines.length; i += 1) {
+    const next = hunk.lines[i]?.newNumber;
+    if (next !== null && next !== undefined) return next;
+  }
+  for (let i = index - 1; i >= 0; i -= 1) {
+    const previous = hunk.lines[i]?.newNumber;
+    if (previous !== null && previous !== undefined) return previous + 1;
+  }
+  return hunk.newStart;
+}
+
+/** The new side's line of a row: a header's is its hunk's first new line. */
+export function newLineOfRow(row: DiffRowModel, hunks: Hunk[]): number | null {
+  const hunk = hunks[row.hunkIndex];
+  if (!hunk) return null;
+  if (row.kind === "hunk") return newLineAt(hunk, 0);
+  if (row.kind === "line") return newLineAt(hunk, row.lineIndex);
+  const index = row.rightIndex ?? row.leftIndex;
+  return index === null ? null : newLineAt(hunk, index);
+}
+
+/** Where a file opens from its header: the new side's line of its first change. */
+export function firstChangedLine(hunks: Hunk[]): number | null {
+  const first = hunks[0];
+  if (!first) return null;
+  const index = first.lines.findIndex((line) => line.kind !== "context");
+  return newLineAt(first, index < 0 ? 0 : index);
+}
+
 /** The "@@ -a,b +c,d @@" part of a hunk header. */
 export function hunkRange(hunk: Hunk): string {
   const match = /^@@[^@]*@@/.exec(hunk.header);
