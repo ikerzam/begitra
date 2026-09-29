@@ -1,6 +1,6 @@
 //! Criterion benches of the `syntax` crate on synthetic sources: highlighting a 10,000-line
-//! Rust file (the budget scenario of the viewer) and listing the symbols of a 500-line
-//! TypeScript file. No repository is needed.
+//! Rust file (the budget scenario of the viewer) and a TypeScript one, listing the symbols of
+//! a 500-line TypeScript file, and loading the syntax set. No repository is needed.
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 
@@ -48,8 +48,7 @@ fn highlight_large_file(c: &mut Criterion) {
     group.finish();
 }
 
-/// The slowest common grammar: the JavaScript syntax TypeScript files use takes about five
-/// times longer per line than Rust's.
+/// The slowest common grammar: TypeScript's takes several times longer per line than Rust's.
 fn highlight_large_typescript(c: &mut Criterion) {
     let mut group = c.benchmark_group("syntax");
     group.sample_size(10);
@@ -78,10 +77,20 @@ fn symbols_typical(c: &mut Criterion) {
     group.finish();
 }
 
+/// The `bat` project's syntax set, deserialised: the first part of the app's warm-up at launch
+/// (the grammars it then unpacks are measured by the first iteration of each highlight bench).
+fn load_set(c: &mut Criterion) {
+    let mut group = c.benchmark_group("syntax");
+    group.sample_size(10);
+    group.bench_function("load_set", |b| b.iter(two_face::syntax::extra_newlines));
+    group.finish();
+}
+
 criterion_group!(
     benches,
     highlight_large_file,
     highlight_large_typescript,
-    symbols_typical
+    symbols_typical,
+    load_set
 );
 criterion_main!(benches);

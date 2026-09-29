@@ -23,6 +23,8 @@ pub fn budget(id: &str) -> Option<Duration> {
         // The highlighter stops itself after its 1.5 s budget with the lines done so far.
         ("syntax", "highlight_large_typescript") => 1_600,
         ("syntax", "symbols_typical") => 50,
+        // The syntax set loads in the background at launch; it must be in before a first diff.
+        ("syntax", "load_set") => 300,
         ("diff_large_file", _) | ("merge_base", _) => 500,
         // The comparison of two branches diverged by 2,000 commits, within 500 ms each: the
         // base with the counts, the first page of a side, the count of a short range and the
