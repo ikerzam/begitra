@@ -35,10 +35,19 @@ fn never() -> bool {
     false
 }
 
+/// Fails the bench, untimed, unless `text` is classified to its end with `syntax`: a file cut
+/// off by the highlighter's 1.5 s budget would otherwise report about 1.5 s and pass.
+fn assert_whole(path: &str, text: &str, syntax: &str) {
+    let result = syntax::highlight(path, text, &never).expect("highlight");
+    assert_eq!(result.syntax.as_deref(), Some(syntax), "{path}");
+    assert!(result.complete, "{path} was cut off by the time budget");
+}
+
 fn highlight_large_file(c: &mut Criterion) {
     let mut group = c.benchmark_group("syntax");
     group.sample_size(10);
     let source = rust_source(10_000);
+    assert_whole("src/lib.rs", &source, "Rust");
     group.bench_with_input(
         BenchmarkId::from_parameter("highlight_large_file"),
         &source,
@@ -54,6 +63,7 @@ fn highlight_large_typescript(c: &mut Criterion) {
     let mut group = c.benchmark_group("syntax");
     group.sample_size(10);
     let source = typescript_source(10_000);
+    assert_whole("src/service.ts", &source, "TypeScript");
     group.bench_with_input(
         BenchmarkId::from_parameter("highlight_large_typescript"),
         &source,
@@ -84,8 +94,9 @@ fn symbols_typical(c: &mut Criterion) {
 fn warm_up(c: &mut Criterion) {
     let mut group = c.benchmark_group("syntax");
     group.sample_size(10);
+    // The set is dropped outside the timed loop: the app keeps it for the process's life.
     group.bench_function("warm_up", |b| {
-        b.iter(|| {
+        b.iter_with_large_drop(|| {
             let set = two_face::syntax::extra_newlines();
             for name in syntax::WARM_SYNTAXES {
                 let found = set.find_syntax_by_name(name).expect("a warmed syntax");
