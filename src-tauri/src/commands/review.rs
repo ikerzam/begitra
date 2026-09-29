@@ -6,6 +6,7 @@
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use git_core::engine::GitEngine;
 use git_core::error::GitError;
@@ -87,6 +88,47 @@ fn slice(highlight: &Highlight, ranges: &[LineRange]) -> Highlight {
     }
 }
 
+/// The highlight of `path` at `at` in `engine`'s repository, from the cache when it holds
+/// it. Every answer is kept but a cancelled one: a file of no known language has nothing to
+/// compute again. One cut off by `budget` gets one more try on its next request, since the
+/// first may have run cold or under load, and the longer of the two stays.
+fn highlight_cached(
+    state: &AppState,
+    engine: &dyn GitEngine,
+    at: &BlobAt,
+    path: &str,
+    cancelled: &dyn Fn() -> bool,
+    budget: Duration,
+) -> Result<Arc<Highlight>, GitError> {
+    let root = engine.repo().root.clone();
+    let Some((key, text)) = text_of(engine, at, path)? else {
+        return Ok(Arc::new(Highlight::nothing()));
+    };
+    let compute = || {
+        syntax::highlight_within(path, &text, cancelled, budget)
+            .map(Arc::new)
+            .map_err(|_| GitError::Cancelled)
+    };
+    match state.cached_highlight(&root, &key) {
+        Some((cached, retried)) if cached.complete || retried => Ok(cached),
+        Some((cached, _)) => {
+            let again = compute()?;
+            let kept = if again.lines.len() > cached.lines.len() {
+                again
+            } else {
+                cached
+            };
+            state.cache_highlight(&root, key, Arc::clone(&kept), true);
+            Ok(kept)
+        }
+        None => {
+            let computed = compute()?;
+            state.cache_highlight(&root, key, Arc::clone(&computed), false);
+            Ok(computed)
+        }
+    }
+}
+
 /// The token classes of `path` at `at`; a binary, unknown or oversized file has none. The
 /// result is cached per repository for the last files viewed; with `ranges`, only those
 /// lines carry tokens.
@@ -104,25 +146,14 @@ pub async fn highlight_file(
     let worker = app.clone();
     run_blocking(app.ops(), &op_id, DEFAULT_TIMEOUT, move |cancel| {
         let engine = worker.open(&repo)?;
-        let root = engine.repo().root.clone();
-        let Some((key, text)) = text_of(engine.as_ref(), &at, &path)? else {
-            return Ok(Highlight::nothing());
-        };
-        let highlight = match worker.cached_highlight(&root, &key) {
-            Some(cached) => cached,
-            None => {
-                let computed = Arc::new(
-                    syntax::highlight(&path, &text, &|| cancel.is_cancelled())
-                        .map_err(|_| GitError::Cancelled)?,
-                );
-                // A highlight cut short by its time budget is not kept: the next request
-                // may have the time.
-                if computed.complete {
-                    worker.cache_highlight(&root, key, Arc::clone(&computed));
-                }
-                computed
-            }
-        };
+        let highlight = highlight_cached(
+            &worker,
+            engine.as_ref(),
+            &at,
+            &path,
+            &|| cancel.is_cancelled(),
+            syntax::TIME_BUDGET,
+        )?;
         Ok::<_, GitError>(match ranges {
             Some(ranges) => slice(&highlight, &ranges),
             None => (*highlight).clone(),
@@ -339,6 +370,112 @@ mod tests {
             ..ok
         };
         assert_eq!(check("abc", &mark).expect("mark").value, "1");
+    }
+
+    /// A repository whose working tree holds `files` (name, content), nothing committed, and
+    /// the app state that reads it; git runs without the machine's configuration.
+    fn working_tree(files: &[(&str, &str)]) -> (tempfile::TempDir, AppState, PathBuf) {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let status = std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(dir.path())
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", dir.path().join("no-global-config"))
+            .status()
+            .expect("git runs");
+        assert!(status.success(), "git init");
+        for (name, content) in files {
+            std::fs::write(dir.path().join(name), content).expect("write");
+        }
+        let root = dir.path().to_path_buf();
+        (dir, AppState::default(), root)
+    }
+
+    fn highlight_at(
+        state: &AppState,
+        engine: &dyn GitEngine,
+        path: &str,
+        cancelled: &dyn Fn() -> bool,
+        budget: Duration,
+    ) -> Arc<Highlight> {
+        highlight_cached(state, engine, &BlobAt::WorkingTree, path, cancelled, budget)
+            .expect("highlight")
+    }
+
+    #[test]
+    fn unknown_and_known_files_are_cached_once_highlighted() {
+        let (_dir, state, root) =
+            working_tree(&[("notes.unknownext", "hello\n"), ("a.rs", "fn a() {}\n")]);
+        let engine = state.open(&root).expect("open");
+        let engine_root = engine.repo().root.clone();
+        for path in ["notes.unknownext", "a.rs"] {
+            let first = highlight_at(
+                &state,
+                engine.as_ref(),
+                path,
+                &|| false,
+                syntax::TIME_BUDGET,
+            );
+            let (key, _) = text_of(engine.as_ref(), &BlobAt::WorkingTree, path)
+                .expect("read")
+                .expect("text");
+            let (cached, _) = state
+                .cached_highlight(&engine_root, &key)
+                .unwrap_or_else(|| panic!("{path} was not cached"));
+            assert!(Arc::ptr_eq(&first, &cached), "{path}");
+            // The second request answers from the cache, whatever `cancelled` says.
+            let second = highlight_at(&state, engine.as_ref(), path, &|| true, syntax::TIME_BUDGET);
+            assert!(Arc::ptr_eq(&first, &second), "{path}");
+        }
+    }
+
+    #[test]
+    fn a_cut_off_highlight_is_kept_after_one_more_try() {
+        let text = "fn a() {}\n".repeat(1_200);
+        let (_dir, state, root) = working_tree(&[("a.rs", &text)]);
+        let engine = state.open(&root).expect("open");
+        let first = highlight_at(&state, engine.as_ref(), "a.rs", &|| false, Duration::ZERO);
+        assert!(!first.complete);
+        assert_eq!(first.lines.len(), syntax::CANCEL_EVERY);
+        // The second request tries once more; with no time again it keeps what it had.
+        let second = highlight_at(&state, engine.as_ref(), "a.rs", &|| false, Duration::ZERO);
+        assert_eq!(second.lines.len(), syntax::CANCEL_EVERY);
+        // The third answers from the cache without trying, whatever `cancelled` says.
+        let third = highlight_at(&state, engine.as_ref(), "a.rs", &|| true, Duration::ZERO);
+        assert!(Arc::ptr_eq(&second, &third));
+        // With the time it needs, a second try of a new cut-off keeps the longer answer.
+        let (_dir, state, root) = working_tree(&[("b.rs", &text)]);
+        let engine = state.open(&root).expect("open");
+        let cut = highlight_at(&state, engine.as_ref(), "b.rs", &|| false, Duration::ZERO);
+        assert!(!cut.complete);
+        let whole = highlight_at(
+            &state,
+            engine.as_ref(),
+            "b.rs",
+            &|| false,
+            syntax::TIME_BUDGET,
+        );
+        assert!(whole.complete);
+        assert_eq!(whole.lines.len(), 1_200);
+    }
+
+    #[test]
+    fn a_cancelled_highlight_is_not_cached() {
+        let (_dir, state, root) = working_tree(&[("a.rs", "fn a() {}\n")]);
+        let engine = state.open(&root).expect("open");
+        let cancelled = highlight_cached(
+            &state,
+            engine.as_ref(),
+            &BlobAt::WorkingTree,
+            "a.rs",
+            &|| true,
+            syntax::TIME_BUDGET,
+        );
+        assert!(matches!(cancelled, Err(GitError::Cancelled)));
+        let (key, _) = text_of(engine.as_ref(), &BlobAt::WorkingTree, "a.rs")
+            .expect("read")
+            .expect("text");
+        assert!(state.cached_highlight(&engine.repo().root, &key).is_none());
     }
 
     #[test]

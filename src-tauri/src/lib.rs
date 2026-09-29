@@ -101,6 +101,14 @@ pub fn run() {
             attach_log(app, &state, log_slot.as_ref());
             open_index(app, &state);
             spawn_walk_eviction(state);
+            // The syntax set takes a while to deserialise; loading it now keeps the first
+            // diff from waiting for it.
+            if let Err(error) = std::thread::Builder::new()
+                .name("syntax-warm-up".to_owned())
+                .spawn(syntax::warm_up)
+            {
+                tracing::warn!(%error, "the syntax set loads with the first file instead");
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

@@ -100,10 +100,15 @@ struct CachedHighlight {
     key: String,
     bytes: usize,
     highlight: Arc<Highlight>,
+    /// Whether a cut-off answer had its one more try (see `highlight_file`).
+    retried: bool,
 }
 
-/// Highlights kept per repository.
+/// Highlights with tokens kept per repository, the least recently used going first.
 const HIGHLIGHT_CACHE: usize = 32;
+/// Entries of any kind kept per repository: the answers without tokens (no known syntax)
+/// weigh nothing and do not count against [`HIGHLIGHT_CACHE`], but stay bounded.
+const HIGHLIGHT_CACHE_ENTRIES: usize = 256;
 /// Bytes of tokens the highlights of one process may hold together (the budget keeps the
 /// idle footprint under 200 MB; a dense 50,000-line file is about 10 MB).
 const HIGHLIGHT_CACHE_BYTES: usize = 48 * 1024 * 1024;
@@ -151,24 +156,32 @@ impl AppState {
             .clone()
     }
 
-    /// The cached token classes of `key` in the repository at `root`; the handle is cloned
-    /// under the lock, never the tokens.
-    pub fn cached_highlight(&self, root: &Path, key: &str) -> Option<Arc<Highlight>> {
-        let cache = self
+    /// The cached token classes of `key` in the repository at `root`, and whether a cut-off
+    /// answer had its one more try; a hit becomes the most recently used entry, and the
+    /// handle is cloned under the lock, never the tokens.
+    pub fn cached_highlight(&self, root: &Path, key: &str) -> Option<(Arc<Highlight>, bool)> {
+        let mut cache = self
             .inner
             .highlights
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        cache
-            .get(root)?
-            .iter()
-            .find(|entry| entry.key == key)
-            .map(|entry| Arc::clone(&entry.highlight))
+        let entries = cache.get_mut(root)?;
+        let at = entries.iter().position(|entry| entry.key == key)?;
+        let entry = entries.remove(at)?;
+        let hit = (Arc::clone(&entry.highlight), entry.retried);
+        entries.push_back(entry);
+        Some(hit)
     }
 
-    /// Remembers the token classes of `key`, dropping the oldest entries beyond the count
-    /// per repository and beyond the byte bound of the process.
-    pub fn cache_highlight(&self, root: &Path, key: String, highlight: Arc<Highlight>) {
+    /// Remembers the token classes of `key`, dropping the least recently used entries beyond
+    /// the counts per repository and beyond the byte bound of the process.
+    pub fn cache_highlight(
+        &self,
+        root: &Path,
+        key: String,
+        highlight: Arc<Highlight>,
+        retried: bool,
+    ) {
         let bytes = highlight_bytes(&highlight);
         let mut cache = self
             .inner
@@ -181,8 +194,17 @@ impl AppState {
             key,
             bytes,
             highlight,
+            retried,
         });
-        while entries.len() > HIGHLIGHT_CACHE {
+        while entries.iter().filter(|entry| entry.bytes > 0).count() > HIGHLIGHT_CACHE {
+            match entries.iter().position(|entry| entry.bytes > 0) {
+                Some(oldest) => {
+                    entries.remove(oldest);
+                }
+                None => break,
+            }
+        }
+        while entries.len() > HIGHLIGHT_CACHE_ENTRIES {
             entries.pop_front();
         }
         // The byte bound is per process: the oldest entry of the fullest repository goes
@@ -1098,24 +1120,20 @@ mod tests {
     fn highlights_are_keyed_replaced_bounded_and_dropped_with_the_repository() {
         let state = AppState::default();
         let root = Path::new("/a");
-        state.cache_highlight(root, "a.rs:1".to_owned(), highlight_of(2, 1));
-        let first = state.cached_highlight(root, "a.rs:1").expect("cached");
+        state.cache_highlight(root, "a.rs:1".to_owned(), highlight_of(2, 1), false);
+        let (first, retried) = state.cached_highlight(root, "a.rs:1").expect("cached");
         assert_eq!(first.lines.len(), 2);
+        assert!(!retried);
         assert!(state.cached_highlight(root, "a.rs:2").is_none());
         // The same key replaces the entry rather than adding one.
-        state.cache_highlight(root, "a.rs:1".to_owned(), highlight_of(3, 1));
-        assert_eq!(
-            state
-                .cached_highlight(root, "a.rs:1")
-                .expect("replaced")
-                .lines
-                .len(),
-            3
-        );
+        state.cache_highlight(root, "a.rs:1".to_owned(), highlight_of(3, 1), true);
+        let (replaced, retried) = state.cached_highlight(root, "a.rs:1").expect("replaced");
+        assert_eq!(replaced.lines.len(), 3);
+        assert!(retried);
         let bytes_of_three = state.highlight_cache_bytes();
         // The count bound per repository keeps the newest 32.
         for i in 0..40 {
-            state.cache_highlight(root, format!("f{i}.rs"), highlight_of(1, 1));
+            state.cache_highlight(root, format!("f{i}.rs"), highlight_of(1, 1), false);
         }
         assert!(state.cached_highlight(root, "a.rs:1").is_none());
         assert!(state.cached_highlight(root, "f7.rs").is_none());
@@ -1125,7 +1143,12 @@ mod tests {
         let dense = highlight_of(50_000, 20);
         assert!(highlight_bytes(&dense) > HIGHLIGHT_CACHE_BYTES / 4);
         for i in 0..6 {
-            state.cache_highlight(Path::new("/b"), format!("d{i}.rs"), Arc::clone(&dense));
+            state.cache_highlight(
+                Path::new("/b"),
+                format!("d{i}.rs"),
+                Arc::clone(&dense),
+                false,
+            );
         }
         assert!(state.highlight_cache_bytes() <= HIGHLIGHT_CACHE_BYTES);
         assert!(state.cached_highlight(Path::new("/b"), "d0.rs").is_none());
@@ -1134,5 +1157,30 @@ mod tests {
         state.close(Path::new("/b"));
         assert!(state.cached_highlight(Path::new("/b"), "d5.rs").is_none());
         assert!(state.cached_highlight(root, "f39.rs").is_some());
+    }
+
+    #[test]
+    fn a_hit_is_the_most_recent_and_answers_without_tokens_take_no_slot() {
+        let state = AppState::default();
+        let root = Path::new("/a");
+        for i in 0..32 {
+            state.cache_highlight(root, format!("f{i}.rs"), highlight_of(1, 1), false);
+        }
+        // f0 is read, so f1 is now the least recently used.
+        assert!(state.cached_highlight(root, "f0.rs").is_some());
+        state.cache_highlight(root, "g.rs".to_owned(), highlight_of(1, 1), false);
+        assert!(state.cached_highlight(root, "f0.rs").is_some());
+        assert!(state.cached_highlight(root, "f1.rs").is_none());
+        // Files of no known language fill no slot of the 32.
+        for i in 0..100 {
+            state.cache_highlight(
+                root,
+                format!("n{i}.txt"),
+                Arc::new(Highlight::nothing()),
+                false,
+            );
+        }
+        assert!(state.cached_highlight(root, "g.rs").is_some());
+        assert!(state.cached_highlight(root, "n0.txt").is_some());
     }
 }
