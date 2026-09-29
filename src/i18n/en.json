@@ -1004,7 +1004,9 @@
       "title": "Terminal and editor",
       "terminal": "Terminal",
       "editor": "Editor",
-      "hint": "{path} is replaced with the folder to open. Used by every \"Open in terminal\" and \"Open in editor\" action."
+      "editorLine": "Editor at a line",
+      "editorLineHint": "{path} and {line} are replaced. Empty: derived from the editor for VS Code, Cursor, Windsurf, VSCodium, Zed, Sublime Text, the JetBrains IDEs and Notepad++; other editors open the file without the line.",
+      "hint": "{path} is replaced with the folder or the file to open. Used by every \"Open in terminal\" and \"Open in editor\" action."
     },
     "diff": {
       "title": "Diff",

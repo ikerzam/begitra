@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// The Terminal and editor settings: the two command templates, committed on blur and Enter.
+// The Terminal and editor settings: the terminal's and the editor's templates and "Editor at a
+// line", committed on blur and Enter; an empty "Editor at a line" is derived from the editor.
 
 import { useI18n } from "vue-i18n";
 
@@ -20,6 +21,10 @@ const terminal = useCommittedText(
 const editor = useCommittedText(
   () => settings.values.editorCommand,
   (value) => (value.trim() ? settings.update("editorCommand", value.trim()) : undefined),
+);
+const editorLine = useCommittedText(
+  () => settings.values.editorLineCommand,
+  (value) => settings.update("editorLineCommand", value.trim()),
 );
 </script>
 
@@ -45,6 +50,20 @@ const editor = useCommittedText(
         data-testid="editor-command"
         @blur="editor.commit"
         @keydown="editor.onKeydown"
+      />
+    </SettingsField>
+    <SettingsField
+      :label="t('settings.commands.editorLine')"
+      for="settings-editor-line"
+      :hint="t('settings.commands.editorLineHint')"
+    >
+      <Input
+        id="settings-editor-line"
+        v-model="editorLine.draft.value"
+        placeholder="code -g {path}:{line}"
+        data-testid="editor-line-command"
+        @blur="editorLine.commit"
+        @keydown="editorLine.onKeydown"
       />
     </SettingsField>
   </SettingsSection>

@@ -1004,7 +1004,9 @@
       "title": "Terminal y editor",
       "terminal": "Terminal",
       "editor": "Editor",
-      "hint": "{path} se sustituye por la carpeta que se abre. Lo usan todas las acciones \"Abrir en la terminal\" y \"Abrir en el editor\"."
+      "editorLine": "Editor en una línea",
+      "editorLineHint": "Se sustituyen {path} y {line}. Vacío: se deduce del editor para VS Code, Cursor, Windsurf, VSCodium, Zed, Sublime Text, los IDE de JetBrains y Notepad++; los demás editores abren el archivo sin la línea.",
+      "hint": "{path} se sustituye por la carpeta o el archivo que se abre. Lo usan todas las acciones «Abrir en la terminal» y «Abrir en el editor»."
     },
     "diff": {
       "title": "Diff",

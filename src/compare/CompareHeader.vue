@@ -3,7 +3,7 @@
 // between them and "Open in terminal", in the order they are drawn so the tab order is the
 // visual one.
 
-import { ArrowLeftRight, Terminal } from "@lucide/vue";
+import { ArrowLeftRight, Code, Terminal } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
 
 import Button from "@/components/Button.vue";
@@ -19,7 +19,12 @@ const props = defineProps<{
   /** Lane of each endpoint's branch, 0 when it has none. */
   lanes: Record<CompareSide, number>;
 }>();
-const emit = defineEmits<{ pick: [side: CompareSide]; swap: []; openTerminal: [] }>();
+const emit = defineEmits<{
+  pick: [side: CompareSide];
+  swap: [];
+  openTerminal: [];
+  openEditor: [];
+}>();
 
 const { t } = useI18n();
 </script>
@@ -46,6 +51,9 @@ const { t } = useI18n();
       @click="emit('openTerminal')"
     >
       {{ t("palette.commandsById.open-terminal") }}
+    </Button>
+    <Button variant="ghost" :icon="Code" data-testid="compare-editor" @click="emit('openEditor')">
+      {{ t("palette.commandsById.open-editor") }}
     </Button>
   </header>
 </template>

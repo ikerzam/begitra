@@ -117,6 +117,15 @@ describe("SettingsLayout", () => {
     await terminal.setValue("wezterm start --cwd {path}");
     await terminal.trigger("blur");
     expect(settings.values.terminalCommand).toBe("wezterm start --cwd {path}");
+    // Editor at a line takes any text, empty included: empty derives it from the editor.
+    const line = input(wrapper, "editor-line-command");
+    expect(line.attributes("placeholder")).toBe("code -g {path}:{line}");
+    await line.setValue(" idea64.exe --line {line} {path} ");
+    await line.trigger("keydown", { key: "Enter" });
+    expect(settings.values.editorLineCommand).toBe("idea64.exe --line {line} {path}");
+    await line.setValue("");
+    await line.trigger("blur");
+    expect(settings.values.editorLineCommand).toBe("");
     // Escape restores the stored value.
     await terminal.setValue("garbage");
     await terminal.trigger("keydown", { key: "Escape" });

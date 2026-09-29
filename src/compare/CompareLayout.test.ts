@@ -11,6 +11,7 @@ import { usePickerStore } from "@/stores/picker";
 import { useRepoStore } from "@/stores/repo";
 import { memoryStorage, useSettingsStore, type CompareEndpoint } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
+import { useToastsStore } from "@/stores/toasts";
 import { fakeBackend, settled, type FakeBackendOptions } from "@/test/backend";
 import { mountWithI18n } from "@/test/mount";
 
@@ -92,6 +93,17 @@ describe("CompareLayout", () => {
     await wrapper.get('[data-testid="open-in-review"]').trigger("click");
     await flushPromises();
     expect(shell.layoutMode).toBe("review");
+    wrapper.unmount();
+  });
+
+  it("opens the repository in the editor from the header", async () => {
+    const wrapper = await mountComparison(main, feature);
+    const button = wrapper.get('[data-testid="compare-editor"]');
+    expect(button.text()).toBe("Open in editor");
+    await button.trigger("click");
+    await flushPromises();
+    // The open went through: no failure toast.
+    expect(useToastsStore().toasts).toEqual([]);
     wrapper.unmount();
   });
 

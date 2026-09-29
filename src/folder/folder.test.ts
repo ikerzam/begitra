@@ -103,7 +103,7 @@ afterEach(() => {
 
 describe("the folder view's Changes", () => {
   it("shows a section per repository with changes and the others in the group", async () => {
-    const { wrapper } = await mountFolder();
+    const { wrapper, calls } = await mountFolder();
     expect(names(wrapper)).toEqual(["api", "web"]);
     const web = wrapper.get('[data-root="/code/web"]');
     expect(web.get('[data-testid="folder-section-branch"]').text()).toBe("feat/tiles");
@@ -112,6 +112,12 @@ describe("the folder view's Changes", () => {
       wrapper.get(`[data-root="${root}"] [data-lane]`).attributes("data-lane");
     expect([lane("/code/api"), lane("/code/web")]).toEqual(["1", "2"]);
     expect(web.get('[data-testid="folder-section-count"]').text()).toBe("1 file");
+    // Its editor opens the repository's folder.
+    await web.get('[data-testid="folder-section-editor"]').trigger("click");
+    await flushPromises();
+    expect(calls.filter((call) => call.cmd === "open_external").at(-1)?.args["path"]).toBe(
+      "/code/web",
+    );
     // A section shows the lists that hold files.
     expect(web.find('[data-testid="staged-list"]').exists()).toBe(false);
     // The box reads "Commit to" with the repository and its branch.

@@ -6,7 +6,7 @@
 // screen draws them, on the repository's own model. Only the section the selection is in marks
 // its row.
 
-import { ChevronDown, ChevronRight, SquareArrowOutUpRight } from "@lucide/vue";
+import { ChevronDown, ChevronRight, Code, SquareArrowOutUpRight } from "@lucide/vue";
 import { computed, ref, useId } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -15,6 +15,7 @@ import ChangesScope from "@/changes/ChangesScope.vue";
 import IconButton from "@/components/IconButton.vue";
 import LaneDot from "@/components/LaneDot.vue";
 import type { FileChange } from "@/ipc/schemas";
+import { useExternal } from "@/shell/useExternal";
 import type { FolderRepository } from "@/stores/folder";
 import { useOverviewStore } from "@/stores/overview";
 
@@ -38,6 +39,7 @@ const emit = defineEmits<{
 }>();
 
 const { t, n } = useI18n();
+const external = useExternal();
 const overview = useOverviewStore();
 const listsId = useId();
 const lists = ref<SectionHandle | null>(null);
@@ -102,6 +104,12 @@ defineExpose({
           {{ t("project.files", { n: n(count) }, count) }}
         </span>
       </button>
+      <IconButton
+        :icon="Code"
+        :label="t('project.editor', { name: props.repository.name })"
+        data-testid="folder-section-editor"
+        @click="() => void external.openEditor(props.repository.root)"
+      />
       <IconButton
         :icon="SquareArrowOutUpRight"
         :label="t('folder.openRepositoryNamed', { name: props.repository.name })"

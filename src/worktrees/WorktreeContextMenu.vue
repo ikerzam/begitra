@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // The context menu of a worktree row: the row's actions plus Lock or Unlock. Opened at the
-// pointer, or under the focused row from the menu key.
+// pointer, or under the focused row from the menu key. The sidebar's Worktrees tab opens it
+// without the actions that ask in a dialog (lock, unlock, remove), which the dashboard holds.
 
 import { Code, FileDiff, Lock, LockOpen, Terminal, Trash2 } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
@@ -10,7 +11,16 @@ import ContextMenuItem from "@/components/ContextMenuItem.vue";
 import ContextMenuSeparator from "@/components/ContextMenuSeparator.vue";
 import type { WorktreeRow } from "@/stores/worktrees";
 
-const props = defineProps<{ row: WorktreeRow; x: number; y: number }>();
+const props = withDefaults(
+  defineProps<{
+    row: WorktreeRow;
+    x: number;
+    y: number;
+    /** Whether the actions that ask in a dialog are offered (not in the sidebar). */
+    dialogs?: boolean;
+  }>(),
+  { dialogs: true },
+);
 const emit = defineEmits<{
   compare: [];
   openTerminal: [];
@@ -39,7 +49,7 @@ const { t } = useI18n();
       @select="emit('openTerminal')"
     />
     <ContextMenuItem :label="t('worktreeRow.editor')" :icon="Code" @select="emit('openEditor')" />
-    <template v-if="!props.row.isMain">
+    <template v-if="props.dialogs && !props.row.isMain">
       <ContextMenuSeparator />
       <ContextMenuItem
         v-if="props.row.locked"

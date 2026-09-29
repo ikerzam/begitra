@@ -120,6 +120,7 @@ defineExpose({ focusSides: () => sideA.value?.focus() });
         @pick="pick"
         @swap="() => void compare.swap()"
         @open-terminal="() => void external.openTerminal()"
+        @open-editor="() => void external.openEditor()"
       />
       <div v-if="compare.comparisonError" class="p-4" data-testid="compare-error">
         <ErrorBanner

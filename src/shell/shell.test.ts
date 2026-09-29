@@ -1017,6 +1017,12 @@ describe("Sidebar", () => {
     expect(document.activeElement).toBe(rows[1]?.element);
     await rows[1]!.trigger("keydown", { key: "k" });
     expect(rows[0]?.attributes("aria-selected")).toBe("true");
+    // A right click opens the worktree's menu, without the actions that ask in a dialog.
+    await rows[1]!.trigger("contextmenu", { clientX: 20, clientY: 40 });
+    const menu = wrapper.get('[role="menu"]');
+    expect(menu.text()).toContain("Open in editor");
+    expect(menu.find('[data-testid="menu-remove"]').exists()).toBe(false);
+    expect(menu.find('[data-testid="menu-lock"]').exists()).toBe(false);
     wrapper.unmount();
   });
 
