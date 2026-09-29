@@ -6,10 +6,11 @@
 // changed lines can be picked for a partial stage: a click toggles a line, shift-click extends
 // from the last click, and the arrows move a cursor that Space toggles.
 
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 
 import DiffRow from "@/components/DiffRow.vue";
 import HunkRow from "@/components/HunkRow.vue";
+import { refocusAfterMenu } from "@/components/menuFocus";
 import type { FileChange, Hunk } from "@/ipc/schemas";
 import { useShortcut } from "@/shortcuts/useShortcut";
 import { useExternal } from "@/shell/useExternal";
@@ -294,10 +295,7 @@ watch(
 /** The menu closed: the focus comes back to the rows unless an item moved it elsewhere. */
 function closeMenu(): void {
   menu.value = null;
-  void nextTick(() => {
-    const active = document.activeElement;
-    if (active === null || active === document.body) body.value?.focus({ preventScroll: true });
-  });
+  refocusAfterMenu(() => body.value?.focus({ preventScroll: true }));
 }
 
 /** The text selected inside the rows, if any. */

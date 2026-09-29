@@ -1023,6 +1023,11 @@ describe("Sidebar", () => {
     expect(menu.text()).toContain("Open in editor");
     expect(menu.find('[data-testid="menu-remove"]').exists()).toBe(false);
     expect(menu.find('[data-testid="menu-lock"]').exists()).toBe(false);
+    // Escape closes it and the row takes the focus back, so the list keeps its keys.
+    await menu.trigger("keydown", { key: "Escape" });
+    await flushPromises();
+    expect(wrapper.find('[role="menu"]').exists()).toBe(false);
+    expect(document.activeElement).toBe(rows[1]?.element);
     wrapper.unmount();
   });
 

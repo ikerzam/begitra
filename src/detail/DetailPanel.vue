@@ -8,6 +8,7 @@ import { useI18n } from "vue-i18n";
 import Button from "@/components/Button.vue";
 import DiffStat from "@/components/DiffStat.vue";
 import EmptyState from "@/components/EmptyState.vue";
+import { refocusAfterMenu } from "@/components/menuFocus";
 import ErrorBanner from "@/components/ErrorBanner.vue";
 import IconButton from "@/components/IconButton.vue";
 import PanelHeader from "@/components/PanelHeader.vue";
@@ -60,6 +61,13 @@ function selectParent(hash: string): void {
 const selectedPath = ref<string | null>(null);
 /** The file whose menu is open, and where. */
 const fileMenu = ref<{ file: FileChange; x: number; y: number } | null>(null);
+const fileList = ref<{ focus(): void } | null>(null);
+
+/** The file menu closed: the list takes the focus back unless an item moved it. */
+function closeFileMenu(): void {
+  fileMenu.value = null;
+  refocusAfterMenu(() => fileList.value?.focus());
+}
 watch(
   () => detail.value?.hash,
   () => {
@@ -118,6 +126,7 @@ function onSelect(file: FileChange, trigger: SelectTrigger): void {
         </div>
         <FileList
           v-if="detail"
+          ref="fileList"
           :files="detail.files"
           :selected-path="selectedPath"
           @select="onSelect"
@@ -131,7 +140,7 @@ function onSelect(file: FileChange, trigger: SelectTrigger): void {
           :y="fileMenu.y"
           review
           @review="(file) => emit('review', file)"
-          @close="fileMenu = null"
+          @close="closeFileMenu"
         />
       </div>
     </template>

@@ -9,6 +9,7 @@ import { useI18n } from "vue-i18n";
 
 import Checkbox from "@/components/Checkbox.vue";
 import EmptyState from "@/components/EmptyState.vue";
+import { refocusAfterMenu } from "@/components/menuFocus";
 import IconButton from "@/components/IconButton.vue";
 import Input from "@/components/Input.vue";
 import PanelHeader from "@/components/PanelHeader.vue";
@@ -40,6 +41,12 @@ const filterOpen = ref(false);
 const pathFilter = ref("");
 /** The file whose menu is open, and where. */
 const fileMenu = ref<{ file: FileChange; x: number; y: number } | null>(null);
+
+/** The file menu closed: the list takes the focus back unless an item moved it. */
+function closeFileMenu(): void {
+  fileMenu.value = null;
+  refocusAfterMenu(() => list.value?.focus());
+}
 const sortBySizeOn = ref(false);
 
 const files = computed<FileChange[]>(() => {
@@ -179,7 +186,7 @@ defineExpose({ focus: () => list.value?.focus(), moveFile });
         :file="fileMenu.file"
         :x="fileMenu.x"
         :y="fileMenu.y"
-        @close="fileMenu = null"
+        @close="closeFileMenu"
       />
       <EmptyState
         v-if="changeSet && !changeSet.loading && count === 0 && !changeSetError"

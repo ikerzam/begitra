@@ -9,6 +9,7 @@ import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ListRow from "@/components/ListRow.vue";
+import { refocusAfterMenu } from "@/components/menuFocus";
 import { matchesQuery } from "@/palette/usePalette";
 import { useListNavigation } from "@/shortcuts/useListNavigation";
 import { useRepoStore } from "@/stores/repo";
@@ -97,6 +98,12 @@ function onKeydown(event: KeyboardEvent): void {
   navigation.onKeydown(event);
 }
 
+/** The menu closed: the list takes the focus back unless an action moved it. */
+function closeMenu(): void {
+  menu.value = null;
+  refocusAfterMenu(() => navigation.focus());
+}
+
 /** Runs a menu action on the menu's worktree and closes the menu. */
 function withMenuRow(action: (path: string) => void): void {
   const path = menu.value?.path;
@@ -145,7 +152,7 @@ defineExpose({ focus: navigation.focus });
       @compare="withMenuRow((path) => void worktrees.compareWithMain(path))"
       @open-terminal="withMenuRow((path) => void external.openTerminal(path))"
       @open-editor="withMenuRow((path) => void external.openEditor(path))"
-      @close="menu = null"
+      @close="closeMenu"
     />
   </div>
 </template>

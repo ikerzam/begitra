@@ -1,9 +1,12 @@
 <script setup lang="ts">
 // The context menu of a worktree row: the row's actions plus Lock or Unlock. Opened at the
 // pointer, or under the focused row from the menu key. The sidebar's Worktrees tab opens it
-// without the actions that ask in a dialog (lock, unlock, remove), which the dashboard holds.
+// without the actions that ask in a dialog (lock, unlock, remove), which the dashboard holds,
+// and with Terminal and Editor disabled for a folder that is gone: the dashboard's banner
+// explains that one and offers the prune, the sidebar has no place to.
 
 import { Code, FileDiff, Lock, LockOpen, Terminal, Trash2 } from "@lucide/vue";
+import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ContextMenu from "@/components/ContextMenu.vue";
@@ -32,6 +35,9 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+
+/** The sidebar offers nothing to open in a folder that is gone. */
+const gone = computed(() => !props.dialogs && props.row.prunable);
 </script>
 
 <template>
@@ -46,9 +52,17 @@ const { t } = useI18n();
     <ContextMenuItem
       :label="t('worktreeRow.terminal')"
       :icon="Terminal"
+      :disabled="gone"
+      data-testid="menu-terminal"
       @select="emit('openTerminal')"
     />
-    <ContextMenuItem :label="t('worktreeRow.editor')" :icon="Code" @select="emit('openEditor')" />
+    <ContextMenuItem
+      :label="t('worktreeRow.editor')"
+      :icon="Code"
+      :disabled="gone"
+      data-testid="menu-editor"
+      @select="emit('openEditor')"
+    />
     <template v-if="props.dialogs && !props.row.isMain">
       <ContextMenuSeparator />
       <ContextMenuItem
