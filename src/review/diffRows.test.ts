@@ -11,7 +11,10 @@ import {
   hunkSymbol,
   lineKind,
   rowHeights,
+  rowLineKeys,
+  rowsOf,
   segments,
+  selectableRowIndexes,
   sideBySideRows,
   unifiedRows,
   wrappedLines,
@@ -74,6 +77,133 @@ describe("sideBySideRows", () => {
       [null, "line 1"],
       [null, "line 2"],
     ]);
+  });
+});
+
+describe("unchanged lines around the hunks", () => {
+  /** A hunk whose lines carry both numbers as given: [kind, old, new]. */
+  function numbered(lines: [DiffLine["kind"], number | null, number | null][]): Hunk {
+    const diffLines = lines.map(([kind, oldNumber, newNumber]) => ({
+      kind,
+      oldNumber,
+      newNumber,
+      text: `line ${newNumber ?? oldNumber}`,
+      spans: [],
+      noNewline: false,
+    }));
+    const first = lines.find(([, , n]) => n !== null)?.[2] ?? 1;
+    const firstOld = lines.find(([, o]) => o !== null)?.[1] ?? 1;
+    return {
+      oldStart: firstOld,
+      oldLines: lines.filter(([, o]) => o !== null).length,
+      newStart: first,
+      newLines: lines.filter(([, , n]) => n !== null).length,
+      header: "@@",
+      lines: diffLines,
+    };
+  }
+  // New line 11 added after 10; old line 43 removed after new 43.
+  const hunks = [
+    numbered([
+      ["context", 10, 10],
+      ["added", null, 11],
+      ["context", 11, 12],
+    ]),
+    numbered([
+      ["context", 42, 43],
+      ["removed", 43, null],
+      ["context", 44, 44],
+    ]),
+  ];
+  const file = Array.from({ length: 50 }, (_, i) => `line ${i + 1}`);
+
+  it("folds every run into a gap row until the lines are known, the last run unknown", () => {
+    const rows = rowsOf(hunks, "unified", { lines: null, revealed: [], whole: false });
+    expect(rows.map((row) => row.key)).toEqual([
+      "g1",
+      "h0",
+      "h0-l0",
+      "h0-l1",
+      "h0-l2",
+      "g13",
+      "h1",
+      "h1-l0",
+      "h1-l1",
+      "h1-l2",
+    ]);
+    const middle = rows[5];
+    expect(middle?.kind === "gap" && [middle.newStart, middle.newEnd, middle.oldStart]).toEqual([
+      13, 42, 12,
+    ]);
+    // Without `unchanged`, the rows are the hunks' alone, as before.
+    expect(rowsOf(hunks, "unified").map((row) => row.key)[0]).toBe("h0");
+  });
+
+  it("shows the revealed lines as context rows with both numbers and folds the rest", () => {
+    const rows = rowsOf(hunks, "unified", {
+      lines: file,
+      revealed: [
+        { start: 13, end: 17 },
+        { start: 16, end: 20 },
+      ],
+      whole: false,
+    });
+    const keys = rows.map((row) => row.key);
+    expect(keys.slice(5, 14)).toEqual([
+      "c13",
+      "c14",
+      "c15",
+      "c16",
+      "c17",
+      "c18",
+      "c19",
+      "c20",
+      "g21",
+    ]);
+    const shown = rows[5];
+    expect(shown?.kind === "context" && shown.line).toMatchObject({
+      kind: "context",
+      oldNumber: 12,
+      newNumber: 13,
+      text: "line 13",
+    });
+    const rest = rows[13];
+    expect(rest?.kind === "gap" && [rest.newStart, rest.newEnd, rest.oldStart]).toEqual([
+      21, 42, 20,
+    ]);
+    // The run after the last hunk, now that the file's length is known.
+    expect(keys.at(-1)).toBe("g45");
+    // The selection never lands on them, and they open where they sit.
+    expect(rowLineKeys(shown!)).toEqual([]);
+    expect(selectableRowIndexes(rows).every((index) => rows[index]?.kind === "line")).toBe(true);
+    expect(newLineOfRow(shown!, hunks)).toBe(13);
+    expect(newLineOfRow(rest!, hunks)).toBe(21);
+  });
+
+  it("shows the whole file in both layouts, the hunks' keys unchanged", () => {
+    for (const layout of ["unified", "side-by-side"] as const) {
+      const rows = rowsOf(hunks, layout, { lines: file, revealed: [], whole: true });
+      expect(rows.some((row) => row.kind === "gap")).toBe(false);
+      const numbers = rows.flatMap((row) => (row.kind === "context" ? [row.line.newNumber] : []));
+      expect(numbers).toEqual([
+        ...Array.from({ length: 9 }, (_, i) => i + 1),
+        ...Array.from({ length: 30 }, (_, i) => i + 13),
+        ...Array.from({ length: 6 }, (_, i) => i + 45),
+      ]);
+      expect(rows.filter((row) => row.kind === "hunk").map((row) => row.key)).toEqual(["h0", "h1"]);
+    }
+  });
+
+  it("gives a gap a hunk header's height and a shown line a line's", () => {
+    const rows = rowsOf(hunks, "unified", { lines: file, revealed: [], whole: false });
+    const heights = rowHeights(rows, false, 80);
+    expect(heights[0]).toBe(28);
+    const wrapped = rowsOf(hunks, "unified", {
+      lines: file.map((text, i) => (i === 0 ? "x".repeat(100) : text)),
+      revealed: [{ start: 1, end: 1 }],
+      whole: false,
+    });
+    expect(rowHeights(wrapped, true, 40)[0]).toBe(60);
   });
 });
 

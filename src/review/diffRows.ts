@@ -1,10 +1,13 @@
 // Pure helpers of the diff viewer: the row models of a file in both layouts (a header row
-// per hunk, then its lines, or its removed and added lines paired side by side), the row
+// per hunk, then its lines, or its removed and added lines paired side by side, and around
+// the hunks the unchanged lines, folded into gap rows or shown as context rows), the row
 // heights with and without wrapping as prefix sums for the virtual list, the intra-line
 // segments of a line merged with its token classes, and the pieces of a hunk header.
 
 import type { DiffLineKind } from "@/components/types";
-import type { DiffLine, Hunk, Token, TokenClass } from "@/ipc/schemas";
+import type { DiffLine, Hunk, LineRange, Token, TokenClass } from "@/ipc/schemas";
+
+import { unchangedRuns, type UnchangedRun } from "./unchanged";
 
 /** Height of a line row (`--row-diff`). */
 export const LINE_HEIGHT = 20;
@@ -41,73 +44,185 @@ export interface PairRowModel {
   rightIndex: number | null;
 }
 
-export type DiffRowModel = HunkRowModel | LineRowModel | PairRowModel;
+/** Unchanged lines outside the hunks that stay folded: `newStart` to `newEnd` on the new side. */
+export interface GapRowModel {
+  kind: "gap";
+  key: string;
+  newStart: number;
+  newEnd: number;
+  /** The old side's number of `newStart`. */
+  oldStart: number;
+  /** The run it belongs to: before the first hunk, between two, or after the last. */
+  place: UnchangedRun["place"];
+}
+
+/** An unchanged line outside the hunks, shown: a context line built from the new side. */
+export interface ContextRowModel {
+  kind: "context";
+  key: string;
+  line: DiffLine;
+}
+
+export type DiffRowModel =
+  HunkRowModel | LineRowModel | PairRowModel | GapRowModel | ContextRowModel;
+
+/** How many lines a gap's step controls show. */
+export const EXPAND_STEP = 20;
+
+/** What the viewer shows of the lines outside the hunks. */
+export interface Unchanged {
+  /** The new side's lines, or null while they are unread or do not match the hunks. */
+  lines: readonly string[] | null;
+  /** The new-side ranges shown, inclusive, in any order. */
+  revealed: readonly LineRange[];
+  /** Every unchanged line shown. */
+  whole: boolean;
+}
+
+/** The rows of one hunk in unified layout. */
+function unifiedHunk(rows: DiffRowModel[], hunk: Hunk, h: number): void {
+  rows.push({ kind: "hunk", key: `h${h}`, hunkIndex: h, hunk });
+  for (const [l, line] of hunk.lines.entries()) {
+    rows.push({ kind: "line", key: `h${h}-l${l}`, hunkIndex: h, lineIndex: l, line });
+  }
+}
 
 /** The rows of `hunks` in unified layout. */
 export function unifiedRows(hunks: Hunk[]): DiffRowModel[] {
   const rows: DiffRowModel[] = [];
-  for (const [h, hunk] of hunks.entries()) {
-    rows.push({ kind: "hunk", key: `h${h}`, hunkIndex: h, hunk });
-    for (const [l, line] of hunk.lines.entries()) {
-      rows.push({ kind: "line", key: `h${h}-l${l}`, hunkIndex: h, lineIndex: l, line });
-    }
-  }
+  for (const [h, hunk] of hunks.entries()) unifiedHunk(rows, hunk, h);
   return rows;
 }
 
 /**
- * The rows of `hunks` side by side: context lines on both sides; a run of removed lines
+ * The rows of one hunk side by side: context lines on both sides; a run of removed lines
  * followed by a run of added lines is paired index by index, the longer run leaving gaps.
  */
-export function sideBySideRows(hunks: Hunk[]): DiffRowModel[] {
-  const rows: DiffRowModel[] = [];
-  for (const [h, hunk] of hunks.entries()) {
-    rows.push({ kind: "hunk", key: `h${h}`, hunkIndex: h, hunk });
-    let i = 0;
-    let n = 0;
-    const lines = hunk.lines;
-    while (i < lines.length) {
-      const line = lines[i]!;
-      if (line.kind === "context") {
-        rows.push({
-          kind: "pair",
-          key: `h${h}-p${n}`,
-          hunkIndex: h,
-          left: line,
-          right: line,
-          leftIndex: i,
-          rightIndex: i,
-        });
-        n += 1;
-        i += 1;
-        continue;
-      }
-      const removed: number[] = [];
-      const added: number[] = [];
-      while (i < lines.length && lines[i]!.kind === "removed") removed.push(i++);
-      while (i < lines.length && lines[i]!.kind === "added") added.push(i++);
-      const count = Math.max(removed.length, added.length);
-      for (let k = 0; k < count; k += 1) {
-        const leftIndex = removed[k] ?? null;
-        const rightIndex = added[k] ?? null;
-        rows.push({
-          kind: "pair",
-          key: `h${h}-p${n}`,
-          hunkIndex: h,
-          left: leftIndex === null ? null : lines[leftIndex]!,
-          right: rightIndex === null ? null : lines[rightIndex]!,
-          leftIndex,
-          rightIndex,
-        });
-        n += 1;
-      }
+function sideBySideHunk(rows: DiffRowModel[], hunk: Hunk, h: number): void {
+  rows.push({ kind: "hunk", key: `h${h}`, hunkIndex: h, hunk });
+  let i = 0;
+  let n = 0;
+  const lines = hunk.lines;
+  while (i < lines.length) {
+    const line = lines[i]!;
+    if (line.kind === "context") {
+      rows.push({
+        kind: "pair",
+        key: `h${h}-p${n}`,
+        hunkIndex: h,
+        left: line,
+        right: line,
+        leftIndex: i,
+        rightIndex: i,
+      });
+      n += 1;
+      i += 1;
+      continue;
+    }
+    const removed: number[] = [];
+    const added: number[] = [];
+    while (i < lines.length && lines[i]!.kind === "removed") removed.push(i++);
+    while (i < lines.length && lines[i]!.kind === "added") added.push(i++);
+    const count = Math.max(removed.length, added.length);
+    for (let k = 0; k < count; k += 1) {
+      const leftIndex = removed[k] ?? null;
+      const rightIndex = added[k] ?? null;
+      rows.push({
+        kind: "pair",
+        key: `h${h}-p${n}`,
+        hunkIndex: h,
+        left: leftIndex === null ? null : lines[leftIndex]!,
+        right: rightIndex === null ? null : lines[rightIndex]!,
+        leftIndex,
+        rightIndex,
+      });
+      n += 1;
     }
   }
+}
+
+/** The rows of `hunks` side by side (`sideBySideHunk`). */
+export function sideBySideRows(hunks: Hunk[]): DiffRowModel[] {
+  const rows: DiffRowModel[] = [];
+  for (const [h, hunk] of hunks.entries()) sideBySideHunk(rows, hunk, h);
   return rows;
 }
 
-export function rowsOf(hunks: Hunk[], layout: DiffLayout): DiffRowModel[] {
-  return layout === "unified" ? unifiedRows(hunks) : sideBySideRows(hunks);
+/** The parts of `run` that `unchanged` shows, clipped to it, sorted and merged. */
+function shownParts(run: UnchangedRun, unchanged: Unchanged): LineRange[] {
+  if (unchanged.lines === null) return [];
+  if (unchanged.whole) return [{ start: run.newStart, end: run.newEnd }];
+  const clipped = unchanged.revealed
+    .map((range) => ({
+      start: Math.max(range.start, run.newStart),
+      end: Math.min(range.end, run.newEnd),
+    }))
+    .filter((range) => range.start <= range.end)
+    .sort((a, b) => a.start - b.start);
+  const merged: LineRange[] = [];
+  for (const range of clipped) {
+    const last = merged.at(-1);
+    if (last && range.start <= last.end + 1) last.end = Math.max(last.end, range.end);
+    else merged.push({ ...range });
+  }
+  return merged;
+}
+
+/** The rows of an unchanged run: its shown lines as context rows, the rest as gap rows. */
+function runRows(rows: DiffRowModel[], run: UnchangedRun, unchanged: Unchanged): void {
+  const oldOf = (newNumber: number) => run.oldStart + (newNumber - run.newStart);
+  const gap = (newStart: number, newEnd: number): void => {
+    rows.push({
+      kind: "gap",
+      key: `g${newStart}`,
+      newStart,
+      newEnd,
+      oldStart: oldOf(newStart),
+      place: run.place,
+    });
+  };
+  let at = run.newStart;
+  for (const part of shownParts(run, unchanged)) {
+    if (part.start > at) gap(at, part.start - 1);
+    for (let n = part.start; n <= part.end; n += 1) {
+      rows.push({
+        kind: "context",
+        key: `c${n}`,
+        line: {
+          kind: "context",
+          oldNumber: oldOf(n),
+          newNumber: n,
+          text: unchanged.lines?.[n - 1] ?? "",
+          spans: [],
+          noNewline: false,
+        },
+      });
+    }
+    at = part.end + 1;
+  }
+  if (at <= run.newEnd) gap(at, run.newEnd);
+}
+
+/**
+ * The rows of a file in `layout`; with `unchanged`, the unchanged runs around the hunks too
+ * (the run after the last hunk once the new side's lines are known). The keys of the hunk
+ * rows do not depend on the runs, so a selection keyed on them survives a reveal.
+ */
+export function rowsOf(hunks: Hunk[], layout: DiffLayout, unchanged?: Unchanged): DiffRowModel[] {
+  if (!unchanged) return layout === "unified" ? unifiedRows(hunks) : sideBySideRows(hunks);
+  const runs = new Map(
+    unchangedRuns(hunks, unchanged.lines?.length ?? null).map((run) => [run.before, run]),
+  );
+  const rows: DiffRowModel[] = [];
+  for (const [h, hunk] of hunks.entries()) {
+    const run = runs.get(h);
+    if (run) runRows(rows, run, unchanged);
+    if (layout === "unified") unifiedHunk(rows, hunk, h);
+    else sideBySideHunk(rows, hunk, h);
+  }
+  const last = runs.get(hunks.length);
+  if (last) runRows(rows, last, unchanged);
+  return rows;
 }
 
 /** Lines a text takes in a column `columns` characters wide (at least one). */
@@ -125,9 +240,11 @@ export function wrappedLines(text: string, columns: number): number {
  */
 export function rowHeights(rows: DiffRowModel[], wrap: boolean, columns: number): number[] {
   return rows.map((row) => {
-    if (row.kind === "hunk") return HUNK_HEIGHT;
+    if (row.kind === "hunk" || row.kind === "gap") return HUNK_HEIGHT;
     if (!wrap) return LINE_HEIGHT;
-    if (row.kind === "line") return LINE_HEIGHT * wrappedLines(row.line.text, columns);
+    if (row.kind === "line" || row.kind === "context") {
+      return LINE_HEIGHT * wrappedLines(row.line.text, columns);
+    }
     const left = row.left ? wrappedLines(row.left.text, columns) : 1;
     const right = row.right ? wrappedLines(row.right.text, columns) : 1;
     return LINE_HEIGHT * Math.max(left, right);
@@ -236,8 +353,13 @@ export function newLineAt(hunk: Hunk, index: number): number | null {
   return hunk.newStart;
 }
 
-/** The new side's line of a row: a header's is its hunk's first new line. */
+/**
+ * The new side's line of a row: a header's is its hunk's first new line, a gap's its first
+ * folded line.
+ */
 export function newLineOfRow(row: DiffRowModel, hunks: Hunk[]): number | null {
+  if (row.kind === "gap") return row.newStart;
+  if (row.kind === "context") return row.line.newNumber;
   const hunk = hunks[row.hunkIndex];
   if (!hunk) return null;
   if (row.kind === "hunk") return newLineAt(hunk, 0);

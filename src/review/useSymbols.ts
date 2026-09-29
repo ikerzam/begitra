@@ -20,7 +20,7 @@ export interface ChangedSymbol {
 
 /** The new-side line an added row touches. */
 function addedLineOf(row: DiffRowModel): number | null {
-  if (row.kind === "hunk") return null;
+  if (row.kind !== "line" && row.kind !== "pair") return null;
   const line = row.kind === "line" ? row.line : row.right;
   return line?.kind === "added" && line.newNumber !== null ? line.newNumber : null;
 }
@@ -38,7 +38,8 @@ function removedPosition(rows: DiffRowModel[], index: number): number | null {
     if (!row) break;
     // At the hunk's start the removal sits where the hunk starts on the new side.
     if (row.kind === "hunk") return row.hunk.newStart;
-    const line = row.kind === "line" ? row.line : (row.right ?? row.left);
+    if (row.kind === "gap") return row.newEnd + 1;
+    const line = row.kind === "pair" ? (row.right ?? row.left) : row.line;
     if (line?.newNumber !== null && line?.newNumber !== undefined) return line.newNumber;
   }
   return null;
