@@ -1,7 +1,9 @@
 // The diff viewer's budgets on a 10,000-line file with 2,000 changed lines: the row models
 // of both layouts must build in under 50 ms each, the wrapped heights and their prefix sums
 // in under 50 ms, and the visible range of a 40-row viewport at 1,000 scroll positions in
-// under 4 ms per position. Rendering is not measured here (jsdom paints nothing); the first
+// under 4 ms per position; the same file shown whole (its new side split, checked against
+// the hunks, its rows and heights built) under 50 ms a step. Rendering is not measured here
+// (jsdom paints nothing); the first
 // screen through the store is checked by hand in the app. Numbers are printed so
 // a run can be recorded.
 
@@ -9,6 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import type { DiffLine, Hunk } from "@/ipc/schemas";
 import { HUNK_HEIGHT, LINE_HEIGHT, rowHeights, rowsOf, unifiedRows } from "@/review/diffRows";
+import { matchesHunks, splitLines } from "@/review/unchanged";
 import { rowTops, visibleRowRange } from "@/review/useVariableRows";
 
 const LINES = 10_000;
@@ -108,6 +111,43 @@ function timed<T>(build: () => T): { result: T; ms: number } {
   return { result, ms: best };
 }
 
+/**
+ * A `LINES`-line file changed in `HUNKS` places, one line added in each with its three lines
+ * of context: the new side's text and its hunks, the rest of the file unchanged.
+ */
+function sparse(): { text: string; hunks: Hunk[] } {
+  const code = (n: number) =>
+    `    const value${n} = compute(${n}, options.retry, options.timeout);`;
+  const lines = Array.from({ length: LINES }, (_, i) => code(i + 1));
+  const hunks: Hunk[] = [];
+  for (let h = 0; h < HUNKS; h += 1) {
+    const added = h * (LINES / HUNKS) + 50;
+    lines[added - 1] = `    retry(${h});`;
+    const hunkLines: DiffLine[] = [];
+    for (let n = added - 3; n <= added + 3; n += 1) {
+      const kind = n === added ? "added" : "context";
+      const oldNumber = n === added ? null : n < added ? n - h : n - h - 1;
+      hunkLines.push({
+        kind,
+        oldNumber,
+        newNumber: n,
+        text: lines[n - 1] ?? "",
+        spans: [],
+        noNewline: false,
+      });
+    }
+    hunks.push({
+      oldStart: added - 3 - h,
+      oldLines: 6,
+      newStart: added - 3,
+      newLines: 7,
+      header: `@@ -${added - 3 - h},6 +${added - 3},7 @@`,
+      lines: hunkLines,
+    });
+  }
+  return { text: `${lines.join("\n")}\n`, hunks };
+}
+
 describe("diff performance", () => {
   const hunks = synthetic();
   const lineCount = hunks.reduce((n, hunk) => n + hunk.lines.length, 0);
@@ -139,6 +179,27 @@ describe("diff performance", () => {
     expect(wrappedHeight).toBeGreaterThan(plainHeight);
     expect(plain.ms).toBeLessThan(BUILD_BUDGET_MS);
     expect(wrapped.ms).toBeLessThan(BUILD_BUDGET_MS);
+  });
+
+  it(`shows a ${LINES}-line file whole under ${BUILD_BUDGET_MS} ms a step`, () => {
+    const file = sparse();
+    const split = timed(() => splitLines(file.text));
+    const checked = timed(() => matchesHunks(file.hunks, split.result));
+    const unchanged = { lines: split.result, revealed: [], whole: true };
+    const unified = timed(() => rowsOf(file.hunks, "unified", unchanged));
+    const paired = timed(() => rowsOf(file.hunks, "side-by-side", unchanged));
+    const heights = timed(() => rowTops(rowHeights(unified.result, true, COLUMNS)));
+    console.log(
+      `diff.perf: whole file of ${split.result.length} lines: split in ${split.ms.toFixed(2)} ms, checked in ${checked.ms.toFixed(2)} ms, unified rows ${unified.result.length} in ${unified.ms.toFixed(2)} ms, side-by-side rows ${paired.result.length} in ${paired.ms.toFixed(2)} ms, wrapped heights in ${heights.ms.toFixed(2)} ms`,
+    );
+    expect(split.result).toHaveLength(LINES);
+    expect(checked.result).toBe(true);
+    // Every line of the file once, and a header per hunk.
+    expect(unified.result).toHaveLength(LINES + HUNKS);
+    expect(paired.result).toHaveLength(LINES + HUNKS);
+    for (const ms of [split.ms, checked.ms, unified.ms, paired.ms, heights.ms]) {
+      expect(ms).toBeLessThan(BUILD_BUDGET_MS);
+    }
   });
 
   it(`finds the visible range at ${POSITIONS} positions under ${RANGE_BUDGET_MS} ms each`, () => {
