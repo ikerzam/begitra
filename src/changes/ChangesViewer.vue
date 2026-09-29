@@ -217,7 +217,7 @@ defineExpose({ actOnSelection, selectedCount });
       class="flex h-panel-header shrink-0 items-center gap-3 border-b border-line px-3 whitespace-nowrap"
     >
       <template v-if="file">
-        <span class="flex min-w-0 flex-1 items-center gap-3">
+        <span class="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
           <DiffPath :path="file.path" data-testid="changes-path" />
           <span v-if="file.isGenerated" class="text-sm text-fg-muted">
             {{ t("detail.generatedLabel") }}
@@ -234,35 +234,37 @@ defineExpose({ actOnSelection, selectedCount });
           </span>
         </span>
         <DiffStat v-if="!file.isBinary" :added="file.additions" :removed="file.deletions" />
-        <IconButton
-          :label="t('review.unified')"
-          :icon="Rows3"
-          :pressed="review.layout === 'unified'"
-          data-testid="layout-unified"
-          @click="() => void review.setLayout('unified')"
-        />
-        <IconButton
-          :label="t('review.sideBySide')"
-          :icon="Columns2"
-          :pressed="review.layout === 'side-by-side'"
-          data-testid="layout-side-by-side"
-          @click="() => void review.setLayout('side-by-side')"
-        />
-        <IconButton
-          :label="t('review.wrap')"
-          :icon="WrapText"
-          :pressed="review.wrap"
-          data-testid="toggle-wrap"
-          @click="() => void review.setWrap(!review.wrap)"
-        />
-        <IconButton
-          :label="t('review.wholeFile')"
-          :icon="UnfoldVertical"
-          :pressed="review.wholeFile"
-          :keys="wholeFileKeys"
-          data-testid="toggle-whole-file"
-          @click="() => void review.setWholeFile(!review.wholeFile)"
-        />
+        <span class="flex shrink-0 items-center gap-1">
+          <IconButton
+            :label="t('review.unified')"
+            :icon="Rows3"
+            :pressed="review.layout === 'unified'"
+            data-testid="layout-unified"
+            @click="() => void review.setLayout('unified')"
+          />
+          <IconButton
+            :label="t('review.sideBySide')"
+            :icon="Columns2"
+            :pressed="review.layout === 'side-by-side'"
+            data-testid="layout-side-by-side"
+            @click="() => void review.setLayout('side-by-side')"
+          />
+          <IconButton
+            :label="t('review.wrap')"
+            :icon="WrapText"
+            :pressed="review.wrap"
+            data-testid="toggle-wrap"
+            @click="() => void review.setWrap(!review.wrap)"
+          />
+          <IconButton
+            :label="t('review.wholeFile')"
+            :icon="UnfoldVertical"
+            :pressed="review.wholeFile"
+            :keys="wholeFileKeys"
+            data-testid="toggle-whole-file"
+            @click="() => void review.setWholeFile(!review.wholeFile)"
+          />
+        </span>
         <IconButton
           :label="editorLabel"
           :icon="Code"

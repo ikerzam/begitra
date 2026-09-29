@@ -49,6 +49,7 @@ const { t, locale } = useI18n();
 const review = useReviewStore();
 const opener = useFileOpener(toRef(props, "root"));
 const wholeFileKeys = useShortcutHint("toggle-whole-file");
+const markKeys = useShortcutHint("mark-reviewed");
 
 const reviewed = computed(() => (props.file ? review.isReviewed(props.file.path) : false));
 /** The editor button names the line it opens at when the diff tells it. */
@@ -67,10 +68,11 @@ const binaryStatus = computed(() =>
 
 <template>
   <header
-    class="flex h-panel-header shrink-0 items-center gap-3 border-b border-line px-3 whitespace-nowrap"
+    class="diff-header flex h-panel-header shrink-0 items-center gap-3 border-b border-line px-3 whitespace-nowrap"
+    :class="{ 'diff-header-comparison': props.inComparison }"
   >
     <template v-if="props.file">
-      <span class="flex min-w-0 flex-1 items-center gap-3">
+      <span class="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
         <DiffPath :path="props.file.path" data-testid="diff-path" />
         <span v-if="props.conflict" class="text-sm text-danger" data-testid="diff-conflict">
           {{ t("review.wouldConflict") }}
@@ -87,42 +89,44 @@ const binaryStatus = computed(() =>
         :added="props.file.additions"
         :removed="props.file.deletions"
       />
-      <IconButton
-        :label="t('review.unified')"
-        :icon="Rows3"
-        :pressed="review.layout === 'unified'"
-        data-testid="layout-unified"
-        @click="() => void review.setLayout('unified')"
-      />
-      <IconButton
-        :label="t('review.sideBySide')"
-        :icon="Columns2"
-        :pressed="review.layout === 'side-by-side'"
-        data-testid="layout-side-by-side"
-        @click="() => void review.setLayout('side-by-side')"
-      />
-      <IconButton
-        :label="t('review.wrap')"
-        :icon="WrapText"
-        :pressed="review.wrap"
-        data-testid="toggle-wrap"
-        @click="() => void review.setWrap(!review.wrap)"
-      />
-      <IconButton
-        :label="t('review.ignoreWhitespace')"
-        :icon="AlignLeft"
-        :pressed="review.ignoreWhitespace"
-        data-testid="toggle-whitespace"
-        @click="() => void review.setIgnoreWhitespace(!review.ignoreWhitespace)"
-      />
-      <IconButton
-        :label="t('review.wholeFile')"
-        :icon="UnfoldVertical"
-        :pressed="review.wholeFile"
-        :keys="wholeFileKeys"
-        data-testid="toggle-whole-file"
-        @click="() => void review.setWholeFile(!review.wholeFile)"
-      />
+      <span class="flex shrink-0 items-center gap-1">
+        <IconButton
+          :label="t('review.unified')"
+          :icon="Rows3"
+          :pressed="review.layout === 'unified'"
+          data-testid="layout-unified"
+          @click="() => void review.setLayout('unified')"
+        />
+        <IconButton
+          :label="t('review.sideBySide')"
+          :icon="Columns2"
+          :pressed="review.layout === 'side-by-side'"
+          data-testid="layout-side-by-side"
+          @click="() => void review.setLayout('side-by-side')"
+        />
+        <IconButton
+          :label="t('review.wrap')"
+          :icon="WrapText"
+          :pressed="review.wrap"
+          data-testid="toggle-wrap"
+          @click="() => void review.setWrap(!review.wrap)"
+        />
+        <IconButton
+          :label="t('review.ignoreWhitespace')"
+          :icon="AlignLeft"
+          :pressed="review.ignoreWhitespace"
+          data-testid="toggle-whitespace"
+          @click="() => void review.setIgnoreWhitespace(!review.ignoreWhitespace)"
+        />
+        <IconButton
+          :label="t('review.wholeFile')"
+          :icon="UnfoldVertical"
+          :pressed="review.wholeFile"
+          :keys="wholeFileKeys"
+          data-testid="toggle-whole-file"
+          @click="() => void review.setWholeFile(!review.wholeFile)"
+        />
+      </span>
       <IconButton
         :label="editorLabel"
         :icon="Code"
@@ -130,24 +134,44 @@ const binaryStatus = computed(() =>
         data-testid="open-in-editor"
         @click="() => props.file && void opener.openFile(props.file)"
       />
-      <Button
-        v-if="props.inComparison"
-        variant="ghost"
-        :icon="FileDiff"
-        data-testid="open-in-review"
-        @click="emit('openInReview')"
-      >
-        {{ t("compare.openInReview") }}
-      </Button>
+      <!-- A narrow panel gives the labelled actions' room to the file's name: they become
+           icons with their name as the tooltip (the style below). -->
+      <template v-if="props.inComparison">
+        <Button
+          variant="ghost"
+          :icon="FileDiff"
+          class="header-wide"
+          data-testid="open-in-review"
+          @click="emit('openInReview')"
+        >
+          {{ t("compare.openInReview") }}
+        </Button>
+        <IconButton
+          :label="t('compare.openInReview')"
+          :icon="FileDiff"
+          class="header-narrow"
+          data-testid="open-in-review-icon"
+          @click="emit('openInReview')"
+        />
+      </template>
       <Button
         variant="ghost"
         :icon="Check"
-        :class="reviewed ? 'text-reviewed' : ''"
+        :class="['header-wide', reviewed ? 'text-reviewed' : '']"
         data-testid="mark-reviewed"
         @click="review.toggleReviewed(props.file.path)"
       >
         {{ reviewed ? t("hunkRow.reviewed") : t("hunkRow.markReviewed") }}
       </Button>
+      <IconButton
+        :label="reviewed ? t('hunkRow.reviewed') : t('hunkRow.markReviewed')"
+        :icon="Check"
+        :pressed="reviewed"
+        :keys="markKeys"
+        class="header-narrow"
+        data-testid="mark-reviewed-icon"
+        @click="review.toggleReviewed(props.file.path)"
+      />
     </template>
     <span v-else class="flex-1"></span>
     <IconButton
@@ -159,3 +183,31 @@ const binaryStatus = computed(() =>
     />
   </header>
 </template>
+
+<style scoped>
+/* The header measures itself: below 600px (720px in the comparison, which adds "Open in
+   review") the labelled actions show as icons, so the file's name keeps its room at the
+   window's narrowest panes. Off the spacing scale. */
+.diff-header {
+  container-type: inline-size;
+}
+.header-narrow {
+  display: none;
+}
+@container (max-width: 599px) {
+  .header-wide {
+    display: none;
+  }
+  .header-narrow {
+    display: inline-flex;
+  }
+}
+@container (max-width: 719px) {
+  .diff-header-comparison .header-wide {
+    display: none;
+  }
+  .diff-header-comparison .header-narrow {
+    display: inline-flex;
+  }
+}
+</style>
