@@ -127,6 +127,24 @@ describe("DiffView", () => {
     deleted.unmount();
   });
 
+  it("opens the working tree's file at its first change from the header", async () => {
+    const calls = fakeBackend();
+    await useSettingsStore().init(memoryStorage(), "windows");
+    await useRepoStore().open("/r");
+    await settled();
+    const wrapper = await mountView({ file: file([[line(1), line(2, "added")]]) });
+    await wrapper.get('[data-testid="open-in-editor"]').trigger("click");
+    await flushPromises();
+    const opened = calls.filter((call) => call.cmd === "open_external").at(-1);
+    expect(opened?.args).toMatchObject({ path: "/r/src/app.ts", line: 2 });
+    wrapper.unmount();
+    const deleted = await mountView({
+      file: file([[line(1, "removed")]], { status: "deleted" }),
+    });
+    expect(deleted.get('[data-testid="open-in-editor"]').attributes("disabled")).toBeDefined();
+    deleted.unmount();
+  });
+
   it("opens the file at the line at the top of the diff with Open file in editor", async () => {
     const calls = fakeBackend();
     await useSettingsStore().init(memoryStorage(), "windows");

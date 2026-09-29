@@ -192,6 +192,13 @@ describe("ChangesLayout", () => {
     await staged[0]!.trigger("contextmenu");
     await nextTick();
     expect(wrapper.find('[data-testid="menu-stage"]').exists()).toBe(false);
+    // Every row's menu also copies the path and opens the file in the editor.
+    expect(wrapper.find('[data-testid="menu-copy-path"]').exists()).toBe(true);
+    await wrapper.get('[data-testid="menu-editor"]').trigger("click");
+    await settled();
+    expect(of(calls, "open_external")[0]?.args["path"]).toBe("/r/src/a.ts");
+    await staged[0]!.trigger("contextmenu");
+    await nextTick();
     await wrapper.get('[data-testid="menu-unstage"]').trigger("click");
     await settled();
     expect(of(calls, "unstage_paths")[0]?.args["paths"]).toEqual(["src/a.ts"]);

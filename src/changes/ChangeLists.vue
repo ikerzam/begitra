@@ -8,12 +8,13 @@
 // folder view's sections, the lists scroll with the view, show no empty sentence, and hand
 // the row keys on at their ends (`edge`) so the view carries them into the next section.
 
-import { Check, CheckCheck, Code, Minus, Plus, Terminal, Undo2 } from "@lucide/vue";
+import { Check, CheckCheck, Code, Copy, Minus, Plus, Terminal, Undo2 } from "@lucide/vue";
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ContextMenu from "@/components/ContextMenu.vue";
 import ContextMenuItem from "@/components/ContextMenuItem.vue";
+import ContextMenuSeparator from "@/components/ContextMenuSeparator.vue";
 import EmptyState from "@/components/EmptyState.vue";
 import ErrorBanner from "@/components/ErrorBanner.vue";
 import IconButton from "@/components/IconButton.vue";
@@ -26,9 +27,12 @@ import type { Conflict, FileChange } from "@/ipc/schemas";
 import { errorText } from "@/shell/errorMessage";
 import { useShortcutHint } from "@/shortcuts/useShortcut";
 import { rowStep, useListNavigation } from "@/shortcuts/useListNavigation";
+import { useFileOpener } from "@/review/useFileOpener";
+import { copyText } from "@/shell/clipboard";
 import { useExternal } from "@/shell/useExternal";
 import type { ChangeList } from "@/stores/changes";
 import { useSequencerStore } from "@/stores/sequencer";
+import { useToastsStore } from "@/stores/toasts";
 
 import { useChanges, useOpenRepositoryChanges } from "./useChanges";
 
@@ -56,6 +60,8 @@ const sequencer = useSequencerStore();
 const openRepository = useOpenRepositoryChanges();
 const conflicts = computed(() => (openRepository ? sequencer.conflicts : []));
 const external = useExternal();
+const opener = useFileOpener(computed(() => changes.root));
+const toasts = useToastsStore();
 const panel = ref<HTMLElement | null>(null);
 const menu = ref<{ list: ChangeList; file: FileChange; x: number; y: number } | null>(null);
 /** The conflict row whose menu is open. */
@@ -207,7 +213,8 @@ function conflictAction(action: "resolve" | "editor" | "terminal"): void {
   if (!current) return;
   conflictMenu.value = null;
   if (action === "resolve") void sequencer.markResolved([current.conflict.path]);
-  else if (action === "editor") void external.openEditor();
+  // The conflicted file itself, at its first conflict marker.
+  else if (action === "editor") void opener.openConflict(current.conflict.path);
   else void external.openTerminal();
 }
 
@@ -245,13 +252,23 @@ function closeMenu(): void {
   navigation.focus();
 }
 
-function menuAction(action: "stage" | "unstage" | "discard"): void {
+function menuAction(action: "stage" | "unstage" | "discard" | "editor" | "copy"): void {
   const current = menu.value;
   if (!current) return;
   menu.value = null;
   if (action === "stage") void changes.stage([current.file.path]);
   else if (action === "unstage") void changes.unstage([current.file.path]);
+  else if (action === "editor") void opener.openFile(current.file);
+  else if (action === "copy") void copyPath(current.file.path);
   else emit("discard", [current.file]);
+}
+
+async function copyPath(path: string): Promise<void> {
+  if (await copyText(path)) {
+    toasts.push({ kind: "success", message: t("fileMenu.pathCopied", { path }) });
+  } else {
+    toasts.push({ kind: "error", message: t("graph.clipboardUnavailable") });
+  }
 }
 
 /**
@@ -482,6 +499,20 @@ defineExpose({ focus: navigation.focus, moveFile, selectEdge });
         data-testid="menu-discard"
         @select="menuAction('discard')"
       />
+      <ContextMenuSeparator />
+      <ContextMenuItem
+        :label="t('fileMenu.copyPath')"
+        :icon="Copy"
+        data-testid="menu-copy-path"
+        @select="menuAction('copy')"
+      />
+      <ContextMenuItem
+        :label="t('fileMenu.openInEditor')"
+        :icon="Code"
+        :disabled="!opener.canOpen(menu.file)"
+        data-testid="menu-editor"
+        @select="menuAction('editor')"
+      />
     </ContextMenu>
     <ContextMenu
       v-if="conflictMenu"
@@ -498,8 +529,9 @@ defineExpose({ focus: navigation.focus, moveFile, selectEdge });
         @select="conflictAction('resolve')"
       />
       <ContextMenuItem
-        :label="t('palette.commandsById.open-editor')"
+        :label="t('fileMenu.openInEditor')"
         :icon="Code"
+        data-testid="menu-conflict-editor"
         @select="conflictAction('editor')"
       />
       <ContextMenuItem

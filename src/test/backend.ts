@@ -139,6 +139,8 @@ export interface FakeBackendOptions {
   projects?: Project[];
   /** Every project command rejects with `index.database`. */
   failProjects?: boolean;
+  /** What `read_blob` answers for these paths, as text. */
+  blobTexts?: Record<string, string>;
   /** `open_external` rejects these paths with `external.not_found`, as the backend does for a
    * path that is not on disk. */
   missingPaths?: string[];
@@ -577,6 +579,8 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
           if (path.endsWith(".png")) {
             return { size: 5, isBinary: true, bytes: "iVBORwA=" };
           }
+          const text = options.blobTexts?.[path];
+          if (text !== undefined) return { size: text.length, isBinary: false, text };
           return { size: 12, isBinary: false, text: "fn main() {\n    new();\n    more();\n}\n" };
         }
         case "highlight_file":

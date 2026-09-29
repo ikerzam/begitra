@@ -1,10 +1,20 @@
 <script setup lang="ts">
 // The file header of the diff panel: the mono path, the generated
-// and binary flags, the stats, the layout, wrap and whitespace toggles, "Mark reviewed" and,
-// with the review rail collapsed, the control that brings it back.
+// and binary flags, the stats, the layout, wrap and whitespace toggles, "Open in editor" (the
+// working tree's file at its first change),
+// "Mark reviewed" and, with the review rail collapsed, the control that brings it back.
 
-import { AlignLeft, Check, Columns2, FileDiff, PanelRightOpen, Rows3, WrapText } from "@lucide/vue";
-import { computed } from "vue";
+import {
+  AlignLeft,
+  Check,
+  Code,
+  Columns2,
+  FileDiff,
+  PanelRightOpen,
+  Rows3,
+  WrapText,
+} from "@lucide/vue";
+import { computed, toRef } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Button from "@/components/Button.vue";
@@ -14,6 +24,8 @@ import { statusOf } from "@/detail/groupFiles";
 import type { FileChange } from "@/ipc/schemas";
 import { useReviewStore } from "@/stores/review";
 
+import { useFileOpener } from "./useFileOpener";
+
 const props = withDefaults(
   defineProps<{
     file: FileChange | null;
@@ -22,13 +34,16 @@ const props = withDefaults(
     /** Inside the comparison: offer "Open in review" instead of the rail control. */
     inComparison?: boolean;
     railCollapsed?: boolean;
+    /** The working tree the file opens from in the editor; none disables the button. */
+    root?: string | null;
   }>(),
-  { conflict: false, inComparison: false, railCollapsed: false },
+  { conflict: false, inComparison: false, railCollapsed: false, root: null },
 );
 const emit = defineEmits<{ showOverview: []; openInReview: [] }>();
 
 const { t, locale } = useI18n();
 const review = useReviewStore();
+const opener = useFileOpener(toRef(props, "root"));
 
 const reviewed = computed(() => (props.file ? review.isReviewed(props.file.path) : false));
 
@@ -94,6 +109,13 @@ const binaryStatus = computed(() =>
         :pressed="review.ignoreWhitespace"
         data-testid="toggle-whitespace"
         @click="() => void review.setIgnoreWhitespace(!review.ignoreWhitespace)"
+      />
+      <IconButton
+        :label="t('fileMenu.openInEditor')"
+        :icon="Code"
+        :disabled="!opener.canOpen(props.file)"
+        data-testid="open-in-editor"
+        @click="() => props.file && void opener.openFile(props.file)"
       />
       <Button
         v-if="props.inComparison"

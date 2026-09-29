@@ -82,6 +82,7 @@ useShortcut("mark-reviewed", () => {
       :conflict="props.conflict"
       :in-comparison="props.inComparison"
       :rail-collapsed="props.railCollapsed"
+      :root="root"
       @show-overview="emit('showOverview')"
       @open-in-review="emit('openInReview')"
     />
@@ -115,6 +116,7 @@ useShortcut("mark-reviewed", () => {
       v-else-if="guard"
       :file="props.file"
       :reason="guard"
+      :root="root"
       @reveal="review.reveal(props.file.path)"
     />
     <DiffRows

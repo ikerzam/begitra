@@ -3,8 +3,8 @@
 // unmerged files: a title, one sentence, and the actions ("Show anyway" where there are
 // rows to show, "Mark reviewed" always).
 
-import { Check } from "@lucide/vue";
-import { computed } from "vue";
+import { Check, Code } from "@lucide/vue";
+import { computed, toRef } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Button from "@/components/Button.vue";
@@ -12,20 +12,25 @@ import { statusOf } from "@/detail/groupFiles";
 import type { FileChange } from "@/ipc/schemas";
 import { useReviewStore } from "@/stores/review";
 
+import { useFileOpener } from "./useFileOpener";
+
 const props = withDefaults(
   defineProps<{
     file: FileChange;
     reason: "large" | "generated" | "binary" | "unmerged";
     /** Whether "Mark reviewed" is offered (not on the changes screen). */
     reviewable?: boolean;
+    /** The working tree an unmerged file opens from in the editor. */
+    root?: string | null;
   }>(),
-  { reviewable: true },
+  { reviewable: true, root: null },
 );
 /** "Show anyway": the owner reveals the file. */
 const emit = defineEmits<{ reveal: [] }>();
 
 const { t, n, locale } = useI18n();
 const review = useReviewStore();
+const opener = useFileOpener(toRef(props, "root"));
 
 const reviewed = computed(() => review.isReviewed(props.file.path));
 const binaryStatus = computed(() =>
@@ -64,6 +69,15 @@ const canShow = computed(() => props.reason === "large" || props.reason === "gen
       <div class="mt-4 flex items-center gap-2">
         <Button v-if="canShow" variant="secondary" @click="emit('reveal')">
           {{ t("review.showAnyway") }}
+        </Button>
+        <Button
+          v-if="props.reason === 'unmerged' && opener.canOpen(props.file)"
+          variant="secondary"
+          :icon="Code"
+          data-testid="diff-guard-editor"
+          @click="() => void opener.openFile(props.file)"
+        >
+          {{ t("fileMenu.openInEditor") }}
         </Button>
         <Button
           v-if="props.reviewable"

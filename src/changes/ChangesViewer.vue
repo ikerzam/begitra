@@ -6,7 +6,7 @@
 // which turn into "… lines" once lines are picked. The picked lines live here, keyed
 // `hunk:line`, and clear when the file changes or a write starts.
 
-import { Check, Columns2, Minus, Plus, Rows3, Undo2, WrapText } from "@lucide/vue";
+import { Check, Code, Columns2, Minus, Plus, Rows3, Undo2, WrapText } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -21,6 +21,7 @@ import DiffGuard from "@/review/DiffGuard.vue";
 import DiffRows from "@/review/DiffRows.vue";
 import ImageDiff from "@/review/ImageDiff.vue";
 import { imageType } from "@/review/sides";
+import { useFileOpener } from "@/review/useFileOpener";
 import { errorText } from "@/shell/errorMessage";
 import { lineKey, type ChangeList } from "@/stores/changes";
 import { useReviewStore, type ReviewTarget } from "@/stores/review";
@@ -39,6 +40,7 @@ const review = useReviewStore();
 const sequencer = useSequencerStore();
 
 const root = computed(() => changes.root);
+const opener = useFileOpener(root);
 const list = computed<ChangeList | null>(() => changes.selected?.list ?? null);
 const file = computed(() => changes.selectedFile);
 const target = computed<ReviewTarget | null>(() =>
@@ -234,6 +236,13 @@ defineExpose({ actOnSelection, selectedCount });
           data-testid="toggle-wrap"
           @click="() => void review.setWrap(!review.wrap)"
         />
+        <IconButton
+          :label="t('fileMenu.openInEditor')"
+          :icon="Code"
+          :disabled="!opener.canOpen(file)"
+          data-testid="open-in-editor"
+          @click="() => file && void opener.openFile(file)"
+        />
         <Button
           v-if="conflicted"
           variant="ghost"
@@ -291,6 +300,7 @@ defineExpose({ actOnSelection, selectedCount });
       :file="file"
       :reason="guard"
       :reviewable="false"
+      :root="root"
       @reveal="revealed = new Set(revealed).add(file.path)"
     />
     <DiffRows
