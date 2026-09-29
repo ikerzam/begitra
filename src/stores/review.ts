@@ -251,6 +251,7 @@ export const useReviewStore = defineStore("review", () => {
   );
   const wrap = computed(() => settings.values.diffWrap);
   const ignoreWhitespace = computed(() => settings.values.diffIgnoreWhitespace);
+  const wholeFile = computed(() => settings.values.diffWholeFile);
 
   const target = computed<ReviewTarget | null>(() => {
     if (chosenTarget.value) return chosenTarget.value;
@@ -597,6 +598,10 @@ export const useReviewStore = defineStore("review", () => {
     await settings.update("diffWrap", next);
   }
 
+  async function setWholeFile(next: boolean): Promise<void> {
+    await settings.update("diffWholeFile", next);
+  }
+
   async function setIgnoreWhitespace(next: boolean): Promise<void> {
     if (next === ignoreWhitespace.value) return;
     await settings.update("diffIgnoreWhitespace", next);
@@ -825,6 +830,7 @@ export const useReviewStore = defineStore("review", () => {
     tabWidth,
     wrap,
     ignoreWhitespace,
+    wholeFile,
     diffBase,
     rangeEnd,
     currentSymbol,
@@ -843,6 +849,7 @@ export const useReviewStore = defineStore("review", () => {
     setLayout,
     setWrap,
     setIgnoreWhitespace,
+    setWholeFile,
     toggleReviewed,
     toggleHunkReviewed,
     setNote,

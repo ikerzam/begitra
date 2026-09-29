@@ -2,7 +2,7 @@ import { clearMocks } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it } from "vitest";
 import { effectScope, nextTick, ref } from "vue";
 
-import type { FileChange, Hunk } from "@/ipc/schemas";
+import type { FileChange, Hunk, LineRange } from "@/ipc/schemas";
 import type { ReviewTarget } from "@/stores/review";
 import { fakeBackend, settled } from "@/test/backend";
 import { changedFile } from "@/test/changes";
@@ -55,6 +55,7 @@ describe("useHighlight", () => {
     const calls = fakeBackend();
     const file = ref<FileChange | null>(first);
     const hunks = ref<readonly Hunk[]>(first.hunks);
+    const unchanged = ref<readonly LineRange[]>([]);
     const scope = effectScope();
     const highlight = scope.run(() =>
       useHighlight(
@@ -63,6 +64,7 @@ describe("useHighlight", () => {
         file,
         hunks,
         ref(true),
+        unchanged,
       ),
     );
     if (!highlight) throw new Error("no scope");
@@ -71,7 +73,8 @@ describe("useHighlight", () => {
       const line = first.hunks[0]?.lines[0];
       return line ? highlight.tokensOf(line).length > 0 : false;
     };
-    return { file, hunks, scope, asked, coloured };
+    const lastAsk = () => calls.filter((call) => call.cmd === "highlight_file").at(-1)?.args;
+    return { file, hunks, unchanged, scope, asked, coloured, lastAsk };
   }
 
   async function arrived(): Promise<void> {
@@ -102,6 +105,24 @@ describe("useHighlight", () => {
     expect(coloured()).toBe(false);
     await arrived();
     expect(asked()).toBe(4);
+    expect(coloured()).toBe(true);
+    scope.stop();
+  });
+
+  it("keeps the colours while lines around the hunks are revealed, asking the new side alone", async () => {
+    const first = changedFile("src/main.rs", { oldId: "blob-a", newId: "stat:12:1" });
+    const { unchanged, scope, asked, coloured, lastAsk } = highlighting(first);
+    await arrived();
+    expect(asked()).toBe(2);
+    unchanged.value = [{ start: 4, end: 9 }];
+    await nextTick();
+    expect(coloured()).toBe(true);
+    await arrived();
+    expect(asked()).toBe(3);
+    expect(lastAsk()).toMatchObject({
+      at: { kind: "working-tree" },
+      ranges: [{ start: 1, end: 9 }],
+    });
     expect(coloured()).toBe(true);
     scope.stop();
   });

@@ -31,6 +31,7 @@ export const defaultBindings: readonly ShortcutBinding[] = [
   { id: "previous-file", keys: "k", scope: "review" },
   { id: "next-symbol", keys: "]", scope: "review" },
   { id: "previous-symbol", keys: "[", scope: "review" },
+  { id: "toggle-whole-file", keys: "e", scope: "review" },
   { id: "open-terminal", keys: "mod+t", scope: "global" },
   { id: "open-editor", keys: "mod+e", scope: "global" },
   { id: "open-file-editor", keys: "shift+mod+e", scope: "global" },

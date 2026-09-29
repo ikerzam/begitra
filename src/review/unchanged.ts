@@ -2,7 +2,7 @@
 // and after the last, on the new side with the old line of each run's first, and the check
 // that the new side read whole still matches the hunks it is shown beside.
 
-import type { Hunk } from "@/ipc/schemas";
+import type { Hunk, LineRange } from "@/ipc/schemas";
 
 /** A run of unchanged lines, `newStart` to `newEnd` on the new side, inclusive. */
 export interface UnchangedRun {
@@ -90,6 +90,18 @@ export function matchesHunks(hunks: readonly Hunk[], lines: readonly string[]): 
     }
   }
   return true;
+}
+
+/** `ranges` sorted, with overlapping and touching ones merged. */
+export function mergeRanges(ranges: readonly LineRange[]): LineRange[] {
+  const sorted = [...ranges].sort((a, b) => a.start - b.start);
+  const merged: LineRange[] = [];
+  for (const range of sorted) {
+    const last = merged.at(-1);
+    if (last && range.start <= last.end + 1) last.end = Math.max(last.end, range.end);
+    else merged.push({ ...range });
+  }
+  return merged;
 }
 
 /** A text's lines: each ends at a newline, which a last line may lack; `\r` stays. */

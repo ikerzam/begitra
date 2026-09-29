@@ -145,6 +145,10 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
       calls.push("toggleWhitespace");
       return Promise.resolve();
     },
+    toggleWholeFile: () => {
+      calls.push("toggleWholeFile");
+      return Promise.resolve();
+    },
     runShortcut: (id) => {
       calls.push(`shortcut:${id}`);
     },
@@ -281,6 +285,7 @@ describe("usePalette", () => {
       "toggle-layout",
       "toggle-wrap",
       "toggle-whitespace",
+      "toggle-whole-file",
       "compare-with",
       "settings",
       "show-worktrees",

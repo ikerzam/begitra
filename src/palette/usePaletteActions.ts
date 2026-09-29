@@ -108,6 +108,7 @@ export function usePaletteActions(): PaletteActions {
     toggleLayout: () => review.setLayout(review.layout === "unified" ? "side-by-side" : "unified"),
     toggleWrap: () => review.setWrap(!review.wrap),
     toggleWhitespace: () => review.setIgnoreWhitespace(!review.ignoreWhitespace),
+    toggleWholeFile: () => review.setWholeFile(!review.wholeFile),
     runShortcut: (id) => void shortcutRegistry().run(id),
     shortcutActive: (id) => shortcutRegistry().isActive(id),
     toggleOverview: () => {

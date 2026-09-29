@@ -7,7 +7,7 @@
 import type { DiffLineKind } from "@/components/types";
 import type { DiffLine, Hunk, LineRange, Token, TokenClass } from "@/ipc/schemas";
 
-import { unchangedRuns, type UnchangedRun } from "./unchanged";
+import { mergeRanges, unchangedRuns, type UnchangedRun } from "./unchanged";
 
 /** Height of a line row (`--row-diff`). */
 export const LINE_HEIGHT = 20;
@@ -157,15 +157,8 @@ function shownParts(run: UnchangedRun, unchanged: Unchanged): LineRange[] {
       start: Math.max(range.start, run.newStart),
       end: Math.min(range.end, run.newEnd),
     }))
-    .filter((range) => range.start <= range.end)
-    .sort((a, b) => a.start - b.start);
-  const merged: LineRange[] = [];
-  for (const range of clipped) {
-    const last = merged.at(-1);
-    if (last && range.start <= last.end + 1) last.end = Math.max(last.end, range.end);
-    else merged.push({ ...range });
-  }
-  return merged;
+    .filter((range) => range.start <= range.end);
+  return mergeRanges(clipped);
 }
 
 /** The rows of an unchanged run: its shown lines as context rows, the rest as gap rows. */

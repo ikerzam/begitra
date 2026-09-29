@@ -110,6 +110,8 @@ export interface Settings {
   diffWrap: boolean;
   /** Compute diffs ignoring whitespace changes. */
   diffIgnoreWhitespace: boolean;
+  /** Show every unchanged line of a file in the diff viewer, not only the hunks' context. */
+  diffWholeFile: boolean;
   /** The comparison to restore with the compare layout; null when none was open. */
   compare: CompareEndpoints | null;
   /** Where new worktrees go; null means a sibling folder of the repository. */
@@ -186,6 +188,7 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   diffLayout: v.picklist(["unified", "side-by-side"]),
   diffWrap: v.boolean(),
   diffIgnoreWhitespace: v.boolean(),
+  diffWholeFile: v.boolean(),
   compare: v.nullable(v.object({ a: endpoint, b: endpoint })),
   worktreeFolder: v.nullable(path),
   gitExecutable: v.nullable(path),
@@ -253,6 +256,7 @@ export function defaultSettings(platform: Platform): Settings {
     diffLayout: "unified",
     diffWrap: false,
     diffIgnoreWhitespace: false,
+    diffWholeFile: false,
     compare: null,
     worktreeFolder: null,
     gitExecutable: null,

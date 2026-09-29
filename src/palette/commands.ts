@@ -45,6 +45,7 @@ export interface PaletteActions {
   toggleLayout: () => Promise<void>;
   toggleWrap: () => Promise<void>;
   toggleWhitespace: () => Promise<void>;
+  toggleWholeFile: () => Promise<void>;
   /** Runs the handler a review-scope key would run (hunks, files, symbols, mark reviewed). */
   runShortcut: (id: string) => void;
   /** Whether a screen has attached a handler to the shortcut `id` (a file shown for ⇧⌘E). */
@@ -235,6 +236,13 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       labelKey: "palette.commandsById.toggle-whitespace",
       enabled: withRepo,
       run: actions.toggleWhitespace,
+    },
+    {
+      id: "toggle-whole-file",
+      labelKey: "palette.commandsById.toggle-whole-file",
+      shortcutId: "toggle-whole-file",
+      enabled: withRepo,
+      run: actions.toggleWholeFile,
     },
     ...[
       "next-hunk",
