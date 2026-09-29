@@ -41,17 +41,20 @@ const ring = computed(() => {
     data-testid="graph-rail"
     @click.self="emit('back')"
   >
-    <GraphCanvas
-      class="absolute top-0 left-0"
-      :commits="window.commits"
-      :start="0"
-      :end="window.commits.length"
-      :scroll-top="0"
-      :height="height"
-      :width="RAIL_WIDTH"
-      :layout="RAIL_LAYOUT"
-      :flat="props.flat"
-    />
+    <!-- Out of the flow, so each row's button lies over its dot: the canvas itself is sticky,
+         as the graph panel's scrolling needs, and would push the buttons under the drawing. -->
+    <div class="pointer-events-none absolute top-0 left-0" aria-hidden="true">
+      <GraphCanvas
+        :commits="window.commits"
+        :start="0"
+        :end="window.commits.length"
+        :scroll-top="0"
+        :height="height"
+        :width="RAIL_WIDTH"
+        :layout="RAIL_LAYOUT"
+        :flat="props.flat"
+      />
+    </div>
     <button
       v-for="(commit, offset) in window.commits"
       :key="commit.hash"
