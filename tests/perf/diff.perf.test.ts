@@ -2,7 +2,8 @@
 // of both layouts must build in under 50 ms each, the wrapped heights and their prefix sums
 // in under 50 ms, and the visible range of a 40-row viewport at 1,000 scroll positions in
 // under 4 ms per position; the same file shown whole (its new side split, checked against
-// the hunks, its rows and heights built) under 50 ms a step. Rendering is not measured here
+// the hunks, its rows and heights built) under 50 ms a step; the widest line (the reach of
+// the sideways scroll) under 50 ms, ASCII or not. Rendering is not measured here
 // (jsdom paints nothing); the first
 // screen through the store is checked by hand in the app. Numbers are printed so
 // a run can be recorded.
@@ -10,7 +11,14 @@
 import { describe, expect, it } from "vitest";
 
 import type { DiffLine, Hunk } from "@/ipc/schemas";
-import { HUNK_HEIGHT, LINE_HEIGHT, rowHeights, rowsOf, unifiedRows } from "@/review/diffRows";
+import {
+  HUNK_HEIGHT,
+  LINE_HEIGHT,
+  rowHeights,
+  rowsOf,
+  unifiedRows,
+  widestColumns,
+} from "@/review/diffRows";
 import { matchesHunks, splitLines } from "@/review/unchanged";
 import { rowTops, visibleRowRange } from "@/review/useVariableRows";
 
@@ -164,6 +172,31 @@ describe("diff performance", () => {
     expect(paired.result).toHaveLength(LINES + HUNKS - CHANGED / 2);
     expect(unified.ms).toBeLessThan(BUILD_BUDGET_MS);
     expect(paired.ms).toBeLessThan(BUILD_BUDGET_MS);
+  });
+
+  it(`finds the widest line of a ${LINES}-line file under ${BUILD_BUDGET_MS} ms, ASCII or not`, () => {
+    const unified = rowsOf(hunks, "unified");
+    const paired = rowsOf(hunks, "side-by-side");
+    // Every line off the ASCII path: counted character by character.
+    const accented = rowsOf(
+      hunks.map((hunk) => ({
+        ...hunk,
+        lines: hunk.lines.map((line) => ({ ...line, text: `${line.text} // café` })),
+      })),
+      "unified",
+    );
+    for (const [name, rows] of [
+      ["unified", unified],
+      ["side-by-side", paired],
+      ["non-ASCII", accented],
+    ] as const) {
+      const widest = timed(() => widestColumns(rows, 4));
+      console.log(
+        `diff.perf: widest line (${name}) ${widest.result} in ${widest.ms.toFixed(2)} ms`,
+      );
+      expect(widest.result).toBeGreaterThan(100);
+      expect(widest.ms).toBeLessThan(BUILD_BUDGET_MS);
+    }
   });
 
   it(`measures the wrapped heights and their prefix sums under ${BUILD_BUDGET_MS} ms`, () => {

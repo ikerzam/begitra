@@ -85,6 +85,12 @@ async function mountView(props: { file: FileChange | null }) {
   return wrapper;
 }
 
+/** A wheel event on the viewer's body (Vue Test Utils cannot set a wheel event's modifiers). */
+async function wheel(body: Element, init: WheelEventInit): Promise<void> {
+  body.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, ...init }));
+  await nextTick();
+}
+
 /** The menu the viewer teleports to the document's body. */
 function lineMenu(): HTMLElement | null {
   return document.querySelector('[data-testid="line-menu"]');
@@ -601,6 +607,68 @@ describe("DiffView", () => {
     await nextTick();
     const first = wrapper.findAll('[data-testid="diff-row"]')[0];
     expect(first?.find(".text-syntax-keyword").text()).toBe("fn");
+    wrapper.unmount();
+  });
+
+  it("scrolls a long line sideways without wrap: the wheel, Shift and the wheel, the arrows", async () => {
+    fakeBackend();
+    await useSettingsStore().init(memoryStorage(), "windows");
+    await useRepoStore().open("/r");
+    await settled();
+    const long = "x".repeat(300);
+    const wrapper = await mountView({ file: file([[line(1), line(2, "added", [], long)]]) });
+    const body = wrapper.get('[data-testid="diff-body"]');
+    const offset = () => (body.element as HTMLElement).style.getPropertyValue("--diff-scroll-x");
+    expect(offset()).toBe("0px");
+    await wheel(body.element, { deltaX: 100 });
+    expect(offset()).toBe("100px");
+    await wheel(body.element, { deltaY: 50, shiftKey: true });
+    expect(offset()).toBe("150px");
+    // A plain vertical wheel scrolls the rows, not the text.
+    await wheel(body.element, { deltaY: 40 });
+    expect(offset()).toBe("150px");
+    // Eight characters of 7.2px (jsdom has no canvas to measure the font).
+    await body.trigger("keydown", { key: "ArrowRight" });
+    expect(offset()).toBe("208px");
+    await body.trigger("keydown", { key: "ArrowLeft" });
+    expect(offset()).toBe("150px");
+    // As far as the widest line and one column past the 690px text column (800 less the
+    // gutters): 301 × 7.2 − 690.
+    await wheel(body.element, { deltaX: 99999 });
+    expect(offset()).toBe("1478px");
+    expect(wrapper.find('[data-testid="diff-side-scroll"]').exists()).toBe(true);
+    // Only the text moves: every line's text carries the shift, the numbers are outside it.
+    for (const text of wrapper.findAll('[data-testid="line-text"]')) {
+      expect(text.classes()).toContain("line-shift");
+    }
+    wrapper.unmount();
+  });
+
+  it("moves both sides together, starts another file at the left edge, and not when wrapping", async () => {
+    fakeBackend();
+    await useSettingsStore().init(memoryStorage(), "windows");
+    await useRepoStore().open("/r");
+    await settled();
+    const review = useReviewStore();
+    await review.setLayout("side-by-side");
+    const long = "y".repeat(300);
+    const wrapper = await mountView({
+      file: file([[line(1, "removed", [], long), line(1, "added", [], `${long}!`)]]),
+    });
+    const body = wrapper.get('[data-testid="diff-body"]');
+    const offset = () => (body.element as HTMLElement).style.getPropertyValue("--diff-scroll-x");
+    for (let press = 0; press < 4; press += 1) {
+      await body.trigger("keydown", { key: "ArrowRight" });
+    }
+    expect(offset()).toBe("232px");
+    expect(wrapper.findAll('[data-testid="line-text"]').length).toBeGreaterThanOrEqual(2);
+    await wrapper.setProps({ file: file([[line(5, "added", [], long)]], { path: "src/b.ts" }) });
+    expect(offset()).toBe("0px");
+    await review.setWrap(true);
+    await nextTick();
+    await wheel(body.element, { deltaX: 100 });
+    expect(offset()).toBe("0px");
+    expect(wrapper.find('[data-testid="diff-side-scroll"]').exists()).toBe(false);
     wrapper.unmount();
   });
 

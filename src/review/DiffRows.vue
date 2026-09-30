@@ -3,11 +3,13 @@
 // the changes screen puts there), unified lines or side-by-side pairs with the intra-line
 // emphasis and the syntax colours, the unchanged lines around the hunks folded into gap rows
 // or shown (a gap's controls, Whole file and `e`), heights from the wrap setting and the
-// measured column width, n/p over hunks and ]/[ over the changed symbols. In `selectable`
+// measured column width, the sideways scroll of long lines without wrap (the wheel, ← →
+// and the strip at the foot of the rows), n/p over hunks and ]/[ over the changed symbols.
+// In `selectable`
 // mode the changed lines can be picked for a partial stage: a click toggles a line,
 // shift-click extends from the last click, and the arrows move a cursor that Space toggles.
 
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 
 import DiffRow from "@/components/DiffRow.vue";
 import HunkRow from "@/components/HunkRow.vue";
@@ -30,6 +32,7 @@ import {
   rowLineKeys,
   rowsOf,
   selectableRowIndexes,
+  widestColumns,
   type DiffRowModel,
   type GapRowModel,
 } from "./diffRows";
@@ -40,6 +43,7 @@ import SideBySideRow from "./SideBySideRow.vue";
 import { useColumns } from "./useColumns";
 import { useHighlight } from "./useHighlight";
 import { useHunkNavigation } from "./useHunkNavigation";
+import { useSideScroll } from "./useSideScroll";
 import { jumpToSymbol, useSymbols } from "./useSymbols";
 import { useUnchangedLines, type RevealWhich } from "./useUnchangedLines";
 import { useVariableRows } from "./useVariableRows";
@@ -87,8 +91,20 @@ const unchangedLines = useUnchangedLines(
 );
 const rows = computed(() => rowsOf(props.hunks, review.layout, unchangedLines.unchanged.value));
 
-const { columns } = useColumns(body, layout);
+const { columns, charWidth, textWidth, measure } = useColumns(body, layout);
 const heights = computed(() => rowHeights(rows.value, review.wrap, columns.value));
+const side = useSideScroll({
+  textWidth,
+  charWidth,
+  widest: computed(() => widestColumns(rows.value, review.tabWidth)),
+  wrap: computed(() => review.wrap),
+  fileKey: computed(() => props.file.path),
+  measure,
+  scrollRowsBy: (dy) => {
+    if (body.value) body.value.scrollTop += dy;
+  },
+  strip: useTemplateRef<HTMLElement>("strip"),
+});
 const virtual = useVariableRows(body, heights);
 const hunkTops = computed(() => hunkRowIndexes(rows.value).map((index) => virtual.rowTop(index)));
 
@@ -206,6 +222,10 @@ function onKeydown(event: KeyboardEvent): void {
   if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
     event.preventDefault();
     openMenuAtKeyboard();
+    return;
+  }
+  if (side.onKey(event)) {
+    event.preventDefault();
     return;
   }
   if (!props.selectable || event.ctrlKey || event.metaKey || event.altKey) return;
@@ -468,10 +488,11 @@ defineExpose({
     ref="body"
     class="diff-body relative min-h-0 flex-1 overflow-auto bg-app font-mono text-code text-fg"
     :data-theme="codeTheme"
-    :style="{ '--diff-tab-width': review.tabWidth }"
+    :style="{ '--diff-tab-width': review.tabWidth, '--diff-scroll-x': `${side.scrollX.value}px` }"
     data-testid="diff-body"
     tabindex="0"
     @scroll.passive="onScroll"
+    @wheel="side.onWheel"
     @keydown="onKeydown"
     @contextmenu="onContextMenu"
   >
@@ -572,6 +593,16 @@ defineExpose({
           </template>
         </div>
       </template>
+    </div>
+    <!-- The sideways scroll's strip: as wide as the body, its content wider by the reach. -->
+    <div
+      v-if="side.reach.value > 0"
+      ref="strip"
+      class="sticky bottom-0 left-0 overflow-x-auto bg-app"
+      data-testid="diff-side-scroll"
+      @scroll.passive="side.onStripScroll"
+    >
+      <div class="h-px" :style="{ width: `calc(100% + ${side.reach.value}px)` }" />
     </div>
     <LineMenu
       v-if="menu"

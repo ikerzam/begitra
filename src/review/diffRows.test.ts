@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { DiffLine, Hunk } from "@/ipc/schemas";
 
 import {
+  displayColumns,
   firstChangedLine,
   hunkRange,
   hunkRowIndexes,
@@ -17,6 +18,7 @@ import {
   selectableRowIndexes,
   sideBySideRows,
   unifiedRows,
+  widestColumns,
   wrappedLines,
 } from "./diffRows";
 
@@ -204,6 +206,43 @@ describe("unchanged lines around the hunks", () => {
       whole: false,
     });
     expect(rowHeights(wrapped, true, 40)[0]).toBe(60);
+  });
+});
+
+describe("the widest line, the sideways scroll's reach", () => {
+  it("counts tabs to the next stop and wide characters as two columns", () => {
+    expect(displayColumns("abc", 4)).toBe(3);
+    expect(displayColumns("\tx", 4)).toBe(5);
+    expect(displayColumns("ab\tx", 4)).toBe(5);
+    expect(displayColumns("abcd\tx", 4)).toBe(9);
+    expect(displayColumns("a\tb", 2)).toBe(3);
+    // CJK, full-width forms and emoji take two columns; accented Latin one.
+    expect(displayColumns("漢字", 4)).toBe(4);
+    expect(displayColumns("ＡＢ", 4)).toBe(4);
+    expect(displayColumns("🚀x", 4)).toBe(3);
+    expect(displayColumns("café", 4)).toBe(4);
+  });
+
+  it("takes the widest line of either side, context rows included, folded lines not", () => {
+    const long = "x".repeat(120);
+    const hunks = [hunk([line(1), line(2, "removed", long), line(2, "added", "short")])];
+    expect(widestColumns(rowsOf(hunks, "unified"), 4)).toBe(120);
+    expect(widestColumns(rowsOf(hunks, "side-by-side"), 4)).toBe(120);
+    const shown = rowsOf(hunks, "unified", {
+      lines: ["line 1", "short", "y".repeat(200)],
+      revealed: [],
+      whole: true,
+    });
+    expect(widestColumns(shown, 4)).toBe(200);
+    // Thirty unchanged lines after the hunk fold into a gap row, the long one with them.
+    const folded = rowsOf(hunks, "unified", {
+      lines: ["line 1", "short", ...Array.from({ length: 30 }, () => "z"), "y".repeat(200)],
+      revealed: [],
+      whole: false,
+    });
+    expect(folded.some((row) => row.kind === "gap")).toBe(true);
+    expect(widestColumns(folded, 4)).toBe(120);
+    expect(widestColumns([], 4)).toBe(0);
   });
 });
 

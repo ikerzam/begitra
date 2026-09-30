@@ -1,8 +1,9 @@
 // Pure helpers of the diff viewer: the row models of a file in both layouts (a header row
 // per hunk, then its lines, or its removed and added lines paired side by side, and around
 // the hunks the unchanged lines, folded into gap rows or shown as context rows), the row
-// heights with and without wrapping as prefix sums for the virtual list, the intra-line
-// segments of a line merged with its token classes, and the pieces of a hunk header.
+// heights with and without wrapping as prefix sums for the virtual list, the widest line in
+// columns (the reach of the sideways scroll), the intra-line segments of a line merged with
+// its token classes, and the pieces of a hunk header.
 
 import type { DiffLineKind } from "@/components/types";
 import type { DiffLine, Hunk, LineRange, Token, TokenClass } from "@/ipc/schemas";
@@ -233,6 +234,46 @@ export function wrappedLines(text: string, columns: number): number {
   let width = 0;
   for (const char of text) width += char === "\t" ? 4 : 1;
   return Math.max(1, Math.ceil(width / columns));
+}
+
+/**
+ * Characters a mono font draws two columns wide: Hangul Jamo, the CJK blocks and syllables,
+ * full-width forms, and the emoji planes. An approximation of Unicode's East Asian Width.
+ */
+const WIDE =
+  /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-\u9fff\ua000-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6\u{1f300}-\u{1f6ff}\u{1f900}-\u{1faff}\u{20000}-\u{3fffd}]/u;
+
+/** Anything but printable ASCII: a tab, a control character or a non-ASCII one. */
+const NOT_PLAIN = /[^\x20-\x7e]/;
+
+/** The columns `text` takes in the viewer: tabs to the next stop of `tabWidth`, wide
+ * characters two. */
+export function displayColumns(text: string, tabWidth: number): number {
+  // Most lines are printable ASCII: one column a character, found in one native scan.
+  if (!NOT_PLAIN.test(text)) return text.length;
+  const stop = Math.max(1, tabWidth);
+  let columns = 0;
+  for (const char of text) {
+    if (char === "\t") columns += stop - (columns % stop);
+    else columns += WIDE.test(char) ? 2 : 1;
+  }
+  return columns;
+}
+
+/** The most columns of any line the rows show, either side; folded lines are not shown. */
+export function widestColumns(rows: DiffRowModel[], tabWidth: number): number {
+  let widest = 0;
+  const measure = (line: DiffLine | null): void => {
+    if (line) widest = Math.max(widest, displayColumns(line.text, tabWidth));
+  };
+  for (const row of rows) {
+    if (row.kind === "line" || row.kind === "context") measure(row.line);
+    else if (row.kind === "pair") {
+      measure(row.left);
+      measure(row.right);
+    }
+  }
+  return widest;
 }
 
 /**

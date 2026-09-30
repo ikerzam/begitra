@@ -1,6 +1,7 @@
-// Characters per line of the diff body when wrapping: the text column of the layout (the
-// body minus its gutters, halved side by side) over the width of the mono "M", measured once
-// on a canvas and refreshed by a ResizeObserver; 120 until the body is mounted.
+// The text column of the diff body: its width in px (the body minus its gutters, halved side
+// by side), the width of the mono "M" measured once on a canvas, and the characters per line
+// when wrapping (120 until the body is mounted). A ResizeObserver refreshes them, and
+// `measure` does on demand for a width that changed without a resize event.
 
 import { onBeforeUnmount, onMounted, ref, watch, type Ref } from "vue";
 
@@ -22,14 +23,15 @@ export function textColumnWidth(bodyWidth: number, layout: DiffLayout): number {
 
 export function useColumns(body: Ref<HTMLElement | null>, layout: Ref<DiffLayout>) {
   const columns = ref(120);
-  let charWidth = FALLBACK_CHAR_WIDTH;
+  const charWidth = ref(FALLBACK_CHAR_WIDTH);
+  const textWidth = ref(0);
   let observer: ResizeObserver | null = null;
 
   function measure(): void {
     const element = body.value;
     if (!element) return;
-    const width = textColumnWidth(element.clientWidth, layout.value);
-    columns.value = Math.max(MIN_COLUMNS, Math.floor(width / charWidth));
+    textWidth.value = textColumnWidth(element.clientWidth, layout.value);
+    columns.value = Math.max(MIN_COLUMNS, Math.floor(textWidth.value / charWidth.value));
   }
 
   onMounted(() => {
@@ -37,7 +39,7 @@ export function useColumns(body: Ref<HTMLElement | null>, layout: Ref<DiffLayout
     if (probe && body.value) {
       probe.font = getComputedStyle(body.value).font || "12px monospace";
       const measured = probe.measureText("M").width;
-      if (measured > 0) charWidth = measured;
+      if (measured > 0) charWidth.value = measured;
     }
     measure();
     if (typeof ResizeObserver !== "undefined" && body.value) {
@@ -50,5 +52,5 @@ export function useColumns(body: Ref<HTMLElement | null>, layout: Ref<DiffLayout
 
   watch(layout, measure);
 
-  return { columns, measure };
+  return { columns, charWidth, textWidth, measure };
 }

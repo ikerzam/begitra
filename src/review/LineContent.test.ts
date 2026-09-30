@@ -21,7 +21,7 @@ function pieces(
   spans: DiffLine["spans"] = [],
 ) {
   const wrapper = mountWithI18n(LineContent, { props: { line: line(text, kind, spans), tokens } });
-  const root = wrapper.get("[data-testid='line-content']").element;
+  const root = wrapper.get("[data-testid='line-text']").element;
   return Array.from(root.childNodes).map((node): [string, string] => [
     node.textContent ?? "",
     node instanceof HTMLElement ? node.className : "",
@@ -51,6 +51,16 @@ describe("LineContent", () => {
     expect(byText["Foo"]).toBe("text-syntax-type");
     // Plain text is a text node: the line's own colour.
     expect(byText[" total "]).toBe("");
+  });
+
+  it("moves its text by the viewer's sideways offset without wrap, and not when wrapping", () => {
+    const clipped = mountWithI18n(LineContent, { props: { line: line("x".repeat(300)) } });
+    expect(clipped.get("[data-testid='line-content']").classes()).toContain("overflow-hidden");
+    expect(clipped.get("[data-testid='line-text']").classes()).toContain("line-shift");
+    const wrapped = mountWithI18n(LineContent, {
+      props: { line: line("x".repeat(300)), wrap: true },
+    });
+    expect(wrapped.get("[data-testid='line-text']").classes()).not.toContain("line-shift");
   });
 
   it("keeps the emphasis background on a coloured span", () => {

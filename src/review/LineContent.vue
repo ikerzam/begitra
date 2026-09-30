@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // The text of one diff line: intra-line emphasis on the changed bytes and the syntax colour of
 // each token class. The diff's own facts stay in the row tint, the
-// marker and the emphasis background, so the text colour is free for the syntax.
+// marker and the emphasis background, so the text colour is free for the syntax. Without wrap
+// the text moves sideways by the viewer's `--diff-scroll-x` inside its clipping span.
 
 import { computed } from "vue";
 
@@ -46,9 +47,18 @@ function classOf(segment: Segment): string {
     class="block"
     :class="props.wrap ? 'break-all whitespace-pre-wrap' : 'overflow-hidden whitespace-pre'"
     data-testid="line-content"
-    ><template v-for="(segment, i) in parts" :key="i"
-      ><span v-if="classOf(segment)" :class="classOf(segment)">{{ segment.text }}</span
-      ><template v-else>{{ segment.text }}</template></template
+    ><span class="block" :class="{ 'line-shift': !props.wrap }" data-testid="line-text"
+      ><template v-for="(segment, i) in parts" :key="i"
+        ><span v-if="classOf(segment)" :class="classOf(segment)">{{ segment.text }}</span
+        ><template v-else>{{ segment.text }}</template></template
+      ></span
     ></span
   >
 </template>
+
+<style scoped>
+/* The viewer's sideways scroll: every line's text moves by the same offset, the gutters stay. */
+.line-shift {
+  transform: translateX(calc(var(--diff-scroll-x, 0px) * -1));
+}
+</style>
