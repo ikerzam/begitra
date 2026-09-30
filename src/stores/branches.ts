@@ -13,6 +13,7 @@ import * as ipc from "@/ipc/commands";
 import { toAppError, type AppError } from "@/ipc/errors";
 import { newOpId } from "@/ipc/invoke";
 import type { MergeMode, Outcome, ResetMode, SwitchTarget } from "@/ipc/schemas";
+import { arm } from "@/motion/motion";
 import { shortHash } from "@/shell/format";
 
 import { useOperationsStore } from "./operations";
@@ -107,8 +108,8 @@ export const useBranchesStore = defineStore("branches", () => {
   }
 
   /** HEAD moved: the refs and the history follow, on `hash` when given. */
-  function headMoved(hash?: string | null): void {
-    void repo.refreshRefs();
+  function headMoved(hash?: string | null, listing: { arm?: "branches" } = {}): void {
+    void repo.refreshRefs(listing);
     repo.reloadWalk(hash ?? undefined);
   }
 
@@ -173,8 +174,9 @@ export const useBranchesStore = defineStore("branches", () => {
       return true;
     });
     if (done) {
-      if (checkoutIt) headMoved();
-      else void repo.refreshRefs();
+      // The new branch's row comes with the listing, which has its figures.
+      if (checkoutIt) headMoved(null, { arm: "branches" });
+      else void repo.refreshRefs({ arm: "branches" });
       toasts.push({ kind: "success", message: "", key: "branches.created", params: { name } });
     }
     return done === true;
@@ -186,7 +188,16 @@ export const useBranchesStore = defineStore("branches", () => {
       await ipc.branchRename(root, from, to, opId);
       return true;
     });
-    if (done) void repo.refreshRefs();
+    if (done) {
+      arm("branches");
+      repo.patchRefs({
+        kind: "rename",
+        fullName: `refs/heads/${from}`,
+        name: to,
+        newFullName: `refs/heads/${to}`,
+      });
+      void repo.refreshRefs();
+    }
     return done === true;
   }
 
@@ -206,6 +217,8 @@ export const useBranchesStore = defineStore("branches", () => {
       },
     );
     if (done) {
+      arm("branches");
+      repo.patchRefs({ kind: "delete", fullName: `refs/heads/${name}` });
       void repo.refreshRefs();
       toasts.push({ kind: "success", message: "", key: "branches.deleted", params: { name } });
     }
@@ -287,7 +300,7 @@ export const useBranchesStore = defineStore("branches", () => {
       return true;
     });
     if (done) {
-      void repo.refreshRefs();
+      void repo.refreshRefs({ arm: "branches" });
       toasts.push({ kind: "success", message: "", key: "branches.tagged", params: { name } });
     }
     return done === true;
@@ -299,7 +312,11 @@ export const useBranchesStore = defineStore("branches", () => {
       await ipc.tagDelete(root, name, opId);
       return true;
     });
-    if (done) void repo.refreshRefs();
+    if (done) {
+      arm("branches");
+      repo.patchRefs({ kind: "delete", fullName: `refs/tags/${name}` });
+      void repo.refreshRefs();
+    }
     return done === true;
   }
 

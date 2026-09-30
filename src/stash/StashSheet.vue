@@ -14,6 +14,7 @@ import Dialog from "@/components/Dialog.vue";
 import EmptyState from "@/components/EmptyState.vue";
 import IconButton from "@/components/IconButton.vue";
 import Input from "@/components/Input.vue";
+import MotionRows from "@/components/MotionRows.vue";
 import RefBadge from "@/components/RefBadge.vue";
 import Sheet from "@/components/Sheet.vue";
 import SkeletonRow from "@/components/SkeletonRow.vue";
@@ -129,67 +130,69 @@ function confirmDrop(): void {
       data-testid="stash-list"
       @keydown="onGridKeydown"
     >
-      <div
-        v-for="(row, index) in stash.stashes"
-        :key="row.name"
-        role="row"
-        :data-index="index"
-        :tabindex="index === tabStop ? 0 : -1"
-        class="sheet-row flex items-center gap-3 px-5 hover:bg-hover"
-        :class="{ 'bg-selected': index === selected }"
-        :aria-selected="index === selected ? 'true' : 'false'"
-        :data-stash="row.index"
-        @focus="selected = index"
-        @click="selected = index"
-        @keydown="onRowActionsKeydown"
-      >
-        <span role="gridcell" class="flex min-w-0 flex-1 items-center gap-3">
-          <RefBadge :label="row.name" kind="stash" />
-          <span class="flex min-w-0 flex-1 flex-col">
-            <span class="truncate text-md text-fg" data-testid="stash-row-message">{{
-              row.message
-            }}</span>
-            <span
-              v-if="row.time !== null"
-              class="text-sm text-fg-muted"
-              data-testid="stash-row-date"
-            >
-              {{ ago(row.time) }}
+      <MotionRows list="stash" :count="stash.stashes.length" role="rowgroup" class="flex flex-col">
+        <div
+          v-for="(row, index) in stash.stashes"
+          :key="row.hash"
+          role="row"
+          :data-index="index"
+          :tabindex="index === tabStop ? 0 : -1"
+          class="sheet-row flex items-center gap-3 px-5 hover:bg-hover"
+          :class="{ 'bg-selected': index === selected }"
+          :aria-selected="index === selected ? 'true' : 'false'"
+          :data-stash="row.index"
+          @focus="selected = index"
+          @click="selected = index"
+          @keydown="onRowActionsKeydown"
+        >
+          <span role="gridcell" class="flex min-w-0 flex-1 items-center gap-3">
+            <RefBadge :label="row.name" kind="stash" />
+            <span class="flex min-w-0 flex-1 flex-col">
+              <span class="truncate text-md text-fg" data-testid="stash-row-message">{{
+                row.message
+              }}</span>
+              <span
+                v-if="row.time !== null"
+                class="text-sm text-fg-muted"
+                data-testid="stash-row-date"
+              >
+                {{ ago(row.time) }}
+              </span>
             </span>
           </span>
-        </span>
-        <span role="gridcell" class="flex shrink-0 items-center gap-1">
-          <Button
-            variant="ghost"
-            :disabled="busy"
-            tabindex="-1"
-            data-row-action
-            data-testid="stash-apply"
-            @click="() => void stash.apply(row)"
-          >
-            {{ t("stash.apply") }}
-          </Button>
-          <Button
-            variant="ghost"
-            :disabled="busy"
-            tabindex="-1"
-            data-row-action
-            data-testid="stash-pop"
-            @click="() => void stash.pop(row)"
-          >
-            {{ t("stash.pop") }}
-          </Button>
-          <IconButton
-            :label="t('stash.drop')"
-            :icon="Trash2"
-            :disabled="busy"
-            tabindex="-1"
-            data-row-action
-            data-testid="stash-drop"
-            @click="stash.askDrop(row)"
-          />
-        </span>
-      </div>
+          <span role="gridcell" class="flex shrink-0 items-center gap-1">
+            <Button
+              variant="ghost"
+              :disabled="busy"
+              tabindex="-1"
+              data-row-action
+              data-testid="stash-apply"
+              @click="() => void stash.apply(row)"
+            >
+              {{ t("stash.apply") }}
+            </Button>
+            <Button
+              variant="ghost"
+              :disabled="busy"
+              tabindex="-1"
+              data-row-action
+              data-testid="stash-pop"
+              @click="() => void stash.pop(row)"
+            >
+              {{ t("stash.pop") }}
+            </Button>
+            <IconButton
+              :label="t('stash.drop')"
+              :icon="Trash2"
+              :disabled="busy"
+              tabindex="-1"
+              data-row-action
+              data-testid="stash-drop"
+              @click="stash.askDrop(row)"
+            />
+          </span>
+        </div>
+      </MotionRows>
     </div>
     <Dialog
       v-if="stash.dropPrompt !== null"

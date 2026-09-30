@@ -54,6 +54,8 @@ interface BackendOptions {
   reloadGate?: Promise<void>;
   /** The walks after the open's fail before their first page. */
   reloadFails?: boolean;
+  /** The next `list_refs` answers the refs as they were when asked, once this resolves. */
+  refsGate?: Promise<void>;
   /** What `list_refs` answers instead of the one `main`. */
   refs?: GitRef[];
 }
@@ -88,7 +90,12 @@ function mockBackend(options: BackendOptions = {}): Call[] {
           // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
           return Promise.reject({ code: "internal", message: "refs exploded" });
         }
-        if (options.refs) return options.refs.map((entry) => ({ ...entry }));
+        if (options.refs) {
+          const listed = options.refs.map((entry) => ({ ...entry }));
+          const gate = options.refsGate;
+          options.refsGate = undefined;
+          return gate ? gate.then(() => listed) : listed;
+        }
         return [
           {
             name: "main",
@@ -312,6 +319,80 @@ describe("repo store", () => {
     expect(store.commits).toHaveLength(0);
     expect(store.repo).toBeNull();
     expect(calls.some((c) => c.cmd === "close_repository" && c.args["root"] === "/r")).toBe(true);
+  });
+});
+
+describe("repo store, refs from git's answer", () => {
+  function ref(name: string, kind: GitRef["kind"], target = commit(0).hash): GitRef {
+    const prefix = kind === "tag" ? "refs/tags/" : kind === "stash" ? "" : "refs/heads/";
+    return {
+      name,
+      fullName: kind === "stash" ? "refs/stash" : `${prefix}${name}`,
+      kind,
+      target,
+      isCurrent: name === "main",
+      upstream: null,
+      ahead: null,
+      behind: null,
+      worktree: null,
+      message: null,
+      committedAt: null,
+    };
+  }
+
+  it("shows a deleted branch or tag, a renamed branch and a dropped stash at once", async () => {
+    mockBackend({
+      refs: [
+        ref("main", "local-branch"),
+        ref("feature/x", "local-branch"),
+        ref("v1", "tag"),
+        ref("stash@{0}", "stash", "a".repeat(40)),
+        ref("stash@{1}", "stash", "b".repeat(40)),
+        ref("stash@{2}", "stash", "c".repeat(40)),
+      ],
+    });
+    const store = useRepoStore();
+    await store.open("/r");
+    await settled();
+    store.patchRefs({ kind: "delete", fullName: "refs/heads/feature/x" });
+    store.patchRefs({ kind: "delete", fullName: "refs/tags/v1" });
+    store.patchRefs({
+      kind: "rename",
+      fullName: "refs/heads/main",
+      name: "trunk",
+      newFullName: "refs/heads/trunk",
+    });
+    store.patchRefs({ kind: "drop-stash", hash: "b".repeat(40) });
+    expect(store.refs.map((entry) => [entry.name, entry.fullName, entry.target])).toEqual([
+      ["trunk", "refs/heads/trunk", commit(0).hash],
+      ["stash@{0}", "refs/stash", "a".repeat(40)],
+      ["stash@{1}", "refs/stash", "c".repeat(40)],
+    ]);
+    // A stash the refs no longer list changes nothing.
+    store.patchRefs({ kind: "drop-stash", hash: "d".repeat(40) });
+    expect(store.refs).toHaveLength(3);
+  });
+
+  it("keeps what a later listing read over an earlier one that lands after it", async () => {
+    const options: BackendOptions = {
+      refs: [ref("main", "local-branch"), ref("feature/x", "local-branch")],
+    };
+    mockBackend(options);
+    const store = useRepoStore();
+    await store.open("/r");
+    await settled();
+    let release!: () => void;
+    options.refsGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    // Read before git deleted the branch, this listing lands last.
+    const early = store.refreshRefs();
+    options.refs = [ref("main", "local-branch")];
+    store.patchRefs({ kind: "delete", fullName: "refs/heads/feature/x" });
+    await store.refreshRefs();
+    release();
+    await early;
+    expect(store.refs.map((entry) => entry.name)).toEqual(["main"]);
   });
 });
 

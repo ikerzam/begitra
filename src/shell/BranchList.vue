@@ -12,6 +12,7 @@ import { useI18n } from "vue-i18n";
 import BranchContextMenu from "@/branches/BranchContextMenu.vue";
 import type { BranchAction } from "@/branches/useBranchActions";
 import ListRow from "@/components/ListRow.vue";
+import MotionRows from "@/components/MotionRows.vue";
 import SkeletonRow from "@/components/SkeletonRow.vue";
 import type { Ref as GitRef } from "@/ipc/schemas";
 import { matchesQuery } from "@/palette/usePalette";
@@ -168,21 +169,30 @@ defineExpose({ focus: navigation.focus });
     @keydown="onKeydown"
   >
     <template v-for="(group, groupIndex) in groups" :key="group.id">
-      <p class="px-3 pt-3 pb-1 text-sm text-fg-muted">{{ group.label }}</p>
-      <ListRow
-        v-for="(row, index) in group.rows"
-        :key="row.ref.fullName"
-        :data-index="rowIndex(groupIndex, index)"
-        :name="row.ref.name"
-        :lane="row.lane"
-        :icon="group.id === 'tags' ? Tag : undefined"
-        :ahead="row.ref.upstream ? (row.ref.ahead ?? undefined) : undefined"
-        :behind="row.ref.upstream ? (row.ref.behind ?? undefined) : undefined"
-        :selected="rowIndex(groupIndex, index) === selectedRow"
-        :tab-stop="rowIndex(groupIndex, index) === tabStopRow"
-        @select="navigation.select(rowIndex(groupIndex, index))"
-        @contextmenu="(event: MouseEvent) => onContextMenu(rowIndex(groupIndex, index), event)"
-      />
+      <p :id="`branch-group-${group.id}`" class="px-3 pt-3 pb-1 text-sm text-fg-muted">
+        {{ group.label }}
+      </p>
+      <MotionRows
+        list="branches"
+        :count="group.rows.length"
+        role="group"
+        :aria-labelledby="`branch-group-${group.id}`"
+      >
+        <ListRow
+          v-for="(row, index) in group.rows"
+          :key="row.ref.fullName"
+          :data-index="rowIndex(groupIndex, index)"
+          :name="row.ref.name"
+          :lane="row.lane"
+          :icon="group.id === 'tags' ? Tag : undefined"
+          :ahead="row.ref.upstream ? (row.ref.ahead ?? undefined) : undefined"
+          :behind="row.ref.upstream ? (row.ref.behind ?? undefined) : undefined"
+          :selected="rowIndex(groupIndex, index) === selectedRow"
+          :tab-stop="rowIndex(groupIndex, index) === tabStopRow"
+          @select="navigation.select(rowIndex(groupIndex, index))"
+          @contextmenu="(event: MouseEvent) => onContextMenu(rowIndex(groupIndex, index), event)"
+        />
+      </MotionRows>
     </template>
     <p v-if="countLine" class="px-3 pt-3 text-sm text-fg-muted" data-testid="branch-count">
       {{ countLine }}

@@ -20,6 +20,7 @@ import type {
   Worktree,
 } from "@/ipc/schemas";
 import type { StreamHandle } from "@/ipc/stream";
+import { arm, type MotionList } from "@/motion/motion";
 
 import { useOperationsStore } from "./operations";
 
@@ -81,6 +82,18 @@ export function tipsSignature(refs: GitRef[]): string {
 /** A commit's change set that takes longer than this names itself in the status bar. */
 export const SLOW_DIFF_MS = 150;
 
+/** What git answered, shown before the refs are listed again (`patchRefs`). */
+export type RefPatch =
+  | { kind: "delete"; fullName: string }
+  | { kind: "rename"; fullName: string; name: string; newFullName: string }
+  | { kind: "drop-stash"; hash: string };
+
+/** `n` of `stash@{n}`, or null for another name. */
+function stashNumber(name: string): number | null {
+  const match = /^stash@\{(\d+)\}$/.exec(name);
+  return match ? Number(match[1]) : null;
+}
+
 export const useRepoStore = defineStore("repo", () => {
   const operations = useOperationsStore();
 
@@ -120,6 +133,8 @@ export const useRepoStore = defineStore("repo", () => {
   let lastRestartAt = 0;
   /** A reloaded walk's first page replaces the rows kept meanwhile (`reloadWalk`). */
   let replacing = false;
+  /** Bumped by each listing of the refs: only the one started last may store what it read. */
+  let refsSerial = 0;
 
   const selectedCommit = computed<CommitNode | undefined>(() => commits.value[selectedIndex.value]);
   const canLoadMore = computed(
@@ -471,14 +486,19 @@ export const useRepoStore = defineStore("repo", () => {
    * else than before (a stash entry or a reflog touch does not count), so the watcher knows
    * when the history must be listed again.
    */
-  async function refreshRefs(): Promise<{ tipsMoved: boolean }> {
+  async function refreshRefs(options: { arm?: MotionList } = {}): Promise<{ tipsMoved: boolean }> {
     const root = repo.value?.root;
     if (!root) return { tipsMoved: false };
     const myGeneration = generation;
+    const mine = ++refsSerial;
     const before = tipsSignature(refs.value);
     try {
       const listed = await ipc.listRefs(root);
       if (myGeneration !== generation) return { tipsMoved: false };
+      // A listing started later holds newer refs (a write's answer shown meanwhile, then read):
+      // this one still says whether the tips moved, for the history to follow.
+      if (mine !== refsSerial) return { tipsMoved: tipsSignature(listed) !== before };
+      if (options.arm) arm(options.arm);
       refs.value = listed;
       refsLoaded.value = true;
       refsError.value = null;
@@ -488,6 +508,36 @@ export const useRepoStore = defineStore("repo", () => {
       // The refs shown stay until the next change; the picker reports the failure.
       if (myGeneration === generation) refsError.value = toAppError(error);
       return { tipsMoved: false };
+    }
+  }
+
+  /**
+   * Shows what git answered before the refs are listed again: a branch or a tag deleted, a branch
+   * renamed, a stash dropped or popped (the later ones take the number before theirs). The
+   * caller lists the refs again right after, and that listing replaces what this shows.
+   */
+  function patchRefs(patch: RefPatch): void {
+    if (patch.kind === "delete") {
+      refs.value = refs.value.filter((entry) => entry.fullName !== patch.fullName);
+    } else if (patch.kind === "rename") {
+      refs.value = refs.value.map((entry) =>
+        entry.fullName === patch.fullName
+          ? { ...entry, name: patch.name, fullName: patch.newFullName }
+          : entry,
+      );
+    } else {
+      const gone = refs.value.find(
+        (entry) => entry.kind === "stash" && entry.target === patch.hash,
+      );
+      const dropped = gone ? stashNumber(gone.name) : null;
+      if (!gone || dropped === null) return;
+      refs.value = refs.value.flatMap((entry) => {
+        if (entry === gone) return [];
+        const number = entry.kind === "stash" ? stashNumber(entry.name) : null;
+        if (number === null || number < dropped) return [entry];
+        const name = `stash@{${number - 1}}`;
+        return [{ ...entry, name, fullName: entry.fullName.replace(entry.name, name) }];
+      });
     }
   }
 
@@ -546,6 +596,7 @@ export const useRepoStore = defineStore("repo", () => {
     recentlyRestarted,
     loadWorktrees,
     refreshRefs,
+    patchRefs,
     select,
     close,
     retry,

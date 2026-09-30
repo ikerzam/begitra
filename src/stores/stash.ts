@@ -11,6 +11,7 @@ import * as ipc from "@/ipc/commands";
 import { toAppError } from "@/ipc/errors";
 import { newOpId } from "@/ipc/invoke";
 import type { Outcome } from "@/ipc/schemas";
+import { arm } from "@/motion/motion";
 import { errorText } from "@/shell/errorMessage";
 import { shortHash } from "@/shell/format";
 
@@ -74,14 +75,25 @@ export const useStashStore = defineStore("stash", () => {
     dropPrompt.value = null;
   }
 
-  async function write<T>(label: string, run: (root: string, opId: string) => Promise<T>) {
+  /**
+   * Runs a stash write; `answered` shows git's answer before the refs are listed again, and
+   * `listing` arms the list for the rows that listing brings.
+   */
+  async function write<T>(
+    label: string,
+    run: (root: string, opId: string) => Promise<T>,
+    answered?: (result: T) => void,
+    listing: { arm?: "stash" } = {},
+  ) {
     const root = repo.repo?.root;
     if (!root || busy.value !== null) return null;
     busy.value = label;
     const opId = newOpId("stash");
     operations.start(opId, label);
     try {
-      return await run(root, opId);
+      const result = await run(root, opId);
+      answered?.(result);
+      return result;
     } catch (failure) {
       const error = toAppError(failure);
       // A stash gone outside the app is said as such: git never ran, so "git refused" is false.
@@ -100,8 +112,14 @@ export const useStashStore = defineStore("stash", () => {
     } finally {
       operations.finish(opId);
       busy.value = null;
-      void repo.refreshRefs();
+      void repo.refreshRefs(listing);
     }
+  }
+
+  /** A stash git dropped (or popped without conflicts) leaves its row before the listing. */
+  function dropped(hash: string): void {
+    arm("stash");
+    repo.patchRefs({ kind: "drop-stash", hash });
   }
 
   /** An apply or pop: conflicts keep the stash and hand over; the rest is a toast. */
@@ -117,8 +135,11 @@ export const useStashStore = defineStore("stash", () => {
 
   /** Pushes a stash; git says when there is nothing to save. */
   async function push(message: string | null, includeUntracked: boolean): Promise<boolean> {
-    const saved = await write("operations.stashing", (root, opId) =>
-      ipc.stashPush(root, { message, includeUntracked, paths: [] }, opId),
+    const saved = await write(
+      "operations.stashing",
+      (root, opId) => ipc.stashPush(root, { message, includeUntracked, paths: [] }, opId),
+      undefined,
+      { arm: "stash" },
     );
     if (saved === null) return false;
     toasts.push({
@@ -139,8 +160,13 @@ export const useStashStore = defineStore("stash", () => {
   }
 
   async function pop(row: StashRow): Promise<boolean> {
-    const outcome = await write("operations.poppingStash", (root, opId) =>
-      ipc.stashPop(root, row.hash, opId),
+    const outcome = await write(
+      "operations.poppingStash",
+      (root, opId) => ipc.stashPop(root, row.hash, opId),
+      // Conflicts keep the stash, as git does.
+      (answer) => {
+        if (answer.kind !== "conflicts") dropped(row.hash);
+      },
     );
     if (!outcome) return false;
     settle(outcome, "stash.popped");
@@ -159,10 +185,14 @@ export const useStashStore = defineStore("stash", () => {
   async function drop(row: StashRow): Promise<boolean> {
     dropPrompt.value = null;
     const hash = row.hash;
-    const done = await write("operations.droppingStash", async (root, opId) => {
-      await ipc.stashDrop(root, hash, opId);
-      return true;
-    });
+    const done = await write(
+      "operations.droppingStash",
+      async (root, opId) => {
+        await ipc.stashDrop(root, hash, opId);
+        return true;
+      },
+      () => dropped(hash),
+    );
     if (done) {
       toasts.push({
         kind: "success",

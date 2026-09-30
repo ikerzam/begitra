@@ -7,6 +7,7 @@ import {
   fakeBackend,
   fakeCommit,
   settled,
+  writeGate,
   type Call,
   type FakeBackendOptions,
 } from "@/test/backend";
@@ -120,6 +121,51 @@ describe("stash store", () => {
       "stash.dropped",
     ]);
     expect(of(calls, "list_refs").length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("takes a dropped or popped stash's row out before the stashes are listed again", async () => {
+    // The backend reads this object, so the gate set after the open holds the listings.
+    const options: FakeBackendOptions = {
+      refs: [
+        ...refs,
+        stashRef(2, "On main: oldest", "e".repeat(40)),
+        stashRef(3, "On main: older still", "d".repeat(40)),
+      ],
+    };
+    fakeBackend(options);
+    await useRepoStore().open("/r");
+    await settled();
+    const gate = writeGate();
+    options.listingGate = gate;
+    const stash = useStashStore();
+    const rows = () => stash.stashes.map((row) => [row.name, row.hash]);
+    expect(await stash.drop(stash.stashes[1]!)).toBe(true);
+    expect(rows()).toEqual([
+      ["stash@{0}", fakeCommit(3).hash],
+      ["stash@{1}", "e".repeat(40)],
+      ["stash@{2}", "d".repeat(40)],
+    ]);
+    expect(await stash.pop(stash.stashes[0]!)).toBe(true);
+    expect(rows()).toEqual([
+      ["stash@{0}", "e".repeat(40)],
+      ["stash@{1}", "d".repeat(40)],
+    ]);
+    expect(gate.waiting).toEqual(["list_refs", "list_refs"]);
+  });
+
+  it("keeps a stash whose pop stopped on conflicts", async () => {
+    const options: FakeBackendOptions = {
+      refs,
+      outcome: { kind: "conflicts", hash: null, conflicts: [] },
+    };
+    fakeBackend(options);
+    await useRepoStore().open("/r");
+    await settled();
+    const stash = useStashStore();
+    const before = stash.stashes.map((row) => row.hash);
+    options.listingGate = writeGate();
+    await stash.pop(stash.stashes[0]!);
+    expect(stash.stashes.map((row) => row.hash)).toEqual(before);
   });
 
   it("says a stash gone outside the app is no longer in the list and lists them again", async () => {

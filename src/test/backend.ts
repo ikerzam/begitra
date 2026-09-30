@@ -153,6 +153,11 @@ export interface FakeBackendOptions {
    * before git answers.
    */
   writeGate?: WriteGate;
+  /**
+   * Holds each `list_refs` until the test lets it go, answering the refs as they were when it
+   * was asked; set it after the open to hold the listings that follow a write.
+   */
+  listingGate?: WriteGate;
   /** What `commit_context` answers, over the defaults (a born branch, no template). */
   commitContext?: Partial<CommitContext>;
   /** Every diff answers after this many milliseconds (the loading states, by eye). */
@@ -494,6 +499,38 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
     if (filter.paths) listed = listed.filter((_c, i) => i % 2 === 0);
     return listed;
   };
+  /** The refs `list_refs` answers: the test's, or the two local branches. */
+  const listRefs = (): Ref[] =>
+    options.refs
+      ? options.refs.map((entry) => ({ ...entry }))
+      : [
+          {
+            name: "main",
+            fullName: "refs/heads/main",
+            kind: "local-branch",
+            target: fakeCommit(0).hash,
+            isCurrent: true,
+            upstream: null,
+            ahead: null,
+            behind: null,
+            worktree: "/r",
+            message: null,
+            committedAt: fakeCommit(0).committer.time,
+          },
+          {
+            name: "develop",
+            fullName: "refs/heads/develop",
+            kind: "local-branch",
+            target: fakeCommit(3).hash,
+            isCurrent: false,
+            upstream: null,
+            ahead: null,
+            behind: null,
+            worktree: null,
+            message: null,
+            committedAt: fakeCommit(3).committer.time,
+          },
+        ];
   /** The repository the slot watches, which `watch_folder` leaves out, as the backend does. */
   let opened: string | null = null;
   mockIPC(
@@ -516,36 +553,10 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
             isLinkedWorktree: false,
           };
         }
-        case "list_refs":
-          if (options.refs) return options.refs.map((entry) => ({ ...entry }));
-          return [
-            {
-              name: "main",
-              fullName: "refs/heads/main",
-              kind: "local-branch",
-              target: fakeCommit(0).hash,
-              isCurrent: true,
-              upstream: null,
-              ahead: null,
-              behind: null,
-              worktree: "/r",
-              message: null,
-              committedAt: fakeCommit(0).committer.time,
-            },
-            {
-              name: "develop",
-              fullName: "refs/heads/develop",
-              kind: "local-branch",
-              target: fakeCommit(3).hash,
-              isCurrent: false,
-              upstream: null,
-              ahead: null,
-              behind: null,
-              worktree: null,
-              message: null,
-              committedAt: fakeCommit(3).committer.time,
-            },
-          ];
+        case "list_refs": {
+          const listed = listRefs();
+          return options.listingGate ? options.listingGate.hold(cmd, () => listed) : listed;
+        }
         case "walk_commits":
         case "walk_continue": {
           const scope = (args["scope"] as WalkScope | undefined) ?? { kind: "all" };

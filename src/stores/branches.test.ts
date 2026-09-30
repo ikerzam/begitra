@@ -2,7 +2,15 @@ import { clearMocks } from "@tauri-apps/api/mocks";
 import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { fakeBackend, settled, type Call, type FakeBackendOptions } from "@/test/backend";
+import type { Ref } from "@/ipc/schemas";
+import {
+  fakeBackend,
+  fakeCommit,
+  settled,
+  writeGate,
+  type Call,
+  type FakeBackendOptions,
+} from "@/test/backend";
 
 import { AppError } from "@/ipc/errors";
 
@@ -109,6 +117,44 @@ describe("branches store", () => {
       from: "feature/x",
       to: "feature/y",
     });
+  });
+
+  it("shows a deleted branch, a renamed one and a deleted tag before the refs are listed again", async () => {
+    const ref = (name: string, kind: Ref["kind"]): Ref => ({
+      name,
+      fullName: `${kind === "tag" ? "refs/tags/" : "refs/heads/"}${name}`,
+      kind,
+      target: fakeCommit(0).hash,
+      isCurrent: name === "main",
+      upstream: null,
+      ahead: null,
+      behind: null,
+      worktree: null,
+      message: null,
+      committedAt: null,
+    });
+    const options: FakeBackendOptions = {
+      refs: [
+        ref("main", "local-branch"),
+        ref("develop", "local-branch"),
+        ref("feature/x", "local-branch"),
+        ref("v1", "tag"),
+      ],
+    };
+    await open(options);
+    // The listings after the writes wait: what shows meanwhile is git's answer.
+    const gate = writeGate();
+    options.listingGate = gate;
+    const repo = useRepoStore();
+    const branches = useBranchesStore();
+    const listed = () => repo.refs.map((entry) => entry.fullName);
+    expect(await branches.remove("feature/x", false)).toBe(true);
+    expect(listed()).toEqual(["refs/heads/main", "refs/heads/develop", "refs/tags/v1"]);
+    expect(await branches.rename("develop", "dev")).toBe(true);
+    expect(listed()).toEqual(["refs/heads/main", "refs/heads/dev", "refs/tags/v1"]);
+    expect(await branches.deleteTag("v1")).toBe(true);
+    expect(listed()).toEqual(["refs/heads/main", "refs/heads/dev"]);
+    expect(gate.waiting).toEqual(["list_refs", "list_refs", "list_refs"]);
   });
 
   it("asks Delete anyway when git refuses an unmerged branch, then forces", async () => {
