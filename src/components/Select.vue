@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// A select in the app's own treatment: a button with the value and the chevron that
-// opens the options in an OptionList, with its own open state (the focus border, the
-// chevron up). The keys of the WAI-ARIA select-only combobox: closed, the arrows, Enter, Space
+// A select in the app's own treatment: a button with the value and the chevron that opens the
+// options in an OptionList, the control showing its open state (the focus border, the chevron
+// up). The keys of the WAI-ARIA select-only combobox: closed, the arrows, Enter, Space
 // and F4 open it (a letter does not, so j and k keep walking the settings' fields); open, the
 // arrows, Home, End and Page Up/Down move, letters jump to the next option they start (a space
 // inside a typed run is part of it), Enter, Space, F4 and Alt with an arrow choose, Tab chooses

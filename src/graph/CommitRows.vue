@@ -251,9 +251,8 @@ defineExpose({ focus: navigation.focus, revealSelected });
   container-type: inline-size;
 }
 
-/* The 108px lane area plus the 8px gap to the first badge or
-   the subject, which starts at x = 116; the row's 2px accent
-   border makes up the rest. Not on the spacing scale. */
+/* The 108px lane area plus the 8px gap to the first badge or the subject, which starts at
+   x = 116; the row's 2px accent border makes up the rest. Not on the spacing scale. */
 .graph-lane-area {
   width: 114px;
 }

@@ -1,8 +1,7 @@
 <script setup lang="ts">
-// The worktrees table: the column headers, one `WorktreeRow` per worktree
-// (the main one first), skeleton rows while the list loads and the
-// footer sentence. A grid with roving focus: j/k and the arrows move, ↵ opens the worktree
-// as the context, the menu key opens the row's context menu.
+// The worktrees table: the column headers, one `WorktreeRow` per worktree (the main one first),
+// skeleton rows while the list loads and the footer sentence. A grid with roving focus: j/k and
+// the arrows move, ↵ opens the worktree as the context, the menu key opens the row's menu.
 
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Serves the site the release script staged (src-tauri/target/release-site) on localhost with the
-// headers deploy/releases/nginx.conf sends, to look at the pages before uploading them
-// to the server. Read-only, local only.
+// headers deploy/releases/nginx.conf sends, to look at the pages before uploading them.
+// Read-only, local only.
 //
 //   node scripts/serve-site.mjs [port]
 

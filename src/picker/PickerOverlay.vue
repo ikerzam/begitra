@@ -1,8 +1,7 @@
 <script setup lang="ts">
-// The picker of refs and commits: the 640px overlay
-// of the palette with a title, the input, the grouped rows with a lane-coloured icon and a
-// muted context, the range chips, the footer hints; ↑↓ move, ↵ chooses, Tab switches the
-// dots of a typed range, esc closes.
+// The picker of refs and commits: the 640px overlay of the palette with a title, the input, the
+// grouped rows with a lane-coloured icon and a muted context, the range chips, the footer hints;
+// ↑↓ move, ↵ chooses, Tab switches the dots of a typed range, esc closes.
 
 import {
   GitBranch,

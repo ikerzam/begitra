@@ -1,10 +1,9 @@
 <script setup lang="ts">
-// The comparison, beside
-// the shell's sidebar: the header, the merge-base line, the preview banner, the two
-// side lists and "Files changed" on the review's files panel and viewer, whose target is the
-// three-dot range of the endpoints. While the counts are computed the banner and the lists
-// show their loading states; both endpoints at the same commit show the
-// empty state; a comparison that failed shows the banner in place of the merge-base line.
+// The comparison, beside the shell's sidebar: the header, the merge-base line, the preview
+// banner, the two side lists and "Files changed" on the review's files panel and viewer, whose
+// target is the three-dot range of the endpoints. While the counts are computed the banner and
+// the lists show their loading states; both endpoints at the same commit show the empty state; a
+// comparison that failed shows the banner in place of the merge-base line.
 
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";

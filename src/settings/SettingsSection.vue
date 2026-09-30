@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// A titled group of settings fields (Discovery, Git, Terminal and
-// editor, Diff, Shortcuts), separated from the next by a hairline.
+// A titled group of settings fields (Discovery, Git, Terminal and editor, Diff, Shortcuts),
+// separated from the next by a hairline.
 
 const props = defineProps<{ title: string }>();
 </script>

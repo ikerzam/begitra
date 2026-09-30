@@ -1,11 +1,11 @@
 <script setup lang="ts">
-// A run of unchanged lines folded before, between or after the hunks.
-// The gutters hold the controls for the 20 lines after the change
-// above and the 20 before the change below, where such a change exists and the run is longer
-// than 20; then "N unchanged lines", which shows them all. While the new side is read the
-// controls work (the lines show when it arrives); when it cannot be read, or no longer holds
-// the hunks' lines, they are disabled and the tooltip says why. Every control passes its click
-// on, so the rows can tell a keyboard's press (detail 0) and keep the focus with it.
+// A run of unchanged lines folded before, between or after the hunks. The gutters hold the
+// controls for the 20 lines after the change above and the 20 before the change below, where such
+// a change exists and the run is longer than 20; then "N unchanged lines", which shows them all.
+// While the new side is read the controls work (the lines show when it arrives); when it cannot
+// be read, or no longer holds the hunks' lines, they are disabled and the tooltip says why. Every
+// control passes its click on, so the rows can tell a keyboard's press (detail 0) and keep the
+// focus with it.
 
 import { ArrowDownFromLine, ArrowUpFromLine, UnfoldVertical } from "@lucide/vue";
 import { computed } from "vue";

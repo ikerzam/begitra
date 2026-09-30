@@ -118,8 +118,8 @@ async function submit(): Promise<void> {
 </template>
 
 <style scoped>
-/* A 100px label column, the branch select 132px wide beside the
-   name field, "Start from" 200px wide. Off the spacing scale. */
+/* A 100px label column, the branch select 132px wide beside the name field, "Start from" 200px
+   wide. Off the spacing scale. */
 .add-worktree-grid {
   grid-template-columns: 100px minmax(0, 1fr);
 }

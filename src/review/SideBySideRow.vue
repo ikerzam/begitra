@@ -1,7 +1,6 @@
 <script setup lang="ts">
 // One row of the side-by-side layout: the old side on the left, the new on the right, each
-// with its number, marker and text; a side without a line is the `--bg-hover` gap of
-// the layout.
+// with its number, marker and text; a side without a line is a `--bg-hover` gap.
 
 import { computed } from "vue";
 

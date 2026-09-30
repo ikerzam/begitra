@@ -123,8 +123,8 @@ const hasCounts = computed(() => props.row.ahead !== null && props.row.behind !=
     <span role="gridcell" class="truncate text-sm text-fg-secondary" data-testid="member-changes">
       {{ changes }}
     </span>
-    <!-- The status may run 8px into the column gap, as "Diverged from its
-         upstream" and its link do. -->
+    <!-- The status may run 8px into the column gap, as "Diverged from its upstream" and its
+         link do. -->
     <span
       role="gridcell"
       class="-mr-2 flex min-w-0 items-center gap-2 text-sm"

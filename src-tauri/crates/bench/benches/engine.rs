@@ -1,8 +1,8 @@
 //! Criterion benches of the engine operations on the two benchmark repositories.
 //!
-//! Each group runs on every repository that exists under `bench/repos` (or
-//! `BEGITRA_BENCH_REPOS`); a missing repository is skipped with the command that creates it.
-//! Results are read by `cargo run -p bench -- report` and pasted into a results table.
+//! Each group runs on every repository that exists in `begitra-bench-repos` beside the
+//! repository (or `BEGITRA_BENCH_REPOS`); a missing repository is skipped with the command that creates it.
+//! Results are read by `cargo run -p bench -- report`, which prints them with their budgets.
 
 use std::cell::OnceCell;
 use std::path::{Path, PathBuf};

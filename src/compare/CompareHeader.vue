@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// The comparison's header: "Compare", the two endpoint controls, the swap control
-// between them, "Open in terminal" and "Open in editor",
-// in the order they are drawn so the tab order is the visual one.
+// The comparison's header: "Compare", the two endpoint controls, the swap control between
+// them, "Open in terminal" and "Open in editor", in the order they show so the tab order is
+// the visual one.
 
 import { ArrowLeftRight, Code, Terminal } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
@@ -59,8 +59,8 @@ const { t } = useI18n();
 </template>
 
 <style scoped>
-/* 48px tall, unlike the 32px panel headers: the 28px controls and
-   their focus ring need the room. Off the spacing scale. */
+/* 48px tall, unlike the 32px panel headers: the 28px controls and their focus ring need the
+   room. Off the spacing scale. */
 .compare-header {
   height: 48px;
 }

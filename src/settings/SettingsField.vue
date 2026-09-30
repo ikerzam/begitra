@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// One row of a settings section: the label in a 180px column, the
-// control in a 420px one, the hint under the control.
+// One row of a settings section: the label in a 180px column, the control in a 420px one, the
+// hint under the control.
 
 const props = withDefaults(
   defineProps<{
@@ -48,8 +48,8 @@ const props = withDefaults(
 </template>
 
 <style scoped>
-/* 180px labels and 420px controls, the label's line box top-aligned
-   with the control; off the spacing scale. */
+/* 180px labels and 420px controls, the label's line box top-aligned with the control; off the
+   spacing scale. */
 .settings-field {
   grid-template-columns: 180px minmax(0, 420px);
 }

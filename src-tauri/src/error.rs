@@ -1,9 +1,9 @@
 //! The one error type every command returns: `AppError { code, message, detail? }`.
 //!
-//! `code` is a stable dotted identifier the UI switches on (the full list is in
-//! [`codes::ALL`]), `message` is a readable sentence, and
-//! `detail` carries raw output when there is some: git's stderr, libgit2's reason, the argv
-//! that failed to spawn.
+//! `code` is a stable dotted identifier the UI switches on (the full list is [`codes::ALL`],
+//! mirrored by the frontend's `errorCodes`), `message` is a readable sentence, and `detail`
+//! carries raw output when there is some: git's stderr, libgit2's reason, the argv that failed
+//! to spawn.
 
 use std::fmt;
 use std::time::Duration;
@@ -66,7 +66,8 @@ pub mod codes {
     /// Anything else.
     pub const INTERNAL: &str = "internal";
 
-    /// Every code, in the order of the declarations above.
+    /// Every code, in the order of the frontend's `errorCodes` (`src/ipc/schemas.ts`); the
+    /// contract test compares the two lists through the `app-errors` fixture.
     pub const ALL: [&str; 25] = [
         REPO_NOT_FOUND,
         REPO_INVALID,

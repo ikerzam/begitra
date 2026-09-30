@@ -1,8 +1,7 @@
 <script setup lang="ts">
 // The backdrop of every modal overlay (the palette, the picker, dialogs and sheets): the whole
-// window in --shadow-color. Only a press that starts on
-// the scrim dismisses: a click whose press began in the panel (a selection dragged past its
-// edge) is dispatched to the scrim too.
+// window in --shadow-color. Only a press that starts on the scrim dismisses: a click whose press
+// began in the panel (a selection dragged past its edge) is dispatched to the scrim too.
 
 const props = withDefaults(
   defineProps<{

@@ -1,8 +1,8 @@
 /*
- * Design tokens; design/tokens.json is the machine-readable copy that the token
- * test compares with this file. Dark theme is the default; [data-theme="light"] redefines every
- * colour token for the light theme; `useTheme` sets the attribute from the
- * setting. Components never use literal colours: only these properties.
+ * Design tokens; design/tokens.json is the machine-readable copy that the token test compares
+ * with this file. Dark theme is the default; [data-theme="light"] redefines every colour token
+ * for the light theme; `useTheme` sets the attribute from the setting. Components never use
+ * literal colours: only these properties.
  */
 
 :root {

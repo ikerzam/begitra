@@ -22,8 +22,8 @@
 //! A `Range` scope takes its members from libgit2's revwalk (`push` the tips, `hide` the
 //! excluded revision) before the first page: its limit pass stops once every pending commit is
 //! older than the hidden frontier, so the cost is the range's size plus git's slop, never the
-//! excluded history. That pass runs under the operation's timeout but cannot be
-//! interrupted by `Cancel`; every page after it can.
+//! excluded history. That pass runs under the operation's timeout but cannot be interrupted by
+//! `Cancel`; every page after it can.
 //!
 //! When a commit cannot be read, the page in progress is returned with `done` set and the
 //! [`GitError::CorruptObject`] is kept for the following call; when nothing was read yet the

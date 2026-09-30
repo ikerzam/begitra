@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // The text of one diff line: intra-line emphasis on the changed bytes and the syntax colour of
-// each token class. The diff's own facts stay in the row tint, the
-// marker and the emphasis background, so the text colour is free for the syntax. Without wrap
-// the text moves sideways by the viewer's `--diff-scroll-x` inside its clipping span.
+// each token class. The diff's own facts stay in the row tint, the marker and the emphasis
+// background, so the text colour is free for the syntax. Without wrap the text moves sideways by
+// the viewer's `--diff-scroll-x` inside its clipping span.
 
 import { computed } from "vue";
 

@@ -1,6 +1,6 @@
 # Weekly updates for the three ecosystems, minor and patch grouped into one pull request
-# each: a Tauri, Vue or libgit2 major is a decision Iker makes himself, the rest is
-# noise when split. The actions are pinned by commit, so this is what keeps them fresh.
+# each: a Tauri, Vue or libgit2 major is a decision Iker makes himself, the rest is noise when
+# split. The actions are pinned by commit, so this is what keeps them fresh.
 # Each pull request runs the Linux checks and a green patch or minor npm or Cargo update merges
 # itself (workflows/dependabot.yml); the seven-day cooldown proposes only versions a week old,
 # since nobody reads a merge that makes itself and most bad releases are pulled within days.

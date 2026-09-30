@@ -19,8 +19,7 @@ const heightClasses: Record<SkeletonHeight, string> = {
   diff: "h-row-diff",
 };
 
-/* Line widths: one long line (220, 180,
-   240 or 200px), then 56 and 44px, capped by the row. */
+/* Line widths: one long line (220, 180, 240 or 200px), then 56 and 44px, capped by the row. */
 const patterns = [
   ["220px", "56px", "44px"],
   ["180px", "56px", "44px"],

@@ -1,5 +1,5 @@
-// The update check of the About section: nothing runs unless the user
-// asks. `check` asks the updater plugin (the endpoint and the public key of
+// The update check of the About section: nothing runs unless the user asks.
+// `check` asks the updater plugin (the endpoint and the public key of
 // `tauri.conf.json`), `install` downloads and installs the version found with its progress
 // in the status bar, and `restart` relaunches. On Windows the plugin's install exits the app
 // itself once the installer starts; elsewhere "Restart" does it. A failure of any step is

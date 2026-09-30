@@ -1,6 +1,6 @@
-# Begitra's downloads and update manifest: nginx serving the folder the release
-# script uploads, routed by Dokploy's Traefik for begitra.ikerzam.tech with its Let's Encrypt
-# resolver. On the VPS, in the folder holding this file and nginx.conf: `docker compose up -d`.
+# Begitra's downloads and update manifest: nginx serving the folder the release script uploads,
+# routed by Dokploy's Traefik for begitra.ikerzam.tech with its Let's Encrypt resolver. On the VPS,
+# in the folder holding this file and nginx.conf: `docker compose up -d`.
 name: begitra-releases
 
 services:

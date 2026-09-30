@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// The settings screen, beside the shell's rail: the
-// title and the subtitle, then two columns, the sections Discovery, Git, Terminal and
-// editor and Diff on the left, Shortcuts on the right. Every control writes the settings
-// store at once; j/k move between the fields when no text field has the focus.
+// The settings screen, beside the shell's rail: the title and the subtitle, then two columns, the
+// sections Discovery, Git, Terminal and editor and Diff on the left, Shortcuts on the right.
+// Every control writes the settings store at once; j/k move between the fields when no text field
+// has the focus.
 
 import { onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
@@ -161,8 +161,8 @@ defineExpose({
 </template>
 
 <style scoped>
-/* The right column 440px wide and 48px from the left one; the depth
-   field 72px. Off the spacing scale. */
+/* The right column 440px wide and 48px from the left one; the depth field 72px. Off the spacing
+   scale. */
 .settings-columns {
   grid-template-columns: minmax(0, 1fr) 440px;
   column-gap: 48px;

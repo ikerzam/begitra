@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // The diff panel of review focus: the file header and the body, which is the rows of the
-// open file or one of its states: the card (large, generated, binary and
-// unmerged files go behind it), the image view, and the empty, loading and error states.
+// open file or one of its states: the card of a large, generated, binary or unmerged file, the
+// image view, and the empty, loading and error states.
 
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";

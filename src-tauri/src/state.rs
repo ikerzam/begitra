@@ -70,8 +70,8 @@ struct WatchSlot {
     generation: u64,
 }
 
-/// Most watchers the folder view keeps: the repositories after the first ones in
-/// its order read again on the window's focus instead.
+/// Most watchers the folder view keeps: the repositories after the first ones in its order read
+/// again on the window's focus instead.
 pub const FOLDER_WATCH_LIMIT: usize = 20;
 
 /// The folder view's watchers: the roots its latest sync lists, the watchers running, and the
@@ -109,8 +109,8 @@ const HIGHLIGHT_CACHE: usize = 32;
 /// Entries of any kind kept per repository: the answers without tokens (no known syntax)
 /// weigh nothing and do not count against [`HIGHLIGHT_CACHE`], but stay bounded.
 const HIGHLIGHT_CACHE_ENTRIES: usize = 256;
-/// Bytes of tokens the highlights of one process may hold together (the budget keeps the
-/// idle footprint under 200 MB; a dense 50,000-line file is about 10 MB).
+/// Bytes of tokens the highlights of one process may hold together (the idle footprint's budget
+/// is 200 MB; a dense 50,000-line file is about 10 MB).
 const HIGHLIGHT_CACHE_BYTES: usize = 48 * 1024 * 1024;
 
 /// Heap bytes a highlight holds: the token vectors and one header per line.

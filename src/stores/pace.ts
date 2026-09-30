@@ -1,6 +1,5 @@
-// The folder view's watchers applied at a pace: a
-// repository's changes reach its lists at most once a period, the changes of the meantime
-// merged into one that reads everything they named.
+// The folder view's watchers applied at a pace: a repository's changes reach its lists at most
+// once a period, the changes of the meantime merged into one that reads everything they named.
 
 import type { RepoChanged } from "@/ipc/schemas";
 

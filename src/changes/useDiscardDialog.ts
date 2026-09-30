@@ -1,6 +1,6 @@
-// The discard confirmation of the changes screen and the folder view (the
-// dialog): its title, body and confirm label for files, a hunk or picked lines, naming what is
-// lost and that nothing can be recovered, and the discard itself on the repository's changes.
+// The discard confirmation of the changes screen and the folder view: its title, body and
+// confirm label for files, a hunk or picked lines, naming what is lost and that nothing can be
+// recovered, and the discard itself on the repository's changes.
 // The folder view's title also names the repository, since several can hold the same paths.
 // The dialog closes when its files leave the lists.
 
@@ -44,8 +44,8 @@ export function useDiscardDialog() {
     if (!request) return null;
     const repository = pending.value?.repository ?? null;
     if (request.kind === "files") {
-      // "The unstaged changes to a and b are lost, and b is deleted: it is not tracked yet."
-      // (b untracked); untracked files alone read "b is deleted: it is not tracked yet."
+      // "The unstaged changes to a and b are lost, and b is deleted: it is not tracked yet.";
+      // untracked files alone read "b is deleted: it is not tracked yet."
       const tracked = request.files.filter((file) => file.status !== "added");
       const untracked = request.files.filter((file) => file.status === "added");
       const count = request.files.length;

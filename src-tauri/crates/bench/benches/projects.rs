@@ -5,8 +5,8 @@
 //! budget is the repository index's, 50 ms for 500 entries, projects included.
 //! `project_restore` is the launch's path to the first page: the projects listed (the open
 //! project names the repository it showed last), that repository opened and its first page of
-//! 500 commits walked, on every benchmark repository present (`bench/repos` or
-//! `BEGITRA_BENCH_REPOS`), against "Open repository → first graph paint" (300 ms).
+//! 500 commits walked, on every benchmark repository present (`begitra-bench-repos` beside
+//! the repository, or `BEGITRA_BENCH_REPOS`), against "Open repository → first graph paint" (300 ms).
 
 use std::path::PathBuf;
 

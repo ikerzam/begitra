@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// The Terminal and editor settings: the terminal's and the editor's templates and "Editor at a
-// line", committed on blur and Enter; an empty "Editor at a line" is derived from the editor,
-// and its placeholder shows what that gives. The hints name the placeholders as text: vue-i18n
-// would read `{path}` in a message as a parameter.
+// The settings' Terminal and editor section: the terminal's and the editor's templates and
+// "Editor at a line", committed on blur and Enter; an empty "Editor at a line" is derived from
+// the editor, and its placeholder shows what that gives. The hints name the placeholders as text:
+// vue-i18n would read `{path}` in a message as a parameter.
 
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";

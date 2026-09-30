@@ -27,9 +27,9 @@ pub fn budget(id: &str) -> Option<Duration> {
         // be in before a first diff.
         ("syntax", "warm_up") => 300,
         ("diff_large_file", _) | ("merge_base", _) => 500,
-        // The comparison of two branches diverged by 2,000 commits, within 500 ms each: the
-        // base with the counts, the first page of a side, the count of a short range and the
-        // whole three-dot diff (the app pages it).
+        // The comparison of two branches diverged by 2,000 commits, each part within 500 ms:
+        // the base with the counts, the first page of a side, the count of a short range and
+        // the whole three-dot diff (the app pages it).
         ("compare", _) | ("walk_range_first_page", _) | ("count_range", _) => 500,
         ("diff_three_dot_first_page", _) => 500,
         // The changes screen's first page, 1,000 files modified against the index: a full

@@ -1,6 +1,6 @@
-// Keeping popups inside the window: 8px from its edges, on the
-// other side of their point or control when the asked side would cross one, and pushed back
-// along an edge when neither side has room. Pure: the components measure, these decide.
+// Keeping popups inside the window: 8px from its edges, on the other side of their point or
+// control when the asked side would cross one, and pushed back along an edge when neither side
+// has room. Pure: the components measure, these decide.
 
 /** The gap popups keep from the window's edges: --space-2, as the hover card. */
 export const EDGE = 8;

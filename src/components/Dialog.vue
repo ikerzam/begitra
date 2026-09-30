@@ -137,8 +137,8 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-/* A dialog is 440px wide; it shrinks on narrow windows and
-   keeps 16px from a short window's edges, its content scrolling. */
+/* A dialog is 440px wide; it shrinks on narrow windows and keeps 16px from a short window's
+   edges, its content scrolling. */
 .dialog {
   width: 440px;
   max-width: calc(100vw - var(--space-6));

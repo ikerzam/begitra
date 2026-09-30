@@ -1,8 +1,7 @@
 <script setup lang="ts">
-// The merge preview banner of the comparison, in its states: computing (with
-// the bar), fast-forward, up to date, clean, conflicts with the
-// paths and the reminder that nothing is written, and the failure with
-// the raw git output while the lists stay.
+// The merge preview banner of the comparison, in its states: computing (the bar), fast-forward,
+// up to date, clean, conflicts with the paths and the reminder that nothing is written, and the
+// failure with the raw git output while the lists stay.
 
 import { CircleAlert, CircleCheck, FastForward, Loader, Terminal } from "@lucide/vue";
 import { computed } from "vue";
@@ -55,8 +54,8 @@ const errorMessage = computed(() => {
 </script>
 
 <template>
-  <!-- Inset from the panel edges: 12px at the sides, 8px above and
-       4px below, before the hairline of the side lists. -->
+  <!-- Inset from the panel edges: 12px at the sides, 8px above and 4px below, before the
+       hairline of the side lists. -->
   <div class="px-3 pt-2 pb-1" data-testid="merge-preview">
     <ErrorBanner
       v-if="props.error"

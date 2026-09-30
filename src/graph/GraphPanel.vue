@@ -135,7 +135,7 @@ const showEmpty = computed(
 );
 
 /* A folder project's own repository leaves the project only when a scan of its folder no longer
-   finds it, so the error state offers the scan (projects' removal rules). */
+   finds it, so the error state offers the scan. */
 const scanInstead = computed(() => {
   const state = repo.state;
   if (state.kind !== "error") return false;

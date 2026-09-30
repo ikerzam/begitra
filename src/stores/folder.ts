@@ -1,16 +1,16 @@
-// The Overview and the folder view of the open project: its
-// repositories and worktrees in its order (a missing one left to the Overview), a changes model
-// each (`changesModel.ts`), the open repository's being the changes screen's store, the
-// sections of those with changes, the group of those without, and the repository the selection
-// is in. The view that shows (`ProjectLayout`) says when: the Overview and the Changes share the
-// one set of models, reads and watchers. The reads wait in one queue and run two at a time: the
-// first loads, the refresh button, the window's focus (at most every 5 seconds) and each return
-// to the view. While the view shows, its repositories have watchers (`watch_folder`, the first
-// 20), whose changes reach each model at most once a second (`pace.ts`). A repository's engine
-// closes once its lists are read, but the one the selection is in and the open repository's
-// (an engine keeps the index loaded, and twenty large ones would hold gigabytes). Leaving the
-// view stops the watchers and closes the engines of the repositories
-// that are not the open one; the models, their drafts included, stay while the project does.
+// The Overview and the folder view of the open project: its repositories and worktrees in its
+// order (a missing one left to the Overview), a changes model each (`changesModel.ts`), the open
+// repository's being the changes screen's store, the sections of those with changes, the group of
+// those without, and the repository the selection is in. The view that shows (`ProjectLayout`)
+// says when: the Overview and the Changes share the one set of models, reads and watchers. The
+// reads wait in one queue and run two at a time: the first loads, the refresh button, the
+// window's focus (at most every 5 seconds) and each return to the view. While the view shows, its
+// repositories have watchers (`watch_folder`, the first 20), whose changes reach each model at
+// most once a second (`pace.ts`). A repository's engine closes once its lists are read, but the
+// one the selection is in and the open repository's, since an engine keeps the index loaded and
+// twenty large ones would hold gigabytes. Leaving the view stops the watchers and closes the
+// engines of the repositories that are not the open one; the models, their drafts included, stay
+// while the project does.
 
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { defineStore } from "pinia";

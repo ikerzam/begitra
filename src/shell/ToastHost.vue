@@ -68,9 +68,8 @@ function actionOf(toast: ToastEntry): string {
 </template>
 
 <style scoped>
-/* The raw output block of a toast: 480px wide like the palette and the
-   command box of the top bar, at most 240px tall before it scrolls; neither is on the spacing
-   scale. */
+/* The raw output block of a toast: 480px wide like the palette and the command box of the top
+   bar, at most 240px tall before it scrolls; neither is on the spacing scale. */
 .toast-output {
   width: 480px;
   max-height: 240px;

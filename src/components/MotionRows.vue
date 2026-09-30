@@ -1,11 +1,10 @@
 <script setup lang="ts">
 // A list's rows that collapse when the user's action removes one and expand when it adds one
-// (`src/motion`): a `TransitionGroup` while the list is short enough
-// to measure on every render, a plain element past `MOTION_MAX_ROWS`. The rows move only while
-// a store armed the list. A leaving row turns inert (no pointer, no focus) and loses the
-// attributes the lists look rows up by, so a lookup finds the row that took its place; when it
-// held the focus, `focusLost` asks the list to give it to its selected row. The attributes
-// land on the root either way.
+// (`src/motion`): a `TransitionGroup` while the list is short enough to measure on every render,
+// a plain element past `MOTION_MAX_ROWS`. The rows move only while a store armed the list. A
+// leaving row turns inert (no pointer, no focus) and loses the attributes the lists look rows up
+// by, so a lookup finds the row that took its place; when it held the focus, `focusLost` asks the
+// list to give it to its selected row. The attributes land on the root either way.
 
 import { computed, nextTick } from "vue";
 

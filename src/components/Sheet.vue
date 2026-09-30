@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // A wide dialog for a list with its own actions (the remotes and the stash sheets): a title
-// with a count and the header's actions, the body, a footer sentence and "Close".
-// Same scrim and focus rules as `Dialog`; both sheets are 640px wide.
+// with a count and the header's actions, the body, a footer sentence and "Close". Same scrim
+// and focus rules as `Dialog`; both sheets are 640px wide.
 
 import { X } from "@lucide/vue";
 import { onBeforeUnmount, onMounted, useId, useTemplateRef } from "vue";

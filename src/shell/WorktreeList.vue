@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// The Worktrees tab: the worktrees of the open repository as their folder name with the
-// branch's lane dot and the tree icon, filtered, with roving focus and
-// j/k navigation. Selecting a row selects it in the dashboard; ↵ opens it as the context; a
-// right click or the menu key opens the dashboard's row menu without its dialog actions.
+// The Worktrees tab: the worktrees of the open repository as their folder name with the branch's
+// lane dot and the tree icon, filtered, with roving focus and j/k navigation. Selecting a row
+// selects it in the dashboard; ↵ opens it as the context; a right click or the menu key opens the
+// dashboard's row menu without its dialog actions.
 
 import { ListTree } from "@lucide/vue";
 import { computed, ref, watch } from "vue";

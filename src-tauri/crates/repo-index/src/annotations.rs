@@ -1,5 +1,6 @@
 //! Review state: marks and notes per repository and review target, one row per
-//! `(repo, target, path, hunk, kind)` so a write is an upsert and a read is one query.
+//! `(repo, target, path, hunk, kind)` so a write is an upsert and a read is one query. The
+//! `kind` column leaves room for other annotations, such as an assistant's findings.
 
 use std::path::Path;
 

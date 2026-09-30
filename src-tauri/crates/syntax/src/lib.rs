@@ -1,4 +1,6 @@
-//! Token classes and declarations of source files for the diff viewer.
+//! Token classes and declarations of source files for the diff viewer, computed in Rust rather
+//! than in the webview: with the tokens cached across a review's files the highlighting stays
+//! within its budget, and repository content never becomes an HTML string.
 //!
 //! [`highlight`] classifies the tokens of a file into eight classes with syntect (the `bat`
 //! project's Sublime grammars on Oniguruma); [`symbols`] lists the declarations of a file with

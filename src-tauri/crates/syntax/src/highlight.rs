@@ -2,8 +2,8 @@
 //! syntax is picked by the whole file name, then by extension, then by the first line; every
 //! scope of the stack is mapped to one of eight classes (each scope's name read once per file)
 //! and adjacent tokens of one class are merged. Only the non-plain tokens are reported: what a
-//! line does not list is plain. The viewer paints each class in its syntax colour
-//! (the `--syntax-*` tokens).
+//! line does not list is plain. The viewer paints six classes in the `--syntax-*` colour tokens
+//! and punctuation in `--text-secondary`.
 
 use std::collections::HashMap;
 use std::sync::OnceLock;

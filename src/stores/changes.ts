@@ -1,7 +1,6 @@
-// The changes screen's store: the
-// changes model (`changesModel.ts`) of the open repository, with the watches that tie it to the
-// repository open. The draft is kept here so that leaving the screen does not lose a
-// half-written message.
+// The changes screen's store: the changes model (`changesModel.ts`) of the open repository, with
+// the watches that tie it to the repository open. The draft is kept here so that leaving the
+// screen does not lose a half-written message.
 
 import { defineStore } from "pinia";
 import { watch } from "vue";

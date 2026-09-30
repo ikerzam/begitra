@@ -1,10 +1,10 @@
-// The Overview of the open project: one row per member in its order, each worktree
-// under its repository when both are members, filled from the index at once; each member's summary is read again once the rows are
-// known, when it joins the project and on refresh, four at a time (the scan's summary workers
-// are four too) and without a status of the working tree, whose changed files the member's
-// lists count; a member whose summary cannot be read keeps its row with the reason. Above the
-// rows, the branches the members are on, most common first. The selection (Space, Ctrl+A) is
-// what the bulk actions act on, every row when empty.
+// The Overview of the open project: one row per member in its order, each worktree under its
+// repository when both are members, filled from the index at once; each member's summary is read
+// again once the rows are known, when it joins the project and on refresh, four at a time (the
+// scan's summary workers are four too) and without a status of the working tree, whose changed
+// files the member's lists count; a member whose summary cannot be read keeps its row with the
+// reason. Above the rows, the branches the members are on, most common first. The selection
+// (Space, Ctrl+A) is what the bulk actions act on, every row when empty.
 
 import { defineStore } from "pinia";
 import { computed, reactive, ref, shallowReactive, watch } from "vue";

@@ -71,7 +71,7 @@ const name = useId();
 </template>
 
 <style scoped>
-/* The box is 14px; no spacing step is 14. */
+/* The box is 14px, as `Checkbox`'s; no spacing step is 14. */
 .radio-box {
   width: 14px;
   height: 14px;

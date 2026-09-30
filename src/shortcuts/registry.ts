@@ -1,6 +1,6 @@
-// The shortcut registry: the default bindings, the handlers that
-// screens attach to them, and one keydown dispatcher. Bindings are keyed by a stable id so
-// the palette, tooltips and the status bar can render the hint of any command.
+// The shortcut registry: the default bindings, the handlers that screens attach to them, and one
+// keydown dispatcher. Bindings are keyed by a stable id so the palette, tooltips and the status
+// bar can render the hint of any command.
 
 import { detectPlatform, formatShortcut, matchesKeys, type Platform } from "./platform";
 

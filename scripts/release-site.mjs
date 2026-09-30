@@ -1,7 +1,7 @@
 // The parts of a release that decide what the server holds: the version the three manifests
 // agree on, the installers a build left, the update manifest, and the site's pages (the product
-// page and the download page, in English and Spanish). Used by
-// scripts/release.mjs and tested in tests/release.test.ts.
+// page and the download page, in English and Spanish). Used by scripts/release.mjs and tested
+// in tests/release.test.ts.
 
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";

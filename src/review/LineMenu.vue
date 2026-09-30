@@ -1,8 +1,7 @@
 <script setup lang="ts">
-// The menu of a diff line: Copy while text is
-// selected, "Open in editor at line N" (the new side's line; absent for a deleted file) and
-// Copy path. It opens on a right click of a line or its numbers, and on the menu key while the
-// diff has focus.
+// The menu of a diff line: Copy while text is selected, "Open in editor at line N" (the new
+// side's line; absent for a deleted file) and Copy path. It opens on a right click of a line or
+// its numbers, and on the menu key while the diff has focus.
 
 import { Code, Copy, FileText } from "@lucide/vue";
 import { useI18n } from "vue-i18n";

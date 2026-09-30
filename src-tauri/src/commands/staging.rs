@@ -199,7 +199,7 @@ pub async fn discard_paths(
 
 /// Applies a selection of hunks and lines: to the index, reversed to the index, or
 /// reversed to the working tree. `target` travels beside the selection so that the
-/// phase's largest payload is parsed once.
+/// largest payload of these commands is parsed once.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state, selection), fields(path = %selection.path, target = ?target))]
 pub async fn apply_selection(

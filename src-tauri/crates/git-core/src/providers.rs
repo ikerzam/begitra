@@ -1,4 +1,4 @@
-//! Seam for future assistant integrations. No implementation ships in v0.
+//! Seam for assistant integrations; nothing in the app implements it.
 
 use crate::error::GitResult;
 

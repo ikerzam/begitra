@@ -12,7 +12,8 @@ repository = "https://github.com/ikerzam/begitra"
 git-core = { path = "crates/git-core" }
 repo-index = { path = "crates/repo-index" }
 syntax = { path = "crates/syntax" }
-# Local operations only: no OpenSSL or libssh2 build; network goes through the git CLI.
+# Local operations only: no OpenSSL or libssh2 build. Network goes through the git CLI, so the
+# user's credential helpers and SSH agent apply.
 git2 = { version = "0.21", default-features = false }
 rusqlite = { version = "0.40", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
@@ -27,9 +28,9 @@ shell-words = "1"
 criterion = "0.8"
 tempfile = "3"
 notify = "8"
-# Highlighting and symbols: syntect on Oniguruma, the engine the `bat` project's
-# syntax set (two-face) is written for, and tree-sitter with the seven grammars below;
-# isolated in the `syntax` crate.
+# Highlighting and symbols: syntect on Oniguruma, the engine the `bat` project's syntax set
+# (two-face) is written for, and tree-sitter with the seven grammars below; isolated in the
+# `syntax` crate.
 syntect = { version = "5.3", default-features = false, features = ["parsing", "dump-load", "regex-onig"] }
 two-face = { version = "0.5", default-features = false, features = ["syntect-onig"] }
 tree-sitter = "0.27"

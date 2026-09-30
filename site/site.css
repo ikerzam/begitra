@@ -1,9 +1,8 @@
 /*
- * The site's styles: the product page and the download page, at 1440 and down to a
- * 390-wide phone. The colours
- * are the app's tokens (src/styles/tokens.css), dark by default and light when the visitor's
- * system asks for it; pictures of the app keep the dark ones (.app-dark). The release script
- * serves this file and the fonts under content-hashed names, cached as immutable.
+ * The site's styles: the product page and the download page, at 1440 and down to a 390-wide
+ * phone. The colours are the app's tokens (src/styles/tokens.css), dark by default and light when
+ * the visitor's system asks for it; pictures of the app keep the dark ones (.app-dark). The release
+ * script serves this file and the fonts under content-hashed names, cached as immutable.
  */
 
 @font-face {

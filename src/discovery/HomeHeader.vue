@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// The header of Home: the title, the count line, "Open
-// folder…", "New project…", and Scan over every folder project (primary), which becomes Stop
-// (secondary) while a scan runs; under it, the scan's progress line.
+// The header of Home: the title, the count line, "Open folder…", "New project…", and Scan over
+// every folder project (primary), which becomes Stop (secondary) while a scan runs; under it,
+// the scan's progress line.
 
 import { Plus } from "@lucide/vue";
 import { useI18n } from "vue-i18n";

@@ -1,9 +1,8 @@
 <script setup lang="ts">
-// The filter bar of the graph: the repository selector
-// while the open project holds more than one repository, then search, scope, author, date range
-// and path, each filled when active; the pinned-commit chips; the count line and "Clear" once
-// something narrows the history, at the end of the bar outside the controls' row, so a narrow
-// panel scrolls the controls and never "Clear".
+// The filter bar of the graph: the repository selector while the open project holds more than
+// one repository, then search, scope, author, date range and path, each filled when active; the
+// pinned-commit chips; the count line and "Clear" once something narrows the history, at the end
+// of the bar outside the controls' row, so a narrow panel scrolls the controls and never "Clear".
 
 import { Folder, Search, X } from "@lucide/vue";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
@@ -235,14 +234,14 @@ const countLine = computed(() => {
 </template>
 
 <style scoped>
-/* Control widths of the filter bar: search 200, then the three selects
-   sized to their content (124, 104, 104). None is on the spacing scale. A panel
-   narrower than the bar (the repository selector in front, a narrow window, a high zoom) takes
-   its room, in this order, from the count line, down to nothing; from the search and the
-   repository selector, down to 112 and 96; and from the selects, down to 88, where a label is
-   cut with an ellipsis (the open list shows it whole). Past those widths the controls scroll
-   sideways, "Clear" staying at the end: the weights below set the order, since a flex item
-   gives up room in proportion to its weight times its width. */
+/* Control widths of the filter bar: search 200, then the three selects sized to their content
+   (124, 104, 104). None is on the spacing scale. A panel narrower than the bar (the repository
+   selector in front, a narrow window, a high zoom) takes its room, in this order, from the count
+   line, down to nothing; from the search and the repository selector, down to 112 and 96; and
+   from the selects, down to 88, where a label is cut with an ellipsis (the open list shows it
+   whole). Past those widths the controls scroll sideways, "Clear" staying at the end: the
+   weights below set the order, since a flex item gives up room in proportion to its weight
+   times its width. */
 .filter-count {
   flex-shrink: 100;
 }

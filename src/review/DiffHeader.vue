@@ -1,9 +1,8 @@
 <script setup lang="ts">
-// The file header of the diff panel: the mono path, the generated
-// and binary flags, the stats, the layout, wrap, whitespace and Whole file toggles, "Open in
-// editor" (the
-// working tree's file at its first change),
-// "Mark reviewed" and, with the review rail collapsed, the control that brings it back.
+// The file header of the diff panel: the mono path, the generated and binary flags, the stats,
+// the layout, wrap, whitespace and Whole file toggles, "Open in editor" (the working tree's file
+// at its first change), "Mark reviewed" and, with the review rail collapsed, the control that
+// brings it back.
 
 import {
   AlignLeft,

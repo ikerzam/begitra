@@ -1,10 +1,9 @@
 <script setup lang="ts">
-// The changes screen: the sidebar of graph focus stays, the main area
-// is the lists panel with the commit box under it, then the viewer. j and k move the selected
-// file through both lists from anywhere on the screen; s, u and Backspace act on the picked
-// lines when there are any, else on the selected file; ⌘↵ commits. Discards confirm once in
-// the discard dialog, naming the files or the lines and that nothing can
-// be recovered.
+// The changes screen: the sidebar of graph focus stays, the main area is the lists panel with the
+// commit box under it, then the viewer. j and k move the selected file through both lists from
+// anywhere on the screen; s, u and Backspace act on the picked lines when there are any, else on
+// the selected file; ⌘↵ commits. Discards confirm once in the discard dialog, naming the files or
+// the lines and that nothing can be recovered.
 
 import { computed, nextTick, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";

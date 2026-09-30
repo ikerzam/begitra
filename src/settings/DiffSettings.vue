@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// The Diff settings: the toggles of the viewer (Whole file among them, which the file header's
-// toggle changes too), the tab width and the filters a review starts with ("Hide by default").
+// The settings' Diff section: the toggles of the viewer (Whole file among them, which the file
+// header's toggle changes too), the tab width and the filters a review starts with
+// ("Hide by default").
 
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";

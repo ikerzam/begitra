@@ -1,9 +1,8 @@
 <script setup lang="ts">
-// Home with projects: the header (the counts, "Open
-// folder…", "New project…", Scan or Stop, the scan's progress), the banner of each folder
-// project whose folder could not be scanned (its details, and "Remove project", which asks
-// first), the banner of a scan that failed, then the projects. The empty Home stays in the shell
-// as `HomeEmpty`.
+// Home with projects: the header (the counts, "Open folder…", "New project…", Scan or Stop, the
+// scan's progress), the banner of each folder project whose folder could not be scanned (its
+// details, and "Remove project", which asks first), the banner of a scan that failed, then the
+// projects. The empty Home, with no project, stays in the shell as `HomeEmpty`.
 
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";

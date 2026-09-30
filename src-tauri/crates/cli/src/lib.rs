@@ -97,7 +97,8 @@ pub enum Parsed {
     Version,
 }
 
-/// A failure as the IPC bridge shapes it.
+/// A failure as the IPC bridge shapes it, mapped again here because the bridge lives in the
+/// Tauri crate, which this one does not depend on.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Failure {
     pub code: String,

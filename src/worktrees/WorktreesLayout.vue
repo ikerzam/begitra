@@ -1,10 +1,9 @@
 <script setup lang="ts">
-// The worktrees dashboard,
-// beside the shell's sidebar: the header with the count, "Prune" and "Add worktree",
-// the error banner when a write failed, the table (or the empty state when the repository
-// has no linked worktree), the confirmations and the row menu; the add dialog is the shell's,
-// since ⇧⌘W opens it over any layout. The store holds every decision; this file only routes
-// the rows' actions to it.
+// The worktrees dashboard, beside the shell's sidebar: the header with the count, "Prune" and
+// "Add worktree", the error banner when a write failed, the table (or the empty state when the
+// repository has no linked worktree), the confirmations and the row menu; the add dialog is the
+// shell's, since ⇧⌘W opens it over any layout. The store holds every decision; this file only
+// routes the rows' actions to it.
 
 import { Eraser } from "@lucide/vue";
 import { computed, nextTick, ref } from "vue";
@@ -189,8 +188,7 @@ defineExpose({
 </template>
 
 <style scoped>
-/* 40px tall (the 28px controls sit 6px from each hairline); off the
-   spacing scale. */
+/* 40px tall (the 28px controls sit 6px from each hairline); off the spacing scale. */
 .worktrees-header {
   height: 40px;
 }

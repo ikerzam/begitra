@@ -4,8 +4,8 @@
 //! the status and the diffs the screen asks for meanwhile). A ref or `All` scope walks the
 //! parents itself from the same seeds as the graph, so it stops at the cap and answers
 //! cancellation at every [`CANCEL_EVERY`] commits. A `Range` scope counts the members of
-//! libgit2's bounded revwalk up to the cap: the cost is the range's size, never the
-//! excluded history, and only the timeout interrupts that pass.
+//! libgit2's bounded revwalk up to the cap: the cost is the range's size, never the excluded
+//! history, and only the timeout interrupts that pass.
 
 use std::collections::HashSet;
 

@@ -1,7 +1,7 @@
-// The settings screen's own state: the git
-// executable's detection and probe, the shortcut capture with its refusals, and the About
-// section's facts (the version, the log folder). The values themselves live in the settings
-// store and apply at once; this store holds what the screen is doing about them.
+// The settings screen's own state: the git executable's detection and probe, the shortcut capture
+// with its refusals, and the About section's facts (the version, the log folder). The values
+// themselves live in the settings store and apply at once; this store holds what the screen is
+// doing about them.
 
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";

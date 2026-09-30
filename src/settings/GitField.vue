@@ -1,7 +1,6 @@
 <script setup lang="ts">
 // The settings' Git section, "Git executable": the path field, "Detect", and the line under them:
-// the version once the path runs, the bar while detecting, the red
-// sentence when the path does not run.
+// the version once the path runs, the bar while detecting, the red sentence when it does not run.
 
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
@@ -71,8 +70,8 @@ const failed = computed(() => screen.gitState === "error");
 </template>
 
 <style scoped>
-/* The detection bar is 120px wide; the path field keeps the 420px of
-   every other control with "Detect" beside it. Off the spacing scale. */
+/* The detection bar is 120px wide; the path field keeps the 420px of every other control with
+   "Detect" beside it. Off the spacing scale. */
 .git-progress {
   width: 120px;
 }

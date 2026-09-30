@@ -1,9 +1,9 @@
 <script setup lang="ts">
 // The Repos tab: the open project's repositories and worktrees in its order, each worktree
 // under its repository when both are members, filtered by the sidebar filter; the one the
-// project shows is selected, a missing one is flagged, and ↵ or a click shows the focused one
-// instead. A repository the project shows without holding it (opening, or gone from the
-// project meanwhile) is listed first, so the tab never hides the current one.
+// project shows is selected, a missing one is flagged, and ↵ or a click shows the focused one.
+// A repository the project shows without holding it (opening, or gone from the project meanwhile)
+// is listed first, so the tab never hides the current one.
 
 import { FolderGit2, ListTree } from "@lucide/vue";
 import { computed, ref, watch } from "vue";

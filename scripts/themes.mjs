@@ -1,5 +1,6 @@
 // The derivation of a theme's colour tokens from its palette (design/themes.json), shared by
-// scripts/generate-themes.mjs and the token tests.
+// scripts/generate-themes.mjs and the token tests. A colour under its floor moves its HSL lightness
+// away from the background until it passes, so a theme keeps its hues.
 
 /** The floor of `--white` on the fills it is the text of: the destructive button's three and
  * the current branch's badge. */
@@ -247,7 +248,12 @@ function alphaByte(alpha) {
     .padStart(2, "0");
 }
 
-/** Contrast floors: text on the tints, code on the background and tints, markers on their row. */
+/**
+ * Contrast floors of the diff's inks: the text 4.5:1 on the changed rows and spans, the code's
+ * colours 3:1 on the background, the rows and the spans (the floor of non-text marks; 4.5:1 would
+ * turn most themes' comments into other colours), the `+` and `−` markers 4.5:1 on the background
+ * and their row.
+ */
 export const TINT_FLOORS = { text: 4.5, code: 3, marker: 4.5 };
 /** How far apart a lane must stay from the accent and from every other lane (CIEDE2000). */
 export const LANE_DISTANCE = 11;

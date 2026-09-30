@@ -1,7 +1,6 @@
 <script setup lang="ts">
-// A multi-line input in the treatment of `Input` (`--border-strong`, radius 4,
-// `--bg-app`), for the notes of the review rail; it simply follows the
-// single-line field.
+// A multi-line input in the treatment of the single-line `Input` (`--border-strong`, radius 4,
+// `--bg-app`), for the notes of the review rail.
 
 import { useId } from "vue";
 

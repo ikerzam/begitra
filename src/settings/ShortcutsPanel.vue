@@ -142,8 +142,7 @@ const refusalText = computed(() => {
 </template>
 
 <style scoped>
-/* Rows are 38px apart (28px controls with 10px between); off the
-   spacing scale. */
+/* Rows are 38px apart (28px controls with 10px between); off the spacing scale. */
 .shortcut-row {
   height: 38px;
 }

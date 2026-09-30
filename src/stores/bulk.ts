@@ -25,7 +25,10 @@ import { useOperationsStore } from "./operations";
 import { useOverviewStore } from "./overview";
 import { useRepoStore } from "./repo";
 
-/** Members that run at once, all hosts together: members usually share one host. */
+/**
+ * Members that run at once, all hosts together: a project's members usually share one host, and
+ * four keep a fetch of 20 short without opening 20 connections to it.
+ */
 export const BULK_AT_ONCE = 4;
 
 /** One member's turn in the run. */

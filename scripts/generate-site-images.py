@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
-"""Generates the site's images in site/assets/ and their sizes in site/images.json
-for the product and download pages:
+"""Generates the site's images in site/assets/ and their sizes in site/images.json:
 
-- the screenshots, cut from 2x Windows captures of the app (captures/shot-*.png,
-  2880x1800 for a 1440x900 window) with the crops the pages show, at the width each is shown
-  and twice that (never wider than the capture allows), as AVIF and WebP: <name>-<width>.avif and
-  .webp; a -narrow crop is the one a 390-wide screen shows;
+- the screenshots, cut from 2x captures of the app's Windows window (2880x1800 for a 1440x900
+  window) with the crops the pages show, at the width each is shown and twice that (never wider
+  than the capture allows), as AVIF and WebP: <name>-<width>.avif and .webp; a -narrow crop is
+  the one a 390-wide screen shows;
 - the 1200x630 Open Graph image (og.png): the icon and the wordmark, the headline and a crop of
   the review screenshot, on --bg-app;
 - the icons: icon.svg (design/brand/begitra-icon.svg), favicon.ico and apple-touch-icon.png (180)
   from the app's icons in src-tauri/icons/.
 
 Needs Pillow (with AVIF), fontTools and brotli (for Geist's woff2):
-pip install pillow fonttools brotli. Run from the repository root:
-python scripts/generate-site-images.py
+pip install pillow fonttools brotli. Run from the repository root with the folder that holds the
+captures, each found by the end of its file name (shot-review-1440.png, a prefix allowed):
+python scripts/generate-site-images.py <captures>
 """
 
 import json
 import shutil
+import sys
 from io import BytesIO
 from pathlib import Path
 
@@ -25,7 +26,6 @@ from fontTools.ttLib import TTFont
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parent.parent
-EXPORTS = ROOT / "captures"
 ICONS = ROOT / "src-tauri" / "icons"
 SITE = ROOT / "site"
 OUT = SITE / "assets"
@@ -70,10 +70,28 @@ def geist(size: int, weight: int) -> ImageFont.FreeTypeFont:
     return face
 
 
-def screenshots() -> dict:
+def captures() -> Path:
+    """The folder of captures named on the command line."""
+    if len(sys.argv) != 2:
+        raise SystemExit("usage: python scripts/generate-site-images.py <captures>")
+    folder = Path(sys.argv[1]).resolve()
+    if not folder.is_dir():
+        raise SystemExit(f"not a folder: {folder}")
+    return folder
+
+
+def capture(folder: Path, name: str) -> Image.Image:
+    """The one capture whose file name ends with `name`."""
+    found = sorted(folder.glob(f"*{name}"))
+    if len(found) != 1:
+        raise SystemExit(f"expected one capture ending in {name} in {folder}, found {len(found)}")
+    return Image.open(found[0]).convert("RGB")
+
+
+def screenshots(folder: Path) -> dict:
     sizes = {}
     for name, export, (x, y, w, h), shown, extra in SHOTS:
-        source = Image.open(EXPORTS / export).convert("RGB")
+        source = capture(folder, export)
         region = source.crop((x * SCALE, y * SCALE, (x + w) * SCALE, (y + h) * SCALE))
         widths = sorted({min(width, region.width) for width in [shown, shown * 2, *extra]})
         for width in widths:
@@ -111,11 +129,11 @@ def rounded(image: Image.Image, radius: int) -> Image.Image:
     return out
 
 
-def open_graph() -> None:
+def open_graph(folder: Path) -> None:
     card = Image.new("RGB", (1200, 630), BG)
     draw = ImageDraw.Draw(card)
     # The review screenshot below the top bar, its diff and overview, on the right side.
-    review = Image.open(EXPORTS / "shot-review-1440.png").convert("RGB")
+    review = capture(folder, "shot-review-1440.png")
     crop = review.crop((760, 120, 2880, 1500)).resize((706, 460), Image.Resampling.LANCZOS)
     frame = Image.new("RGB", (crop.width + 2, crop.height + 2), BORDER)
     frame.paste(crop, (1, 1))
@@ -146,12 +164,13 @@ def icons() -> None:
 
 
 def main() -> None:
+    folder = captures()
     # Everything in the folder is this script's output: a crop that is gone leaves no file.
     shutil.rmtree(OUT, ignore_errors=True)
     OUT.mkdir(parents=True)
-    sizes = screenshots()
+    sizes = screenshots(folder)
     (SITE / "images.json").write_text(images_json(sizes), encoding="utf-8")
-    open_graph()
+    open_graph(folder)
     icons()
     total = 0
     for path in sorted(OUT.iterdir()):

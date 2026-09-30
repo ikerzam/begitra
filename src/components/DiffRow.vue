@@ -74,7 +74,8 @@ const markerClass = computed(() => {
 </template>
 
 <style scoped>
-/* Default gutter widths; the viewer may widen them for long files. */
+/* Gutters of 44px per line number and 22px for the marker; the viewer may widen them for long
+   files. */
 .diff-row {
   grid-template-columns:
     var(--diff-gutter-w, 44px) var(--diff-gutter-w, 44px) var(--diff-marker-w, 22px)

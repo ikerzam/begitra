@@ -1,7 +1,7 @@
 // The webview's own context menu ("Save as", "Print", "Inspect") never opens: a right click an
-// app menu handled keeps that menu, a text field keeps the
-// platform's edit menu, selected text gets the app's text menu, and anything else gets nothing.
-// The listener sits on the document in the bubble phase, after every component's handler.
+// app menu handled keeps that menu, a text field keeps the platform's edit menu, selected text
+// gets the app's text menu, and anything else gets nothing. The listener sits on the document in
+// the bubble phase, after every component's handler.
 
 import { onBeforeUnmount, onMounted } from "vue";
 

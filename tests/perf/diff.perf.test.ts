@@ -3,10 +3,9 @@
 // in under 50 ms, and the visible range of a 40-row viewport at 1,000 scroll positions in
 // under 4 ms per position; the same file shown whole (its new side split, checked against
 // the hunks, its rows and heights built) under 50 ms a step; the widest line (the reach of
-// the sideways scroll) under 50 ms, ASCII or not. Rendering is not measured here
-// (jsdom paints nothing); the first
-// screen through the store is checked by hand in the app. Numbers are printed so
-// a run can be recorded.
+// the sideways scroll) under 50 ms, ASCII or not. Rendering is not measured here (jsdom paints
+// nothing): the first screen through the store is checked by hand in the app. The numbers are
+// printed so a run can be recorded.
 
 import { describe, expect, it } from "vitest";
 

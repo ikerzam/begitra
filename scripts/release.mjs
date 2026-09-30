@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// Cuts a Windows release of Begitra: checks that the three manifests agree on
-// the version and that site/releases.json describes it, builds the NSIS and MSI bundles with the
-// updater's key, stages the site the server holds in src-tauri/target/release-site (the versioned
-// folder, the pages and their assets, latest.json) and, with --upload, copies it there,
-// `latest.json` last so the manifest never names a file the server lacks. --site-only stages and
+// Cuts a Windows release of Begitra: checks that the three manifests agree on the version and that
+// site/releases.json describes it, builds the NSIS and MSI bundles with the updater's key, stages
+// the site the server holds in src-tauri/target/release-site (the versioned folder, the pages and
+// their assets, latest.json) and, with --upload, copies it there, `latest.json` last so the
+// manifest never names a file the server lacks. --site-only stages and
 // uploads the pages without building or touching the installers and latest.json, once the
 // server's installers of the version match the local ones.
 //
