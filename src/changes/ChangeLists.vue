@@ -304,12 +304,16 @@ function onFocusOut(event: FocusEvent): void {
   focusInside = false;
 }
 
-// A write reloads the lists and the selected row leaves the DOM with the focus: the row
-// that took its place gets it back, so Enter, Space and the keys keep working.
+// A write moves the selected row out of its list, and the row takes the focus with it (it
+// leaves the DOM, or turns inert while it collapses): the row that took its place gets it
+// back, so Enter, Space and the keys keep working. The focus counts as the panel's when it
+// was last seen there or is there now, since a moved row still holds it when the selection
+// changes and a page without the system's focus sends no focus events.
 watch(
   () => changes.selected,
   () => {
-    if (!focusInside || menu.value || conflictMenu.value) return;
+    const holding = panel.value?.contains(document.activeElement) ?? false;
+    if (!(focusInside || holding) || menu.value || conflictMenu.value) return;
     void nextTick(() => {
       const active = document.activeElement;
       const kept = active && active !== document.body && panel.value?.contains(active);
