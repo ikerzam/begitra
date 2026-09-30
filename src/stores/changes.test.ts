@@ -344,6 +344,26 @@ describe("changes store", () => {
     expect(shown(changes).unstaged).toContain("src/new.ts");
   });
 
+  it("shows a list that Stage all emptied past the restricted reads as empty, not loading", async () => {
+    const gate = writeGate();
+    const many = Array.from({ length: 250 }, (_, i) =>
+      changedFile(`src/f${String(i).padStart(3, "0")}.ts`),
+    );
+    const { changes } = await openChanges({
+      writeGate: gate,
+      changes: { unstaged: many, staged: [] },
+    });
+    void changes.stageAll();
+    expect(changes.unstaged.files).toHaveLength(0);
+    expect(changes.unstaged.loading).toBe(false);
+    expect(changes.staged.files).toHaveLength(250);
+    gate.release();
+    await changes.settled();
+    // Past 200 paths the lists are read whole; Unstaged never showed a loading state.
+    expect(changes.unstaged).toMatchObject({ files: [], loading: false });
+    expect(changes.staged.files).toHaveLength(250);
+  });
+
   it("takes discarded files out of Unstaged before git answers", async () => {
     const gate = writeGate();
     const { changes } = await openChanges({ writeGate: gate });

@@ -404,17 +404,22 @@ defineExpose({ focus: navigation.focus, moveFile, selectEdge });
           />
         </template>
       </PanelHeader>
+      <div
+        v-if="showLists && shows('unstaged') && showSkeletons('unstaged')"
+        role="tree"
+        class="py-1"
+        data-testid="unstaged-list"
+      >
+        <SkeletonRow v-for="n in 5" :key="n" :index="n" height="tree" />
+      </div>
       <MotionRows
-        v-if="showLists && shows('unstaged')"
+        v-else-if="showLists && shows('unstaged')"
         list="changes"
         :count="changes.unstaged.files.length"
         role="tree"
         class="py-1"
         data-testid="unstaged-list"
       >
-        <template v-if="showSkeletons('unstaged')">
-          <SkeletonRow v-for="n in 5" :key="n" :index="n" height="tree" />
-        </template>
         <TreeRow
           v-for="(file, index) in changes.unstaged.files"
           :key="file.path"
@@ -451,17 +456,22 @@ defineExpose({ focus: navigation.focus, moveFile, selectEdge });
           />
         </template>
       </PanelHeader>
+      <div
+        v-if="showLists && shows('staged') && showSkeletons('staged')"
+        role="tree"
+        class="py-1"
+        data-testid="staged-list"
+      >
+        <SkeletonRow v-for="n in 2" :key="n" :index="n + 5" height="tree" />
+      </div>
       <MotionRows
-        v-if="showLists && shows('staged')"
+        v-else-if="showLists && shows('staged')"
         list="changes"
         :count="changes.staged.files.length"
         role="tree"
         class="py-1"
         data-testid="staged-list"
       >
-        <template v-if="showSkeletons('staged')">
-          <SkeletonRow v-for="n in 2" :key="n" :index="n + 5" height="tree" />
-        </template>
         <TreeRow
           v-for="(file, index) in changes.staged.files"
           :key="file.path"
@@ -494,6 +504,7 @@ defineExpose({ focus: navigation.focus, moveFile, selectEdge });
         :label="t('changes.stage')"
         :icon="Plus"
         :keys="stageHint"
+        :disabled="changes.blocking"
         data-testid="menu-stage"
         @select="menuAction('stage')"
       />
@@ -502,6 +513,7 @@ defineExpose({ focus: navigation.focus, moveFile, selectEdge });
         :label="t('changes.unstage')"
         :icon="Minus"
         :keys="unstageHint"
+        :disabled="changes.blocking"
         data-testid="menu-unstage"
         @select="menuAction('unstage')"
       />
@@ -511,6 +523,7 @@ defineExpose({ focus: navigation.focus, moveFile, selectEdge });
         :icon="Undo2"
         :keys="discardHint"
         destructive
+        :disabled="changes.blocking"
         data-testid="menu-discard"
         @select="menuAction('discard')"
       />

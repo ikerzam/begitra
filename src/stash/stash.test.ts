@@ -1,7 +1,7 @@
 import { clearMocks } from "@tauri-apps/api/mocks";
 import { flushPromises } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
 
 import type { Ref } from "@/ipc/schemas";
@@ -13,6 +13,7 @@ import {
   fakeBackend,
   fakeCommit,
   settled,
+  writeGate,
   type Call,
   type FakeBackendOptions,
 } from "@/test/backend";
@@ -119,6 +120,38 @@ describe("StashSheet", () => {
     expect(toast?.output).toBe(`git stash apply ${fakeCommit(3).hash}`);
     expect(wrapper.text()).toContain("Apply keeps the stash; pop drops it once applied.");
     wrapper.unmount();
+  });
+
+  it("keeps the focus in the sheet on the row that took a dropped stash's place", async () => {
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
+      setTimeout(() => callback(0), 0),
+    );
+    const options: FakeBackendOptions = {
+      refs: [...refs, stashRef(2, "On main: older still", "e".repeat(40))],
+    };
+    fakeBackend(options);
+    await useRepoStore().open("/r");
+    await settled();
+    const stash = useStashStore();
+    stash.openSheet();
+    const wrapper = mountWithI18n(StashSheet, {
+      attachTo: document.body,
+      global: { stubs: { "transition-group": false } },
+    });
+    await flushPromises();
+    // The listing after the drop waits: the row leaves on git's answer alone.
+    options.listingGate = writeGate();
+    const row = () => wrapper.find('[data-testid="stash-list"] [data-index="1"]');
+    (row().element as HTMLElement).focus();
+    await row().trigger("focus");
+    expect(await stash.drop(stash.stashes[1]!)).toBe(true);
+    await flushPromises();
+    await nextTick();
+    const focused = document.activeElement;
+    expect(focused?.getAttribute("data-index")).toBe("1");
+    expect(focused?.textContent).toContain("On main: older still");
+    wrapper.unmount();
+    vi.unstubAllGlobals();
   });
 
   it("shows the empty sentence and the plain Stash button without changes", async () => {

@@ -8,17 +8,31 @@ import MotionRows from "./MotionRows.vue";
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 /** A list of `rows` keyed rows inside MotionRows, as a list component renders it. */
-function host(rows: ReturnType<typeof ref<string[]>>) {
+function host(rows: ReturnType<typeof ref<string[]>>, onFocusLost: () => void = () => {}) {
   return defineComponent({
     setup() {
       return () =>
         h(
           MotionRows,
-          { list: "changes", count: rows.value?.length ?? 0, role: "tree", "data-testid": "rows" },
-          () => (rows.value ?? []).map((row) => h("div", { key: row, class: "row" }, row)),
+          {
+            list: "changes",
+            count: rows.value?.length ?? 0,
+            role: "tree",
+            "data-testid": "rows",
+            onFocusLost,
+          },
+          () =>
+            (rows.value ?? []).map((row, index) =>
+              h(
+                "div",
+                { key: row, class: "row", tabindex: -1, "data-index": index, "data-path": row },
+                row,
+              ),
+            ),
         );
     },
   });
@@ -56,22 +70,27 @@ describe("MotionRows", () => {
     expect(wrapper.findAll(".row").map((row) => row.text())).toEqual(["a", "c"]);
   });
 
-  it("turns a leaving row inert while an armed change removes it", async () => {
+  it("turns a leaving row inert, drops its lookups and hands its focus to the list", async () => {
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
       setTimeout(() => callback(0), 0),
     );
     const rows = ref(["a", "b", "c"]);
-    const wrapper = mount(host(rows), {
+    const lost = vi.fn();
+    const wrapper = mount(host(rows, lost), {
       global: { stubs: { "transition-group": false } },
       attachTo: document.body,
     });
-    const leaving = wrapper.findAll(".row")[1]!.element;
+    const leaving = wrapper.findAll(".row")[1]!.element as HTMLElement;
+    leaving.focus();
     arm("changes");
     rows.value = ["a", "c"];
     await nextTick();
     expect(leaving.hasAttribute("inert")).toBe(true);
     expect(leaving.getAttribute("aria-hidden")).toBe("true");
+    expect(leaving.hasAttribute("data-index")).toBe(false);
+    expect(leaving.hasAttribute("data-path")).toBe(false);
+    await nextTick();
+    expect(lost).toHaveBeenCalledTimes(1);
     wrapper.unmount();
-    vi.unstubAllGlobals();
   });
 });

@@ -5,7 +5,7 @@
 // roving tab stop: j/k and the arrows move, ↵ applies, → reaches the row's buttons.
 
 import { Archive, Trash2 } from "@lucide/vue";
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Button from "@/components/Button.vue";
@@ -55,6 +55,11 @@ const navigation = useListNavigation({
     if (row && !busy.value) void stash.apply(row);
   },
   rowElement: (index) => grid.value?.querySelector(`[data-index="${index}"]`),
+});
+
+// A dropped or popped stash's row leaves: the selection stays on the row now in its place.
+watch(rowCount, (count) => {
+  if (selected.value > count - 1) selected.value = Math.max(0, count - 1);
 });
 
 /** Enter on a row's button is the button's click, not the row's apply. */
@@ -130,7 +135,13 @@ function confirmDrop(): void {
       data-testid="stash-list"
       @keydown="onGridKeydown"
     >
-      <MotionRows list="stash" :count="stash.stashes.length" role="rowgroup" class="flex flex-col">
+      <MotionRows
+        list="stash"
+        :count="stash.stashes.length"
+        role="rowgroup"
+        class="flex flex-col"
+        @focus-lost="navigation.focus()"
+      >
         <div
           v-for="(row, index) in stash.stashes"
           :key="row.hash"

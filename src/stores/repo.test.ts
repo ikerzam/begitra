@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { CommitNode, Ref as GitRef, Repo } from "@/ipc/schemas";
+import { armed } from "@/motion/motion";
 
 import { useOperationsStore } from "./operations";
 import { headState, tipsSignature, useRepoStore } from "./repo";
@@ -373,6 +374,25 @@ describe("repo store, refs from git's answer", () => {
     expect(store.refs).toHaveLength(3);
   });
 
+  it("arms the motion a listing asked for when another listing is the one stored", async () => {
+    const options: BackendOptions = { refs: [ref("main", "local-branch")] };
+    mockBackend(options);
+    const store = useRepoStore();
+    await store.open("/r");
+    await settled();
+    let release!: () => void;
+    options.refsGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    // The create's listing waits; the watcher's, asked later, lands and is stored.
+    const created = store.refreshRefs({ arm: "branches" });
+    options.refs = [ref("main", "local-branch"), ref("feature/new", "local-branch")];
+    await store.refreshRefs();
+    expect(armed("branches")).toBe(true);
+    release();
+    await created;
+  });
+
   it("keeps what a later listing read over an earlier one that lands after it", async () => {
     const options: BackendOptions = {
       refs: [ref("main", "local-branch"), ref("feature/x", "local-branch")],
@@ -414,8 +434,10 @@ describe("repo store, reloaded walks", () => {
     // No skeleton rows: the rows and the selection stay while the history is listed again.
     expect(store.commits).toBe(before);
     expect(store.selectedIndex).toBe(2);
+    expect(store.reloading).toBe(true);
     open();
     await settled();
+    expect(store.reloading).toBe(false);
     expect(calls.filter((c) => c.cmd === "walk_commits")).toHaveLength(2);
     expect(store.commits).not.toBe(before);
     expect(store.commits).toHaveLength(before.length);

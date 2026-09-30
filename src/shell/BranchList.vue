@@ -168,15 +168,24 @@ defineExpose({ focus: navigation.focus });
     data-testid="branch-list"
     @keydown="onKeydown"
   >
-    <template v-for="(group, groupIndex) in groups" :key="group.id">
-      <p :id="`branch-group-${group.id}`" class="px-3 pt-3 pb-1 text-sm text-fg-muted">
+    <div
+      v-for="(group, groupIndex) in groups"
+      :key="group.id"
+      role="group"
+      :aria-labelledby="`branch-group-${group.id}`"
+    >
+      <p
+        :id="`branch-group-${group.id}`"
+        role="presentation"
+        class="px-3 pt-3 pb-1 text-sm text-fg-muted"
+      >
         {{ group.label }}
       </p>
       <MotionRows
         list="branches"
-        :count="group.rows.length"
-        role="group"
-        :aria-labelledby="`branch-group-${group.id}`"
+        :count="flatRows.length"
+        role="none"
+        @focus-lost="navigation.focus()"
       >
         <ListRow
           v-for="(row, index) in group.rows"
@@ -193,7 +202,7 @@ defineExpose({ focus: navigation.focus });
           @contextmenu="(event: MouseEvent) => onContextMenu(rowIndex(groupIndex, index), event)"
         />
       </MotionRows>
-    </template>
+    </div>
     <p v-if="countLine" class="px-3 pt-3 text-sm text-fg-muted" data-testid="branch-count">
       {{ countLine }}
     </p>

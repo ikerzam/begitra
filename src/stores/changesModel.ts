@@ -441,6 +441,8 @@ export function createChangesModel(options: ChangesModelOptions) {
     return {
       ...from,
       files,
+      // A list the moves emptied shows as empty, not as the skeleton of the read under it.
+      loading: from.loading && files.length > 0,
       additions: sumOf(files, "additions"),
       deletions: sumOf(files, "deletions"),
     };

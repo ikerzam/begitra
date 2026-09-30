@@ -112,9 +112,10 @@ function keyboardOnTabs(): boolean {
   }
 }
 
-// A row that disappeared (removed, pruned) leaves the focus on its neighbour; the first rows
-// take the focus when nothing else holds it (the dashboard opened before its list arrived,
-// or a tab was clicked), never from a sidebar tab the user is moving through by keyboard.
+// A selected row that disappeared (removed, pruned) hands the focus to the first row; the
+// first rows take the focus when nothing else holds it (the dashboard opened before its list
+// arrived, or a tab was clicked), never from a sidebar tab the user is moving through by
+// keyboard.
 watch(rowCount, (count, previous) => {
   if (count < previous && selectedIndex.value < 0 && count > 0) void focus();
   if (previous === 0 && count > 0 && !keyboardOnTabs()) void focus();

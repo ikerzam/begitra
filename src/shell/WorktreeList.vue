@@ -125,7 +125,7 @@ defineExpose({ focus: navigation.focus });
     data-testid="worktree-list"
     @keydown="onKeydown"
   >
-    <MotionRows list="worktrees" :count="rows.length" role="none">
+    <MotionRows list="worktrees" :count="rows.length" role="none" @focus-lost="navigation.focus()">
       <ListRow
         v-for="(row, index) in rows"
         :key="row.key"

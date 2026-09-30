@@ -179,7 +179,7 @@ defineExpose({ focus: navigation.focus });
             {{ n(section.rows.length) }}
           </span>
         </div>
-        <MotionRows list="projects" :count="section.rows.length" role="none">
+        <MotionRows list="projects" :count="rowCount" role="none">
           <ProjectRow
             v-for="row in section.rows"
             :key="row.key"

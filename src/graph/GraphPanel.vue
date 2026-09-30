@@ -194,7 +194,7 @@ defineExpose({ focus: () => rows.value?.focus() });
         :commits="repo.commits"
         :refs="repo.refs"
         :selected-index="repo.selectedIndex"
-        :loading="repo.streaming"
+        :loading="repo.streaming && !repo.reloading"
         :can-load-more="repo.canLoadMore"
         :flat="repo.walkFilter !== undefined"
         @select="repo.select"

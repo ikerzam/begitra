@@ -132,7 +132,9 @@ export const useRepoStore = defineStore("repo", () => {
   /** When the walk was last listed again, for the watcher (see `recentlyRestarted`). */
   let lastRestartAt = 0;
   /** A reloaded walk's first page replaces the rows kept meanwhile (`reloadWalk`). */
-  let replacing = false;
+  const replacing = ref(false);
+  /** The list a listing of the refs asked to animate, armed when the next one is stored. */
+  let armNext: MotionList | null = null;
   /** Bumped by each listing of the refs: only the one started last may store what it read. */
   let refsSerial = 0;
   /** The same for the listings of the worktrees. */
@@ -153,7 +155,7 @@ export const useRepoStore = defineStore("repo", () => {
     void diffHandle?.cancel();
     diffHandle = null;
     pendingSelection = null;
-    replacing = false;
+    replacing.value = false;
     repo.value = null;
     refs.value = [];
     refsLoaded.value = false;
@@ -290,7 +292,7 @@ export const useRepoStore = defineStore("repo", () => {
     lastRestartAt = Date.now();
     stopWalk();
     pendingSelection = selectHash ?? selectedCommit.value?.hash ?? null;
-    replacing = false;
+    replacing.value = false;
     commits.value = [];
     walk.value = null;
     selectedIndex.value = -1;
@@ -310,7 +312,7 @@ export const useRepoStore = defineStore("repo", () => {
     lastRestartAt = Date.now();
     stopWalk();
     pendingSelection = selectHash ?? selectedCommit.value?.hash ?? null;
-    replacing = commits.value.length > 0;
+    replacing.value = commits.value.length > 0;
     walk.value = null;
     startWalk(root);
   }
@@ -340,8 +342,8 @@ export const useRepoStore = defineStore("repo", () => {
     skipBefore?: number,
   ): void {
     if (myGeneration !== generation || myWalk !== walkSerial) return;
-    if (replacing) {
-      replacing = false;
+    if (replacing.value) {
+      replacing.value = false;
       commits.value = [];
       selectedIndex.value = -1;
     }
@@ -414,9 +416,9 @@ export const useRepoStore = defineStore("repo", () => {
         startWalk(root, position.nextIndex);
         return;
       }
-      if (replacing) {
+      if (replacing.value) {
         // The rows kept for a reload belong to a history that moved: the banner stands alone.
-        replacing = false;
+        replacing.value = false;
         commits.value = [];
         selectedIndex.value = -1;
       }
@@ -503,6 +505,7 @@ export const useRepoStore = defineStore("repo", () => {
     if (!root) return { tipsMoved: false };
     const myGeneration = generation;
     const mine = ++refsSerial;
+    if (options.arm) armNext = options.arm;
     const before = tipsSignature(refs.value);
     try {
       const listed = await ipc.listRefs(root);
@@ -510,7 +513,9 @@ export const useRepoStore = defineStore("repo", () => {
       // A listing started later holds newer refs (a write's answer shown meanwhile, then read):
       // this one still says whether the tips moved, for the history to follow.
       if (mine !== refsSerial) return { tipsMoved: tipsSignature(listed) !== before };
-      if (options.arm) arm(options.arm);
+      // The watcher's listing may be the one that lands last: it carries the motion asked.
+      if (armNext !== null) arm(armNext);
+      armNext = null;
       refs.value = listed;
       refsLoaded.value = true;
       refsError.value = null;
@@ -519,6 +524,7 @@ export const useRepoStore = defineStore("repo", () => {
     } catch (error) {
       // The refs shown stay until the next change; the picker reports the failure.
       if (myGeneration === generation) refsError.value = toAppError(error);
+      if (mine === refsSerial) armNext = null;
       return { tipsMoved: false };
     }
   }
@@ -605,6 +611,8 @@ export const useRepoStore = defineStore("repo", () => {
     loadMore,
     restartWalk,
     reloadWalk,
+    /** The history is listed again with the rows kept (`reloadWalk`). */
+    reloading: replacing,
     recentlyRestarted,
     loadWorktrees,
     refreshRefs,
