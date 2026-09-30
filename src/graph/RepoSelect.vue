@@ -46,9 +46,9 @@ const value = computed({
 
 <style scoped>
 /* 160px holds a repository's name and the chevron; the list grows to its longest name. It
-   gives way with the search when the bar is short of room (FilterBar). */
+   gives way with the search when the bar is short of room (FilterBar's weights). */
 .graph-repository {
-  flex-shrink: 2;
+  flex-shrink: 20;
   width: 160px;
   min-width: 96px;
 }

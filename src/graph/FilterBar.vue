@@ -2,7 +2,8 @@
 // The filter bar of the graph: the repository selector
 // while the open project holds more than one repository, then search, scope, author, date range
 // and path, each filled when active; the pinned-commit chips; the count line and "Clear" once
-// something narrows the history.
+// something narrows the history, at the end of the bar outside the controls' row, so a narrow
+// panel scrolls the controls and never "Clear".
 
 import { Folder, Search, X } from "@lucide/vue";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
@@ -119,93 +120,99 @@ const countLine = computed(() => {
 
 <template>
   <div
-    class="filter-bar flex h-bar-top shrink-0 items-center gap-2 overflow-x-auto border-b border-line px-3"
+    class="flex h-bar-top shrink-0 items-center gap-2 border-b border-line"
     data-testid="graph-filters"
   >
-    <RepoSelect v-if="projects.multi" />
-    <div class="graph-search">
-      <Input v-model="text" :placeholder="t('graph.searchCommits')" :icon="Search" />
-    </div>
-    <div class="graph-scope shrink-0">
-      <Select
-        v-model="scopeValue"
-        :options="scopeOptions"
-        :label="t('graph.scope')"
-        :active="graph.filters.scope.kind !== 'all'"
-        data-testid="filter-scope"
-      />
-    </div>
-    <div class="graph-author shrink-0">
-      <Select
-        v-model="authorValue"
-        :options="authorOptions"
-        :label="t('graph.author')"
-        :active="graph.filters.author !== ''"
-        data-testid="filter-author"
-      />
-    </div>
-    <div class="graph-date shrink-0">
-      <Select
-        v-model="dateValue"
-        :options="dateOptions"
-        :label="t('graph.date')"
-        :active="graph.filters.dateRange !== 'any'"
-        data-testid="filter-date"
-      />
-    </div>
-    <div class="relative shrink-0">
-      <Button
-        ref="pathButton"
-        variant="ghost"
-        :icon="Folder"
-        :class="{ 'bg-selected text-fg': graph.filters.path !== '' }"
-        :aria-expanded="pathOpen"
-        data-testid="filter-path"
-        @click="pathOpen = !pathOpen"
-      >
-        {{ graph.filters.path || t("graph.path") }}
-      </Button>
-      <PathPopover
-        v-if="pathOpen"
-        :path="graph.filters.path"
-        :anchor="pathButton?.$el"
-        @apply="graph.setPath"
-        @close="closePath"
-      />
-    </div>
-    <span
-      v-if="graph.diffBase"
-      class="flex h-control shrink-0 items-center gap-1 rounded-md bg-selected pl-3 text-md text-fg"
-      data-testid="chip-diff-base"
+    <div
+      class="filter-controls flex h-full min-w-0 flex-auto items-center gap-2 overflow-x-auto px-3"
+      data-testid="filter-controls"
     >
-      {{ t("graph.diffFromChip", { hash: shortHash(graph.diffBase) }) }}
-      <button
-        type="button"
-        class="flex h-control w-control items-center justify-center rounded-md text-fg-secondary hover:text-fg"
-        :aria-label="t('graph.clearDiffBase')"
-        @click="graph.setDiffBase(null)"
+      <RepoSelect v-if="projects.multi" />
+      <div class="graph-search">
+        <Input v-model="text" :placeholder="t('graph.searchCommits')" :icon="Search" />
+      </div>
+      <div class="graph-scope">
+        <Select
+          v-model="scopeValue"
+          :options="scopeOptions"
+          :label="t('graph.scope')"
+          :active="graph.filters.scope.kind !== 'all'"
+          data-testid="filter-scope"
+        />
+      </div>
+      <div class="graph-author">
+        <Select
+          v-model="authorValue"
+          :options="authorOptions"
+          :label="t('graph.author')"
+          :active="graph.filters.author !== ''"
+          data-testid="filter-author"
+        />
+      </div>
+      <div class="graph-date">
+        <Select
+          v-model="dateValue"
+          :options="dateOptions"
+          :label="t('graph.date')"
+          :active="graph.filters.dateRange !== 'any'"
+          data-testid="filter-date"
+        />
+      </div>
+      <div class="relative shrink-0">
+        <Button
+          ref="pathButton"
+          variant="ghost"
+          :icon="Folder"
+          :class="{ 'bg-selected text-fg': graph.filters.path !== '' }"
+          :aria-expanded="pathOpen"
+          data-testid="filter-path"
+          @click="pathOpen = !pathOpen"
+        >
+          {{ graph.filters.path || t("graph.path") }}
+        </Button>
+        <PathPopover
+          v-if="pathOpen"
+          :path="graph.filters.path"
+          :anchor="pathButton?.$el"
+          @apply="graph.setPath"
+          @close="closePath"
+        />
+      </div>
+      <span
+        v-if="graph.diffBase"
+        class="flex h-control shrink-0 items-center gap-1 rounded-md bg-selected pl-3 text-md text-fg"
+        data-testid="chip-diff-base"
       >
-        <X :size="16" :stroke-width="1.5" aria-hidden="true" />
-      </button>
-    </span>
-    <span
-      v-if="graph.rangeEnd"
-      class="flex h-control shrink-0 items-center gap-1 rounded-md bg-selected pl-3 text-md text-fg"
-      data-testid="chip-range-end"
-    >
-      {{ t("graph.rangeEndChip", { hash: shortHash(graph.rangeEnd) }) }}
-      <button
-        type="button"
-        class="flex h-control w-control items-center justify-center rounded-md text-fg-secondary hover:text-fg"
-        :aria-label="t('graph.clearRangeEnd')"
-        @click="graph.setRangeEnd(null)"
+        {{ t("graph.diffFromChip", { hash: shortHash(graph.diffBase) }) }}
+        <button
+          type="button"
+          class="flex h-control w-control items-center justify-center rounded-md text-fg-secondary hover:text-fg"
+          :aria-label="t('graph.clearDiffBase')"
+          @click="graph.setDiffBase(null)"
+        >
+          <X :size="16" :stroke-width="1.5" aria-hidden="true" />
+        </button>
+      </span>
+      <span
+        v-if="graph.rangeEnd"
+        class="flex h-control shrink-0 items-center gap-1 rounded-md bg-selected pl-3 text-md text-fg"
+        data-testid="chip-range-end"
       >
-        <X :size="16" :stroke-width="1.5" aria-hidden="true" />
-      </button>
-    </span>
+        {{ t("graph.rangeEndChip", { hash: shortHash(graph.rangeEnd) }) }}
+        <button
+          type="button"
+          class="flex h-control w-control items-center justify-center rounded-md text-fg-secondary hover:text-fg"
+          :aria-label="t('graph.clearRangeEnd')"
+          @click="graph.setRangeEnd(null)"
+        >
+          <X :size="16" :stroke-width="1.5" aria-hidden="true" />
+        </button>
+      </span>
+    </div>
     <span
       v-if="countLine"
-      class="ml-auto truncate text-sm text-fg-muted"
+      class="filter-count truncate text-sm text-fg-muted"
+      :class="{ 'mr-3': !graph.isActive }"
       data-testid="filter-count"
       aria-live="polite"
     >
@@ -214,7 +221,7 @@ const countLine = computed(() => {
     <Button
       v-if="graph.isActive"
       variant="ghost"
-      :class="{ 'ml-auto': !countLine }"
+      class="mr-3 shrink-0"
       data-testid="filter-clear"
       @click="graph.clear()"
     >
@@ -226,17 +233,26 @@ const countLine = computed(() => {
 <style scoped>
 /* Control widths of the filter bar: search 200, then the three selects
    sized to their content (124, 104, 104). None is on the spacing scale. A panel
-   narrower than the bar (the repository selector in front, a high zoom) shrinks the search
-   and the repository selector, never the selects, whose labels would be cut; past their
-   minimum widths the bar scrolls sideways rather than run under the detail panel. */
-.filter-bar {
-  scrollbar-width: none;
+   narrower than the bar (the repository selector in front, a narrow window, a high zoom) takes
+   its room, in this order, from the count line, down to nothing; from the search and the
+   repository selector, down to 112 and 96; and from the selects, down to 88, where a label is
+   cut with an ellipsis (the open list shows it whole). Past those widths the controls scroll
+   sideways, "Clear" staying at the end: the weights below set the order, since a flex item
+   gives up room in proportion to its weight times its width. */
+.filter-count {
+  flex-shrink: 100;
 }
 
 .graph-search {
-  flex-shrink: 2;
+  flex-shrink: 20;
   width: 200px;
   min-width: 112px;
+}
+
+.graph-scope,
+.graph-author,
+.graph-date {
+  min-width: 88px;
 }
 
 .graph-scope {
@@ -246,5 +262,57 @@ const countLine = computed(() => {
 .graph-author,
 .graph-date {
   width: 104px;
+}
+
+/* The row's sideways scroll shows no bar: the 40px bar has no room for one under its controls.
+   Not `scrollbar-width`, which would override every scrollbar rule of the page's base layer. */
+.filter-controls::-webkit-scrollbar {
+  height: 0;
+}
+
+/* Instead, the edge with controls past it fades over 24px. The fade follows the scroll (a
+   scroll-driven animation of two registered lengths); a row that fits has no scroll timeline,
+   so the animation does nothing and the row shows whole. The mask's colour is only its alpha. */
+@property --filter-fade-start {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --filter-fade-end {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@supports (animation-timeline: scroll()) {
+  .filter-controls {
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      black var(--filter-fade-start),
+      black calc(100% - var(--filter-fade-end)),
+      transparent
+    );
+    animation: filter-fade linear both;
+    animation-timeline: scroll(self inline);
+  }
+}
+
+@keyframes filter-fade {
+  0% {
+    --filter-fade-start: 0px;
+    --filter-fade-end: var(--space-5);
+  }
+  8% {
+    --filter-fade-start: var(--space-5);
+  }
+  92% {
+    --filter-fade-end: var(--space-5);
+  }
+  100% {
+    --filter-fade-start: var(--space-5);
+    --filter-fade-end: 0px;
+  }
 }
 </style>
