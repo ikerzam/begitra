@@ -376,9 +376,7 @@ mod tests {
     /// the app state that reads it; git runs without the machine's configuration.
     fn working_tree(files: &[(&str, &str)]) -> (tempfile::TempDir, AppState, PathBuf) {
         let dir = tempfile::tempdir().expect("temp dir");
-        let status = std::process::Command::new("git")
-            .args(["init", "-q"])
-            .current_dir(dir.path())
+        let status = git_core::cli::command(dir.path(), &["init", "-q"])
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("GIT_CONFIG_GLOBAL", dir.path().join("no-global-config"))
             .status()

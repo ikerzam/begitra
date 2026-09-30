@@ -403,10 +403,10 @@ impl Fixture {
             .env("GIT_COMMITTER_EMAIL", "fixture@example.com")
             .env("GIT_AUTHOR_DATE", &date)
             .env("GIT_COMMITTER_DATE", &date)
-            .env("LC_ALL", "C")
-            .env_remove("GIT_DIR")
-            .env_remove("GIT_WORK_TREE")
-            .env_remove("GIT_INDEX_FILE");
+            .env("LC_ALL", "C");
+        for var in git_core::cli::REDIRECTING_VARS {
+            command.env_remove(var);
+        }
         command
     }
 

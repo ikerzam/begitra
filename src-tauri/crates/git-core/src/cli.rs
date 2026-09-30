@@ -224,8 +224,10 @@ pub struct CliOutput {
 
 /// Environment variables that would redirect git away from `cwd`. They are set when the
 /// process runs inside a git hook or a `git` alias, so they are always removed: the repository
-/// a call targets is the `cwd` the caller chose, never an inherited one.
-const REDIRECTING_VARS: [&str; 9] = [
+/// a call targets is the `cwd` the caller chose, never an inherited one. Public for the tests
+/// that run git on fixtures: a hook of a linked worktree exports `GIT_DIR`, and a fixture's
+/// `git init` under it would reinitialise the checkout's own repository as bare.
+pub const REDIRECTING_VARS: [&str; 9] = [
     "GIT_DIR",
     "GIT_WORK_TREE",
     "GIT_INDEX_FILE",

@@ -75,7 +75,11 @@ impl Fixture {
 
     fn git(&self, args: &[&str]) -> String {
         let date = format!("{} +0000", self.clock);
-        let output = Command::new("git")
+        let mut command = Command::new("git");
+        for var in git_core::cli::REDIRECTING_VARS {
+            command.env_remove(var);
+        }
+        let output = command
             .args(args)
             .current_dir(&self.root)
             .env("GIT_CONFIG_NOSYSTEM", "1")

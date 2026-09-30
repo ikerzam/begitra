@@ -554,14 +554,7 @@ fn a_file_with_bytes_that_are_not_utf8_is_flagged_and_only_staged_whole() {
     e.apply_selection(&whole, SelectionTarget::Stage, &Cancel::never())
         .expect("whole file through git add");
     let blob = f.git(&["rev-parse", ":latin.txt"]);
-    let shown = std::process::Command::new("git")
-        .args([
-            "-C",
-            f.root.to_str().expect("utf-8"),
-            "cat-file",
-            "-p",
-            &blob,
-        ])
+    let shown = git_core::cli::command(&f.root, &["cat-file", "-p", &blob])
         .output()
         .expect("cat-file");
     assert_eq!(shown.stdout, b"hello\nend\nna\xefve\nmore\n");

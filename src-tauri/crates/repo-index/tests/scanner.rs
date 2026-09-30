@@ -9,13 +9,28 @@ use std::time::{Duration, Instant};
 use repo_index::scanner::scan;
 use repo_index::{Cancel, Found, RepoKind, ScanEvent, ScanOptions};
 
+/// The variables of a git hook or alias that would send git to another repository than
+/// `cwd` (git-core's `cli::REDIRECTING_VARS`, which this crate does not depend on).
+const REDIRECTING_VARS: [&str; 9] = [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_COMMON_DIR",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_NAMESPACE",
+    "GIT_PREFIX",
+    "GIT_CEILING_DIRECTORIES",
+];
+
 fn git(cwd: &Path, args: &[&str]) {
-    let output = Command::new("git")
+    let mut command = Command::new("git");
+    for var in REDIRECTING_VARS {
+        command.env_remove(var);
+    }
+    let output = command
         .args(args)
         .current_dir(cwd)
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_INDEX_FILE")
         .output()
         .expect("git runs");
     assert!(

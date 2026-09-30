@@ -56,14 +56,8 @@ impl Repo {
 
     fn command(&self, dir: &Path, args: &[&str]) -> Output {
         let mut command = Command::new("git");
-        for inherited in [
-            "GIT_DIR",
-            "GIT_WORK_TREE",
-            "GIT_INDEX_FILE",
-            "GIT_COMMON_DIR",
-            "GIT_CONFIG_PARAMETERS",
-            "GIT_CONFIG_COUNT",
-        ] {
+        let config = ["GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"];
+        for inherited in git_core::cli::REDIRECTING_VARS.into_iter().chain(config) {
             command.env_remove(inherited);
         }
         command

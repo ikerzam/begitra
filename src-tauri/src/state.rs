@@ -820,9 +820,7 @@ mod tests {
     fn repositories(dir: &Path, names: &[&str]) -> Vec<PathBuf> {
         let roots = folders(dir, names);
         for root in &roots {
-            let status = std::process::Command::new("git")
-                .args(["init", "-q"])
-                .current_dir(root)
+            let status = git_core::cli::command(root, &["init", "-q"])
                 .env("GIT_CONFIG_NOSYSTEM", "1")
                 .env("GIT_CONFIG_GLOBAL", dir.join("no-global-config"))
                 .status()

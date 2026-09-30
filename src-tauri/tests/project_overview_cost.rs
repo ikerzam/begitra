@@ -181,7 +181,11 @@ fn overview_of_the_synthetic_worktrees() {
 }
 
 fn git(cwd: &Path, args: &[&str]) {
-    let output = Command::new("git")
+    let mut command = Command::new("git");
+    for var in git_core::cli::REDIRECTING_VARS {
+        command.env_remove(var);
+    }
+    let output = command
         .current_dir(cwd)
         .args([
             "-c",
