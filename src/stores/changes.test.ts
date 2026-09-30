@@ -9,6 +9,7 @@ import {
   fakeBackend,
   fakeCommit,
   settled,
+  writeGate,
   type Call,
   type FakeBackendOptions,
 } from "@/test/backend";
@@ -52,6 +53,17 @@ async function openChanges(options: FakeBackendOptions = {}): Promise<{
 
 function of(calls: Call[], cmd: string): Call[] {
   return calls.filter((call) => call.cmd === cmd);
+}
+
+/** The paths each list shows. */
+function shown(changes: ReturnType<typeof useChangesStore>): {
+  unstaged: string[];
+  staged: string[];
+} {
+  return {
+    unstaged: changes.unstaged.files.map((file) => file.path),
+    staged: changes.staged.files.map((file) => file.path),
+  };
 }
 
 beforeEach(async () => {
@@ -197,16 +209,218 @@ describe("changes store", () => {
     expect(changes.actionError).toBeNull();
   });
 
-  it("refuses a second write while one runs", async () => {
-    const { changes, calls } = await openChanges();
-    const first = changes.stage(["src/a.ts"]);
+  it("moves a staged file before git answers and selects the row that took its place", async () => {
+    const gate = writeGate();
+    const { changes } = await openChanges({ writeGate: gate });
+    changes.select("unstaged", "src/a.ts");
+    const done = changes.stage(["src/a.ts"]);
+    expect(shown(changes)).toEqual({
+      unstaged: ["src/b.ts", "src/new.md"],
+      staged: ["src/a.ts", "src/c.ts"],
+    });
+    expect(changes.selected).toEqual({ list: "unstaged", path: "src/b.ts" });
     expect(changes.busy).toBe("operations.staging");
     expect(useOperationsStore().current?.label).toBe("operations.staging");
-    const second = await changes.stage(["src/b.ts"]);
-    expect(second).toBe(false);
-    await first;
+    expect(changes.writing).toBe(true);
+    expect(changes.blocking).toBe(false);
+    expect(gate.waiting).toEqual(["stage_paths"]);
+    gate.release();
+    expect(await done).toBe(true);
+    await settled();
+    expect(changes.busy).toBeNull();
+    expect(changes.writing).toBe(false);
+    expect(shown(changes)).toEqual({
+      unstaged: ["src/b.ts", "src/new.md"],
+      staged: ["src/a.ts", "src/c.ts"],
+    });
+  });
+
+  it("runs file writes one at a time in the order asked, each moving when asked", async () => {
+    const gate = writeGate();
+    const { changes, calls } = await openChanges({ writeGate: gate });
+    const writes = [
+      changes.stage(["src/a.ts"]),
+      changes.stage(["src/b.ts"]),
+      changes.unstage(["src/c.ts"]),
+    ];
+    expect(shown(changes)).toEqual({
+      unstaged: ["src/c.ts", "src/new.md"],
+      staged: ["src/a.ts", "src/b.ts"],
+    });
+    for (let i = 0; i < 3; i += 1) {
+      await settled();
+      expect(gate.waiting).toHaveLength(1);
+      gate.release();
+    }
+    expect(await Promise.all(writes)).toEqual([true, true, true]);
+    await settled();
+    expect(of(calls, "stage_paths").map((call) => call.args["paths"])).toEqual([
+      ["src/a.ts"],
+      ["src/b.ts"],
+    ]);
+    expect(of(calls, "unstage_paths")).toHaveLength(1);
+    const stagedAt = calls.findIndex((call) => call.cmd === "unstage_paths");
+    expect(stagedAt).toBeGreaterThan(calls.map((call) => call.cmd).lastIndexOf("stage_paths"));
+    expect(shown(changes)).toEqual({
+      unstaged: ["src/c.ts", "src/new.md"],
+      staged: ["src/a.ts", "src/b.ts"],
+    });
+  });
+
+  it("shows git's lists again when a write is refused, and drops the writes asked after it", async () => {
+    const gate = writeGate();
+    const { changes, calls } = await openChanges({ writeGate: gate });
+    const first = changes.stage(["src/a.ts"]);
+    const second = changes.stage(["src/b.ts"]);
+    expect(shown(changes).staged).toEqual(["src/a.ts", "src/b.ts", "src/c.ts"]);
+    gate.refuse();
+    expect(await first).toBe(false);
+    expect(await second).toBe(false);
+    await settled();
+    expect(shown(changes)).toEqual({
+      unstaged: ["src/a.ts", "src/b.ts", "src/new.md"],
+      staged: ["src/c.ts"],
+    });
+    expect(of(calls, "stage_paths")).toHaveLength(1);
+    expect(changes.actionError?.detail).toContain("index.lock");
+    expect(changes.failed).toEqual({ kind: "stage", files: 1, path: "src/a.ts" });
+    expect(changes.writing).toBe(false);
+  });
+
+  it("keeps a move over a read that started before the write", async () => {
+    const gate = writeGate();
+    const { changes } = await openChanges({
+      writeGate: gate,
+      diffPathsDelayMs: { workingTree: 30, index: 30 },
+    });
+    // The watcher reads src/a.ts while it is unstaged; the reply lands after the stage.
+    changes.onRepoChanged(repoChange({ kinds: ["status"], paths: ["src/a.ts"] }));
+    await settled();
+    const done = changes.stage(["src/a.ts"]);
+    gate.release();
+    expect(await done).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    await settled();
+    expect(shown(changes).unstaged).not.toContain("src/a.ts");
+    expect(shown(changes).staged).toContain("src/a.ts");
+    // The reads asked after the stage land and show git's answer: the same.
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    await changes.settled();
+    expect(shown(changes)).toEqual({
+      unstaged: ["src/b.ts", "src/new.md"],
+      staged: ["src/a.ts", "src/c.ts"],
+    });
+  });
+
+  it("keeps the entry Staged lists already for a file staged again", async () => {
+    const gate = writeGate();
+    const { changes } = await openChanges({
+      writeGate: gate,
+      changes: {
+        unstaged: [changedFile("src/a.ts", { additions: 7, deletions: 0 })],
+        staged: [changedFile("src/a.ts", { additions: 2, deletions: 1 })],
+      },
+    });
+    void changes.stage(["src/a.ts"]);
+    expect(shown(changes)).toEqual({ unstaged: [], staged: ["src/a.ts"] });
+    expect(changes.staged.files[0]?.additions).toBe(2);
+    gate.release();
+    await changes.settled();
+  });
+
+  it("takes an unstaged rename out of Staged and lists its sides once git answers", async () => {
+    const gate = writeGate();
+    const { changes } = await openChanges({
+      writeGate: gate,
+      changes: {
+        unstaged: [],
+        staged: [changedFile("src/new.ts", { status: "renamed", oldPath: "src/old.ts" })],
+      },
+    });
+    void changes.unstage(["src/new.ts"]);
+    expect(shown(changes)).toEqual({ unstaged: [], staged: [] });
+    gate.release();
+    await changes.settled();
+    expect(shown(changes).unstaged).toContain("src/new.ts");
+  });
+
+  it("takes discarded files out of Unstaged before git answers", async () => {
+    const gate = writeGate();
+    const { changes } = await openChanges({ writeGate: gate });
+    const files = changes.unstaged.files.filter((file) => file.path !== "src/b.ts");
+    void changes.discard(files);
+    expect(shown(changes)).toEqual({ unstaged: ["src/b.ts"], staged: ["src/c.ts"] });
+    gate.release();
+    await changes.settled();
+    expect(shown(changes)).toEqual({ unstaged: ["src/b.ts"], staged: ["src/c.ts"] });
+  });
+
+  it("commits once the stage asked before it ran, keeping the lists inert meanwhile", async () => {
+    const gate = writeGate();
+    const { changes, calls } = await openChanges({ writeGate: gate });
+    void changes.stage(["src/a.ts"]);
+    changes.setDraft({ subject: "feat: a" });
+    expect(changes.canCommit).toBe(true);
+    const committing = changes.commit();
+    expect(changes.blocking).toBe(true);
+    expect(changes.canCommit).toBe(false);
+    gate.release();
+    await settled();
+    // The commit runs now, the lists still inert.
+    expect(gate.waiting).toEqual(["commit"]);
+    expect(changes.blocking).toBe(true);
+    gate.release();
+    expect(await committing).toBe(true);
+    await settled();
+    const order = calls
+      .filter((call) => call.cmd === "stage_paths" || call.cmd === "commit")
+      .map((call) => call.cmd);
+    expect(order).toEqual(["stage_paths", "commit"]);
+    expect(changes.blocking).toBe(false);
+    expect(changes.draft.subject).toBe("");
+  });
+
+  it("drops a commit asked behind a stage that git refuses", async () => {
+    const gate = writeGate();
+    const { changes, calls } = await openChanges({ writeGate: gate });
+    void changes.stage(["src/a.ts"]);
+    changes.setDraft({ subject: "feat: a" });
+    const committing = changes.commit();
+    gate.refuse();
+    expect(await committing).toBe(false);
+    await settled();
+    expect(of(calls, "commit")).toHaveLength(0);
+    expect(changes.draft.subject).toBe("feat: a");
+    expect(changes.actionError?.detail).toContain("index.lock");
+  });
+
+  it("keeps the rows inert while a line action waits for the file writes before it", async () => {
+    const gate = writeGate();
+    const { changes } = await openChanges({ writeGate: gate });
+    void changes.stage(["src/a.ts"]);
+    const file = changes.unstaged.files.find((entry) => entry.path === "src/b.ts")!;
+    const applying = changes.applySelection("stage", file, null);
+    expect(changes.blocking).toBe(true);
+    gate.release();
+    await settled();
+    expect(gate.waiting).toEqual(["apply_selection"]);
+    expect(changes.blocking).toBe(true);
+    gate.release();
+    expect(await applying).toBe(true);
+    expect(changes.blocking).toBe(false);
+  });
+
+  it("drops the writes waiting when another repository opens", async () => {
+    const gate = writeGate();
+    const { changes, calls } = await openChanges({ writeGate: gate });
+    void changes.stage(["src/a.ts"]);
+    const waiting = changes.stage(["src/b.ts"]);
+    changes.reset();
+    expect(await waiting).toBe(false);
+    gate.release();
     await settled();
     expect(of(calls, "stage_paths")).toHaveLength(1);
+    expect(shown(changes)).toEqual({ unstaged: [], staged: [] });
   });
 
   it("commits with the draft, clears the box, restarts the walk on the new commit", async () => {
@@ -332,7 +546,7 @@ describe("changes store", () => {
       diffPathsDelayMs: { workingTree: 20 },
     });
     changes.select("unstaged", "b.ts");
-    // The write resolves once both lists show it.
+    // The lists show the move when asked; the write resolves once git did it.
     expect(await changes.stage(["b.ts"])).toBe(true);
     expect(changes.unstaged.files.map((file) => file.path)).toEqual(["a.ts", "c.ts"]);
     expect(changes.staged.files.map((file) => file.path)).toEqual(["b.ts"]);

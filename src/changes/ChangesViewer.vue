@@ -89,7 +89,10 @@ const partialDiscard = computed(
     file.value.status !== "added" &&
     file.value.status !== "deleted",
 );
-const busy = computed(() => changes.busy !== null);
+/** A line action or a commit waits or runs: the file's own action waits for it. */
+const blocking = computed(() => changes.blocking);
+/** Any write waits or runs: a patch built now could be stale when git applies it. */
+const writing = computed(() => changes.writing);
 /** The open file is one of the operation's conflicts: "Mark resolved" in the header. */
 const conflicted = computed(
   () =>
@@ -187,7 +190,7 @@ const failedMessage = computed(() => {
 
 // The picked lines belong to one file of one list; a write reloads the rows under them.
 watch(
-  () => [changes.selected?.list, changes.selected?.path, changes.busy] as const,
+  () => [changes.selected?.list, changes.selected?.path, changes.writing] as const,
   () => {
     selected.value = new Set();
   },
@@ -197,6 +200,8 @@ watch(
 function actOnSelection(action: "stage" | "unstage" | "discard"): boolean {
   const open = file.value;
   if (!open || selected.value.size === 0) return false;
+  // The picked lines wait for the writes asked before them, which clear them.
+  if (changes.writing) return true;
   if (action === "discard") {
     if (!partialDiscard.value) return false;
     emit("discard", { kind: "lines", file: open, keys: new Set(selected.value) });
@@ -286,7 +291,7 @@ defineExpose({ actOnSelection, selectedCount });
           v-if="!conflicted"
           variant="ghost"
           :icon="list === 'unstaged' ? Undo2 : Minus"
-          :disabled="busy"
+          :disabled="blocking"
           data-testid="file-action"
           @click="fileAction"
         >
@@ -340,7 +345,7 @@ defineExpose({ actOnSelection, selectedCount });
       :hunks="file.hunks"
       :highlighted="true"
       :target="target"
-      :selectable="selectable && !busy"
+      :selectable="selectable && !writing"
       :selected="selected"
       :root="root"
       @select="onSelect"
@@ -349,7 +354,7 @@ defineExpose({ actOnSelection, selectedCount });
         <Button
           variant="ghost"
           :icon="list === 'unstaged' ? Plus : Minus"
-          :disabled="busy"
+          :disabled="writing"
           data-testid="hunk-stage"
           @click="stageHunk(hunkIndex)"
         >
@@ -367,7 +372,7 @@ defineExpose({ actOnSelection, selectedCount });
           v-if="partialDiscard"
           variant="ghost"
           :icon="Undo2"
-          :disabled="busy"
+          :disabled="writing"
           data-testid="hunk-discard"
           @click="discardHunk(hunkIndex)"
         >

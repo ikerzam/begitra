@@ -3,8 +3,12 @@
 // as added) and Staged (the index against HEAD), the selected file, the commit draft and its
 // context, and every write through the staging commands. Each list reads again what changed,
 // one reload at a time (`reloads.ts`): the paths a write or the watcher names, whole when those
-// cannot say enough; the selection survives by path. The open repository's store is one model
-// (`changes.ts`), and the folder view keeps one per repository of its folder.
+// cannot say enough; the selection survives by path. The writes run one at a time in the order
+// asked. A file write (stage, unstage, discard) moves its files when asked: each list keeps what
+// git said last apart from what it shows, which lays the pending moves over it until a read that
+// started after the write lands. A line action and a commit predict nothing and keep the lists
+// inert instead. The open repository's store is one model (`changes.ts`), and the folder view
+// keeps one per repository of its folder.
 
 import { computed, ref, shallowRef, watch, type UnwrapNestedRefs } from "vue";
 
@@ -12,6 +16,7 @@ import * as ipc from "@/ipc/commands";
 import { toAppError, type AppError } from "@/ipc/errors";
 import { newOpId } from "@/ipc/invoke";
 import type {
+  ChangeKind,
   ChangeSet,
   CommitContext,
   DiffPage,
@@ -22,9 +27,11 @@ import type {
   SelectionTarget,
 } from "@/ipc/schemas";
 import type { StreamHandle } from "@/ipc/stream";
+import { arm } from "@/motion/motion";
 
 import { useOperationsStore } from "./operations";
 import {
+  comparePaths,
   MAX_RESTRICTED_PATHS,
   mergeRestricted,
   pairingPaths,
@@ -80,6 +87,43 @@ const nothing: Reload = { kind: "none" };
 /** The paths a write to `files` moves: each path, and the old side of a rename. */
 const pathsOf = (files: FileChange[]): string[] =>
   files.flatMap((file) => (file.oldPath === null ? [file.path] : [file.path, file.oldPath]));
+
+/** The statuses whose entry crosses to the other list unchanged when staged or unstaged. */
+const CROSSES = new Set<ChangeKind>(["added", "modified", "deleted"]);
+
+/** The statuses a write can move: those that cross, and a rename or a copy, which only leaves. */
+const MOVES = new Set<ChangeKind>([...CROSSES, "renamed", "copied"]);
+
+/**
+ * A file write's move, predicted when it was asked: the paths it takes out of each list and the
+ * entries it puts in. Once the write ran, each list waits for a read that started after it:
+ * `confirmAt` holds the read count that list must reach (null once reached, or when the write
+ * does not read that list), and is null itself while the write waits for its turn.
+ */
+interface Move {
+  removes: Record<ChangeList, Set<string>>;
+  adds: Record<ChangeList, FileChange[]>;
+  confirmAt: Record<ChangeList, number | null> | null;
+}
+
+/** A write waiting for its turn or running. */
+interface QueuedWrite {
+  kind: WriteKind;
+  /** Files the write names; 0 for a commit. */
+  files: number;
+  path: string | null;
+  /** The repository the write was asked for. */
+  root: string;
+  /** What each list reads again once the write ran. */
+  reload: Record<ChangeList, Reload>;
+  run: (root: string) => Promise<unknown>;
+  /** A file write's move; null for a line action or a commit, which keep the lists inert. */
+  move: Move | null;
+  settle: (done: boolean) => void;
+}
+
+const sumOf = (files: FileChange[], key: "additions" | "deletions"): number =>
+  files.reduce((sum, file) => sum + file[key], 0);
 
 /** The key of a changed line inside a file's hunks, for the selection. */
 export function lineKey(hunkIndex: number, lineIndex: number): string {
@@ -157,11 +201,29 @@ export interface ChangesModelOptions {
 export function createChangesModel(options: ChangesModelOptions) {
   const operations = useOperationsStore();
 
+  /** The lists as shown: what git said last, with the pending moves laid over it. */
   const unstaged = shallowRef<ChangeSetState>(emptyList());
   const staged = shallowRef<ChangeSetState>(emptyList());
+  /** What git said last of each list: every read lands here. */
+  const base: Record<ChangeList, ChangeSetState> = { unstaged: emptyList(), staged: emptyList() };
+  /** The reads each list started, so a write knows which read shows it. */
+  const readsStarted: Record<ChangeList, number> = { unstaged: 0, staged: 0 };
+  /** The file writes whose moves show, in the order asked. */
+  let moves: Move[] = [];
   const selected = ref<{ list: ChangeList; path: string } | null>(null);
-  /** The write in flight, as the status bar names it; null between writes. */
+  /** The write git runs, as the status bar names it; null between writes. */
   const busy = ref<string | null>(null);
+  /** The writes waiting for their turn, oldest first, and the one running. */
+  const queued = shallowRef<QueuedWrite[]>([]);
+  const running = shallowRef<QueuedWrite | null>(null);
+  /** A write waits or runs: the viewer's line and hunk actions wait for none. */
+  const writing = computed(() => running.value !== null || queued.value.length > 0);
+  /** A line action or a commit waits or runs: the rows, the actions and the box are inert. */
+  const blocking = computed(
+    () =>
+      (running.value !== null && running.value.move === null) ||
+      queued.value.some((write) => write.move === null),
+  );
   /** The last failed write, for the banner; cleared by the next write or a dismissal. */
   const actionError = ref<AppError | null>(null);
   const failed = ref<FailedWrite | null>(null);
@@ -239,7 +301,7 @@ export function createChangesModel(options: ChangesModelOptions) {
   });
   const canCommit = computed(
     () =>
-      busy.value === null &&
+      !blocking.value &&
       draft.value.subject.trim() !== "" &&
       (stagedCount.value > 0 || draft.value.amend) &&
       !(draft.value.amend && (context.value?.unborn ?? false)),
@@ -260,8 +322,9 @@ export function createChangesModel(options: ChangesModelOptions) {
     stop(list);
     const mine = serials[list];
     const current = () => mine === serials[list];
-    const target = listOf(list);
-    target.value = { ...target.value, loading: true, error: undefined };
+    const read = ++readsStarted[list];
+    base[list] = { ...base[list], loading: true, error: undefined };
+    show(list);
     const opId = newOpId(`changes-${list}`);
     operations.start(opId, "operations.readingChanges", undefined, { background: true });
     // Whitespace is never ignored here: a patch built from a diff that hid whitespace changes
@@ -271,13 +334,14 @@ export function createChangesModel(options: ChangesModelOptions) {
       diffTargetOfList(list),
       (page: DiffPage, seq: number) => {
         if (!current()) return;
-        const previous = seq === 0 ? [] : target.value.files;
-        target.value = {
-          ...target.value,
+        const previous = seq === 0 ? [] : base[list].files;
+        base[list] = {
+          ...base[list],
           files: previous.concat(page.files),
           additions: page.additions,
           deletions: page.deletions,
         };
+        show(list);
       },
       { ...ipc.defaultDiffOptions, ignoreWhitespace: false },
       opId,
@@ -285,12 +349,15 @@ export function createChangesModel(options: ChangesModelOptions) {
     handles[list] = handle;
     return handle.done
       .then(() => {
-        if (current()) target.value = { ...target.value, loading: false };
+        if (!current()) return;
+        base[list] = { ...base[list], loading: false };
+        landed(list, read);
+        show(list);
       })
       .catch((failure: unknown) => {
-        if (current()) {
-          target.value = { ...target.value, loading: false, error: toAppError(failure) };
-        }
+        if (!current()) return;
+        base[list] = { ...base[list], loading: false, error: toAppError(failure) };
+        show(list);
       })
       .finally(() => {
         operations.finish(opId);
@@ -311,19 +378,19 @@ export function createChangesModel(options: ChangesModelOptions) {
   async function readAt(list: ChangeList, changed: string[]): Promise<boolean> {
     const root = options.root() ?? undefined;
     if (root === undefined || root !== loadedRoot) return true;
-    const target = listOf(list);
-    if (target.value.error) return false;
+    if (base[list].error) return false;
     const mine = serials[list];
+    const read = ++readsStarted[list];
     // A whole reload that started meanwhile, or another repository, holds the newer list.
     const superseded = () => mine !== serials[list] || root !== options.root();
-    let requested = requestedPaths(target.value.files, changed);
+    let requested = requestedPaths(base[list].files, changed);
     let result = await readPaths(list, root, requested);
     if (superseded()) return true;
     if (result === null) return false;
     // The staged list pairs renames: a read that touched an addition, a deletion or a rename
     // reads again with the listed files it may pair with.
     if (list === "staged") {
-      const extra = pairingPaths(target.value.files, requested, result.files);
+      const extra = pairingPaths(base[list].files, requested, result.files);
       if (extra.length > 0) {
         requested = [...new Set([...requested, ...extra])];
         result = await readPaths(list, root, requested);
@@ -331,16 +398,73 @@ export function createChangesModel(options: ChangesModelOptions) {
         if (result === null) return false;
       }
     }
-    const files = mergeRestricted(target.value.files, requested, result.files);
-    target.value = {
-      ...target.value,
+    const files = mergeRestricted(base[list].files, requested, result.files);
+    base[list] = {
+      ...base[list],
       files,
-      additions: files.reduce((sum, file) => sum + file.additions, 0),
-      deletions: files.reduce((sum, file) => sum + file.deletions, 0),
+      additions: sumOf(files, "additions"),
+      deletions: sumOf(files, "deletions"),
     };
-    // A write moves the selection itself once both of its lists landed.
+    landed(list, read);
+    show(list);
+    // A line action or a commit moves the selection itself once both of its lists landed.
     if (anchor === null) settleSelection();
     return true;
+  }
+
+  /** Shows `list`: what git said last, with the pending moves laid over it in their order. */
+  function show(list: ChangeList): void {
+    listOf(list).value = overlay(list, base[list]);
+  }
+
+  function overlay(list: ChangeList, from: ChangeSetState): ChangeSetState {
+    let files = from.files;
+    let moved = false;
+    for (const move of moves) {
+      const removes = move.removes[list];
+      const adds = move.adds[list];
+      if (removes.size > 0) {
+        files = files.filter((file) => !removes.has(file.path));
+        moved = true;
+      }
+      if (adds.length > 0) {
+        // What git lists wins over a prediction of the same path.
+        const listed = new Set(files.map((file) => file.path));
+        const joining = adds.filter((file) => !listed.has(file.path));
+        if (joining.length > 0) {
+          files = files.concat(joining).sort((a, b) => comparePaths(a.path, b.path));
+        }
+        moved = true;
+      }
+    }
+    if (!moved) return from;
+    return {
+      ...from,
+      files,
+      additions: sumOf(files, "additions"),
+      deletions: sumOf(files, "deletions"),
+    };
+  }
+
+  /** A read of `list` that started as read `read` landed: the moves it shows leave. */
+  function landed(list: ChangeList, read: number): void {
+    let confirmed = false;
+    for (const move of moves) {
+      const at = move.confirmAt;
+      if (at === null) continue;
+      const wanted = at[list];
+      if (wanted !== null && read >= wanted) at[list] = null;
+      if (at.unstaged === null && at.staged === null) confirmed = true;
+    }
+    if (!confirmed) return;
+    moves = moves.filter(
+      (move) =>
+        move.confirmAt === null ||
+        move.confirmAt.unstaged !== null ||
+        move.confirmAt.staged !== null,
+    );
+    show("unstaged");
+    show("staged");
   }
 
   /** The restricted diff of `list` at `paths`; null when the list must be read whole. */
@@ -373,8 +497,8 @@ export function createChangesModel(options: ChangesModelOptions) {
    * hands the selection to the row that took its place (so staging top-down keeps going),
    * else the first file shown.
    */
-  function settleSelection(): void {
-    if (loading.value) return;
+  function settleSelection(force = false): void {
+    if (loading.value && !force) return;
     const current = selected.value;
     const place = anchor;
     anchor = null;
@@ -397,12 +521,21 @@ export function createChangesModel(options: ChangesModelOptions) {
     selected.value = first;
   }
 
-  /** Empties both lists and stops what reads them; the draft and its repository stay. */
+  /**
+   * Empties both lists and stops what reads them, and drops the writes waiting with their moves;
+   * the draft and its repository stay.
+   */
   function clearLists(): void {
     stop("unstaged");
     stop("staged");
     reloaders.unstaged.clear();
     reloaders.staged.clear();
+    const dropped = queued.value;
+    queued.value = [];
+    for (const write of dropped) write.settle(false);
+    moves = [];
+    base.unstaged = emptyList();
+    base.staged = emptyList();
     unstaged.value = emptyList();
     staged.value = emptyList();
     selected.value = null;
@@ -445,80 +578,175 @@ export function createChangesModel(options: ChangesModelOptions) {
     selected.value = { list, path };
   }
 
+  /** Where the selection stands in its list, for the row that takes its place. */
+  function anchorOf(
+    current: { list: ChangeList; path: string } | null,
+  ): { list: ChangeList; index: number } | null {
+    if (!current) return null;
+    const index = listOf(current.list).value.files.findIndex((file) => file.path === current.path);
+    return { list: current.list, index: Math.max(0, index) };
+  }
+
   /**
-   * Runs a write with its status bar label, then reads again what it moved (`reload`); a
-   * failure lands in the banner. The watcher's changes wait for the write meanwhile.
+   * The move of a file write, predicted from the lists as shown: the files of `paths` that the
+   * write can move leave `from`, and those whose entry crosses unchanged join `to` unless it
+   * lists them already, when git's answer shows what they became.
    */
-  async function write(
+  function predict(from: ChangeList, to: ChangeList | null, paths: string[]): Move {
+    const removes: Record<ChangeList, Set<string>> = { unstaged: new Set(), staged: new Set() };
+    const adds: Record<ChangeList, FileChange[]> = { unstaged: [], staged: [] };
+    const wanted = new Set(paths);
+    const listed = to === null ? null : new Set(listOf(to).value.files.map((file) => file.path));
+    for (const file of listOf(from).value.files) {
+      if (!wanted.has(file.path) || !MOVES.has(file.status)) continue;
+      removes[from].add(file.path);
+      if (to !== null && listed !== null && CROSSES.has(file.status) && !listed.has(file.path)) {
+        adds[to].push(file);
+      }
+    }
+    return { removes, adds, confirmAt: null };
+  }
+
+  /**
+   * Asks for a write: it runs after the writes asked before it. A file write's `move` shows at
+   * once and the selection goes to the row that took the file's place; resolves with whether git
+   * did the write.
+   */
+  function enqueue(
     kind: WriteKind,
     files: number,
     path: string | null,
     reload: Record<ChangeList, Reload>,
     run: (root: string) => Promise<unknown>,
+    move: Move | null,
   ): Promise<boolean> {
     const root = options.root();
-    if (!root || busy.value !== null) return false;
-    const label = writeLabels[kind];
+    if (!root) return Promise.resolve(false);
+    return new Promise<boolean>((settle) => {
+      if (move !== null) {
+        const place = anchorOf(selected.value);
+        moves = [...moves, move];
+        arm("changes");
+        show("unstaged");
+        show("staged");
+        anchor = place;
+        settleSelection(true);
+      }
+      queued.value = [...queued.value, { kind, files, path, root, reload, run, move, settle }];
+      void pump();
+    });
+  }
+
+  let draining: Promise<void> | null = null;
+
+  /**
+   * Runs the writes waiting, one at a time; the watcher's changes wait for them. A line action
+   * or a commit moves the selection once both of its lists landed.
+   */
+  function pump(): Promise<void> {
+    if (draining !== null) return draining;
+    draining = (async () => {
+      reloaders.unstaged.hold();
+      reloaders.staged.hold();
+      try {
+        for (let next = queued.value[0]; next !== undefined; next = queued.value[0]) {
+          queued.value = queued.value.slice(1);
+          await runWrite(next);
+        }
+      } finally {
+        reloaders.unstaged.resume();
+        reloaders.staged.resume();
+      }
+      if (anchor !== null) {
+        await Promise.all([reloaders.unstaged.settled(), reloaders.staged.settled()]);
+        if (!writing.value) settleSelection();
+      }
+    })().finally(() => {
+      draining = null;
+      // A write asked while the last one settled the selection runs now.
+      if (queued.value.length > 0) void pump();
+    });
+    return draining;
+  }
+
+  /**
+   * Runs `write` with its status bar label, then asks its lists to read again what it moved. A
+   * failure lands in the banner, and the lists show what git holds: the write's move leaves,
+   * with the writes asked after it and theirs.
+   */
+  async function runWrite(write: QueuedWrite): Promise<void> {
+    if (loadedRoot !== null && write.root !== loadedRoot) {
+      write.settle(false);
+      return;
+    }
+    const label = writeLabels[write.kind];
+    running.value = write;
     busy.value = label;
-    reloaders.unstaged.hold();
-    reloaders.staged.hold();
     actionError.value = null;
     failed.value = null;
-    const current = selected.value;
-    anchor = current
-      ? {
-          list: current.list,
-          index: Math.max(
-            0,
-            listOf(current.list).value.files.findIndex((file) => file.path === current.path),
-          ),
-        }
-      : null;
+    if (write.move === null) anchor = anchorOf(selected.value);
     const opId = newOpId("changes-write");
     operations.start(opId, label);
     let done = false;
     try {
-      await run(root);
+      await write.run(write.root);
       done = true;
     } catch (failure) {
       actionError.value = toAppError(failure);
-      failed.value = { kind, files, path };
+      failed.value = { kind: write.kind, files: write.files, path: write.path };
     } finally {
       operations.finish(opId);
       busy.value = null;
-      reloaders.unstaged.request(reload.unstaged);
-      reloaders.staged.request(reload.staged);
-      reloaders.unstaged.resume();
-      reloaders.staged.resume();
+      running.value = null;
     }
-    // The selection moves once both lists show the write, whichever answered first: a file
-    // that left hands it to the row that took its place.
-    await Promise.all([reloaders.unstaged.settled(), reloaders.staged.settled()]);
-    settleSelection();
-    return done;
+    // Another repository's lists show now: nothing here is theirs.
+    if (write.root !== loadedRoot) {
+      write.settle(done);
+      return;
+    }
+    if (done && write.move !== null) {
+      // Each list shows git's answer once a read that starts from now on lands.
+      write.move.confirmAt = {
+        unstaged: write.reload.unstaged.kind === "none" ? null : readsStarted.unstaged + 1,
+        staged: write.reload.staged.kind === "none" ? null : readsStarted.staged + 1,
+      };
+    } else if (!done) {
+      const dropped = queued.value;
+      queued.value = [];
+      const gone = new Set([write.move, ...dropped.map((later) => later.move)]);
+      moves = moves.filter((move) => !gone.has(move));
+      show("unstaged");
+      show("staged");
+      for (const later of dropped) later.settle(false);
+    }
+    reloaders.unstaged.request(write.reload.unstaged);
+    reloaders.staged.request(write.reload.staged);
+    write.settle(done);
   }
 
   function stage(paths: string[]): Promise<boolean> {
     if (paths.length === 0) return Promise.resolve(false);
     const both = atPaths(paths);
-    return write(
+    return enqueue(
       "stage",
       paths.length,
       paths.length === 1 ? (paths[0] ?? null) : null,
       { unstaged: both, staged: both },
       (root) => ipc.stagePaths(root, paths),
+      predict("unstaged", "staged", paths),
     );
   }
 
   function unstage(paths: string[]): Promise<boolean> {
     if (paths.length === 0) return Promise.resolve(false);
     const both = atPaths(paths);
-    return write(
+    return enqueue(
       "unstage",
       paths.length,
       paths.length === 1 ? (paths[0] ?? null) : null,
       { unstaged: both, staged: both },
       (root) => ipc.unstagePaths(root, paths),
+      predict("staged", "unstaged", paths),
     );
   }
 
@@ -527,12 +755,17 @@ export function createChangesModel(options: ChangesModelOptions) {
     const untracked = files.filter((file) => file.status === "added").map((file) => file.path);
     const tracked = files.filter((file) => file.status !== "added").map((file) => file.path);
     if (untracked.length + tracked.length === 0) return Promise.resolve(false);
-    return write(
+    return enqueue(
       "discard",
       files.length,
       files.length === 1 ? (files[0]?.path ?? null) : null,
       { unstaged: atPaths(pathsOf(files)), staged: nothing },
       (root) => ipc.discardPaths(root, tracked, untracked),
+      predict(
+        "unstaged",
+        null,
+        files.map((file) => file.path),
+      ),
     );
   }
 
@@ -545,8 +778,13 @@ export function createChangesModel(options: ChangesModelOptions) {
     const selection = selectedKeys ? selectionOf(file, selectedKeys) : wholeSelection(file);
     const moved = atPaths(pathsOf([file]));
     const reload = { unstaged: moved, staged: target === "discard" ? nothing : moved };
-    return write(target, 1, file.path, reload, (root) =>
-      ipc.applySelection(root, target, selection),
+    return enqueue(
+      target,
+      1,
+      file.path,
+      reload,
+      (root) => ipc.applySelection(root, target, selection),
+      null,
     );
   }
 
@@ -615,10 +853,17 @@ export function createChangesModel(options: ChangesModelOptions) {
     };
     // A commit moves HEAD, not the index: the staged list is read whole again.
     const reload: Record<ChangeList, Reload> = { unstaged: nothing, staged: { kind: "full" } };
-    const done = await write("commit", 0, null, reload, async (root) => {
-      const result = await ipc.commit(root, request);
-      lastCommit.value = result.hash;
-    });
+    const done = await enqueue(
+      "commit",
+      0,
+      null,
+      reload,
+      async (root) => {
+        const result = await ipc.commit(root, request);
+        lastCommit.value = result.hash;
+      },
+      null,
+    );
     if (done) {
       draft.value = { subject: "", body: "", amend: false, signoff: draft.value.signoff };
       void loadContext();
@@ -654,8 +899,9 @@ export function createChangesModel(options: ChangesModelOptions) {
     reloaders[list].request(reload);
   }
 
-  /** Resolves once both lists have read what was asked of them. */
+  /** Resolves once no write waits or runs and both lists have read what was asked of them. */
   async function settled(): Promise<void> {
+    while (draining !== null) await draining;
     await Promise.all([reloaders.unstaged.settled(), reloaders.staged.settled()]);
   }
 
@@ -666,6 +912,8 @@ export function createChangesModel(options: ChangesModelOptions) {
     selected,
     selectedFile,
     busy,
+    writing,
+    blocking,
     actionError,
     failed,
     context,

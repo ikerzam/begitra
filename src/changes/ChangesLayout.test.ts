@@ -11,7 +11,13 @@ import { useChangesStore } from "@/stores/changes";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
 import { memoryStorage, useSettingsStore } from "@/stores/settings";
-import { fakeBackend, settled, type Call, type FakeBackendOptions } from "@/test/backend";
+import {
+  fakeBackend,
+  settled,
+  writeGate,
+  type Call,
+  type FakeBackendOptions,
+} from "@/test/backend";
 import { changedFile } from "@/test/changes";
 import { mountWithI18n } from "@/test/mount";
 
@@ -235,6 +241,47 @@ describe("ChangesLayout", () => {
     await wrapper.get('[data-testid="menu-unstage"]').trigger("click");
     await settled();
     expect(of(calls, "unstage_paths")[0]?.args["paths"]).toEqual(["src/a.ts"]);
+    wrapper.unmount();
+  });
+
+  it("keeps staging with s while git answers, and holds the rows while a commit waits", async () => {
+    const gate = writeGate();
+    const { wrapper, calls } = await mountScreen({ writeGate: gate });
+    const changes = useChangesStore();
+    (wrapper.get('[data-list="unstaged"][data-path="src/a.ts"]').element as HTMLElement).focus();
+    press("s");
+    await nextTick();
+    // The file moved before git answered, and the row that took its place has the focus.
+    expect(wrapper.find('[data-list="unstaged"][data-path="src/a.ts"]').exists()).toBe(false);
+    expect(wrapper.find('[data-list="staged"][data-path="src/a.ts"]').exists()).toBe(true);
+    await nextTick();
+    expect(document.activeElement?.getAttribute("data-path")).toBe("src/b.ts");
+    press("s");
+    await nextTick();
+    expect(wrapper.find('[data-list="unstaged"][data-path="src/b.ts"]').exists()).toBe(false);
+    const rows = () => wrapper.findAll('[data-list="unstaged"], [data-list="staged"]');
+    expect(rows().every((row) => row.attributes("aria-disabled") === undefined)).toBe(true);
+    expect(gate.waiting).toEqual(["stage_paths"]);
+    // A commit waits for both stages and keeps the rows inert until it ran.
+    changes.setDraft({ subject: "feat: two" });
+    const committing = changes.commit();
+    await nextTick();
+    expect(rows().every((row) => row.attributes("aria-disabled") === "true")).toBe(true);
+    gate.release();
+    await settled();
+    gate.release();
+    await settled();
+    expect(gate.waiting).toEqual(["commit"]);
+    gate.release();
+    expect(await committing).toBe(true);
+    await changes.settled();
+    await nextTick();
+    expect(of(calls, "stage_paths").map((call) => call.args["paths"])).toEqual([
+      ["src/a.ts"],
+      ["src/b.ts"],
+    ]);
+    expect(of(calls, "commit")).toHaveLength(1);
+    expect(rows().every((row) => row.attributes("aria-disabled") === undefined)).toBe(true);
     wrapper.unmount();
   });
 

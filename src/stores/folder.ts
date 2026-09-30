@@ -253,12 +253,12 @@ export const useFolderStore = defineStore("folder", () => {
     if (isOpen(target.root)) return;
     const current = members.get(target.root) === target;
     if (shown.value && current && active.value?.root === target.root) return;
-    if (target.view.busy !== null) {
-      // The write reads its lists again: the engine goes once they are read.
+    if (target.view.writing) {
+      // The writes read their lists again: the engine goes once they are read.
       const stop = watch(
-        () => target.view.busy,
-        (busy) => {
-          if (busy !== null) return;
+        () => target.view.writing,
+        (writing) => {
+          if (writing) return;
           stop();
           void release(target);
         },

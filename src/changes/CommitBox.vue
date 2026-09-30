@@ -61,7 +61,7 @@ const signoff = computed({
 });
 const unborn = computed(() => changes.context?.unborn ?? false);
 /** The box is inert while a write runs and on a clean tree. */
-const inert = computed(() => changes.busy !== null || changes.isEmpty);
+const inert = computed(() => changes.blocking || changes.isEmpty);
 const subjectLength = computed(() => [...changes.draft.subject].length);
 const overWidth = computed(() => subjectLength.value > SUBJECT_WIDTH);
 const headHash = computed(() =>

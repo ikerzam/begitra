@@ -18,6 +18,7 @@ import ContextMenuSeparator from "@/components/ContextMenuSeparator.vue";
 import EmptyState from "@/components/EmptyState.vue";
 import ErrorBanner from "@/components/ErrorBanner.vue";
 import IconButton from "@/components/IconButton.vue";
+import MotionRows from "@/components/MotionRows.vue";
 import PanelHeader from "@/components/PanelHeader.vue";
 import SkeletonRow from "@/components/SkeletonRow.vue";
 import TreeRow from "@/components/TreeRow.vue";
@@ -311,7 +312,8 @@ watch(
     if (!focusInside || menu.value || conflictMenu.value) return;
     void nextTick(() => {
       const active = document.activeElement;
-      if (active && active !== document.body && panel.value?.contains(active)) return;
+      const kept = active && active !== document.body && panel.value?.contains(active);
+      if (kept && !active.closest("[inert]")) return;
       navigation.focus();
     });
   },
@@ -385,21 +387,23 @@ defineExpose({ focus: navigation.focus, moveFile, selectEdge });
           <IconButton
             :label="t('changes.stageAll')"
             :icon="Plus"
-            :disabled="changes.busy !== null || changes.unstagedCount === 0"
+            :disabled="changes.blocking || changes.unstagedCount === 0"
             data-testid="stage-all"
             @click="() => void changes.stageAll()"
           />
           <IconButton
             :label="t('changes.discardAll')"
             :icon="Undo2"
-            :disabled="changes.busy !== null || changes.unstagedCount === 0"
+            :disabled="changes.blocking || changes.unstagedCount === 0"
             data-testid="discard-all"
             @click="emit('discard', changes.unstaged.files)"
           />
         </template>
       </PanelHeader>
-      <div
+      <MotionRows
         v-if="showLists && shows('unstaged')"
+        list="changes"
+        :count="changes.unstaged.files.length"
         role="tree"
         class="py-1"
         data-testid="unstaged-list"
@@ -418,14 +422,14 @@ defineExpose({ focus: navigation.focus, moveFile, selectEdge });
           :binary="file.isBinary"
           :selected="isSelected('unstaged', file.path)"
           :tab-stop="tabStop === conflicts.length + index"
-          :aria-disabled="changes.busy !== null || undefined"
+          :aria-disabled="changes.blocking || undefined"
           data-list="unstaged"
           :data-path="file.path"
           :data-tooltip="file.path"
           @select="changes.select('unstaged', file.path)"
           @contextmenu="(event: MouseEvent) => onContextMenu({ list: 'unstaged', file }, event)"
         />
-      </div>
+      </MotionRows>
       <PanelHeader
         v-if="shows('staged')"
         :title="t('changes.staged')"
@@ -437,13 +441,20 @@ defineExpose({ focus: navigation.focus, moveFile, selectEdge });
           <IconButton
             :label="t('changes.unstageAll')"
             :icon="Minus"
-            :disabled="changes.busy !== null || changes.stagedCount === 0"
+            :disabled="changes.blocking || changes.stagedCount === 0"
             data-testid="unstage-all"
             @click="() => void changes.unstageAll()"
           />
         </template>
       </PanelHeader>
-      <div v-if="showLists && shows('staged')" role="tree" class="py-1" data-testid="staged-list">
+      <MotionRows
+        v-if="showLists && shows('staged')"
+        list="changes"
+        :count="changes.staged.files.length"
+        role="tree"
+        class="py-1"
+        data-testid="staged-list"
+      >
         <template v-if="showSkeletons('staged')">
           <SkeletonRow v-for="n in 2" :key="n" :index="n + 5" height="tree" />
         </template>
@@ -458,14 +469,14 @@ defineExpose({ focus: navigation.focus, moveFile, selectEdge });
           :binary="file.isBinary"
           :selected="isSelected('staged', file.path)"
           :tab-stop="tabStop === conflicts.length + changes.unstagedCount + index"
-          :aria-disabled="changes.busy !== null || undefined"
+          :aria-disabled="changes.blocking || undefined"
           data-list="staged"
           :data-path="file.path"
           :data-tooltip="file.path"
           @select="changes.select('staged', file.path)"
           @contextmenu="(event: MouseEvent) => onContextMenu({ list: 'staged', file }, event)"
         />
-      </div>
+      </MotionRows>
     </div>
     <ContextMenu
       v-if="menu"

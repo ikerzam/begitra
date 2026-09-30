@@ -60,7 +60,7 @@ export function useFolderKeys(options: {
   function actOnSelected(action: "stage" | "unstage" | "discard"): void {
     const active = folder.active;
     const view = active?.view;
-    if (!active || !view || view.busy !== null || discard.pending.value !== null) return;
+    if (!active || !view || view.blocking || discard.pending.value !== null) return;
     if (viewer.value?.actOnSelection(action)) return;
     const current = view.selected;
     const file = view.selectedFile;

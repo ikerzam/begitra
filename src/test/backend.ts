@@ -38,6 +38,52 @@ export interface Call {
   args: Record<string, unknown>;
 }
 
+/** Staging writes and commits held until the test lets each one go, oldest first. */
+export interface WriteGate {
+  /** The commands waiting, oldest first. */
+  readonly waiting: string[];
+  /** Runs the oldest waiting write, as the backend would have. */
+  release(): void;
+  /** Refuses the oldest waiting write, as git does while another process holds the index lock. */
+  refuse(): void;
+  /** For the fake backend: runs `run` once the test lets `cmd` go. */
+  hold<T>(cmd: string, run: () => T | Promise<T>): Promise<T>;
+}
+
+/** A gate for `writeGate`: the writes wait until `release` or `refuse`. */
+export function writeGate(): WriteGate {
+  const held: { cmd: string; go: () => void; stop: () => void }[] = [];
+  return {
+    get waiting() {
+      return held.map((entry) => entry.cmd);
+    },
+    release() {
+      held.shift()?.go();
+    },
+    refuse() {
+      held.shift()?.stop();
+    },
+    hold<T>(cmd: string, run: () => T | Promise<T>): Promise<T> {
+      return new Promise<T>((resolve, reject) => {
+        held.push({
+          cmd,
+          go: () => {
+            Promise.resolve().then(run).then(resolve, reject);
+          },
+          stop: () => {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            reject({
+              code: "git.cli_failed",
+              message: "git add failed",
+              detail: "fatal: Unable to create '/r/.git/index.lock': File exists.",
+            });
+          },
+        });
+      });
+    },
+  };
+}
+
 export interface FakeBackendOptions {
   /** Commits in the repository (subject "commit N", authors cycling). Default 30. */
   commits?: number;
@@ -102,6 +148,11 @@ export interface FakeBackendOptions {
   failStaging?: boolean;
   /** `commit` rejects with `git.cli_failed` (a hook's output). */
   failCommit?: boolean;
+  /**
+   * Holds each staging write and each commit until the test lets it go: what the lists show
+   * before git answers.
+   */
+  writeGate?: WriteGate;
   /** What `commit_context` answers, over the defaults (a born branch, no template). */
   commitContext?: Partial<CommitContext>;
   /** Every diff answers after this many milliseconds (the loading states, by eye). */
@@ -782,59 +833,79 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
           return options.existingPaths?.includes(args["path"] as string) ?? false;
         case "stage_paths": {
           if (options.failStaging) return stagingFailure();
-          const own = byRepo.get(args["repo"] as string);
-          if (own) {
-            [own.unstaged, own.staged] = move(args["paths"] as string[], own.unstaged, own.staged);
+          const stage = () => {
+            const own = byRepo.get(args["repo"] as string);
+            if (own) {
+              [own.unstaged, own.staged] = move(
+                args["paths"] as string[],
+                own.unstaged,
+                own.staged,
+              );
+              return null;
+            }
+            [unstaged, staged] = move(args["paths"] as string[], unstaged, staged);
             return null;
-          }
-          [unstaged, staged] = move(args["paths"] as string[], unstaged, staged);
-          return null;
+          };
+          return options.writeGate ? options.writeGate.hold(cmd, stage) : stage();
         }
         case "unstage_paths": {
           if (options.failStaging) return stagingFailure();
-          const own = byRepo.get(args["repo"] as string);
-          if (own) {
-            [own.staged, own.unstaged] = move(args["paths"] as string[], own.staged, own.unstaged);
+          const unstage = () => {
+            const own = byRepo.get(args["repo"] as string);
+            if (own) {
+              [own.staged, own.unstaged] = move(
+                args["paths"] as string[],
+                own.staged,
+                own.unstaged,
+              );
+              return null;
+            }
+            [staged, unstaged] = move(args["paths"] as string[], staged, unstaged);
             return null;
-          }
-          [staged, unstaged] = move(args["paths"] as string[], staged, unstaged);
-          return null;
+          };
+          return options.writeGate ? options.writeGate.hold(cmd, unstage) : unstage();
         }
         case "discard_paths": {
           if (options.failStaging) return stagingFailure();
           const gone = [...(args["tracked"] as string[]), ...(args["untracked"] as string[])];
-          const own = byRepo.get(args["repo"] as string);
-          if (own) {
-            own.unstaged = own.unstaged.filter((file) => !gone.includes(file.path));
+          const discard = () => {
+            const own = byRepo.get(args["repo"] as string);
+            if (own) {
+              own.unstaged = own.unstaged.filter((file) => !gone.includes(file.path));
+              return null;
+            }
+            unstaged = unstaged.filter((file) => !gone.includes(file.path));
             return null;
-          }
-          unstaged = unstaged.filter((file) => !gone.includes(file.path));
-          return null;
+          };
+          return options.writeGate ? options.writeGate.hold(cmd, discard) : discard();
         }
         case "apply_selection": {
           if (options.failStaging) return stagingFailure();
           const selection = args["selection"] as PatchSelection;
           const target = args["target"] as SelectionTarget;
           const paths = [selection.path];
-          if (selectsWhole(selection)) {
-            if (target === "stage") [unstaged, staged] = move(paths, unstaged, staged);
-            else if (target === "unstage") [staged, unstaged] = move(paths, staged, unstaged);
-            else unstaged = unstaged.filter((file) => file.path !== selection.path);
-          } else if (target !== "discard") {
-            // Part of the file crosses: it is now in both lists.
-            const source = target === "stage" ? unstaged : staged;
-            const file = source.find((entry) => entry.path === selection.path);
-            if (file && target === "stage" && !staged.some((f) => f.path === file.path)) {
-              staged = [...staged, file];
-            } else if (
-              file &&
-              target === "unstage" &&
-              !unstaged.some((f) => f.path === file.path)
-            ) {
-              unstaged = [...unstaged, file];
+          const apply = () => {
+            if (selectsWhole(selection)) {
+              if (target === "stage") [unstaged, staged] = move(paths, unstaged, staged);
+              else if (target === "unstage") [staged, unstaged] = move(paths, staged, unstaged);
+              else unstaged = unstaged.filter((file) => file.path !== selection.path);
+            } else if (target !== "discard") {
+              // Part of the file crosses: it is now in both lists.
+              const source = target === "stage" ? unstaged : staged;
+              const file = source.find((entry) => entry.path === selection.path);
+              if (file && target === "stage" && !staged.some((f) => f.path === file.path)) {
+                staged = [...staged, file];
+              } else if (
+                file &&
+                target === "unstage" &&
+                !unstaged.some((f) => f.path === file.path)
+              ) {
+                unstaged = [...unstaged, file];
+              }
             }
-          }
-          return null;
+            return null;
+          };
+          return options.writeGate ? options.writeGate.hold(cmd, apply) : apply();
         }
         case "commit": {
           if (options.failCommit) {
@@ -846,10 +917,13 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
                 "husky - commit-msg hook exited with code 1 (error)\nsubject must start with a type",
             });
           }
-          const committed = byRepo.get(args["repo"] as string);
-          if (committed) committed.staged = [];
-          else staged = [];
-          return { hash: FAKE_COMMIT_HASH };
+          const commit = () => {
+            const committed = byRepo.get(args["repo"] as string);
+            if (committed) committed.staged = [];
+            else staged = [];
+            return { hash: FAKE_COMMIT_HASH };
+          };
+          return options.writeGate ? options.writeGate.hold(cmd, commit) : commit();
         }
         case "branch_create":
           if (options.writeErrors?.[args["repo"] as string]) {

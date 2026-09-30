@@ -39,7 +39,7 @@ function askDiscard(request: DiscardRequest): void {
 
 /** s, u, Backspace: the picked lines first, else the selected file of the matching list. */
 function actOnSelected(action: "stage" | "unstage" | "discard"): void {
-  if (changes.busy !== null || discard.pending.value !== null) return;
+  if (changes.blocking || discard.pending.value !== null) return;
   if (viewer.value?.actOnSelection(action)) return;
   const current = changes.selected;
   const file = changes.selectedFile;

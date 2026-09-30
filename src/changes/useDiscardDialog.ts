@@ -103,7 +103,7 @@ export function useDiscardDialog() {
    * when given; nothing while a write runs.
    */
   function ask(view: ChangesView, request: DiscardRequest, repository: string | null = null): void {
-    if (view.busy !== null || pending.value !== null) return;
+    if (view.blocking || pending.value !== null) return;
     if (request.kind === "files" && request.files.length === 0) return;
     if (request.kind !== "files" && request.keys.size === 0) return;
     pending.value = { view, request, repository };
