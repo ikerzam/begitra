@@ -7,12 +7,13 @@ import { defineComponent, h, nextTick } from "vue";
 import type { IndexEntry } from "@/ipc/schemas";
 import { ShortcutRegistry, setShortcutRegistry } from "@/shortcuts/registry";
 import { installShortcuts } from "@/shortcuts/useShortcut";
-import { useFolderStore } from "@/stores/folder";
 import { useIndexStore } from "@/stores/index";
+import { useProjectsStore } from "@/stores/projects";
 import { memoryStorage, useSettingsStore } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
 import { fakeBackend, settled, type Call, type FakeBackendOptions } from "@/test/backend";
 import { changedFile } from "@/test/changes";
+import { folderProjectOf } from "@/test/entries";
 import { mountWithI18n } from "@/test/mount";
 
 import { useOpenFolder } from "@/shell/useOpenFolder";
@@ -62,15 +63,30 @@ const folderChanges = {
   "/code/infra": { unstaged: [], staged: [] },
 };
 
+/** The folder project of /code, holding api, infra and web as its scans found them. */
+const codeProject = folderProjectOf(
+  1,
+  CODE,
+  folderRepositories.map((entry) => entry.path),
+);
+
 async function mountFolder(options: FakeBackendOptions = {}) {
   const calls = fakeBackend({
     repositories: folderRepositories,
+    projects: [codeProject],
     changesByRepo: folderChanges,
     ...options,
   });
-  await useIndexStore().load();
-  await useFolderStore().open(CODE);
-  // The folder view is the Changes tab of the view of the folder.
+  const [index, projects, settings, shell] = [
+    useIndexStore(),
+    useProjectsStore(),
+    useSettingsStore(),
+    useShellStore(),
+  ];
+  await Promise.all([index.load(), projects.load()]);
+  // The folder view is the Changes of a project of several repositories.
+  void settings.update("activeProject", 1);
+  void shell.setLayoutMode("changes");
   const wrapper = mountWithI18n(ProjectLayout, { attachTo: document.body });
   for (let i = 0; i < 4; i += 1) await settled();
   return { wrapper, calls };
@@ -177,6 +193,9 @@ describe("the folder view's Changes", () => {
   it("closes a section from its header, and j walks past it", async () => {
     const { wrapper } = await mountFolder({
       repositories: [...folderRepositories, entry("zeta")],
+      projects: [
+        folderProjectOf(1, CODE, [...folderRepositories.map((e) => e.path), "/code/zeta"]),
+      ],
       changesByRepo: {
         ...folderChanges,
         "/code/zeta": { unstaged: [changedFile("z.ts")], staged: [] },
@@ -202,6 +221,9 @@ describe("the folder view's Changes", () => {
   it("walks on from a closed section the selection is in, both ways", async () => {
     const { wrapper } = await mountFolder({
       repositories: [...folderRepositories, entry("zeta")],
+      projects: [
+        folderProjectOf(1, CODE, [...folderRepositories.map((e) => e.path), "/code/zeta"]),
+      ],
       changesByRepo: {
         ...folderChanges,
         "/code/zeta": { unstaged: [changedFile("z.ts")], staged: [] },
@@ -238,7 +260,7 @@ describe("the folder view's Changes", () => {
     wrapper.unmount();
   });
 
-  it("shows an empty folder with Scan again, and a folder with nothing to commit", async () => {
+  it("shows a folder whose repositories are gone with Scan again, and one with nothing to commit", async () => {
     const empty = await mountFolder({ repositories: [] });
     expect(empty.wrapper.get('[data-testid="folder-empty"]').text()).toContain(
       "No repositories in /code",
@@ -249,20 +271,24 @@ describe("the folder view's Changes", () => {
     setActivePinia(createPinia());
     await useSettingsStore().init(memoryStorage(), "windows");
     const clean = await mountFolder({
-      repositories: [entry("infra")],
-      changesByRepo: { "/code/infra": { unstaged: [], staged: [] } },
+      repositories: [entry("infra"), entry("api")],
+      projects: [folderProjectOf(1, CODE, ["/code/api", "/code/infra"])],
+      changesByRepo: {
+        "/code/infra": { unstaged: [], staged: [] },
+        "/code/api": { unstaged: [], staged: [] },
+      },
     });
     expect(clean.wrapper.get('[data-testid="folder-clean"]').text()).toContain(
-      "Nothing to commit in 1 repository",
+      "Nothing to commit in 2 repositories",
     );
     expect(clean.wrapper.find('[data-testid="commit-box"]').exists()).toBe(false);
     clean.wrapper.unmount();
   });
 });
 
-describe("opening the folder view", () => {
-  it("shows the view of a picked folder that is not a repository", async () => {
-    fakeBackend({ notRepositories: ["/code"], repositories: folderRepositories });
+describe("opening a folder of repositories", () => {
+  it("makes the picked folder that is not a repository a folder project, and scans it", async () => {
+    const calls = fakeBackend({ notRepositories: ["/code"], repositories: folderRepositories });
     vi.mocked(pickFolder).mockResolvedValue("/code");
     let run: () => Promise<string | null> = () => Promise.resolve(null);
     const Host = defineComponent({
@@ -274,9 +300,11 @@ describe("opening the folder view", () => {
     const host = mountWithI18n(Host);
     expect(await run()).toBe("/code");
     await settled();
-    expect(useShellStore().layoutMode).toBe("folder");
-    expect(useSettingsStore().values.folderView).toBe("/code");
-    expect(useSettingsStore().values.scanRoots).toContain("/code");
+    const projects = useProjectsStore();
+    expect(projects.active?.kind).toBe("folder");
+    expect(projects.active?.folder).toBe("/code");
+    expect(useShellStore().layoutMode).toBe("graph");
+    expect(of(calls, "scan_folders").at(-1)?.args["folders"]).toEqual(["/code"]);
     host.unmount();
   });
 });

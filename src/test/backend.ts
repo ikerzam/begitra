@@ -87,7 +87,10 @@ export interface FakeBackendOptions {
   /** The changes of other repositories, by root (the folder view); stage, unstage and
    * discard move their files as they do the open repository's. */
   changesByRepo?: Record<string, { unstaged: FileChange[]; staged: FileChange[] }>;
-  /** What `list_repositories` answers; none by default. */
+  /**
+   * What `list_repositories` answers; none by default. A project write that leaves a path in
+   * no project takes it out, as the index does.
+   */
   repositories?: IndexEntry[];
   /** `list_repositories` rejects with `index.database`. */
   failIndex?: boolean;
@@ -139,6 +142,13 @@ export interface FakeBackendOptions {
   projects?: Project[];
   /** Every project command rejects with `index.database`. */
   failProjects?: boolean;
+  /** `project_create_folder` rejects these folders with `index.folder` (not on disk). */
+  missingFolders?: string[];
+  /**
+   * The repository `project_for_path` finds for a path, by path; the path itself otherwise,
+   * unless `notRepositories` lists it (`repo.not_found`).
+   */
+  repositoryOf?: Record<string, string>;
   /** What `read_blob` answers for these paths, as text. */
   blobTexts?: Record<string, string>;
   /** `open_external` rejects these paths with `external.not_found`, as the backend does for a
@@ -317,10 +327,12 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
   const annotations: Record<string, Annotation[]> = options.annotations ?? {};
   let worktrees: Worktree[] = (options.worktrees ?? []).map((worktree) => ({ ...worktree }));
   let remotes: Remote[] = (options.remotes ?? []).map((remote) => ({ ...remote }));
-  let projects: Project[] = (options.projects ?? []).map((project) => ({
+  const copyProject = (project: Project): Project => ({
     ...project,
-    members: [...project.members],
-  }));
+    members: project.members.map((member) => ({ ...member })),
+  });
+  let projects: Project[] = (options.projects ?? []).map(copyProject);
+  let repositories: IndexEntry[] = (options.repositories ?? []).map((entry) => ({ ...entry }));
   /** The clock of the project writes: one tick per write. */
   let projectClock = 1_704_100_000;
   const byName = (a: Project, b: Project) =>
@@ -329,6 +341,19 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
   const projectFailure = () =>
     // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
     Promise.reject({ code: "index.database", message: "database is locked" });
+  const nextProjectId = () => Math.max(0, ...projects.map((known) => known.id)) + 1;
+  /** A path's last segment, whichever separator it uses. */
+  const lastSegment = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
+  /**
+   * The membership rule: of `paths`, the ones no project holds any more leave the listing;
+   * answers them in their order.
+   */
+  const dropUnreferenced = (paths: string[]): string[] => {
+    const held = new Set(projects.flatMap((project) => project.members.map((m) => m.path)));
+    const removed = unique(paths).filter((path) => !held.has(path));
+    repositories = repositories.filter((entry) => !removed.includes(entry.path));
+    return removed;
+  };
   let unstaged: FileChange[] = [...(options.changes?.unstaged ?? [])];
   let staged: FileChange[] = [...(options.changes?.staged ?? [])];
   const byRepo = new Map(
@@ -971,7 +996,7 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
           const summary = options.summaries?.[path];
           if (!summary) return null;
           // A listed repository keeps its row, as the index does; the summary is new.
-          const known = options.repositories?.find((entry) => entry.path === path);
+          const known = repositories.find((entry) => entry.path === path);
           const answer = known ? { ...known, summary } : entryFor(path, summary);
           const delay = options.summaryDelayMs;
           if (delay) return new Promise((resolve) => setTimeout(() => resolve(answer), delay));
@@ -992,7 +1017,7 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
             // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
             return Promise.reject({ code: "index.database", message: "database is locked" });
           }
-          return (options.repositories ?? []).map((entry) => ({ ...entry }));
+          return repositories.map((entry) => ({ ...entry }));
         case "open_external":
           if (options.missingPaths?.includes(String(args["path"]))) {
             // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
@@ -1006,41 +1031,145 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
           return String((args["templates"] as string[] | undefined)?.[0] ?? "").split(" ");
         case "projects":
           if (options.failProjects) return projectFailure();
-          return [...projects].sort(byName).map((project) => ({
-            ...project,
-            members: [...project.members],
-          }));
+          return [...projects].sort(byName).map(copyProject);
         case "project_create": {
           if (options.failProjects) return projectFailure();
           projectClock += 1;
           const project: Project = {
-            id: Math.max(0, ...projects.map((known) => known.id)) + 1,
+            id: nextProjectId(),
             name: (args["name"] as string).trim(),
-            members: unique(args["paths"] as string[]),
+            kind: "list",
+            folder: null,
+            members: unique(args["paths"] as string[]).map((path) => ({ path, origin: "hand" })),
+            pinned: false,
+            openedAt: null,
+            lastRepository: null,
             createdAt: projectClock,
             updatedAt: projectClock,
           };
           projects = [...projects, project];
-          return { ...project, members: [...project.members] };
+          return copyProject(project);
         }
-        case "project_rename":
+        case "project_create_folder": {
+          if (options.failProjects) return projectFailure();
+          const folder = args["folder"] as string;
+          if (options.missingFolders?.includes(folder)) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({
+              code: "index.folder",
+              message: "not a folder",
+              detail: folder,
+            });
+          }
+          const known = projects.find((project) => project.folder === folder);
+          if (known) return copyProject(known);
+          projectClock += 1;
+          const project: Project = {
+            id: nextProjectId(),
+            name: lastSegment(folder),
+            kind: "folder",
+            folder,
+            members: [],
+            pinned: false,
+            openedAt: null,
+            lastRepository: null,
+            createdAt: projectClock,
+            updatedAt: projectClock,
+          };
+          projects = [...projects, project];
+          return copyProject(project);
+        }
+        case "project_for_path": {
+          if (options.failProjects) return projectFailure();
+          const path = args["path"] as string;
+          if (options.notRepositories?.includes(path)) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({ code: "repo.not_found", message: "not a git repository" });
+          }
+          const repository = options.repositoryOf?.[path] ?? path;
+          const holding = projects
+            .filter((project) => project.members.some((member) => member.path === repository))
+            .sort((a, b) => (b.openedAt ?? -1) - (a.openedAt ?? -1) || a.id - b.id);
+          let project = holding[0];
+          if (!project) {
+            projectClock += 1;
+            project = {
+              id: nextProjectId(),
+              name: lastSegment(repository),
+              kind: "list",
+              folder: null,
+              members: [{ path: repository, origin: "hand" }],
+              pinned: false,
+              openedAt: null,
+              lastRepository: null,
+              createdAt: projectClock,
+              updatedAt: projectClock,
+            };
+            projects = [...projects, project];
+          }
+          return { project: copyProject(project), repository };
+        }
+        case "project_rename": {
+          if (options.failProjects) return projectFailure();
+          const known = projects.find((project) => project.id === args["id"]);
+          if (!known) return null;
+          projectClock += 1;
+          const changed = {
+            ...known,
+            name: (args["name"] as string).trim(),
+            updatedAt: projectClock,
+          };
+          projects = projects.map((project) => (project.id === changed.id ? changed : project));
+          return copyProject(changed);
+        }
         case "project_set_members": {
           if (options.failProjects) return projectFailure();
           const known = projects.find((project) => project.id === args["id"]);
           if (!known) return null;
           projectClock += 1;
-          const changed: Project =
-            cmd === "project_rename"
-              ? { ...known, name: (args["name"] as string).trim(), updatedAt: projectClock }
-              : { ...known, members: unique(args["paths"] as string[]), updatedAt: projectClock };
+          // A folder project keeps its folder's own members; the paths replace the hand ones.
+          const own = known.members.filter((member) => member.origin === "folder");
+          const hand = unique(args["paths"] as string[])
+            .filter((path) => !own.some((member) => member.path === path))
+            .map((path) => ({ path, origin: "hand" as const }));
+          const changed: Project = {
+            ...known,
+            members: [...own, ...hand],
+            updatedAt: projectClock,
+          };
           projects = projects.map((project) => (project.id === changed.id ? changed : project));
-          return { ...changed, members: [...changed.members] };
+          const removed = dropUnreferenced(known.members.map((member) => member.path));
+          return { project: copyProject(changed), removed };
+        }
+        case "project_set_pinned": {
+          if (options.failProjects) return projectFailure();
+          const known = projects.find((project) => project.id === args["id"]);
+          if (!known) return false;
+          const pinned = args["pinned"] as boolean;
+          projects = projects.map((project) =>
+            project.id === known.id ? { ...project, pinned } : project,
+          );
+          return true;
+        }
+        case "project_record_open": {
+          if (options.failProjects) return projectFailure();
+          const known = projects.find((project) => project.id === args["id"]);
+          if (!known) return false;
+          projectClock += 1;
+          const repository = (args["repository"] as string | null) ?? known.lastRepository;
+          projects = projects.map((project) =>
+            project.id === known.id
+              ? { ...project, openedAt: projectClock, lastRepository: repository }
+              : project,
+          );
+          return true;
         }
         case "project_delete": {
           if (options.failProjects) return projectFailure();
-          const before = projects.length;
-          projects = projects.filter((project) => project.id !== args["id"]);
-          return projects.length < before;
+          const known = projects.find((project) => project.id === args["id"]);
+          if (!known) return null;
+          projects = projects.filter((project) => project.id !== known.id);
+          return dropUnreferenced(known.members.map((member) => member.path));
         }
         case "app_info":
           return {

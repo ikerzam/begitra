@@ -1,23 +1,23 @@
-// "Open folder…": the native folder picker of tauri-plugin-dialog, then the index store, which
-// opens the repository the folder lies in, or scans a folder of repositories as a scan folder.
-// A picker that cannot open (a missing portal, a capability mismatch) becomes a toast.
+// "Open folder…" and "Add folder": the native folder picker of tauri-plugin-dialog, then the
+// projects store. Open folder… opens the project of the repository the folder lies in (a project
+// of one made for it when none holds it), or the folder's own project when it lies in none; Add
+// folder makes the folder's project and scans it, whatever the folder lies in. A picker that
+// cannot open (a missing portal, a capability mismatch) becomes a toast.
 
 import { open } from "@tauri-apps/plugin-dialog";
 import { useI18n } from "vue-i18n";
 
 import { toAppError } from "@/ipc/errors";
-import { useFolderStore } from "@/stores/folder";
-import { useIndexStore } from "@/stores/index";
+import { useProjectsStore } from "@/stores/projects";
 import { useToastsStore } from "@/stores/toasts";
 
 export function useOpenFolder() {
   const { t } = useI18n();
-  const index = useIndexStore();
-  const folder = useFolderStore();
+  const projects = useProjectsStore();
   const toasts = useToastsStore();
 
-  /** Shows the picker; resolves with the chosen path, or null when the user cancelled. */
-  async function openFolder(): Promise<string | null> {
+  /** Shows the picker; resolves with the chosen folder, or null when the user cancelled. */
+  async function pickFolder(): Promise<string | null> {
     let picked: unknown;
     try {
       picked = await open({ directory: true, multiple: false });
@@ -30,10 +30,22 @@ export function useOpenFolder() {
       });
       return null;
     }
-    if (typeof picked !== "string" || picked.length === 0) return null;
-    if ((await index.openFolder(picked)) === "folder") await folder.open(picked);
+    return typeof picked === "string" && picked.length > 0 ? picked : null;
+  }
+
+  /** "Open folder…": resolves with the chosen path, or null when the user cancelled. */
+  async function openFolder(): Promise<string | null> {
+    const picked = await pickFolder();
+    if (picked !== null) await projects.openPath(picked);
     return picked;
   }
 
-  return { openFolder };
+  /** "Add folder": resolves with the chosen folder, or null when the user cancelled. */
+  async function addFolder(): Promise<string | null> {
+    const picked = await pickFolder();
+    if (picked !== null) await projects.createFolder(picked);
+    return picked;
+  }
+
+  return { openFolder, addFolder };
 }

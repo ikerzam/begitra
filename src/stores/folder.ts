@@ -1,18 +1,16 @@
-// The project view and the folder view: the repositories and
-// worktrees of a source, either the ones the scan found in one folder (the index entries whose
-// scan folder it is, in path order) or a project's members (in its order, a missing one left
-// to the Overview), a changes model each (`changesModel.ts`), the open repository's being the
-// changes screen's store, the sections of those with changes, the group of those without, and
-// the repository the selection is in. The view that shows (`ProjectLayout`) says when: its two
-// tabs share the one set of models, reads and watchers. The reads wait in one queue
-// and run two at a time: the first loads, the refresh button, the window's focus (at most every
-// 5 seconds) and each return to the view. While the view shows, its repositories have watchers
-// (`watch_folder`, up to 20), whose changes reach each model at most once a second (`pace.ts`).
-// A repository's engine closes once its lists are read, but the one the selection is in and the
-// open repository's (an engine keeps the index loaded, and twenty large ones would hold
-// gigabytes). Leaving the view stops the watchers and closes the engines of the
-// repositories that are not the open one; the models, their drafts included, stay while the
-// folder does.
+// The Overview and the folder view of the open project: its
+// repositories and worktrees in its order (a missing one left to the Overview), a changes model
+// each (`changesModel.ts`), the open repository's being the changes screen's store, the
+// sections of those with changes, the group of those without, and the repository the selection
+// is in. The view that shows (`ProjectLayout`) says when: the Overview and the Changes share the
+// one set of models, reads and watchers. The reads wait in one queue and run two at a time: the
+// first loads, the refresh button, the window's focus (at most every 5 seconds) and each return
+// to the view. While the view shows, its repositories have watchers (`watch_folder`, the first
+// 20), whose changes reach each model at most once a second (`pace.ts`). A repository's engine
+// closes once its lists are read, but the one the selection is in and the open repository's
+// (an engine keeps the index loaded, and twenty large ones would hold gigabytes). Leaving the
+// view stops the watchers and closes the engines of the repositories
+// that are not the open one; the models, their drafts included, stay while the project does.
 
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { defineStore } from "pinia";
@@ -39,7 +37,7 @@ import { useIndexStore } from "./index";
 import { Pacer } from "./pace";
 import { useProjectsStore, type ProjectMember } from "./projects";
 import { useRepoStore } from "./repo";
-import { useSettingsStore, type ProjectTab } from "./settings";
+import { useSettingsStore } from "./settings";
 import { useShellStore } from "./shell";
 
 /**
@@ -53,18 +51,10 @@ export const PACE_MS = 1000;
 /** The window's focus reads every repository again at most this often. */
 export const FOCUS_REFRESH_MS = 5000;
 
-/** What the view shows: a scan folder's repositories, or a project's members. */
-export type ViewSource = { kind: "folder"; path: string } | { kind: "project"; id: number };
-
-function sameSource(a: ViewSource, b: ViewSource): boolean {
-  if (a.kind === "folder" && b.kind === "folder") return sameFolder(a.path, b.path);
-  return a.kind === "project" && b.kind === "project" && a.id === b.id;
-}
-
 /** A repository of the view, as its section and the group show it. */
 export interface FolderRepository {
   root: string;
-  /** Its path under the folder, with `/` separators; a project member's name. */
+  /** The member's name: its path under the folder for a folder project's own. */
   name: string;
   /** Its branch as the index knows it; null when detached or unknown. */
   branch: string | null;
@@ -74,7 +64,7 @@ export interface FolderRepository {
 }
 
 /**
- * What the view shows: the scan (or the index) looking, no repository, the index or the
+ * What the view shows: the scan (or the lists) looking, no repository, the index or the
  * folder's scan failing, the first reads, sections, or nothing to commit.
  */
 export type FolderState = "scanning" | "empty" | "error" | "loading" | "changes" | "clean";
@@ -91,14 +81,6 @@ interface Member {
 /** A read waiting its turn: a first load, or both lists again. */
 type Read = "load" | "reload";
 
-/** `path` under `folder`, with `/` separators; the whole path when it is not under it. */
-export function pathUnder(folder: string, path: string): string {
-  const norm = (value: string) => value.replace(/\\/g, "/").replace(/\/+$/, "");
-  const base = `${norm(folder)}/`;
-  const full = norm(path);
-  return full.toLowerCase().startsWith(base.toLowerCase()) ? full.slice(base.length) : full;
-}
-
 export const useFolderStore = defineStore("folder", () => {
   const settings = useSettingsStore();
   const index = useIndexStore();
@@ -108,24 +90,20 @@ export const useFolderStore = defineStore("folder", () => {
   const openChanges = useChangesStore();
 
   /**
-   * The source whose models the store holds: set when a view shows, kept when it leaves (the
-   * drafts stay while the source does), replaced when a view of another source shows.
+   * The project whose models the store holds: set when a view shows, kept when it leaves (the
+   * drafts stay while the project does), replaced when a view of another project shows.
    */
-  const source = ref<ViewSource | null>(null);
-  /** The source the layout mode asks for: the active project, or the folder view's folder. */
-  function wantedSource(): ViewSource | null {
-    if (shell.layoutMode === "project") {
-      const id = settings.values.activeProject;
-      return id === null ? null : { kind: "project", id };
-    }
-    const path = settings.values.folderView;
-    return path === null ? null : { kind: "folder", path };
+  const source = ref<number | null>(null);
+  /** The project the views show: the open one. */
+  function wantedSource(): number | null {
+    return settings.values.activeProject;
   }
-  const folder = computed(() => (source.value?.kind === "folder" ? source.value.path : null));
-  /** The project shown; null for a folder, or a project the list does not hold (yet). */
+  /** The project shown; null while the list does not hold it (yet). */
   const project = computed(() =>
-    source.value?.kind === "project" ? (projects.find(source.value.id) ?? null) : null,
+    source.value === null ? null : (projects.find(source.value) ?? null),
   );
+  /** A folder project's folder, whose scan the view waits for; null for a list project. */
+  const folder = computed(() => project.value?.folder ?? null);
   /** Whether the view is on screen: the watchers, the events and the focus follow it. */
   const shown = ref(false);
   const members = shallowReactive(new Map<string, Member>());
@@ -142,27 +120,10 @@ export const useFolderStore = defineStore("folder", () => {
     return open !== undefined && sameFolder(open, root);
   };
 
-  /**
-   * Every member of the source in its order, as the Overview lists them: a folder's entries
-   * named by their path under it, a project's members with the missing ones.
-   */
-  const listed = computed<ProjectMember[]>(() => {
-    const current = source.value;
-    if (current === null) return [];
-    if (current.kind === "project") return project.value ? projects.members(project.value) : [];
-    return index.entries
-      .filter(
-        (entry) =>
-          entry.scanRoot !== null && sameFolder(entry.scanRoot, current.path) && !entry.missing,
-      )
-      .sort((a, b) => a.path.localeCompare(b.path))
-      .map((entry) => ({
-        path: entry.path,
-        entry,
-        missing: false,
-        name: pathUnder(current.path, entry.path),
-      }));
-  });
+  /** Every member of the project in its order, as the Overview lists them, missing ones too. */
+  const listed = computed<ProjectMember[]>(() =>
+    project.value ? projects.members(project.value) : [],
+  );
 
   /** The members that are there, in the source's order: the ones with models and watchers. */
   const present = computed(() => listed.value.filter((member) => !member.missing && member.entry));
@@ -234,8 +195,7 @@ export const useFolderStore = defineStore("folder", () => {
 
   const state = computed<FolderState>(() => {
     if (entries.value.length === 0) {
-      const listing = source.value?.kind === "project" && !projects.loaded;
-      if (!index.loaded || listing || scanning.value) return "scanning";
+      if (!index.loaded || !projects.loaded || scanning.value) return "scanning";
       return problem.value ? "error" : "empty";
     }
     if (sections.value.length > 0) return "changes";
@@ -440,10 +400,9 @@ export const useFolderStore = defineStore("folder", () => {
     else stop();
   }
 
-  /** Holds the models of `next`, another source's making way; false when it already did. */
-  function adopt(next: ViewSource | null): boolean {
-    if (next === null) return false;
-    if (source.value !== null && sameSource(source.value, next)) return false;
+  /** Holds the models of project `next`, another's making way; false when it already did. */
+  function adopt(next: number | null): boolean {
+    if (next === null || source.value === next) return false;
     if (source.value !== null) disposeAll();
     source.value = next;
     return true;
@@ -476,30 +435,19 @@ export const useFolderStore = defineStore("folder", () => {
     }
   }
 
-  /** Shows the view of `path` on `tab` (its changes by default), another source's models making way. */
-  async function open(path: string, tab: ProjectTab = "changes"): Promise<void> {
-    // The settings change at once and reach the disk together, so the view shows at once.
-    const writes: Promise<void>[] = [];
-    const shownFolder = settings.values.folderView;
-    if (shownFolder === null || !sameFolder(shownFolder, path)) {
-      writes.push(settings.update("folderView", path));
-    }
-    if (settings.values.projectTab !== tab) writes.push(settings.update("projectTab", tab));
-    writes.push(shell.setLayoutMode("folder"));
-    adopt(wantedSource());
-    await Promise.all(writes);
-  }
-
-  /** Opens the repository at `root` in graph focus (a section's "Open repository"). */
+  /**
+   * Shows the repository at `root` in graph focus and makes it the one the project shows (a
+   * section's "Open repository", the Overview's ↵).
+   */
   async function openRepository(root: string): Promise<void> {
-    await index.open(root);
+    await projects.show(root);
     await shell.setLayoutMode("graph");
   }
 
-  /** Looks for the folder's repositories again, as a scan folder of Home once more if needed. */
+  /** Looks for the folder project's repositories again. */
   function scanAgain(): void {
     const current = folder.value;
-    if (current !== null && !index.addRoot(current)) index.startScan([current]);
+    if (current !== null) index.startScan([current]);
   }
 
   // New and gone repositories while the view shows; the watchers follow them and the open
@@ -526,10 +474,10 @@ export const useFolderStore = defineStore("folder", () => {
         });
     },
   );
-  // Another project or folder while the view shows (the palette, "Save as project"): its
-  // models replace the ones held, read at once.
+  // Another project while the view shows (the palette, the switcher): its models replace the
+  // ones held, read at once.
   watch(
-    () => JSON.stringify(wantedSource()),
+    () => wantedSource(),
     () => {
       if (!shown.value || !adopt(wantedSource())) return;
       sync();
@@ -583,7 +531,6 @@ export const useFolderStore = defineStore("folder", () => {
     reload,
     show,
     hide,
-    open,
     openRepository,
     scanAgain,
   };

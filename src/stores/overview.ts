@@ -1,6 +1,6 @@
-// The Overview of the project view: one row per member of the view's source in its
-// order, filled from the index at once; each member's summary is read again once the rows are
-// known, when it joins the source and on refresh, four at a time (the scan's summary workers
+// The Overview of the open project: one row per member in its order, each worktree
+// under its repository when both are members, filled from the index at once; each member's summary is read again once the rows are
+// known, when it joins the project and on refresh, four at a time (the scan's summary workers
 // are four too) and without a status of the working tree, whose changed files the member's
 // lists count; a member whose summary cannot be read keeps its row with the reason. Above the
 // rows, the branches the members are on, most common first. The selection (Space, Ctrl+A) is
@@ -31,6 +31,10 @@ export interface OverviewRow {
   missing: boolean;
   /** A linked worktree (the row carries the worktree icon). */
   worktree: boolean;
+  /** A worktree listed under its repository (the row draws the connector). */
+  nested: boolean;
+  /** Found by its folder's scan: only a scan of the folder takes it out of the project. */
+  own: boolean;
   /** For a worktree, the root of its repository. */
   mainPath: string | null;
   branch: string | null;
@@ -93,6 +97,8 @@ export const useOverviewStore = defineStore("overview", () => {
         name: member.name,
         missing: member.missing,
         worktree: entry?.kind === "worktree",
+        nested: member.nested,
+        own: member.origin === "folder",
         mainPath: entry?.parentPath ?? null,
         branch: summary?.currentBranch ?? null,
         detached: summary?.detached ?? false,
@@ -111,14 +117,12 @@ export const useOverviewStore = defineStore("overview", () => {
   );
 
   /**
-   * Whether the rows are the source's: the index read and, for a project, its list read and
-   * holding it. Until then the Overview shows skeleton rows and reads nothing.
+   * Whether the rows are the project's: the index and the projects read, the list holding it.
+   * Until then the Overview shows skeleton rows and reads nothing.
    */
-  const rowsKnown = computed(() => {
-    if (!index.read) return false;
-    if (folder.source?.kind !== "project") return true;
-    return projects.loaded && projects.loadError === null && folder.project !== null;
-  });
+  const rowsKnown = computed(
+    () => index.read && projects.loaded && projects.loadError === null && folder.project !== null,
+  );
 
   /** The branches of the present members, most common first, then by name. */
   const groups = computed<BranchGroup[]>(() =>
@@ -132,7 +136,7 @@ export const useOverviewStore = defineStore("overview", () => {
   const running = ref(0);
   const waiting = ref(0);
   let reading = false;
-  /** The members read since the view showed, its source changed or it was refreshed. */
+  /** The members read since the view showed, its project changed or it was refreshed. */
   const read = new Set<string>();
   /** The status bar's "Reading N repositories" for the reads of one refresh. */
   let readOp: string | null = null;
@@ -193,8 +197,8 @@ export const useOverviewStore = defineStore("overview", () => {
   }
 
   /**
-   * Reads the summary of every present member not read yet, four at a time, in the source's
-   * order: all of them once the rows are known, then the ones that join the source.
+   * Reads the summary of every present member not read yet, four at a time, in the project's
+   * order: all of them once the rows are known, then the ones that join the project.
    */
   function readNew(): void {
     if (!rowsKnown.value) return;
@@ -261,9 +265,9 @@ export const useOverviewStore = defineStore("overview", () => {
     return chosen.length > 0 ? chosen : rows.value;
   });
 
-  // Another source's rows: the selection, the reasons and the focus were the old one's.
+  // Another project's rows: the selection, the reasons and the focus were the old one's.
   watch(
-    () => JSON.stringify(folder.source),
+    () => folder.source,
     () => {
       selection.clear();
       errors.clear();

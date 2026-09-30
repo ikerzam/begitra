@@ -55,7 +55,7 @@ function isWindowsPath(path: string): boolean {
 }
 
 /** A comparable form of a folder: one separator, no trailing separator, case folded on Windows. */
-function folderKey(path: string): string {
+export function folderKey(path: string): string {
   const unified = path.replace(/\\/g, "/").replace(/\/+$/, "");
   return isWindowsPath(path) ? unified.toLowerCase() : unified;
 }
@@ -63,6 +63,20 @@ function folderKey(path: string): string {
 /** Whether two spellings name the same folder (separators and trailing slashes aside). */
 export function sameFolder(a: string, b: string): boolean {
   return folderKey(a) === folderKey(b);
+}
+
+/** Whether `path` lies under `folder`, the folder itself left out, however each is spelled. */
+export function isUnder(folder: string, path: string): boolean {
+  const base = folderKey(folder);
+  return base !== "" && folderKey(path).startsWith(`${base}/`);
+}
+
+/** `path` under `folder`, with `/` separators; the whole path when it is not under it. */
+export function pathUnder(folder: string, path: string): string {
+  const norm = (value: string) => value.replace(/\\/g, "/").replace(/\/+$/, "");
+  const base = `${norm(folder)}/`;
+  const full = norm(path);
+  return full.toLowerCase().startsWith(base.toLowerCase()) ? full.slice(base.length) : full;
 }
 
 /** `path` with the home folder replaced by `~`; unchanged otherwise. */

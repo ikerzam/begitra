@@ -22,7 +22,6 @@ import type {
 import type { StreamHandle } from "@/ipc/stream";
 
 import { useOperationsStore } from "./operations";
-import { useSettingsStore } from "./settings";
 
 export type RepoState =
   | { kind: "empty" }
@@ -81,7 +80,6 @@ export function tipsSignature(refs: GitRef[]): string {
 
 export const useRepoStore = defineStore("repo", () => {
   const operations = useOperationsStore();
-  const settings = useSettingsStore();
 
   const state = ref<RepoState>({ kind: "empty" });
   const repo = ref<Repo | null>(null);
@@ -201,8 +199,6 @@ export const useRepoStore = defineStore("repo", () => {
       }
       repo.value = opened;
       state.value = { kind: "ready" };
-      // The next launch reopens this repository.
-      void settings.update("lastRepository", opened.root);
       // The first page paints before the refs arrive: listing refs with their ahead/behind
       // counts takes longer than the first page on a repository with many branches.
       startWalk(opened.root);
@@ -461,12 +457,11 @@ export const useRepoStore = defineStore("repo", () => {
     return Date.now() - lastRestartAt < withinMs;
   }
 
-  /** Closes the repository and returns to the home screen, which the next launch shows too. */
+  /** Closes the repository: its project's empty state, or Home, shows. */
   async function close(): Promise<void> {
     const root = repo.value?.root;
     reset();
     state.value = { kind: "empty" };
-    void settings.update("lastRepository", null);
     if (root) await ipc.closeRepository(root);
   }
 

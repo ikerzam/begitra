@@ -11,6 +11,8 @@ function row(name: string, over: Partial<OverviewRow> = {}): OverviewRow {
     name,
     missing: false,
     worktree: false,
+    nested: false,
+    own: false,
     mainPath: null,
     branch: "main",
     detached: false,

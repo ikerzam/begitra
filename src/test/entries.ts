@@ -42,6 +42,49 @@ export function worktreeOf(path: string, parent: string, over: Partial<IndexEntr
   return entryOf(path, { kind: "worktree", parentPath: parent, ...over });
 }
 
-export function projectOf(id: number, name: string, members: string[]): Project {
-  return { id, name, members, createdAt: 1_704_000_000, updatedAt: 1_704_000_000 };
+/** A list project holding `members` by hand, in their order. */
+export function projectOf(
+  id: number,
+  name: string,
+  members: string[],
+  over: Partial<Project> = {},
+): Project {
+  return {
+    id,
+    name,
+    kind: "list",
+    folder: null,
+    members: members.map((path) => ({ path, origin: "hand" as const })),
+    pinned: false,
+    openedAt: null,
+    lastRepository: null,
+    createdAt: 1_704_000_000,
+    updatedAt: 1_704_000_000,
+    ...over,
+  };
+}
+
+/** The folder project of `folder`: `found` as its folder's own members, then `hand` ones. */
+export function folderProjectOf(
+  id: number,
+  folder: string,
+  found: string[],
+  hand: string[] = [],
+  over: Partial<Project> = {},
+): Project {
+  return {
+    ...projectOf(id, folder.slice(folder.lastIndexOf("/") + 1), [], over),
+    kind: "folder",
+    folder,
+    members: [
+      ...found.map((path) => ({ path, origin: "folder" as const })),
+      ...hand.map((path) => ({ path, origin: "hand" as const })),
+    ],
+    ...over,
+  };
+}
+
+/** The members' paths of `project`, in its order. */
+export function pathsOf(project: Pick<Project, "members">): string[] {
+  return project.members.map((member) => member.path);
 }

@@ -5,11 +5,13 @@ import { flushPromises } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { CommitNode, IndexEntry, Repo } from "@/ipc/schemas";
+import type { CommitNode, IndexEntry, Project, Repo } from "@/ipc/schemas";
 import { ShortcutRegistry, setShortcutRegistry } from "@/shortcuts/registry";
 import { useGraphStore } from "@/stores/graph";
 import { useIndexStore } from "@/stores/index";
 import { useOperationsStore } from "@/stores/operations";
+import { useProjectDialogsStore } from "@/stores/projectDialogs";
+import { useProjectsStore } from "@/stores/projects";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
 import { memoryStorage, useSettingsStore } from "@/stores/settings";
@@ -73,6 +75,24 @@ const indexEntries: IndexEntry[] = [
   }),
 ];
 
+/** The project the fake backend lists: the repository under test, its worktree and another. */
+const geoportal: Project = {
+  id: 1,
+  name: "Geoportal",
+  kind: "list",
+  folder: null,
+  members: [
+    { path: "/r", origin: "hand" },
+    { path: "/wt/claude-auth", origin: "hand" },
+    { path: "/other", origin: "hand" },
+  ],
+  pinned: false,
+  openedAt: 1_700_000_500,
+  lastRepository: "/r",
+  createdAt: 1_700_000_000,
+  updatedAt: 1_700_000_000,
+};
+
 function commit(n: number): CommitNode {
   const who = { name: "iker", email: "i@x", time: 1_700_000_000 - n, offsetMinutes: 0 };
   return {
@@ -111,8 +131,9 @@ function backend(
 ) {
   const tip = options.tip ?? { index: 0 };
   const calls: string[] = [];
-  /** The fake index: forgets drop entries and a gone folder is flagged on refresh. */
+  /** The fake index: a project write drops entries and a gone folder is flagged on refresh. */
   let listed = options.emptyIndex ? [] : indexEntries.map((entry) => ({ ...entry }));
+  let projects: Project[] = options.emptyIndex ? [] : [structuredClone(geoportal)];
   const handler = (cmd: string, rawArgs?: unknown) => {
     const args = (rawArgs ?? {}) as Record<string, unknown>;
     calls.push(cmd);
@@ -272,9 +293,28 @@ function backend(
         return null;
       case "list_repositories":
         return listed;
-      case "forget_repository":
-        listed = listed.filter((entry) => entry.path !== args["path"]);
-        return null;
+      case "projects":
+        return projects;
+      case "project_record_open":
+        return true;
+      case "project_for_path": {
+        const path = args["path"] as string;
+        const holder = projects.find((project) => project.members.some((m) => m.path === path));
+        return { project: holder ?? geoportal, repository: path };
+      }
+      case "project_set_members": {
+        const known = projects.find((project) => project.id === args["id"]);
+        if (!known) return null;
+        const paths = args["paths"] as string[];
+        const changed = {
+          ...known,
+          members: paths.map((path) => ({ path, origin: "hand" as const })),
+        };
+        projects = projects.map((project) => (project.id === changed.id ? changed : project));
+        const removed = known.members.map((m) => m.path).filter((path) => !paths.includes(path));
+        listed = listed.filter((entry) => !removed.includes(entry.path));
+        return { project: changed, removed };
+      }
       case "refresh_repository":
         if (options.failOpen) {
           listed = listed.map((entry) =>
@@ -402,7 +442,7 @@ afterEach(() => {
 });
 
 describe("HomeEmpty", () => {
-  it("offers Open folder… in the header, Add a folder to scan in the centre, and emits", async () => {
+  it("offers Open folder… in the header, Add a folder of repositories in the centre, and emits", async () => {
     const wrapper = mountWithI18n(HomeEmpty);
     await wrapper.get('[data-testid="home-open-folder"]').trigger("click");
     await wrapper.get('[data-testid="home-empty-add"]').trigger("click");
@@ -410,28 +450,42 @@ describe("HomeEmpty", () => {
     expect(wrapper.emitted("addFolder")).toHaveLength(1);
     expect(wrapper.findAll("button")).toHaveLength(2);
     expect(wrapper.text()).toContain(
-      "No repositories yet. Add a folder to scan, or open one directly.",
+      "No projects yet. Open a repository or a folder of repositories, or add a folder that Begitra scans for them.",
     );
-    expect(wrapper.text()).toContain("Scan a folder to find every repository and worktree");
+    expect(wrapper.text()).toContain("Open a repository, or a folder of repositories");
   });
 });
 
 describe("launch and the watcher", () => {
-  it("reopens the folder view at launch when it was the last screen", async () => {
+  it("reopens a project's Changes at launch when it was the last screen", async () => {
     await useSettingsStore().init(
-      memoryStorage({ layoutMode: "folder", folderView: "/code" }),
+      memoryStorage({ layoutMode: "changes", activeProject: 1 }),
       "windows",
     );
     backend();
     const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
     await settle();
     expect(wrapper.find('[data-testid="project-view"]').exists()).toBe(true);
-    expect(wrapper.get('[data-testid="project-title"]').text()).toContain("/code");
+    expect(wrapper.get('[data-testid="project-title"]').text()).toBe("Geoportal");
+    expect(useRepoStore().repo?.root).toBe("/r");
     wrapper.unmount();
   });
 
-  it("reopens the last repository, watches it and refreshes on repo:changed", async () => {
-    await useSettingsStore().init(memoryStorage({ lastRepository: "/r" }), "windows");
+  it("turns the settings of a version before projects into the open project at launch", async () => {
+    const storage = memoryStorage({ lastRepository: "/r", scanRoots: [] });
+    await useSettingsStore().init(storage, "windows");
+    const calls = backend();
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    await settle();
+    expect(calls).toContain("project_for_path");
+    expect(useSettingsStore().values.activeProject).toBe(1);
+    expect(useRepoStore().repo?.root).toBe("/r");
+    expect(storage.data.has("lastRepository")).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("reopens the open project's repository, watches it and refreshes on repo:changed", async () => {
+    await useSettingsStore().init(memoryStorage({ activeProject: 1 }), "windows");
     const calls = backend();
     const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
     await settle();
@@ -458,12 +512,12 @@ describe("launch and the watcher", () => {
     expect(calls.filter((c) => c === "list_worktrees")).toHaveLength(worktreeListings + 1);
     // A worktree that came or went changes which branches are checked out where.
     expect(calls.filter((c) => c === "list_refs")).toHaveLength(3);
-    expect(useSettingsStore().values.lastRepository).toBe("/r");
+    expect(useProjectsStore().active?.lastRepository).toBe("/r");
     wrapper.unmount();
   });
 
   it("lists the history again when a tip moved outside the app, keeping the selection", async () => {
-    await useSettingsStore().init(memoryStorage({ lastRepository: "/r" }), "windows");
+    await useSettingsStore().init(memoryStorage({ activeProject: 1 }), "windows");
     const tip = { index: 0 };
     const calls = backend({ tip });
     const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
@@ -497,7 +551,7 @@ describe("launch and the watcher", () => {
 
   it("reopens on the worktrees dashboard when the app closed there", async () => {
     await useSettingsStore().init(
-      memoryStorage({ lastRepository: "/r", layoutMode: "worktrees" }),
+      memoryStorage({ activeProject: 1, layoutMode: "worktrees" }),
       "windows",
     );
     backend();
@@ -515,23 +569,22 @@ describe("launch and the watcher", () => {
     wrapper.unmount();
   });
 
-  it("leaves the home with the entry flagged and a toast when the last repository is gone", async () => {
-    await useSettingsStore().init(memoryStorage({ lastRepository: "/r" }), "windows");
+  it("shows the error state inside the project when the repository it showed is gone", async () => {
+    await useSettingsStore().init(memoryStorage({ activeProject: 1 }), "windows");
     backend({ failOpen: true });
     const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
     await settle();
-    expect(useRepoStore().state.kind).toBe("empty");
-    expect(useSettingsStore().values.lastRepository).toBeNull();
-    expect(wrapper.find('[data-testid="home-screen"]').exists()).toBe(true);
-    const flagged = wrapper
-      .findAll('[data-testid="repo-row"]')
-      .find((row) => row.get('[data-testid="repo-row-name"]').text() === "r");
-    expect(flagged?.get('[data-testid="repo-row-missing"]').text()).toBe("not found");
-    const toasts = useToastsStore();
-    expect(toasts.toasts[0]?.message).toBe(
+    expect(useRepoStore().state.kind).toBe("error");
+    expect(useProjectsStore().active?.name).toBe("Geoportal");
+    const banner = wrapper.get('[data-testid="graph-error"]');
+    expect(banner.text()).toContain(
       "Couldn't open /r. The folder was removed or is no longer a Git repository.",
     );
-    expect(toasts.toasts[0]?.output).toContain("fatal");
+    expect(banner.text()).toContain("Remove from project");
+    // The Repos tab flags it among the project's repositories.
+    const flagged = wrapper.get('[data-testid="repo-list"] [data-path="/r"]');
+    expect(flagged.text()).toContain("not found");
+    expect(useIndexStore().find("/r")?.missing).toBe(true);
     wrapper.unmount();
   });
 
@@ -551,21 +604,30 @@ describe("launch and the watcher", () => {
     wrapper.unmount();
   });
 
-  it("forgets the entry with Remove from list in the error state and goes home", async () => {
+  it("takes the repository out of its project from the error state, naming it first", async () => {
+    await useSettingsStore().init(memoryStorage({ activeProject: 1 }), "windows");
     const calls = backend({ failOpen: true });
     const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
-    await useIndexStore().load();
-    await useIndexStore().open("/r");
     await settle();
     expect(useRepoStore().state.kind).toBe("error");
     await wrapper
       .get('[data-testid="graph-error"] button[data-variant="secondary"]')
       .trigger("click");
     await settle();
-    expect(calls).toContain("forget_repository");
-    expect(useRepoStore().state.kind).toBe("empty");
+    // No other project holds /r: the confirmation names it before it leaves Begitra.
+    expect(useProjectDialogsStore().removing).toBe("/r");
+    const dialog = wrapper.get('[data-testid="remove-member-dialog"]');
+    expect(dialog.text()).toContain("Remove r from Geoportal?");
+    expect(dialog.get('[data-testid="leaving-list"]').text()).toContain("/r");
+    expect(calls).not.toContain("project_set_members");
+    await dialog.get('[data-testid="dialog-confirm"]').trigger("click");
+    await settle();
+    expect(calls).toContain("project_set_members");
+    expect(useProjectsStore().active?.members.map((member) => member.path)).toEqual([
+      "/wt/claude-auth",
+      "/other",
+    ]);
     expect(useIndexStore().find("/r")).toBeUndefined();
-    expect(wrapper.find('[data-testid="home-screen"]').exists()).toBe(true);
     wrapper.unmount();
   });
 });
@@ -880,11 +942,11 @@ describe("AppShell", () => {
     const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
     expect(wrapper.find('[data-testid="home-empty"]').exists()).toBe(false);
     expect(wrapper.findAll('[data-testid="skeleton-row"]').length).toBeGreaterThan(0);
-    expect(wrapper.get('[data-testid="home-summary"]').text()).toBe("Loading repositories…");
+    expect(wrapper.get('[data-testid="home-summary"]').text()).toBe("Loading projects…");
     await settle();
     expect(wrapper.find('[data-testid="home-empty"]').exists()).toBe(true);
     expect(wrapper.findAll("button").map((b) => b.text())).toEqual(
-      expect.arrayContaining(["Open folder…", "Add a folder to scan"]),
+      expect.arrayContaining(["Open folder…", "Add a folder of repositories"]),
     );
     wrapper.unmount();
   });
@@ -903,7 +965,9 @@ describe("Sidebar", () => {
   async function openShell() {
     backend();
     const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
-    await useRepoStore().open("/r");
+    const projects = useProjectsStore();
+    await settle();
+    await projects.open(1);
     await settle();
     return wrapper;
   }
@@ -1031,7 +1095,7 @@ describe("Sidebar", () => {
     wrapper.unmount();
   });
 
-  it("lists the index in the Repos tab, pinned first with worktrees under their repository, and opens with Enter", async () => {
+  it("lists the open project in the Repos tab, worktrees under their repository, and shows one with Enter", async () => {
     const wrapper = await openShell();
     await useIndexStore().load();
     await wrapper.get('[data-testid="tab-repos"]').trigger("click");

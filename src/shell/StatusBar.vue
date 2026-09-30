@@ -12,10 +12,10 @@ import { useOperationsStore } from "@/stores/operations";
 import { useRepoStore } from "@/stores/repo";
 import { useChangesStore } from "@/stores/changes";
 import { useFolderStore } from "@/stores/folder";
+import { useProjectsStore } from "@/stores/projects";
 import { useSequencerStore } from "@/stores/sequencer";
 import { useCompareStore } from "@/stores/compare";
 import { targetLabel, useReviewStore } from "@/stores/review";
-import { useSettingsStore } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
 
 import { branchLanes } from "./branchLanes";
@@ -25,13 +25,13 @@ import { useHomeDir } from "./useHomeDir";
 const { t } = useI18n();
 const repo = useRepoStore();
 const shell = useShellStore();
-const settings = useSettingsStore();
 const index = useIndexStore();
 const operations = useOperationsStore();
 const review = useReviewStore();
 const compare = useCompareStore();
 const changes = useChangesStore();
 const folderView = useFolderStore();
+const projects = useProjectsStore();
 const sequencer = useSequencerStore();
 const home = useHomeDir();
 
@@ -94,7 +94,7 @@ const operationText = computed(() => {
 
 /** The operation stopped on conflicts, for the changes screen's slot. */
 const stoppedText = computed(() => {
-  if (!sequencer.inProgress || shell.layoutMode !== "changes") return "";
+  if (!sequencer.inProgress || shell.layoutMode !== "changes" || projects.view !== null) return "";
   const operation = t(`sequencer.operations.${sequencer.operation}`);
   const n = sequencer.conflictCount;
   return n > 0
@@ -104,9 +104,7 @@ const stoppedText = computed(() => {
 
 /** The project view's error state: the index it reads could not be read, in `--danger`. */
 const indexFailed = computed(() =>
-  (shell.layoutMode === "project" || shell.layoutMode === "folder") && index.loadError
-    ? t("statusBar.indexFailed")
-    : "",
+  projects.view !== null && index.loadError ? t("statusBar.indexFailed") : "",
 );
 
 /** Review focus's error state: the diff of the target failed, in `--danger`. */
@@ -120,7 +118,7 @@ const diffFailed = computed(() => {
 
 /** Changes: the counts, the clean tree, the loading, or the write that failed (in danger). */
 const changesText = computed<{ text: string; failed: boolean }>(() => {
-  if (shell.layoutMode !== "changes" || repo.state.kind !== "ready") {
+  if (shell.layoutMode !== "changes" || projects.view !== null || repo.state.kind !== "ready") {
     return { text: "", failed: false };
   }
   const failed = changes.failed;
@@ -163,10 +161,7 @@ const hints = computed(() => {
   if (operations.current?.cancellable) {
     return [{ keys: registry.hint("palette"), label: t("statusBar.commands") }];
   }
-  if (
-    (shell.layoutMode === "folder" || shell.layoutMode === "project") &&
-    settings.values.projectTab === "overview"
-  ) {
+  if (projects.view === "overview") {
     return [
       { keys: "j/k", label: t("statusBar.repositoryRows") },
       { keys: t("statusBar.spaceKey"), label: t("statusBar.select") },
@@ -174,7 +169,7 @@ const hints = computed(() => {
       { keys: registry.hint("palette"), label: t("statusBar.commands") },
     ];
   }
-  if (shell.layoutMode === "folder" || shell.layoutMode === "project") {
+  if (projects.view === "changes") {
     // With nothing to stage (the scan, the first reads, no change), the way back and the
     // palette, as on the changes screen.
     if (folderView.state !== "changes") {

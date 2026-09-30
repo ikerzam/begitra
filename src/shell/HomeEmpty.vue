@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// The empty Home: no scan folders and nothing indexed. "Add a folder to scan" starts discovery;
-// "Open folder…" in the header opens one repository directly.
+// The empty Home: no project yet. "Open folder…" in the header opens a repository (a project of
+// one) or a folder of repositories (its folder project); "Add a folder of repositories" makes
+// the folder's project and scans it, whatever the folder lies in.
 
 import { useI18n } from "vue-i18n";
 

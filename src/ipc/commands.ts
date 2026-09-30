@@ -32,6 +32,8 @@ import {
   HighlightSchema,
   IndexEntrySchema,
   PongSchema,
+  ProjectEditSchema,
+  ProjectOpenSchema,
   ProjectSchema,
   AppInfoSchema,
   RefSchema,
@@ -534,14 +536,6 @@ export function listRepositories() {
   return call("list_repositories", {}, v.array(IndexEntrySchema));
 }
 
-export function pinRepository(path: string, pinned: boolean) {
-  return call("pin_repository", { path, pinned }, v.null());
-}
-
-export function forgetRepository(path: string) {
-  return call("forget_repository", { path }, v.null());
-}
-
 export function recordRepositoryOpen(path: string) {
   return call("record_repository_open", { path }, v.null());
 }
@@ -554,16 +548,31 @@ export function refreshRepository(path: string, dirty: boolean, opId = newOpId("
   return call("refresh_repository", { path, dirty, opId }, IndexEntrySchema);
 }
 
-export function removeScanRoot(root: string) {
-  return call("remove_scan_root", { root }, v.null());
-}
-
+/** Every project with its members in order, by name. */
 export function listProjects() {
   return call("projects", {}, v.array(ProjectSchema));
 }
 
+/** Makes a list project of `paths` in their order. */
 export function createProject(name: string, paths: string[]) {
   return call("project_create", { name, paths }, ProjectSchema);
+}
+
+/**
+ * The folder project of `folder`, found or made and named after the folder; the caller scans
+ * it. Rejects with `index.folder` when the folder is not on disk.
+ */
+export function createFolderProject(folder: string) {
+  return call("project_create_folder", { folder }, ProjectSchema);
+}
+
+/**
+ * The project to open for `path` and the repository to show in it: of the projects holding the
+ * repository `path` lies in, the one opened last, or a list project of one made for it. Rejects
+ * with `repo.not_found` when `path` lies in no repository.
+ */
+export function projectForPath(path: string, opId = newOpId("project-for-path")) {
+  return call("project_for_path", { path, opId }, ProjectOpenSchema);
 }
 
 /** Renames a project; null when it no longer exists. */
@@ -571,14 +580,31 @@ export function renameProject(id: number, name: string) {
   return call("project_rename", { id, name }, v.nullable(ProjectSchema));
 }
 
-/** Replaces a project's members and their order; null when it no longer exists. */
+/**
+ * Replaces the members a project holds by hand and their order (a folder project keeps its
+ * folder's own); answers the project and the paths that left the index, or null when the
+ * project no longer exists.
+ */
 export function setProjectMembers(id: number, paths: string[]) {
-  return call("project_set_members", { id, paths }, v.nullable(ProjectSchema));
+  return call("project_set_members", { id, paths }, v.nullable(ProjectEditSchema));
 }
 
-/** Deletes a project, never a repository; whether it existed. */
+/** Pins or unpins a project to the top of Home; whether it exists. */
+export function setProjectPinned(id: number, pinned: boolean) {
+  return call("project_set_pinned", { id, pinned }, v.boolean());
+}
+
+/** Records that a project was opened now showing `repository`; whether it exists. */
+export function recordProjectOpen(id: number, repository: string | null) {
+  return call("project_record_open", { id, repository }, v.boolean());
+}
+
+/**
+ * Deletes a project, never a repository's folder; answers the paths that belonged to no other
+ * project (they left the index), or null when it no longer existed.
+ */
 export function deleteProject(id: number) {
-  return call("project_delete", { id }, v.boolean());
+  return call("project_delete", { id }, v.nullable(v.array(v.string())));
 }
 
 /** Scans `folders` and streams found entries, their summaries, counts and folder states. */

@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { worktreeLock } from "@/ipc/commands";
 import { fakeBackend, fakeCommit, fakeWorktrees, settled, type Call } from "@/test/backend";
 
+import { projectOf } from "@/test/entries";
+
 import { useCompareStore } from "./compare";
+import { useProjectsStore } from "./projects";
 import { useRepoStore } from "./repo";
 import { memoryStorage, useSettingsStore } from "./settings";
 import { useShellStore } from "./shell";
@@ -98,6 +101,50 @@ describe("worktrees store", () => {
       path: "/r.worktrees/topic",
       branch: { kind: "new", name: "topic", start: "main" },
     });
+  });
+
+  it("adds the new worktree to the open project, by hand", async () => {
+    const calls = fakeBackend({
+      worktrees: fakeWorktrees(),
+      summaries: { ...summaries, "/r.worktrees/topic": summaries["/wt/claude-auth"] },
+      projects: [projectOf(1, "Geo", ["/r"])],
+      rootIsPath: true,
+    });
+    const projects = useProjectsStore();
+    await projects.load();
+    await projects.open(1);
+    await settled();
+    const worktrees = useWorktreesStore();
+    await worktrees.add({
+      path: "/r.worktrees/topic",
+      branch: { kind: "new", name: "topic", start: "main" },
+    });
+    await settled();
+    expect(calls.find((c) => c.cmd === "project_set_members")?.args).toEqual({
+      id: 1,
+      paths: ["/r", "/r.worktrees/topic"],
+    });
+  });
+
+  it("opens a worktree the project does not hold in it, joining it first", async () => {
+    const calls = fakeBackend({
+      worktrees: fakeWorktrees(),
+      summaries,
+      projects: [projectOf(1, "Geo", ["/r"])],
+      rootIsPath: true,
+    });
+    const projects = useProjectsStore();
+    await projects.load();
+    await projects.open(1);
+    await settled();
+    await useWorktreesStore().openAsContext("/wt/claude-auth");
+    await settled();
+    expect(projects.active?.members.map((member) => member.path)).toEqual([
+      "/r",
+      "/wt/claude-auth",
+    ]);
+    expect(useRepoStore().repo?.root).toBe("/wt/claude-auth");
+    expect(calls.filter((c) => c.cmd === "project_create")).toEqual([]);
   });
 
   it("keeps git's refusal of an add as the error of the dialog", async () => {

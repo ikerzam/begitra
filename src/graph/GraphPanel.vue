@@ -28,7 +28,7 @@ import { useCommitActions } from "./useCommitActions";
 import { useHoverCard } from "./useHoverCard";
 import WorkingTreeRow from "./WorkingTreeRow.vue";
 
-const emit = defineEmits<{ activate: [index: number]; removeFromList: [] }>();
+const emit = defineEmits<{ activate: [index: number]; removeFromProject: [] }>();
 
 const { t } = useI18n();
 const repo = useRepoStore();
@@ -158,8 +158,8 @@ defineExpose({ focus: () => rows.value?.focus() });
       <ErrorBanner
         :message="errorMessage"
         :output="repo.state.error.detail"
-        :action="t('graph.removeFromList')"
-        @action="emit('removeFromList')"
+        :action="t('project.removeFromProject')"
+        @action="emit('removeFromProject')"
       />
     </div>
 

@@ -19,6 +19,7 @@ export const defaultBindings: readonly ShortcutBinding[] = [
   { id: "graph-focus", keys: "mod+1", scope: "global" },
   { id: "review-focus", keys: "mod+2", scope: "global" },
   { id: "changes-focus", keys: "mod+3", scope: "global" },
+  { id: "overview-focus", keys: "mod+4", scope: "global" },
   { id: "toggle-sidebar", keys: "mod+b", scope: "global" },
   { id: "diff-from", keys: "mod+d", scope: "global" },
   { id: "compare-with", keys: "shift+mod+c", scope: "global" },

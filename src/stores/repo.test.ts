@@ -7,7 +7,6 @@ import type { CommitNode, Ref as GitRef, Repo } from "@/ipc/schemas";
 
 import { useOperationsStore } from "./operations";
 import { headState, tipsSignature, useRepoStore } from "./repo";
-import { useSettingsStore } from "./settings";
 
 const repo: Repo = {
   root: "/r",
@@ -458,16 +457,6 @@ describe("repo store, after the review", () => {
     expect(store.state).toMatchObject({ kind: "error", path: "/r" });
     expect(store.refsLoaded).toBe(false);
     expect(calls.filter((c) => c.cmd === "close_repository")).toHaveLength(1);
-  });
-
-  it("records the last repository on success and clears it on close", async () => {
-    mockBackend();
-    const settings = useSettingsStore();
-    const store = useRepoStore();
-    await store.open("/r");
-    expect(settings.values.lastRepository).toBe("/r");
-    await store.close();
-    expect(settings.values.lastRepository).toBeNull();
   });
 
   it("refreshes the refs on demand, says whether a tip moved, and ignores a listing that fails", async () => {

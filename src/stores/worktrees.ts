@@ -11,11 +11,12 @@ import * as ipc from "@/ipc/commands";
 import { AppError, toAppError } from "@/ipc/errors";
 import { newOpId } from "@/ipc/invoke";
 import type { RepoChangeKind, WorktreeAdd } from "@/ipc/schemas";
-import { baseName } from "@/shell/format";
+import { baseName, sameFolder } from "@/shell/format";
 
 import { useCompareStore } from "./compare";
 import { useIndexStore } from "./index";
 import { useOperationsStore } from "./operations";
+import { useProjectsStore } from "./projects";
 import { useRepoStore } from "./repo";
 import { useSettingsStore } from "./settings";
 import { useShellStore } from "./shell";
@@ -187,9 +188,21 @@ export const useWorktreesStore = defineStore("worktrees", () => {
     await shell.setLayoutMode("worktrees");
   }
 
-  /** Opens the worktree as the repository context. */
+  /**
+   * Shows the worktree in the open project, which it joins first when it is not one of its
+   * members (made outside the app, by hand or by an agent), as an added worktree does.
+   */
   async function openAsContext(path: string): Promise<void> {
-    await index.open(path);
+    const projects = useProjectsStore();
+    const project = projects.active;
+    if (!project) {
+      await projects.openRepository(path);
+      return;
+    }
+    if (!project.members.some((member) => sameFolder(member.path, path))) {
+      await projects.join(path);
+    }
+    await projects.show(path);
   }
 
   /** The comparison of the main branch with the worktree. */
@@ -238,6 +251,8 @@ export const useWorktreesStore = defineStore("worktrees", () => {
       const added = await ipc.worktreeAdd(root, request, opId);
       await load();
       selectedPath.value = added.path;
+      // The new worktree joins the open project.
+      void useProjectsStore().join(added.path);
       addOpen.value = false;
       clearError();
       return added.path;

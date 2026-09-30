@@ -22,11 +22,11 @@ const labels: Record<string, string> = {
   "palette.commandsById.toggle-sidebar": "Toggle sidebar",
   "palette.commandsById.open-terminal": "Open in terminal",
   "palette.commandsById.open-editor": "Open in editor",
-  "palette.commandsById.pin-repository": "Pin repository",
-  "palette.commandsById.unpin-repository": "Unpin repository",
-  "palette.commandsById.go-to-repositories": "Go to repositories",
+  "palette.commandsById.pin-project": "Pin project",
+  "palette.commandsById.unpin-project": "Unpin project",
+  "palette.commandsById.go-to-projects": "Go to projects",
   "palette.commandsById.scan-folders": "Scan folders",
-  "palette.commandsById.add-scan-folder": "Add scan folder…",
+  "palette.commandsById.add-folder": "Add folder…",
   "palette.commandsById.diff-from": "Diff from…",
   "palette.commandsById.review-worktree": "Review working tree changes",
   "palette.commandsById.review-index": "Review staged changes",
@@ -58,19 +58,21 @@ const labels: Record<string, string> = {
 
 interface ActionOptions {
   hasRepository?: boolean;
+  /** Whether the open project is pinned; null without an open project. */
   pinned?: boolean | null;
-  hasScanFolders?: boolean;
+  hasFolderProjects?: boolean;
   hasReviewNotes?: boolean;
-  hasActiveProject?: boolean;
+  /** The open project holds more than one repository. */
+  several?: boolean;
 }
 
 function actions(options: ActionOptions | boolean = {}): PaletteActions & { calls: string[] } {
   const {
     hasRepository = true,
     pinned = false,
-    hasScanFolders = true,
+    hasFolderProjects = true,
     hasReviewNotes = false,
-    hasActiveProject = false,
+    several = false,
   } = typeof options === "boolean" ? { hasRepository: options } : options;
   const calls: string[] = [];
   const record = (name: string) => () => {
@@ -79,22 +81,22 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
   return {
     calls,
     hasRepository: () => hasRepository,
-    repositoryPinned: () => pinned,
-    hasScanFolders: () => hasScanFolders,
+    projectPinned: () => pinned,
+    hasFolderProjects: () => hasFolderProjects,
     openFolder: () => {
       calls.push("openFolder");
       return Promise.resolve();
     },
-    goToRepositories: () => {
-      calls.push("goToRepositories");
+    goToProjects: () => {
+      calls.push("goToProjects");
       return Promise.resolve();
     },
     scanFolders: record("scan"),
-    addScanFolder: () => {
-      calls.push("addScanFolder");
+    addFolder: () => {
+      calls.push("addFolder");
       return Promise.resolve();
     },
-    pinRepository: (pinned) => {
+    pinProject: (pinned) => {
       calls.push(`pin:${pinned}`);
       return Promise.resolve();
     },
@@ -204,11 +206,6 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
       calls.push("showWorktrees");
       return Promise.resolve();
     },
-    hasFolderView: () => false,
-    showFolderView: () => {
-      calls.push("showFolderView");
-      return Promise.resolve();
-    },
     openSettings: () => {
       calls.push("openSettings");
       return Promise.resolve();
@@ -216,11 +213,12 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
     addWorktree: record("addWorktree"),
     hasPrunableWorktrees: () => false,
     pruneWorktrees: record("pruneWorktrees"),
-    hasActiveProject: () => hasActiveProject,
+    hasActiveProject: () => pinned !== null,
+    hasSeveralRepositories: () => several,
     newProject: record("newProject"),
     editProject: record("editProject"),
-    showProject: (tab) => {
-      calls.push(`showProject:${tab}`);
+    showOverview: () => {
+      calls.push("showOverview");
       return Promise.resolve();
     },
     fetchProject: () => {
@@ -274,10 +272,10 @@ describe("usePalette", () => {
       "zoom-reset",
       "open-terminal",
       "open-editor",
-      "pin-repository",
-      "go-to-repositories",
+      "pin-project",
+      "go-to-projects",
       "scan-folders",
-      "add-scan-folder",
+      "add-folder",
       "diff-from",
       "review-worktree",
       "review-index",
@@ -291,6 +289,7 @@ describe("usePalette", () => {
       "show-worktrees",
       "add-worktree",
       "new-project",
+      "edit-project",
       "checkout",
       "create-branch",
       "merge-into",
@@ -312,25 +311,31 @@ describe("usePalette", () => {
     expect(palette.isEmpty.value).toBe(false);
   });
 
-  it("offers the project's commands once a project was shown, and runs them", async () => {
-    const { palette, acts } = setup({ hasActiveProject: true });
+  it("offers the commands of a project of several repositories, and runs them", async () => {
+    const one = setup({}).palette.rows.value.map((r) => r.command.id);
+    for (const id of ["show-project-overview", "fetch-project", "next-project-repo"]) {
+      expect(one, id).not.toContain(id);
+    }
+    const { palette, acts } = setup({ several: true });
     const ids = palette.rows.value.map((r) => r.command.id);
     for (const id of [
       "new-project",
       "edit-project",
       "show-project-overview",
-      "show-project-changes",
       "fetch-project",
       "next-project-repo",
       "previous-project-repo",
     ]) {
       expect(ids, id).toContain(id);
     }
+    const overview = palette.rows.value.find((r) => r.command.id === "show-project-overview");
+    expect(overview?.command.shortcutId).toBe("overview-focus");
     const next = palette.rows.value.find((r) => r.command.id === "next-project-repo");
     expect(next?.command.shortcutId).toBe("next-project-repo");
     await palette.rows.value.find((r) => r.command.id === "fetch-project")?.command.run();
     await next?.command.run();
-    expect(acts.calls).toEqual(["fetchProject", "projectNeighbour:1"]);
+    await overview?.command.run();
+    expect(acts.calls).toEqual(["fetchProject", "projectNeighbour:1", "showOverview"]);
   });
 
   it("offers to copy the review notes only when the target has some, and runs it", async () => {
@@ -342,37 +347,38 @@ describe("usePalette", () => {
     expect(acts.calls).toContain("copyReviewNotes");
   });
 
-  it("hides repository commands without a repository, and Scan folders without folders", () => {
-    const { palette } = setup({ hasRepository: false, hasScanFolders: false });
+  it("hides repository commands without a repository, and Scan folders without folder projects", () => {
+    const { palette } = setup({ hasRepository: false, hasFolderProjects: false, pinned: null });
     const ids = palette.rows.value.map((r) => r.command.id);
     expect(ids).not.toContain("open-terminal");
-    expect(ids).not.toContain("go-to-repositories");
-    expect(ids).not.toContain("pin-repository");
+    expect(ids).not.toContain("go-to-projects");
+    expect(ids).not.toContain("pin-project");
     expect(ids).not.toContain("scan-folders");
+    expect(ids).not.toContain("changes-focus");
     expect(ids).toContain("open-folder");
-    expect(ids).toContain("add-scan-folder");
+    expect(ids).toContain("add-folder");
   });
 
-  it("offers Unpin for a pinned repository, neither outside the index, and runs the discovery commands", async () => {
+  it("offers Unpin for a pinned project, neither without one, and runs the discovery commands", async () => {
     const pinned = setup({ pinned: true });
     let ids = pinned.palette.rows.value.map((r) => r.command.id);
-    expect(ids).toContain("unpin-repository");
-    expect(ids).not.toContain("pin-repository");
+    expect(ids).toContain("unpin-project");
+    expect(ids).not.toContain("pin-project");
     const find = (id: string) => {
       const row = pinned.palette.rows.value.find((r) => r.command.id === id);
       if (!row) throw new Error(`missing ${id}`);
       return row;
     };
-    await pinned.palette.run(find("unpin-repository"));
+    await pinned.palette.run(find("unpin-project"));
     await pinned.palette.run(find("scan-folders"));
-    await find("add-scan-folder").command.run();
-    await find("go-to-repositories").command.run();
+    await find("add-folder").command.run();
+    await find("go-to-projects").command.run();
     await find("changes-focus").command.run();
     expect(pinned.acts.calls).toEqual([
       "pin:false",
       "scan",
-      "addScanFolder",
-      "goToRepositories",
+      "addFolder",
+      "goToProjects",
       "showChanges",
     ]);
     // The staging commands wait for the changes screen.
@@ -381,8 +387,8 @@ describe("usePalette", () => {
 
     const outside = setup({ pinned: null });
     ids = outside.palette.rows.value.map((r) => r.command.id);
-    expect(ids).not.toContain("pin-repository");
-    expect(ids).not.toContain("unpin-repository");
+    expect(ids).not.toContain("pin-project");
+    expect(ids).not.toContain("unpin-project");
   });
 
   it("lists the featured repositories with an empty query, every match with one, never under Recent", async () => {

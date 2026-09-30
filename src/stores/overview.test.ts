@@ -43,12 +43,21 @@ async function showProject(options: FakeBackendOptions = {}) {
     },
     ...options,
   });
-  const projects = useProjectsStore();
-  await Promise.all([projects.load(), useIndexStore().load()]);
-  await projects.open(1, "overview");
-  useFolderStore().show();
+  // The stores of this test, taken before anything waits: a read an earlier test left running
+  // can make its own Pinia the active one again.
+  const [projects, index, settings, folder, overview] = [
+    useProjectsStore(),
+    useIndexStore(),
+    useSettingsStore(),
+    useFolderStore(),
+    useOverviewStore(),
+  ];
+  await Promise.all([projects.load(), index.load()]);
+  void settings.update("activeProject", 1);
+  void settings.update("layoutMode", "overview");
+  folder.show();
   for (let i = 0; i < 4; i += 1) await settled();
-  return { calls, overview: useOverviewStore() };
+  return { calls, overview };
 }
 
 beforeEach(async () => {

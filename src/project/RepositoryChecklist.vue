@@ -1,19 +1,20 @@
 <script setup lang="ts">
-// The checklist of the indexed repositories and worktrees, grouped as Home groups
-// them (one group per scan folder, its path in mono, then the ones opened on their own),
-// worktrees indented under their repository, narrowed by `query` (name or path). The model
-// holds the checked paths in the list's order, the order a new project keeps. One tab stop:
-// ↑↓ and j/k move the focus between the boxes, Space checks the focused one.
+// The checklist of the indexed repositories and worktrees, grouped by project (each
+// listed once, under the first project by name that holds it; a folder project's folder in
+// mono), worktrees indented under their repository, then the ones "Add repository…" described
+// and the index does not hold yet, narrowed by `query` (name or path). The model holds the
+// checked paths in the list's order, the order a new project keeps. One tab stop: ↑↓ and j/k
+// move the focus between the boxes, Space checks the focused one.
 
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Checkbox from "@/components/Checkbox.vue";
-import { tableSections, type TableSection } from "@/discovery/sections";
 import { useDiscoveryFormat } from "@/discovery/useDiscoveryFormat";
-import { sameFolder } from "@/shell/format";
+import type { IndexEntry } from "@/ipc/schemas";
+import { folderKey, sameFolder } from "@/shell/format";
 import { rowStep } from "@/shortcuts/useListNavigation";
-import { useIndexStore } from "@/stores/index";
+import { useProjectsStore } from "@/stores/projects";
 
 const props = withDefaults(
   defineProps<{
@@ -21,51 +22,80 @@ const props = withDefaults(
     query?: string;
     /** Paths left out (a project's members already). */
     exclude?: string[];
+    /** Repositories described by "Add repository…" that the index does not hold yet. */
+    added?: IndexEntry[];
   }>(),
-  { query: "", exclude: () => [] },
+  { query: "", exclude: () => [], added: () => [] },
 );
 const checked = defineModel<string[]>({ default: () => [] });
 
 const { t } = useI18n();
-const index = useIndexStore();
+const projects = useProjectsStore();
 const format = useDiscoveryFormat();
 
-const sections = computed<TableSection[]>(() =>
-  tableSections({
-    pinned: [],
-    recent: [],
-    all: [...index.mains].sort(
-      (a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path),
-    ),
-    scanRoots: index.scanRoots,
-    worktreesOf: index.worktreesOf,
-  }),
-);
+interface ChecklistRow {
+  path: string;
+  name: string;
+  nested: boolean;
+}
+
+interface ChecklistGroup {
+  key: string;
+  label: string;
+  mono: boolean;
+  rows: ChecklistRow[];
+}
+
+/** Every group with its rows, each repository once, before the query narrows them. */
+const groups = computed<ChecklistGroup[]>(() => {
+  const seen = new Set<string>();
+  const list: ChecklistGroup[] = [];
+  for (const project of projects.sorted) {
+    const rows: ChecklistRow[] = [];
+    for (const member of projects.members(project)) {
+      const key = folderKey(member.path);
+      if (member.missing || seen.has(key)) continue;
+      seen.add(key);
+      rows.push({ path: member.path, name: member.name, nested: member.nested });
+    }
+    if (rows.length === 0) continue;
+    list.push({
+      key: `project:${project.id}`,
+      label: project.folder === null ? project.name : format.displayPath(project.folder),
+      mono: project.folder !== null,
+      rows,
+    });
+  }
+  const added = props.added
+    .filter((entry) => !seen.has(folderKey(entry.path)))
+    .map((entry) => ({ path: entry.path, name: entry.name, nested: false }));
+  if (added.length > 0) {
+    list.push({ key: "added", label: t("project.new.added"), mono: false, rows: added });
+  }
+  return list;
+});
 
 const excluded = (path: string) => props.exclude.some((known) => sameFolder(known, path));
 
-/** The sections with the rows that are not excluded and match the query. */
+/** The groups with the rows that are not excluded and match the query. */
 const shown = computed(() => {
   const words = props.query.trim().toLowerCase();
-  return sections.value
-    .map((section) => ({
-      ...section,
-      rows: section.rows.filter(
+  return groups.value
+    .map((group) => ({
+      ...group,
+      rows: group.rows.filter(
         (row) =>
-          !row.entry.missing &&
-          !excluded(row.entry.path) &&
+          !excluded(row.path) &&
           (words === "" ||
-            row.entry.name.toLowerCase().includes(words) ||
-            row.entry.path.toLowerCase().includes(words)),
+            row.name.toLowerCase().includes(words) ||
+            row.path.toLowerCase().includes(words)),
       ),
     }))
-    .filter((section) => section.rows.length > 0);
+    .filter((group) => group.rows.length > 0);
 });
 
 /** The shown paths in the list's order. */
-const flat = computed(() =>
-  shown.value.flatMap((section) => section.rows.map((row) => row.entry.path)),
-);
+const flat = computed(() => shown.value.flatMap((group) => group.rows.map((row) => row.path)));
 const list = ref<HTMLElement | null>(null);
 const focusedPath = ref<string | null>(null);
 /** The list's tab stop: the focused box while it is shown, else the first. */
@@ -95,19 +125,13 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 /** Every listed path in the list's order, whatever the query hides. */
-const order = computed(() =>
-  sections.value.flatMap((section) => section.rows.map((row) => row.entry.path)),
-);
-
-function label(section: TableSection): string {
-  return section.folder === null ? t("home.sections.other") : format.displayPath(section.folder);
-}
+const order = computed(() => groups.value.flatMap((group) => group.rows.map((row) => row.path)));
 
 function toggle(path: string, on: boolean): void {
   const next = new Set(checked.value);
   if (on) next.add(path);
   else next.delete(path);
-  // Checked paths the list no longer shows (added by hand before the index knew them) go last.
+  // Checked paths the list does not show go last.
   const ordered = order.value.filter((known) => next.has(known));
   const rest = [...next].filter((known) => !ordered.includes(known));
   checked.value = [...ordered, ...rest];
@@ -122,24 +146,25 @@ function toggle(path: string, on: boolean): void {
     @focusin="onFocusin"
     @keydown="onKeydown"
   >
-    <template v-for="section in shown" :key="section.id">
+    <template v-for="group in shown" :key="group.key">
       <p
         class="pt-2 pb-1 text-sm text-fg-muted"
-        :class="section.folder === null ? '' : 'font-mono text-mono-sm'"
+        :class="group.mono ? 'font-mono text-mono-sm' : ''"
+        data-testid="checklist-group"
       >
-        {{ label(section) }}
+        {{ group.label }}
       </p>
       <Checkbox
-        v-for="row in section.rows"
-        :key="row.key"
+        v-for="row in group.rows"
+        :key="row.path"
         class="h-control shrink-0"
         :class="row.nested ? 'pl-5' : ''"
-        :label="row.entry.name"
-        :model-value="checked.includes(row.entry.path)"
-        :focusable="row.entry.path === stopPath"
-        :data-path="row.entry.path"
+        :label="row.name"
+        :model-value="checked.includes(row.path)"
+        :focusable="row.path === stopPath"
+        :data-path="row.path"
         data-testid="checklist-item"
-        @update:model-value="(on) => toggle(row.entry.path, on)"
+        @update:model-value="(on) => toggle(row.path, on)"
       />
     </template>
     <p v-if="shown.length === 0" class="py-2 text-sm text-fg-muted" data-testid="checklist-empty">

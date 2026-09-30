@@ -37,7 +37,6 @@ const table = ref<HTMLElement | null>(null);
 /** The rows whose git output shows under them. */
 const outputs = reactive(new Set<string>());
 
-const isProject = computed(() => folder.source?.kind === "project");
 const allSelected = computed(
   () => overview.rows.length > 0 && overview.rows.every((row) => overview.selection.has(row.path)),
 );
@@ -83,13 +82,9 @@ function toggleOutput(path: string): void {
   else outputs.add(path);
 }
 
-async function remove(path: string): Promise<void> {
-  const project = folder.project;
-  if (!project) return;
-  await projects.setMembers(
-    project.id,
-    project.members.filter((member) => member !== path),
-  );
+/** A missing member leaves the project; the confirmation names it when it leaves Begitra. */
+function remove(path: string): void {
+  projects.askRemoveMember(path);
 }
 
 defineExpose({ focusRows: (): void => keys.focus() });
@@ -140,13 +135,12 @@ defineExpose({ focusRows: (): void => keys.focus() });
         :fetched="fetched(row)"
         :committed="format.shortAgo(row.lastCommitAt)"
         :output-open="outputs.has(row.path)"
-        :removable="isProject"
         @focus="overview.focused = at"
         @toggle="overview.toggle(row.path)"
         @open="open(row.path)"
         @terminal="() => void external.openTerminal(row.path)"
         @editor="() => void external.openEditor(row.path)"
-        @remove="() => void remove(row.path)"
+        @remove="remove(row.path)"
         @output="toggleOutput(row.path)"
       />
       <div v-if="outputs.has(row.path) && statuses.get(row.path)?.output" role="row">

@@ -115,13 +115,14 @@
     "years": "{n}y ago"
   },
   "topBar": {
-    "noRepository": "No repository open",
     "search": "Search or run a command…",
     "settings": "Settings",
     "graphFocus": "Graph focus",
     "reviewFocus": "Review focus",
     "changes": "Changes",
-    "changesCount": "Changes, {n} file changed | Changes, {n} files changed"
+    "changesCount": "Changes, {n} file changed | Changes, {n} files changed",
+    "noProject": "No project open",
+    "overview": "Project overview"
   },
   "sidebar": {
     "repos": "Repos",
@@ -243,68 +244,49 @@
       "switch": "Switching {done} of {total} repositories",
       "create": "Creating the branch in {done} of {total} repositories"
     },
-    "readingRepositories": "Reading {n} repository | Reading {n} repositories"
+    "readingRepositories": "Reading {n} repository | Reading {n} repositories",
+    "lookingUp": "Looking up {name}"
   },
   "home": {
-    "title": "Repositories",
-    "subtitle": "Scan a folder to find every repository and worktree inside it.",
+    "title": "Projects",
+    "subtitle": "Open a repository, or a folder of repositories: each one is a project.",
     "openFolder": "Open folder…",
-    "empty": "No repositories yet. Add a folder to scan, or open one directly.",
-    "addFolderToScan": "Add a folder to scan",
+    "empty": "No projects yet. Open a repository or a folder of repositories, or add a folder that Begitra scans for them.",
+    "addFolderToScan": "Add a folder of repositories",
     "pickerFailed": "The folder picker could not be opened.",
     "repositories": "{n} repository | {n} repositories",
     "worktrees": "{n} worktree | {n} worktrees",
-    "folders": "{n} folder | {n} folders",
-    "summary": "{repositories} in {folders}.",
-    "summaryWithWorktrees": "{repositories} and {worktrees} in {folders}.",
+    "summary": "{projects}, {repositories}.",
+    "summaryWithWorktrees": "{projects}, {repositories} and {worktrees}.",
     "lastScan": "Last scan {ago}.",
     "scanningFolders": "Scanning {n} folder… | Scanning {n} folders…",
     "foldersFailed": "One folder could not be scanned. | {n} folders could not be scanned.",
-    "loading": "Loading repositories…",
-    "scanFolders": "Scan folders",
-    "addFolder": "Add folder",
+    "loading": "Loading projects…",
     "scan": "Scan",
     "stop": "Stop",
-    "removeFolder": "Remove folder",
-    "removeFolderNamed": "Remove {path} from the scan folders",
     "folderState": {
       "queued": "queued",
-      "scanning": "scanning",
+      "scanning": "scanning · {n} so far",
       "notFound": "not found",
       "empty": "no repositories"
     },
     "foldersScanned": "{n} folder scanned | {n} folders scanned",
     "repositoriesFound": "{n} repository found | {n} repositories found",
-    "folderMissing": "Couldn't scan {path}. The folder was removed. Remove it from the scan folders, or add it again if it moved.",
+    "folderMissing": "Couldn't scan {path}. The folder was removed. Remove its project, or open the folder again if it moved.",
     "scanFailed": "The scan stopped with an error. {message}",
-    "loadFailed": "The repository list could not be read. {message}",
+    "loadFailed": "The list of projects could not be read. {message}",
     "retry": "Try again",
-    "columns": {
-      "name": "Name",
-      "branch": "Branch",
-      "aheadBehind": "Ahead/behind",
-      "lastCommit": "Last commit",
-      "path": "Path"
-    },
-    "sortBy": "Sort by {column}",
     "sections": {
       "pinned": "Pinned",
       "recent": "Recent",
-      "other": "Opened on their own"
+      "projects": "Projects"
     },
-    "soFar": "{n} so far",
-    "noneFound": "No repositories found under the scan folders. Scan again, or add another folder.",
-    "listLabel": "Repositories",
+    "listLabel": "Projects",
     "rowActions": "Actions for {name}",
     "pin": "Pin",
     "unpin": "Unpin",
-    "removeFromList": "Remove from list",
     "dropHere": "Drop a folder to open it",
-    "showChanges": "Show changes",
-    "showChangesIn": "Show the changes in {path}",
-    "saveAsProjectIn": "Save {path} as a project",
     "projects": {
-      "title": "Projects",
       "changes": "{n} with changes",
       "behind": "{n} behind",
       "operation": {
@@ -315,7 +297,11 @@
       },
       "missing": "{n} missing",
       "upToDate": "up to date"
-    }
+    },
+    "projectCount": "{n} project | {n} projects",
+    "removeProject": "Remove project…",
+    "showDetails": "Show details",
+    "pinned": "Pinned"
   },
   "graph": {
     "searchCommits": "Search commits",
@@ -348,7 +334,6 @@
       "unstaged": "{n} unstaged",
       "staged": "{n} staged"
     },
-    "removeFromList": "Remove from list",
     "diffFromChip": "Diff from {hash}",
     "rangeEndChip": "Range end {hash}",
     "clearDiffBase": "Clear the diff base",
@@ -365,7 +350,8 @@
     "clipboardUnavailable": "The clipboard is not available.",
     "corruptPast": "Couldn't read history past {hash}. An object is missing or corrupt, so older commits are not shown. Run git fsck in a terminal to check the repository.",
     "corruptStart": "Couldn't read the history. An object is missing or corrupt. Run git fsck in a terminal to check the repository.",
-    "historyFailed": "Couldn't read the rest of the history. {message}"
+    "historyFailed": "Couldn't read the rest of the history. {message}",
+    "repository": "Repository"
   },
   "detail": {
     "commit": "Commit",
@@ -508,11 +494,7 @@
       "open-terminal": "Open in terminal",
       "open-editor": "Open in editor",
       "open-file-editor": "Open file in editor",
-      "pin-repository": "Pin repository",
-      "unpin-repository": "Unpin repository",
-      "go-to-repositories": "Go to repositories",
       "scan-folders": "Scan folders",
-      "add-scan-folder": "Add scan folder…",
       "locale-en": "Language: English",
       "locale-es": "Language: Spanish",
       "diff-from": "Diff from…",
@@ -562,14 +544,16 @@
       "stash-changes": "Stash changes…",
       "continue-operation": "Continue the operation",
       "abort-operation": "Abort the operation…",
-      "show-folder-changes": "Show folder changes",
       "new-project": "New project…",
       "edit-project": "Edit project…",
       "show-project-overview": "Show project overview",
-      "show-project-changes": "Show project changes",
       "fetch-project": "Fetch the project",
       "next-project-repo": "Next repository of the project",
-      "previous-project-repo": "Previous repository of the project"
+      "previous-project-repo": "Previous repository of the project",
+      "pin-project": "Pin project",
+      "unpin-project": "Unpin project",
+      "go-to-projects": "Go to projects",
+      "add-folder": "Add folder…"
     },
     "repos": "Repos"
   },
@@ -609,10 +593,10 @@
     "years": "{n} year ago | {n} years ago"
   },
   "switcher": {
-    "label": "Switch repository",
+    "label": "Switch project",
     "pinned": "Pinned",
     "recent": "Recent",
-    "goToRepositories": "Go to repositories"
+    "goToProjects": "Go to projects"
   },
   "picker": {
     "diffFrom": "Diff from…",
@@ -993,12 +977,13 @@
     "discovery": {
       "title": "Discovery",
       "scanFolders": "Scan folders",
-      "noFolders": "No folders yet. Begitra scans these for repositories and worktrees.",
+      "noFolders": "No folders yet. Each folder Begitra scans is a project of the repositories and worktrees in it.",
       "addFolder": "Add folder",
       "skipFolders": "Skip folders",
       "skipFoldersHint": "Comma separated. Matched at any depth.",
       "maxDepth": "Max depth",
-      "maxDepthHint": "Folders deeper than this are not scanned."
+      "maxDepthHint": "Folders deeper than this are not scanned.",
+      "removeFolder": "Remove {path} and its project"
     },
     "git": {
       "title": "Git",
@@ -1068,7 +1053,8 @@
         "push": "Push",
         "markResolved": "Mark resolved",
         "zoom": "Zoom in / out / reset",
-        "nextPreviousProjectRepo": "Next / previous repository of the project"
+        "nextPreviousProjectRepo": "Next / previous repository of the project",
+        "overviewFocus": "Project overview"
       }
     },
     "about": {
@@ -1117,13 +1103,11 @@
   "project": {
     "overview": "Overview",
     "changes": "Changes",
-    "tabs": "Project view",
     "repositories": "{n} repository | {n} repositories",
     "readingMeta": "reading {n} repository | reading {n} repositories",
     "changesMeta": "{n} repository with changes, {without} without | {n} repositories with changes, {without} without",
     "refresh": "Read every repository again",
     "edit": "Edit project…",
-    "saveAsProject": "Save as project",
     "columns": {
       "repository": "Repository",
       "branch": "Branch",
@@ -1279,7 +1263,8 @@
       "repositories": "Repositories",
       "filter": "Filter repositories",
       "addRepository": "Add repository…",
-      "confirm": "Create with {n} repository | Create with {n} repositories"
+      "confirm": "Create with {n} repository | Create with {n} repositories",
+      "added": "Added"
     },
     "editDialog": {
       "title": "Edit project",
@@ -1293,13 +1278,31 @@
       "moveDown": "Move {name} down",
       "remove": "Remove {name} from the project",
       "none": "No repositories yet.",
-      "hint": "{up} and {down} move the focused repository and {remove} removes it. Removing one from the project leaves its folder and its index entry as they are.",
+      "hint": "{up} and {down} move the focused repository and {remove} removes it. Removing one leaves its folder as it is.",
       "delete": "Delete project…",
-      "deleteTitle": "Delete {name}?",
-      "deleteBody": "The project goes; its repositories, their folders and their index entries stay as they are.",
-      "deleteConfirm": "Delete project"
+      "found": "Found in its folder",
+      "noneFound": "The scan of its folder has found no repository yet.",
+      "foundHint": "The folder's scans keep these: a repository cloned into it joins, one deleted from it leaves.",
+      "byHand": "Added by hand",
+      "leaving": "Leaves Begitra when you save: no other project holds it. | Leave Begitra when you save: no other project holds them."
     },
     "loadFailed": "Couldn't read the list of repositories. {message}",
-    "checklistNothing": "No repository to add."
+    "checklistNothing": "No repository to add.",
+    "emptyFolder": "No repositories in {project}.",
+    "allMissing": "The repositories of {project} are missing. Edit the project, or bring their folders back.",
+    "scanningFolder": "Looking for repositories in {folder}…",
+    "leaving": {
+      "label": "Leaving Begitra"
+    },
+    "deleteDialog": {
+      "title": "Delete {name}?",
+      "bodyKept": "The project goes. Its repositories belong to other projects and stay in Begitra; no folder is touched.",
+      "bodyLeaving": "The project goes, and this repository leaves Begitra with it: no other project holds it. Its folder stays as it is, and opening it again brings it back. | The project goes, and these {n} repositories leave Begitra with it: no other project holds them. Their folders stay as they are, and opening one again brings it back.",
+      "confirm": "Delete project"
+    },
+    "removeDialog": {
+      "title": "Remove {name} from {project}?",
+      "body": "No other project holds it, so it leaves Begitra. Its folder stays as it is, and opening it again brings it back."
+    }
   }
 }

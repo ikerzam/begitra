@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // The window: top bar, the layout of the active mode, status bar, palette and toasts, plus
 // the global shortcuts, the window width the review rail collapse depends on, the drop
-// target, the watcher of the open repository, and the launch: the index loads while the
-// last repository reopens.
+// target, the watcher of the open repository, and the launch: the projects load, a settings
+// file of a version before projects takes its one-time step, and the open project reopens on
+// the repository it showed while the index loads beside it.
 
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -18,11 +19,13 @@ import { useDragDrop } from "@/discovery/useDragDrop";
 import type { FileChange } from "@/ipc/schemas";
 import PaletteOverlay from "@/palette/PaletteOverlay.vue";
 import CompareLayout from "@/compare/CompareLayout.vue";
+import DeleteProjectDialog from "@/project/DeleteProjectDialog.vue";
 import EditProjectDialog from "@/project/EditProjectDialog.vue";
 import NewProjectDialog from "@/project/NewProjectDialog.vue";
 import ProjectLayout from "@/project/ProjectLayout.vue";
+import RemoveMemberDialog from "@/project/RemoveMemberDialog.vue";
 import PickerOverlay from "@/picker/PickerOverlay.vue";
-import { baseName, shortHash } from "@/shell/format";
+import { shortHash } from "@/shell/format";
 import { isOverlayTarget } from "@/shortcuts/registry";
 import { installShortcuts, useShortcut } from "@/shortcuts/useShortcut";
 import { useChangesStore } from "@/stores/changes";
@@ -40,7 +43,6 @@ import { useBulkStore } from "@/stores/bulk";
 import { useProjectDialogsStore } from "@/stores/projectDialogs";
 import { useSettingsStore } from "@/stores/settings";
 import { paneLimits, useShellStore } from "@/stores/shell";
-import { useToastsStore } from "@/stores/toasts";
 import { useWorktreesStore } from "@/stores/worktrees";
 import { useSettingsScreenStore } from "@/stores/settingsScreen";
 import SettingsLayout from "@/settings/SettingsLayout.vue";
@@ -48,7 +50,6 @@ import type { SidebarTab } from "@/stores/shell";
 import AddWorktreeDialog from "@/worktrees/AddWorktreeDialog.vue";
 import WorktreesLayout from "@/worktrees/WorktreesLayout.vue";
 
-import { errorText } from "./errorMessage";
 import PaneResizer from "./PaneResizer.vue";
 import GraphFocusLayout from "./GraphFocusLayout.vue";
 import ReviewFocusLayout from "./ReviewFocusLayout.vue";
@@ -73,7 +74,6 @@ const folder = useFolderStore();
 const projects = useProjectsStore();
 const bulk = useBulkStore();
 const projectDialogs = useProjectDialogsStore();
-const toasts = useToastsStore();
 const changes = useChangesStore();
 const worktrees = useWorktreesStore();
 const settingsScreen = useSettingsScreenStore();
@@ -83,14 +83,10 @@ const remotes = useRemotesStore();
 const stash = useStashStore();
 const sequencer = useSequencerStore();
 const operations = useOperationsStore();
-const { openFolder } = useOpenFolder();
+const { openFolder, addFolder } = useOpenFolder();
 const external = useExternal();
 // A folder dropped on the window opens as Open folder… opens it.
-const { dragging } = useDragDrop((path) => {
-  void index.openFolder(path).then((kind) => {
-    if (kind === "folder") void folder.open(path);
-  });
-});
+const { dragging } = useDragDrop((path) => void projects.openPath(path));
 useRepoWatcher();
 const graphLayout = ref<{ focusRows(): void } | null>(null);
 const reviewLayout = ref<{ focusFiles(): void } | null>(null);
@@ -100,7 +96,6 @@ const settingsLayout = ref<{ focus(): void } | null>(null);
 const changesLayout = ref<{ focusLists(): void } | null>(null);
 const projectLayout = ref<{ focus(): void } | null>(null);
 
-const repositoryName = computed(() => (repo.repo ? baseName(repo.repo.root) : null));
 const reviewMode = computed(() => shell.layoutMode === "review" && repo.state.kind === "ready");
 const compareMode = computed(
   () =>
@@ -112,13 +107,24 @@ const worktreesMode = computed(
   () => shell.layoutMode === "worktrees" && repo.state.kind === "ready",
 );
 const settingsMode = computed(() => shell.layoutMode === "settings");
-const changesMode = computed(() => shell.layoutMode === "changes" && repo.state.kind === "ready");
-/** The project view and the folder view show with or without an open repository. */
-const projectMode = computed(
-  () =>
-    (shell.layoutMode === "folder" && settings.values.folderView !== null) ||
-    (shell.layoutMode === "project" && settings.values.activeProject !== null),
+/** The changes screen: the Changes of a project of one, on its open repository. */
+const changesMode = computed(
+  () => shell.layoutMode === "changes" && !projects.multi && repo.state.kind === "ready",
 );
+/**
+ * The Overview and the Changes of a project of several (the folder view) show with or without
+ * an open repository.
+ */
+const projectMode = computed(() => projects.view !== null);
+/** The Changes toggle's count: the project's repositories' changed files, as far as read. */
+const changedCount = computed(() => {
+  if (!projects.multi || folder.source !== projects.active?.id) return changes.counts?.changed ?? 0;
+  const read = folder.repositories.reduce(
+    (sum, repository) => sum + (repository.view.counts?.changed ?? 0),
+    0,
+  );
+  return Math.max(read, changes.counts?.changed ?? 0);
+});
 /**
  * One sidebar for every layout but review focus and the settings (which show the rail), so
  * switching layouts keeps its filter, its lists and the focus of a tab that switched to the
@@ -126,7 +132,7 @@ const projectMode = computed(
  */
 const showSidebar = computed(
   () =>
-    repo.state.kind !== "empty" &&
+    (repo.state.kind !== "empty" || projects.active !== null) &&
     !shell.sidebarCollapsed &&
     !reviewMode.value &&
     !settingsMode.value,
@@ -167,7 +173,10 @@ useShortcut("add-worktree", () => {
 });
 useShortcut("settings", () => void shell.setLayoutMode("settings"));
 useShortcut("changes-focus", () => {
-  if (repo.state.kind === "ready") void shell.setLayoutMode("changes");
+  if (repo.state.kind === "ready" || projects.multi) void shell.setLayoutMode("changes");
+});
+useShortcut("overview-focus", () => {
+  if (projects.multi) void shell.setLayoutMode("overview");
 });
 useShortcut("diff-from", () => {
   if (repo.state.kind === "ready") picker.open({ kind: "diff-from" });
@@ -207,21 +216,30 @@ onBeforeUnmount(() => {
   window.removeEventListener("keydown", onEscape);
 });
 
-/** The index loads while the last repository reopens; a gone one leaves home flagged. */
+/**
+ * The projects load (the repository to reopen is the open project's), a settings file of a
+ * version before projects takes its one-time step, and the open project reopens on the
+ * repository it showed while the index loads beside it; a project that is gone leaves Home, a
+ * repository that cannot be opened leaves the shell in its error state inside the project.
+ */
 async function launch(): Promise<void> {
   // The stored shortcut overrides and git executable apply before anything runs git.
   settingsScreen.applyOverrides();
   await settingsScreen.applyAtLaunch();
   void index.load();
-  void projects.load();
-  const last = settings.values.lastRepository;
-  if (!last) return;
-  const failed = await index.restore(last);
-  if (failed) {
-    const text = errorText(failed, last);
-    toasts.push({ kind: "error", message: t(text.key, text.params), output: failed.detail });
-  }
+  await projects.load();
+  await projects.migrateSettings();
+  await projects.restore();
 }
+
+// The Overview of a project that holds one repository or none (its members changed, or a
+// stale setting) gives way to the graph once the projects are known.
+watch(
+  () => [shell.layoutMode, projects.loaded, projects.multi] as const,
+  ([mode, loaded, multi]) => {
+    if (mode === "overview" && loaded && !multi) void shell.setLayoutMode("graph");
+  },
+);
 
 // The sidebar follows the repository: the Repos tab on failure and at home, the branches
 // once open, unless the dashboard is being restored (its tab keeps it up).
@@ -287,22 +305,23 @@ async function review(file?: FileChange): Promise<void> {
   await shell.setLayoutMode("review");
 }
 
-/** "Remove from list" in the error state: the entry leaves the index and the home shows. */
-async function removeFromList(): Promise<void> {
+/**
+ * "Remove from project" in the error state: the repository the project shows leaves it (after
+ * the confirmation when it leaves Begitra), and the project shows another one.
+ */
+function removeFromProject(): void {
   const state = repo.state;
-  if (state.kind === "error") await index.forget(state.path);
-  await repo.close();
+  if (state.kind === "error") projects.askRemoveMember(state.path);
 }
 </script>
 
 <template>
   <div class="relative flex h-full min-h-0 flex-col bg-app text-fg" data-testid="app-shell">
     <TopBar
-      :repository-name="repositoryName"
-      :repository-root="repo.repo?.root ?? null"
       :layout-mode="shell.layoutMode"
-      :changed-count="changes.counts?.changed ?? 0"
-      :can-show-changes="repo.state.kind === 'ready'"
+      :changed-count="changedCount"
+      :can-show-changes="repo.state.kind === 'ready' || projects.multi"
+      :can-show-overview="projects.multi"
       @open-folder="() => void openFolder()"
       @open-palette="shell.openPalette()"
       @set-layout-mode="(mode) => void shell.setLayoutMode(mode)"
@@ -334,8 +353,9 @@ async function removeFromList(): Promise<void> {
         v-else
         ref="graphLayout"
         @open-folder="() => void openFolder()"
+        @add-folder="() => void addFolder()"
         @review="(file) => void review(file)"
-        @remove-from-list="() => void removeFromList()"
+        @remove-from-project="removeFromProject"
       />
       <DropTarget :active="dragging" />
     </div>
@@ -358,6 +378,16 @@ async function removeFromList(): Promise<void> {
       v-if="projectDialogs.editing !== null"
       :id="projectDialogs.editing"
       :key="projectDialogs.editing"
+    />
+    <DeleteProjectDialog
+      v-if="projectDialogs.deleting !== null"
+      :id="projectDialogs.deleting"
+      :key="`delete:${projectDialogs.deleting}`"
+    />
+    <RemoveMemberDialog
+      v-if="projectDialogs.removing !== null"
+      :key="`remove:${projectDialogs.removing}`"
+      :path="projectDialogs.removing"
     />
     <StashSheet v-if="stash.sheetOpen" />
     <ToastHost />

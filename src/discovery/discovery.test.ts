@@ -1,412 +1,261 @@
-import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { clearMocks } from "@tauri-apps/api/mocks";
 import { flushPromises, type VueWrapper } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defineComponent, h } from "vue";
 
-import type { IndexEntry } from "@/ipc/schemas";
 import { useIndexStore } from "@/stores/index";
+import { useProjectDialogsStore } from "@/stores/projectDialogs";
+import { useProjectsStore } from "@/stores/projects";
 import { useRepoStore } from "@/stores/repo";
 import { memoryStorage, useSettingsStore } from "@/stores/settings";
+import { fakeBackend, type Call, type FakeBackendOptions } from "@/test/backend";
+import { entryOf, folderProjectOf, projectOf, summaryOf, worktreeOf } from "@/test/entries";
 import { mountWithI18n } from "@/test/mount";
 
 import HomeScreen from "./HomeScreen.vue";
-import { useDiscoveryFormat } from "./useDiscoveryFormat";
 
-const dialogOpen = vi.fn<() => Promise<string | null>>(() => Promise.resolve("/home/iker/oss"));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open: () => dialogOpen() }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ open: () => Promise.resolve(null) }));
 
 const CODE = "/home/iker/code";
-const WT = "/home/iker/wt";
 const NOW = Math.floor(Date.now() / 1000);
 
-function entry(name: string, over: Partial<IndexEntry> = {}): IndexEntry {
-  return {
-    path: `${CODE}/${name}`,
-    name,
-    kind: "main",
-    parentPath: null,
-    scanRoot: CODE,
-    summary: {
-      currentBranch: "main",
-      detached: false,
-      ahead: 0,
-      behind: 0,
-      lastCommitAt: NOW - 3 * 3600,
-      upstream: null,
-      operation: null,
-      fetchedAt: null,
-      lastCommitSubject: null,
-      dirty: false,
-    },
-    pinned: false,
-    lastOpenedAt: null,
-    refreshedAt: NOW,
-    missing: false,
-    ...over,
-  };
-}
+const api = entryOf(`${CODE}/api`, { summary: summaryOf({ dirty: true }) });
+const web = entryOf(`${CODE}/web`, { summary: summaryOf({ operation: "rebase", behind: 2 }) });
+const webAuth = worktreeOf("/home/iker/wt/web-auth", web.path);
+const probe = entryOf("/tmp/probe");
 
-const fixture: IndexEntry[] = [
-  entry("geoportal", {
-    pinned: true,
-    lastOpenedAt: NOW - 100,
-    summary: {
-      currentBranch: "main",
-      detached: false,
-      ahead: 2,
-      behind: 0,
-      lastCommitAt: NOW - 3 * 3600,
-      upstream: null,
-      operation: null,
-      fetchedAt: null,
-      lastCommitSubject: null,
-      dirty: true,
-    },
-  }),
-  entry("claude-auth", {
-    path: `${WT}/claude-auth`,
-    kind: "worktree",
-    parentPath: `${CODE}/geoportal`,
-    scanRoot: WT,
-    summary: {
-      currentBranch: "claude/fix-auth",
-      detached: false,
-      ahead: 5,
-      behind: 1,
-      lastCommitAt: NOW - 2 * 3600,
-      upstream: null,
-      operation: null,
-      fetchedAt: null,
-      lastCommitSubject: null,
-      dirty: true,
-    },
-  }),
-  entry("tiles-spike", { lastOpenedAt: NOW - 7 * 86_400 }),
-  entry("begitra", { summary: { ...entry("x").summary, lastCommitAt: NOW - 3600 } }),
-  entry("map-core-bench", {
-    summary: { ...entry("x").summary, currentBranch: "develop", lastCommitAt: NOW - 4 * 86_400 },
-  }),
+const projects = [
+  projectOf(1, "Geoportal", [api.path, web.path], { pinned: true, openedAt: NOW - 3600 }),
+  folderProjectOf(2, CODE, [api.path, web.path], [webAuth.path]),
+  projectOf(3, "probe", [probe.path], { openedAt: NOW - 60 }),
 ];
 
-function backend() {
-  const calls: { cmd: string; args: Record<string, unknown> }[] = [];
-  mockIPC((cmd, rawArgs) => {
-    const args = (rawArgs ?? {}) as Record<string, unknown>;
-    calls.push({ cmd, args });
-    switch (cmd) {
-      case "list_repositories":
-        return fixture;
-      case "open_repository":
-        return {
-          root: args["path"],
-          commonDir: `${args["path"] as string}/.git`,
-          currentBranch: "main",
-          detached: false,
-          isLinkedWorktree: false,
-        };
-      case "list_refs":
-        return [];
-      case "walk_commits":
-        return null;
-      case "open_external":
-        return ["code", args["path"]];
-      default:
-        return null;
-    }
+function backend(options: FakeBackendOptions = {}): Call[] {
+  return fakeBackend({
+    repositories: [api, web, webAuth, probe],
+    projects,
+    rootIsPath: true,
+    ...options,
   });
-  return calls;
 }
 
-async function mountHome(loaded = true) {
+async function mountHome(options: FakeBackendOptions = {}) {
+  const calls = backend(options);
+  // The stores of this test, taken before anything waits.
   const index = useIndexStore();
-  if (loaded) {
-    index.entries = fixture;
-    index.loaded = true;
-  }
+  const store = useProjectsStore();
+  await Promise.all([index.load(), store.load()]);
   const wrapper = mountWithI18n(HomeScreen, { attachTo: document.body });
   await flushPromises();
-  return { wrapper, index };
+  return { wrapper, index, store, calls };
 }
 
 beforeEach(async () => {
   setActivePinia(createPinia());
-  await useSettingsStore().init(
-    memoryStorage({ scanRoots: [CODE, WT], lastScanAt: NOW - 120 }),
-    "linux",
-  );
-  backend();
+  await useSettingsStore().init(memoryStorage({ lastScanAt: NOW - 120 }), "linux");
 });
 
 afterEach(() => {
   clearMocks();
-  dialogOpen.mockClear();
+  document.body.innerHTML = "";
 });
 
-/** Each section header of the home table as its label and, for a folder, its count. */
-function sectionHeaders(wrapper: VueWrapper): string[][] {
+/** Each section of Home as its label and its count. */
+function sections(wrapper: VueWrapper): string[] {
+  return wrapper.findAll('[data-testid^="home-section-"] > [role="presentation"]').map((header) =>
+    header
+      .findAll("span")
+      .map((part) => part.text())
+      .join(" "),
+  );
+}
+
+/** The rows of a section, by name. */
+function rowsOf(wrapper: VueWrapper, section: string): string[] {
   return wrapper
-    .findAll('[data-testid^="section-"]')
-    .map((header) => header.findAll("span").map((part) => part.text()));
+    .get(`[data-testid="home-section-${section}"]`)
+    .findAll('[data-testid="home-project-name"]')
+    .map((name) => name.text());
 }
 
 describe("HomeScreen", () => {
-  it("shows the counts, the folders with their counts and the sections from the index", async () => {
+  it("lists the projects under Pinned, Recent and Projects, with their counts and what needs attention", async () => {
     const { wrapper } = await mountHome();
     expect(wrapper.get('[data-testid="home-summary"]').text()).toBe(
-      "4 repositories and 1 worktree in 2 folders. Last scan 2 minutes ago.",
+      "3 projects, 3 repositories and 1 worktree. Last scan 2 minutes ago.",
     );
-    const folders = wrapper.findAll('[data-testid="scan-folder"]');
-    expect(folders.map((f) => f.text())).toEqual([`${CODE}4 repositories`, `${WT}1 worktree`]);
+    expect(sections(wrapper)).toEqual(["Pinned 1", "Recent 1", "Projects 3"]);
+    expect(rowsOf(wrapper, "pinned")).toEqual(["Geoportal"]);
+    expect(rowsOf(wrapper, "recent")).toEqual(["probe"]);
+    expect(rowsOf(wrapper, "projects")).toEqual(["code", "Geoportal", "probe"]);
+    const code = wrapper
+      .get('[data-testid="home-section-projects"]')
+      .findAll('[data-testid="home-project"]')[0]!;
+    expect(code.get('[data-testid="home-project-folder"]').text()).toBe(CODE);
+    // Its folder's own members by kind, the one added by hand among the repositories.
+    expect(code.get('[data-testid="home-project-status"]').text()).toBe("3 repositories");
+    expect(code.get('[data-testid="home-project-attention"]').text()).toBe(
+      "1 with changes · 1 behind · 1 rebasing",
+    );
+    const probeRow = wrapper.get(
+      '[data-testid="home-section-recent"] [data-testid="home-project"]',
+    );
+    expect(probeRow.find('[data-testid="home-project-folder"]').exists()).toBe(false);
+    expect(probeRow.get('[data-testid="home-project-attention"]').text()).toBe("up to date");
+    // One tab stop for the whole list.
+    const stops = wrapper
+      .findAll('[data-testid="home-project"]')
+      .map((row) => row.attributes("tabindex"));
+    expect(stops.filter((stop) => stop === "0")).toHaveLength(1);
     expect(wrapper.get('[data-testid="scan-start"]').text()).toBe("Scan");
     expect(wrapper.find('[data-testid="scan-stop"]').exists()).toBe(false);
-    expect(wrapper.find('[data-testid="scan-progress"]').exists()).toBe(false);
-
-    // Pinned, Recent, then the scan folder's own repositories under its path, with their count;
-    // the worktree folder has no section, its worktree hangs under its repository.
-    expect(sectionHeaders(wrapper)).toEqual([["Pinned"], ["Recent"], [CODE, "2"]]);
-    const rows = wrapper.findAll('[data-testid="repo-row"]');
-    expect(rows.map((row) => row.get('[data-testid="repo-row-name"]').text())).toEqual([
-      "geoportal",
-      "claude-auth",
-      "tiles-spike",
-      "begitra",
-      "map-core-bench",
-    ]);
-    // The worktree hangs under its repository with the connector and its own branch colour.
-    expect(rows[1]?.find('[data-testid="repo-row-connector"]').exists()).toBe(true);
-    expect(rows[0]?.get("[data-lane]").attributes("data-lane")).toBe("1");
-    expect(rows[1]?.get("[data-lane]").attributes("data-lane")).toBe("2");
-    expect(rows[0]?.get('[data-testid="repo-row-last-commit"]').text()).toBe("3h ago");
-    expect(rows[0]?.get('[data-testid="repo-row-path"]').text()).toBe(`${CODE}/geoportal`);
-    expect(rows[0]?.find("[data-tooltip='Uncommitted changes']").exists()).toBe(true);
-    expect(rows.map((row) => row.attributes("tabindex"))).toEqual(["0", "-1", "-1", "-1", "-1"]);
-    expect(wrapper.find('[data-testid="skeleton-row"]').exists()).toBe(false);
-    wrapper.unmount();
   });
 
-  it("resizes a column from its header's edge for the header and every row, and resets it", async () => {
-    const { wrapper } = await mountHome();
-    const table = wrapper.get('[data-testid="repo-table"]');
-    expect(table.attributes("style")).toContain("--repo-name-w: 200px");
-    const edges = wrapper.findAll(
-      '[data-testid="repo-table-columns"] [data-testid="column-resizer"]',
-    );
-    expect(edges).toHaveLength(4);
-    const name = edges[0]!;
-    expect(name.attributes("aria-label")).toBe("Resize the Name column");
-    await name.trigger("mousedown", { clientX: 200 });
-    window.dispatchEvent(new MouseEvent("mousemove", { clientX: 260 }));
-    window.dispatchEvent(new MouseEvent("mouseup"));
-    await flushPromises();
-    expect(useSettingsStore().values.columnWidths.home.name).toBe(260);
-    expect(table.attributes("style")).toContain("--repo-name-w: 260px");
-    await name.trigger("dblclick");
-    await flushPromises();
-    expect(useSettingsStore().values.columnWidths.home.name).toBe(200);
-    wrapper.unmount();
-  });
-
-  it("sorts the All section from the column header and keeps the other sections", async () => {
-    const { wrapper, index } = await mountHome();
-    const names = () =>
-      wrapper
-        .findAll('[data-testid="repo-row"]')
-        .map((row) => row.get('[data-testid="repo-row-name"]').text());
-    await wrapper.get('[data-testid="sort-lastCommit"]').trigger("click");
-    expect(index.sort).toEqual({ column: "lastCommit", direction: "desc" });
-    expect(names().slice(3)).toEqual(["begitra", "map-core-bench"]);
-    await wrapper.get('[data-testid="sort-lastCommit"]').trigger("click");
-    expect(names().slice(3)).toEqual(["map-core-bench", "begitra"]);
-    expect(wrapper.get('[data-testid="sort-lastCommit"]').attributes("aria-sort")).toBe(
-      "ascending",
-    );
-    expect(wrapper.get('[data-testid="sort-name"]').attributes("aria-sort")).toBe("none");
-    // The hint puts the column inside a sentence, for the eye and for assistive technology.
-    const sortName = wrapper.get('[data-testid="sort-name"]');
-    expect(sortName.attributes("data-tooltip")).toBe("Sort by name");
-    expect(sortName.attributes("aria-description")).toBe("Sort by name");
-    wrapper.unmount();
-  });
-
-  it("moves with j and k, opens the selected row with Enter and offers the row menu", async () => {
-    const { wrapper } = await mountHome();
-    const rows = wrapper.findAll('[data-testid="repo-row"]');
+  it("moves with j and k and opens the focused project with Enter", async () => {
+    const { wrapper, calls } = await mountHome();
+    const rows = wrapper.findAll('[data-testid="home-project"]');
     (rows[0]?.element as HTMLElement).focus();
+    // The first key selects the first row; the next ones move.
     await rows[0]!.trigger("keydown", { key: "j" });
     await rows[0]!.trigger("keydown", { key: "j" });
-    expect(rows[1]?.attributes("aria-selected")).toBe("true");
-    expect(document.activeElement).toBe(rows[1]?.element);
-    await rows[1]!.trigger("keydown", { key: "k" });
-    expect(rows[0]?.attributes("aria-selected")).toBe("true");
-    await rows[0]!.trigger("keydown", { key: "ArrowDown" });
-    await rows[1]!.trigger("keydown", { key: "ArrowDown" });
+    await rows[1]!.trigger("keydown", { key: "j" });
     expect(rows[2]?.attributes("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(rows[2]?.element);
+    await rows[2]!.trigger("keydown", { key: "k" });
+    expect(rows[1]?.attributes("aria-selected")).toBe("true");
+    // Recent's "probe": its only repository opens on the graph.
+    await rows[1]!.trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    expect(useProjectsStore().active?.name).toBe("probe");
+    expect(useRepoStore().repo?.root).toBe(probe.path);
+    expect(calls.find((call) => call.cmd === "project_record_open")?.args).toEqual({
+      id: 3,
+      repository: probe.path,
+    });
+  });
 
-    await rows[2]!.trigger("contextmenu", { clientX: 300, clientY: 400 });
-    const menu = wrapper.get('[data-testid="repo-row-menu"]');
-    expect(menu.attributes("style")).toContain("left: 300px");
+  it("offers each project's menu: pin, edit, open its folder, and remove", async () => {
+    const { wrapper, calls } = await mountHome();
+    const code = wrapper
+      .get('[data-testid="home-section-projects"]')
+      .findAll('[data-testid="home-project"]')[0]!;
+    await code.trigger("contextmenu", { clientX: 300, clientY: 400 });
+    const menu = wrapper.get('[data-testid="project-row-menu"]');
     expect(menu.findAll("[role='menuitem']").map((item) => item.text())).toEqual([
       "Pin",
+      "Edit project…",
       "Open in terminal",
       "Open in editor",
-      "Remove from list",
+      "Remove project…",
     ]);
     await menu.get('[data-testid="menu-pin"]').trigger("click");
     await flushPromises();
-    expect(wrapper.find('[data-testid="repo-row-menu"]').exists()).toBe(false);
-    expect(useIndexStore().pinned.map((e) => e.name)).toEqual(["geoportal", "tiles-spike"]);
-
-    const current = wrapper.findAll('[data-testid="repo-row"]');
-    const selected = current.find((row) => row.attributes("aria-selected") === "true");
-    expect(selected?.get('[data-testid="repo-row-name"]').text()).toBe("tiles-spike");
-    await selected!.trigger("keydown", { key: "Enter" });
-    await flushPromises();
-    expect(useRepoStore().state.kind).toBe("ready");
-    expect(useRepoStore().repo?.root).toBe(`${CODE}/tiles-spike`);
-    wrapper.unmount();
+    expect(calls.find((call) => call.cmd === "project_set_pinned")?.args).toEqual({
+      id: 2,
+      pinned: true,
+    });
+    expect(rowsOf(wrapper, "pinned")).toEqual(["code", "Geoportal"]);
+    // A list project has no folder to open.
+    const probeRow = wrapper.get(
+      '[data-testid="home-section-recent"] [data-testid="home-project"]',
+    );
+    await probeRow.trigger("contextmenu", { clientX: 10, clientY: 10 });
+    const listMenu = wrapper.get('[data-testid="project-row-menu"]');
+    expect(listMenu.find('[data-testid="menu-terminal"]').exists()).toBe(false);
+    await listMenu.get('[data-testid="menu-remove"]').trigger("click");
+    expect(useProjectDialogsStore().deleting).toBe(3);
   });
 
-  it("shows the scanning state: Stop, folder states, the progress line and skeleton rows", async () => {
+  it("shows the scanning state: Stop, the progress line and each folder project's state", async () => {
     const { wrapper, index } = await mountHome();
     index.scan = {
       kind: "scanning",
-      folders: { [CODE]: "scanning", [WT]: "queued" },
+      folders: { [CODE]: "scanning" },
       scanned: 312,
       found: 14,
       current: CODE,
     };
     await flushPromises();
-    expect(wrapper.get('[data-testid="home-summary"]').text()).toBe("Scanning 2 folders…");
+    expect(wrapper.get('[data-testid="home-summary"]').text()).toBe("Scanning 1 folder…");
     expect(wrapper.get('[data-testid="scan-stop"]').text()).toBe("Stop");
-    expect(
-      wrapper.findAll('[data-testid="scan-folder-status"]').map((status) => status.text()),
-    ).toEqual(["scanning", "queued"]);
     expect(wrapper.get('[data-testid="scan-progress"]').text()).toBe(
       "312 folders scanned, 14 repositories found",
     );
-    expect(sectionHeaders(wrapper).at(-1)).toEqual([CODE, "2 so far"]);
-    // The skeleton rows stand in the group of the folder being walked, which its header names.
-    const walked = wrapper.findAll('[role="group"]').at(-1);
-    expect(walked?.findAll('[data-testid="skeleton-row"]')).toHaveLength(4);
-    expect(wrapper.findAll('[data-testid="skeleton-row"]')).toHaveLength(4);
-    const label = document.getElementById(walked?.attributes("aria-labelledby") ?? "");
-    expect(label?.textContent).toContain(CODE);
-
-    // Once the folder is done its count is final, while the scan goes on elsewhere.
-    index.scan = { ...index.scan, folders: { [CODE]: "done", [WT]: "scanning" }, current: WT };
+    const code = wrapper
+      .get('[data-testid="home-section-projects"]')
+      .findAll('[data-testid="home-project"]')[0]!;
+    expect(code.get('[data-testid="home-project-status"]').text()).toBe("scanning · 2 so far");
+    index.scan = { ...index.scan, folders: { [CODE]: "queued" } };
     await flushPromises();
-    expect(sectionHeaders(wrapper).at(-1)).toEqual([CODE, "2"]);
-    wrapper.unmount();
+    expect(code.get('[data-testid="home-project-status"]').text()).toBe("queued");
   });
 
-  it("flags a folder that could not be scanned and removes it from the banner", async () => {
+  it("flags a folder project whose folder is gone, with its banner and Remove project", async () => {
     const { wrapper, index } = await mountHome();
-    index.folderErrors = { [WT]: { reason: "The system cannot find the path specified." } };
+    index.folderErrors = { [CODE]: { reason: "The system cannot find the path specified." } };
     await flushPromises();
     expect(wrapper.get('[data-testid="home-summary"]').text()).toBe(
-      "4 repositories and 1 worktree in 2 folders. One folder could not be scanned.",
+      "3 projects, 3 repositories and 1 worktree. One folder could not be scanned.",
     );
-    const statuses = wrapper.findAll('[data-testid="scan-folder-status"]');
-    expect(statuses[1]?.text()).toBe("not found");
-    expect(statuses[1]?.classes()).toContain("text-danger");
+    const code = wrapper
+      .get('[data-testid="home-section-projects"]')
+      .findAll('[data-testid="home-project"]')[0]!;
+    const status = code.get('[data-testid="home-project-status"]');
+    expect(status.text()).toBe("not found");
+    expect(status.classes()).toContain("text-danger");
     const banner = wrapper.get('[data-testid="scan-folder-error"]');
     expect(banner.text()).toContain(
-      `Couldn't scan ${WT}. The folder was removed. Remove it from the scan folders, or add it again if it moved.`,
+      `Couldn't scan ${CODE}. The folder was removed. Remove its project, or open the folder again if it moved.`,
     );
     await banner.get('[data-testid="error-banner-toggle"]').trigger("click");
+    expect(banner.get('[data-testid="error-banner-toggle"]').text()).toBe("Show details");
     expect(banner.get('[data-testid="error-banner-output"]').text()).toContain(
       "cannot find the path",
     );
     await banner.get("button[data-variant='secondary']").trigger("click");
-    await flushPromises();
-    expect(useSettingsStore().values.scanRoots).toEqual([CODE]);
-    expect(wrapper.find('[data-testid="scan-folder-error"]').exists()).toBe(false);
-    wrapper.unmount();
+    expect(useProjectDialogsStore().deleting).toBe(2);
   });
 
-  it("adds a folder from the picker, and removes one with its button", async () => {
-    const { wrapper, index } = await mountHome();
-    await wrapper.get('[data-testid="add-folder"]').trigger("click");
+  it("starts New project… and a scan of every folder project from its header", async () => {
+    const { wrapper, calls } = await mountHome();
+    await wrapper.get('[data-testid="home-new-project"]').trigger("click");
+    expect(useProjectDialogsStore().creating).toBe(true);
+    await wrapper.get('[data-testid="scan-start"]').trigger("click");
     await flushPromises();
-    expect(useSettingsStore().values.scanRoots).toEqual([CODE, WT, "/home/iker/oss"]);
-    expect(index.scan).toMatchObject({ kind: "scanning", folders: { "/home/iker/oss": "queued" } });
-    await wrapper.findAll('[data-testid="remove-folder"]')[0]!.trigger("click");
-    await flushPromises();
-    expect(useSettingsStore().values.scanRoots).toEqual([WT, "/home/iker/oss"]);
-    wrapper.unmount();
+    expect(calls.find((call) => call.cmd === "scan_folders")?.args["folders"]).toEqual([CODE]);
+    await wrapper.get('[data-testid="home-open-folder"]').trigger("click");
+    expect(wrapper.emitted("openFolder")).toHaveLength(1);
   });
 
-  it("shows skeleton rows before the index loads, the empty sentence with nothing found, and the error", async () => {
-    const { wrapper, index } = await mountHome(false);
+  it("shows skeleton rows while the projects load, and the banner when they cannot be read", async () => {
+    backend();
+    const store = useProjectsStore();
+    const wrapper = mountWithI18n(HomeScreen);
     expect(wrapper.findAll('[data-testid="skeleton-row"]')).toHaveLength(4);
-    index.loaded = true;
+    await store.load();
     await flushPromises();
     expect(wrapper.find('[data-testid="skeleton-row"]').exists()).toBe(false);
-    expect(wrapper.get('[data-testid="repo-table-empty"]').text()).toBe(
-      "No repositories found under the scan folders. Scan again, or add another folder.",
-    );
-    expect(wrapper.get('[data-testid="home-summary"]').text()).toBe(
-      "0 repositories in 2 folders. Last scan 2 minutes ago.",
-    );
     clearMocks();
-    mockIPC(() => {
-      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
-      return Promise.reject({ code: "index.database", message: "database is locked" });
-    });
-    await index.load();
+    backend({ failProjects: true });
+    await store.load();
     await flushPromises();
-    expect(wrapper.get('[data-testid="index-error"]').text()).toContain(
-      "The repository list could not be read. The repository list could not be saved. database is locked",
+    expect(wrapper.get('[data-testid="projects-error"]').text()).toContain(
+      "The list of projects could not be read.",
     );
     wrapper.unmount();
   });
 
   it("renders in Spanish", async () => {
+    backend();
     const index = useIndexStore();
-    index.entries = fixture;
-    index.loaded = true;
+    const store = useProjectsStore();
+    await Promise.all([index.load(), store.load()]);
     const wrapper = mountWithI18n(HomeScreen, {}, { locale: "es" });
     await flushPromises();
     expect(wrapper.get('[data-testid="home-summary"]').text()).toBe(
-      "4 repositorios y 1 worktree en 2 carpetas. Último escaneo hace 2 minutos.",
+      "3 proyectos, 3 repositorios y 1 worktree. Último escaneo hace 2 minutos.",
     );
-    expect(sectionHeaders(wrapper)).toEqual([["Fijados"], ["Recientes"], [CODE, "2"]]);
-    wrapper.unmount();
-  });
-});
-
-describe("useDiscoveryFormat", () => {
-  it("names a missing entry and formats the folder status by contents", async () => {
-    const index = useIndexStore();
-    index.entries = [entry("solo"), entry("gone", { missing: true })];
-    index.loaded = true;
-    const Probe = defineComponent({
-      setup() {
-        const format = useDiscoveryFormat();
-        return () =>
-          h("div", [
-            h("p", format.folderStatus(CODE)),
-            h("p", format.folderStatus(WT)),
-            h("p", format.summary.value),
-          ]);
-      },
-    });
-    const wrapper = mountWithI18n(Probe);
-    await flushPromises();
-    expect(wrapper.findAll("p").map((p) => p.text())).toEqual([
-      "2 repositories",
-      "no repositories",
-      "2 repositories in 2 folders. Last scan 2 minutes ago.",
-    ]);
-    const home = mountWithI18n(HomeScreen);
-    await flushPromises();
-    const missing = home
-      .findAll('[data-testid="repo-row"]')
-      .find((row) => row.get('[data-testid="repo-row-name"]').text() === "gone");
-    expect(missing?.get('[data-testid="repo-row-missing"]').text()).toBe("not found");
-    expect(missing?.find('[data-testid="repo-row-branch"]').exists()).toBe(false);
-    home.unmount();
+    expect(sections(wrapper)).toEqual(["Fijados 1", "Recientes 1", "Proyectos 3"]);
     wrapper.unmount();
   });
 });

@@ -6,10 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { IndexEntry } from "@/ipc/schemas";
 import { fakeBackend, settled, type Call, type FakeBackendOptions } from "@/test/backend";
 import { changedFile } from "@/test/changes";
+import { folderProjectOf } from "@/test/entries";
 
-import { pathUnder, useFolderStore } from "./folder";
+import { useFolderStore } from "./folder";
 import { useIndexStore } from "./index";
 import { useChangesStore } from "./changes";
+import { useProjectsStore } from "./projects";
 import { useRepoStore } from "./repo";
 import { memoryStorage, useSettingsStore } from "./settings";
 import { useShellStore } from "./shell";
@@ -47,6 +49,30 @@ function of(calls: Call[], cmd: string): Call[] {
   return calls.filter((call) => call.cmd === cmd);
 }
 
+/** The folder project of /code: api, gone (missing), infra and web, in path order. */
+const codeProject = folderProjectOf(1, CODE, [
+  "/code/api",
+  "/code/gone",
+  "/code/infra",
+  "/code/web",
+]);
+
+/** Makes project `id` the open one on its Changes (the folder view) once the lists are read. */
+async function openProject(id = 1): Promise<ReturnType<typeof useFolderStore>> {
+  const [index, projects, settings, shell, folder] = [
+    useIndexStore(),
+    useProjectsStore(),
+    useSettingsStore(),
+    useShellStore(),
+    useFolderStore(),
+  ];
+  await Promise.all([index.load(), projects.load()]);
+  void settings.update("activeProject", id);
+  void shell.setLayoutMode("changes");
+  folder.show();
+  return folder;
+}
+
 async function openFolder(options: FakeBackendOptions = {}) {
   const calls = fakeBackend({
     mockEvents: true,
@@ -57,6 +83,7 @@ async function openFolder(options: FakeBackendOptions = {}) {
       entry("gone", { missing: true }),
       entry("other", { path: "/elsewhere/other", scanRoot: "/elsewhere" }),
     ],
+    projects: [codeProject, folderProjectOf(2, "/nothing", [])],
     changesByRepo: {
       "/code/api": { unstaged: [changedFile("src/a.ts"), changedFile("src/b.ts")], staged: [] },
       "/code/web": { unstaged: [], staged: [changedFile("tiles.ts")] },
@@ -64,12 +91,12 @@ async function openFolder(options: FakeBackendOptions = {}) {
     },
     ...options,
   });
-  await useIndexStore().load();
-  const folder = useFolderStore();
-  await folder.open(CODE);
-  folder.show();
+  // The stores of this test: a read an earlier test left running can make its own Pinia the
+  // active one again, so they are taken before anything waits.
+  const settings = useSettingsStore();
+  const folder = await openProject();
   for (let i = 0; i < 4; i += 1) await settled();
-  return { folder, calls };
+  return { folder, calls, settings };
 }
 
 beforeEach(async () => {
@@ -82,26 +109,18 @@ afterEach(() => {
   clearMocks();
 });
 
-describe("pathUnder", () => {
-  it("names a path by where it is under the folder", () => {
-    expect(pathUnder("/code", "/code/api")).toBe("api");
-    expect(pathUnder("C:\\Code\\", "C:\\code\\wt\\feat")).toBe("wt/feat");
-    expect(pathUnder("/code", "/elsewhere/x")).toBe("/elsewhere/x");
-  });
-});
-
 describe("useFolderStore", () => {
-  it("lists the folder's repositories with changes as sections and the others in the group", async () => {
+  it("lists the project's repositories with changes as sections and the others in the group", async () => {
     const { folder, calls } = await openFolder();
-    expect(useShellStore().layoutMode).toBe("folder");
-    expect(useSettingsStore().values.folderView).toBe(CODE);
+    expect(folder.source).toBe(1);
+    expect(folder.folder).toBe(CODE);
     expect(folder.sections.map((repository) => repository.name)).toEqual(["api", "web"]);
     expect(folder.sections[1]?.branch).toBe("feat/tiles");
     expect(folder.clean.map((repository) => repository.name)).toEqual(["infra"]);
     expect(folder.state).toBe("changes");
     expect(folder.active?.root).toBe("/code/api");
-    // Each repository's lists come from its own diffs; a missing entry and another folder's
-    // repository are left out.
+    // Each repository's lists come from its own diffs; a missing member and a repository of no
+    // member are left out.
     expect(new Set(of(calls, "diff").map((call) => call.args["repo"]))).toEqual(
       new Set(["/code/api", "/code/infra", "/code/web"]),
     );
@@ -114,12 +133,16 @@ describe("useFolderStore", () => {
     const names = ["a", "b", "c", "d", "e", "f"];
     const calls = fakeBackend({
       repositories: names.map((name) => entry(name)),
+      projects: [
+        folderProjectOf(
+          1,
+          CODE,
+          names.map((name) => `${CODE}/${name}`),
+        ),
+      ],
       diffDelayMs: 40,
     });
-    await useIndexStore().load();
-    const folder = useFolderStore();
-    await folder.open(CODE);
-    folder.show();
+    const folder = await openProject();
     await settled();
     // Two lists a repository.
     expect(of(calls, "diff")).toHaveLength(4);
@@ -152,7 +175,7 @@ describe("useFolderStore", () => {
     expect(closed()).not.toContain("/code/infra");
   });
 
-  it("follows the changes each repository's watcher names, and nothing of other folders", async () => {
+  it("follows the changes each repository's watcher names, and nothing of other projects", async () => {
     const { calls } = await openFolder();
     const before = of(calls, "diff_paths").length;
     await emit("repo:changed", { repo: "/code/web", kinds: ["status"], paths: ["tiles.ts"] });
@@ -213,11 +236,18 @@ describe("useFolderStore", () => {
 
   it("reads the repositories again two at a time when the view comes back", async () => {
     const names = ["a", "b", "c", "d", "e", "f"];
-    const calls = fakeBackend({ repositories: names.map((name) => entry(name)), diffDelayMs: 40 });
-    await useIndexStore().load();
-    const folder = useFolderStore();
-    await folder.open(CODE);
-    folder.show();
+    const calls = fakeBackend({
+      repositories: names.map((name) => entry(name)),
+      projects: [
+        folderProjectOf(
+          1,
+          CODE,
+          names.map((name) => `${CODE}/${name}`),
+        ),
+      ],
+      diffDelayMs: 40,
+    });
+    const folder = await openProject();
     await vi.waitFor(() => expect(folder.checking).toHaveLength(0), { timeout: 2000 });
     const before = of(calls, "diff").length;
     folder.hide();
@@ -227,10 +257,10 @@ describe("useFolderStore", () => {
     expect(of(calls, "diff").length - before).toBe(4);
   });
 
-  it("closes the engines of the folder it leaves for another", async () => {
-    const { folder, calls } = await openFolder();
+  it("closes the engines of the project it leaves for another", async () => {
+    const { calls, settings } = await openFolder();
     const before = of(calls, "close_repository").length;
-    await folder.open("/nothing");
+    void settings.update("activeProject", 2);
     await vi.waitFor(() => {
       const closed = of(calls, "close_repository")
         .slice(before)
@@ -274,9 +304,10 @@ describe("useFolderStore", () => {
   });
 
   it("waits for the index, and names its failure", async () => {
-    fakeBackend({ failIndex: true });
+    fakeBackend({ failIndex: true, projects: [codeProject] });
+    await useProjectsStore().load();
+    void useSettingsStore().update("activeProject", 1);
     const folder = useFolderStore();
-    await folder.open(CODE);
     folder.show();
     expect(folder.state).toBe("scanning");
     await useIndexStore().load();
@@ -284,23 +315,21 @@ describe("useFolderStore", () => {
     expect(folder.problem?.kind).toBe("index");
   });
 
-  it("scans a folder again as a scan folder of Home when it was removed", async () => {
-    const calls = fakeBackend({});
-    await useIndexStore().load();
-    const folder = useFolderStore();
-    await folder.open("/gone");
+  it("scans a folder project's folder again", async () => {
+    const calls = fakeBackend({ projects: [folderProjectOf(3, "/gone", [])] });
+    const folder = await openProject(3);
     folder.scanAgain();
     await settled();
-    expect(useSettingsStore().values.scanRoots).toContain("/gone");
     expect(of(calls, "scan_folders").at(-1)?.args["folders"]).toEqual(["/gone"]);
   });
 
-  it("shows the scan looking, then an empty folder with no repository", async () => {
-    fakeBackend({});
-    await useIndexStore().load();
+  it("shows a project without repositories as empty once the lists are read", async () => {
+    fakeBackend({ projects: [folderProjectOf(4, "/empty", [])] });
     const folder = useFolderStore();
-    await folder.open("/empty");
+    void useSettingsStore().update("activeProject", 4);
     folder.show();
+    expect(folder.state).toBe("scanning");
+    await openProject(4);
     await settled();
     expect(folder.state).toBe("empty");
   });

@@ -43,14 +43,14 @@ describe("settings store", () => {
     });
   });
 
-  it("starts discovery with no scan folders, the default skip list, depth 2 and no last repository", () => {
+  it("starts discovery with the default skip list, depth 2, no open project and no scan yet", () => {
     const defaults = defaultSettings("linux");
-    expect(defaults.scanRoots).toEqual([]);
     expect(defaults.skipFolders).toEqual(defaultSkipFolders);
     expect(defaults.skipFolders).toContain("node_modules");
     expect(defaults.maxDepth).toBe(2);
-    expect(defaults.lastRepository).toBeNull();
+    expect(defaults.activeProject).toBeNull();
     expect(defaults.lastScanAt).toBeNull();
+    expect(Object.keys(defaults)).not.toContain("scanRoots");
   });
 
   it("starts with the design's fonts at their weights, and keeps valid stored fonts only", async () => {
@@ -91,40 +91,72 @@ describe("settings store", () => {
   it("keeps stored discovery keys that are valid and drops the rest", async () => {
     const store = useSettingsStore();
     await store.init(
-      memoryStorage({
-        scanRoots: ["/home/iker/code", "/home/iker/wt"],
-        skipFolders: "node_modules",
-        maxDepth: 99,
-        lastRepository: "/home/iker/code/geoportal",
-        lastScanAt: 1_704_070_000,
-      }),
+      memoryStorage({ skipFolders: "node_modules", maxDepth: 99, lastScanAt: 1_704_070_000 }),
       "linux",
     );
-    expect(store.values.scanRoots).toEqual(["/home/iker/code", "/home/iker/wt"]);
     expect(store.values.skipFolders).toEqual(defaultSkipFolders);
     expect(store.values.maxDepth).toBe(2);
-    expect(store.values.lastRepository).toBe("/home/iker/code/geoportal");
     expect(store.values.lastScanAt).toBe(1_704_070_000);
 
     setActivePinia(createPinia());
-    const invalid = useSettingsStore();
-    await invalid.init(
-      memoryStorage({ scanRoots: ["", 3], maxDepth: 0, lastRepository: 12 }),
-      "linux",
-    );
-    expect(invalid.values.scanRoots).toEqual([]);
-    expect(invalid.values.maxDepth).toBe(0);
-    expect(invalid.values.lastRepository).toBeNull();
+    const kept = useSettingsStore();
+    await kept.init(memoryStorage({ skipFolders: ["target"], maxDepth: 0 }), "linux");
+    expect(kept.values.skipFolders).toEqual(["target"]);
+    expect(kept.values.maxDepth).toBe(0);
   });
 
-  it("writes the last repository through and clears it with null", async () => {
+  it("reads the keys of a version before projects once, into legacy, and drops them after", async () => {
     const store = useSettingsStore();
-    const storage = memoryStorage();
+    const storage = memoryStorage({
+      scanRoots: ["/home/iker/code", "", 3],
+      lastRepository: "/home/iker/code/geoportal",
+      folderView: null,
+      projectTab: "changes",
+    });
+    await store.init(storage, "linux");
+    // A list with an invalid folder falls back as a whole, as a setting does.
+    expect(store.legacy).toEqual({
+      scanRoots: [],
+      lastRepository: "/home/iker/code/geoportal",
+      folderView: null,
+      layoutMode: null,
+    });
+    await store.dropLegacy();
+    expect(store.legacy).toBeNull();
+    for (const key of ["scanRoots", "lastRepository", "folderView", "projectTab"]) {
+      expect(storage.data.has(key)).toBe(false);
+    }
+
+    setActivePinia(createPinia());
+    const again = useSettingsStore();
+    await again.init(storage, "linux");
+    expect(again.legacy).toBeNull();
+  });
+
+  it("maps the project view to the Overview and the folder view to the Changes, once", async () => {
+    const store = useSettingsStore();
+    const storage = memoryStorage({
+      layoutMode: "folder",
+      folderView: "/home/iker/code/geo",
+      activeProject: 3,
+    });
     await store.init(storage, "windows");
-    await persisted(store.update("lastRepository", "C:\code\begitra"));
-    expect(storage.data.get("lastRepository")).toBe("C:\code\begitra");
-    await persisted(store.update("lastRepository", null));
-    expect(storage.data.get("lastRepository")).toBeNull();
+    expect(store.values.layoutMode).toBe("changes");
+    expect(store.values.activeProject).toBe(3);
+    expect(store.legacy).toEqual({
+      scanRoots: [],
+      lastRepository: null,
+      folderView: "/home/iker/code/geo",
+      layoutMode: "folder",
+    });
+    // The mapped layout is written through at once, so the file keeps no retired layout.
+    expect(storage.data.get("layoutMode")).toBe("changes");
+
+    setActivePinia(createPinia());
+    const project = useSettingsStore();
+    await project.init(memoryStorage({ layoutMode: "project" }), "windows");
+    expect(project.values.layoutMode).toBe("overview");
+    expect(project.legacy?.layoutMode).toBe("project");
   });
 
   it("overlays stored values and ignores invalid ones", async () => {
@@ -134,7 +166,6 @@ describe("settings store", () => {
         paneSizes: { sidebar: 240, detail: 520, files: 280, reviewRail: 280 },
         layoutMode: "banana",
         activeProject: 1.5,
-        projectTab: "history",
         locale: "es",
         terminalCommand: "",
         theme: "monokai",
@@ -149,20 +180,16 @@ describe("settings store", () => {
     expect(store.values.paneSizes.detail).toBe(520);
     expect(store.values.layoutMode).toBe("graph");
     expect(store.values.activeProject).toBeNull();
-    expect(store.values.projectTab).toBe("overview");
     expect(store.values.locale).toBe("es");
     expect(store.values.terminalCommand).toBe("wt -d {path}");
   });
 
-  it("keeps the project view, its project and its tab", async () => {
+  it("keeps the Overview and its project", async () => {
     const store = useSettingsStore();
-    await store.init(
-      memoryStorage({ layoutMode: "project", activeProject: 3, projectTab: "changes" }),
-      "windows",
-    );
-    expect(store.values.layoutMode).toBe("project");
+    await store.init(memoryStorage({ layoutMode: "overview", activeProject: 3 }), "windows");
+    expect(store.values.layoutMode).toBe("overview");
     expect(store.values.activeProject).toBe(3);
-    expect(store.values.projectTab).toBe("changes");
+    expect(store.legacy).toBeNull();
   });
 
   it("writes updates through and keeps the fallbacks after the configured command", async () => {

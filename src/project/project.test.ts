@@ -3,15 +3,15 @@ import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ShortcutRegistry, setShortcutRegistry } from "@/shortcuts/registry";
-import { useFolderStore } from "@/stores/folder";
 import { useIndexStore } from "@/stores/index";
+import { useProjectDialogsStore } from "@/stores/projectDialogs";
 import { useProjectsStore } from "@/stores/projects";
 import { useRepoStore } from "@/stores/repo";
 import { memoryStorage, useSettingsStore } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
 import { fakeBackend, settled, type Call, type FakeBackendOptions } from "@/test/backend";
 import { changedFile } from "@/test/changes";
-import { entryOf, projectOf, summaryOf, worktreeOf } from "@/test/entries";
+import { entryOf, folderProjectOf, projectOf, summaryOf, worktreeOf } from "@/test/entries";
 import { mountWithI18n } from "@/test/mount";
 
 import ProjectLayout from "./ProjectLayout.vue";
@@ -46,6 +46,12 @@ async function flush(): Promise<void> {
   for (let i = 0; i < 5; i += 1) await settled();
 }
 
+/** Makes project `id` the open one on its Overview, without opening a repository. */
+function showOverview(id = 1): void {
+  void useSettingsStore().update("activeProject", id);
+  void useShellStore().setLayoutMode("overview");
+}
+
 async function mountProject(options: FakeBackendOptions = {}) {
   const calls = fakeBackend({
     repositories: indexed,
@@ -62,7 +68,7 @@ async function mountProject(options: FakeBackendOptions = {}) {
   });
   const projects = useProjectsStore();
   await Promise.all([projects.load(), useIndexStore().load()]);
-  await projects.open(1, "overview");
+  showOverview();
   const wrapper = mountWithI18n(ProjectLayout, { attachTo: document.body });
   await flush();
   return { calls, wrapper };
@@ -106,7 +112,7 @@ describe("the project view", () => {
     });
     const projects = useProjectsStore();
     await projects.load();
-    await projects.open(1, "overview");
+    showOverview();
     const wrapper = mountWithI18n(ProjectLayout, { attachTo: document.body });
     await flush();
     expect(wrapper.findAll('[data-testid="member-row"]')).toHaveLength(0);
@@ -130,14 +136,14 @@ describe("the project view", () => {
     const { calls, wrapper } = await mountProject({
       projects: [
         projectOf(1, "Geoportal", [api.path, web.path]),
-        projectOf(2, "Infra", [infra.path]),
+        projectOf(2, "Infra", [infra.path, gone]),
       ],
     });
     const reads = () => of(calls, "refresh_repository").map((call) => call.args["path"]);
     expect(reads()).not.toContain(infra.path);
-    await useProjectsStore().open(2, "overview");
+    showOverview(2);
     await flush();
-    expect(rowNames(wrapper)).toEqual(["infra"]);
+    expect(rowNames(wrapper)).toEqual(["infra", "old-spike"]);
     expect(reads()).toContain(infra.path);
     wrapper.unmount();
   });
@@ -146,10 +152,10 @@ describe("the project view", () => {
     fakeBackend({ repositories: indexed, failProjects: true });
     const projects = useProjectsStore();
     await Promise.all([projects.load(), useIndexStore().load()]);
-    await projects.open(1, "overview");
+    showOverview();
     const wrapper = mountWithI18n(ProjectLayout, { attachTo: document.body });
     await flush();
-    expect(useShellStore().layoutMode).toBe("project");
+    expect(useShellStore().layoutMode).toBe("overview");
     const banner = wrapper.get('[data-testid="overview-error"]');
     expect(banner.text()).toContain("Try again");
     // The output is the index's, not git's.
@@ -177,9 +183,14 @@ describe("the project view", () => {
     wrapper.unmount();
   });
 
-  it("removes a missing member from the project from its row", async () => {
+  it("removes a missing member from the project from its row, asking first as it leaves Begitra", async () => {
     const { calls, wrapper } = await mountProject();
     await row(wrapper, "old-spike").get('[data-testid="member-remove"]').trigger("click");
+    await flush();
+    // No other project holds it: the confirmation names it first.
+    expect(useProjectDialogsStore().removing).toBe(gone);
+    expect(of(calls, "project_set_members")).toHaveLength(0);
+    await useProjectsStore().removeMember(gone);
     await flush();
     expect(of(calls, "project_set_members").at(-1)?.args["paths"]).toEqual([
       api.path,
@@ -191,17 +202,18 @@ describe("the project view", () => {
     wrapper.unmount();
   });
 
-  it("switches tabs keeping the watchers and the reads of the view", async () => {
+  it("moves between the Overview and the Changes keeping the watchers and the reads", async () => {
     const { calls, wrapper } = await mountProject();
     const watches = of(calls, "watch_folder").length;
-    await wrapper.get('[data-testid="project-tab-changes"]').trigger("click");
+    expect(wrapper.find('[data-testid="edit-project"]').exists()).toBe(true);
+    void useShellStore().setLayoutMode("changes");
     await flush();
-    expect(useSettingsStore().values.projectTab).toBe("changes");
     expect(wrapper.find('[data-testid="folder-view"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="edit-project"]').exists()).toBe(false);
     expect(wrapper.get('[data-testid="project-meta"]').text()).toBe(
       "2 repositories with changes, 2 without",
     );
-    await wrapper.get('[data-testid="project-tab-overview"]').trigger("click");
+    void useShellStore().setLayoutMode("overview");
     await flush();
     expect(of(calls, "unwatch_folder")).toHaveLength(0);
     expect(of(calls, "watch_folder")).toHaveLength(watches);
@@ -235,10 +247,10 @@ describe("the project view", () => {
   });
 
   it("shows skeleton rows while the index loads, then its error with Try again", async () => {
-    fakeBackend({ failIndex: true, projects: [projectOf(1, "Geoportal", [api.path])] });
+    fakeBackend({ failIndex: true, projects: [projectOf(1, "Geoportal", [api.path, web.path])] });
     const projects = useProjectsStore();
     await projects.load();
-    await projects.open(1, "overview");
+    showOverview();
     const wrapper = mountWithI18n(ProjectLayout, { attachTo: document.body });
     expect(
       wrapper.findAll('[data-testid="overview-table"] [data-testid="skeleton-row"]').length,
@@ -255,7 +267,7 @@ describe("the project view", () => {
     fakeBackend({ projects: [projectOf(1, "Geoportal", [])] });
     const projects = useProjectsStore();
     await Promise.all([projects.load(), useIndexStore().load()]);
-    await projects.open(1, "overview");
+    showOverview();
     const wrapper = mountWithI18n(ProjectLayout, { attachTo: document.body });
     await flush();
     const empty = wrapper.get('[data-testid="overview-empty"]');
@@ -265,29 +277,40 @@ describe("the project view", () => {
   });
 });
 
-describe("the folder view's Overview", () => {
-  it("lists the folder's repositories as a project's and saves them as one, on the same tab", async () => {
-    const calls = fakeBackend({
-      repositories: [api, web, infra],
-      summaries: Object.fromEntries([api, web, infra].map((entry) => [entry.path, entry.summary])),
+describe("a folder project's Overview", () => {
+  it("names its own members by their path under its folder", async () => {
+    const deep = entryOf(`${GEO}/apps/web`);
+    fakeBackend({
+      repositories: [api, deep, infra],
+      projects: [folderProjectOf(1, GEO, [api.path, deep.path, infra.path])],
+      summaries: Object.fromEntries([api, deep, infra].map((e) => [e.path, e.summary])),
       changesByRepo: {
         [api.path]: { unstaged: [], staged: [] },
-        [web.path]: { unstaged: [], staged: [] },
+        [deep.path]: { unstaged: [], staged: [] },
         [infra.path]: { unstaged: [], staged: [] },
       },
     });
-    await useIndexStore().load();
-    await useFolderStore().open(GEO, "overview");
+    const projects = useProjectsStore();
+    await Promise.all([projects.load(), useIndexStore().load()]);
+    showOverview();
     const wrapper = mountWithI18n(ProjectLayout, { attachTo: document.body });
     await flush();
-    expect(rowNames(wrapper)).toEqual(["api", "infra", "web"]);
-    await wrapper.get('[data-testid="save-as-project"]').trigger("click");
+    expect(wrapper.get('[data-testid="project-title"]').text()).toBe("geo");
+    expect(rowNames(wrapper)).toEqual(["api", "apps/web", "infra"]);
+    wrapper.unmount();
+  });
+
+  it("offers Scan again when its folder holds no repository", async () => {
+    const calls = fakeBackend({ projects: [folderProjectOf(1, GEO, [])] });
+    const projects = useProjectsStore();
+    await Promise.all([projects.load(), useIndexStore().load()]);
+    showOverview();
+    const wrapper = mountWithI18n(ProjectLayout, { attachTo: document.body });
     await flush();
-    const made = of(calls, "project_create").at(-1)?.args;
-    expect(made?.["name"]).toBe("geo");
-    expect(made?.["paths"]).toEqual([api.path, infra.path, web.path]);
-    expect(useShellStore().layoutMode).toBe("project");
-    expect(useSettingsStore().values.projectTab).toBe("overview");
+    const empty = wrapper.get('[data-testid="overview-empty"]');
+    expect(empty.text()).toContain("No repositories in geo.");
+    await empty.get("button").trigger("click");
+    expect(of(calls, "scan_folders").at(-1)?.args["folders"]).toEqual([GEO]);
     wrapper.unmount();
   });
 });

@@ -1,17 +1,19 @@
 <script setup lang="ts">
 // "New project…": a name, a filter and the checklist of the indexed repositories and
-// worktrees, and "Add repository…", which picks a folder holding a repository the index does
-// not know yet, adds it to the index and checks it. Making a project touches no repository; the
-// new project's view shows once it is made.
+// worktrees grouped by project, and "Add repository…", which picks a folder holding a
+// repository, describes it and checks it; one the index does not hold yet joins it only when
+// the project is made, so a cancelled dialog leaves nothing behind. Making a project touches
+// no repository; the new project opens on the graph of its first repository once it is made.
 
 import { open as pickFolder } from "@tauri-apps/plugin-dialog";
 import { FolderPlus, Search } from "@lucide/vue";
-import { computed, ref } from "vue";
+import { computed, ref, shallowRef } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Button from "@/components/Button.vue";
 import Dialog from "@/components/Dialog.vue";
 import Input from "@/components/Input.vue";
+import type { IndexEntry } from "@/ipc/schemas";
 import { errorText } from "@/shell/errorMessage";
 import { useIndexStore } from "@/stores/index";
 import { useProjectDialogsStore } from "@/stores/projectDialogs";
@@ -29,6 +31,8 @@ const toasts = useToastsStore();
 const name = ref("");
 const query = ref("");
 const checked = ref<string[]>([]);
+/** What "Add repository…" described, listed until the project is made. */
+const added = shallowRef<IndexEntry[]>([]);
 const saving = ref(false);
 
 const trimmed = computed(() => name.value.trim());
@@ -41,13 +45,18 @@ const confirmLabel = computed(() =>
 async function addRepository(): Promise<void> {
   const picked = await pickFolder({ directory: true, multiple: false });
   if (typeof picked !== "string") return;
-  const added = await index.add(picked);
-  if ("path" in added) {
-    if (!checked.value.includes(added.path)) checked.value = [...checked.value, added.path];
+  const described = await index.describe(picked);
+  if ("path" in described) {
+    if (!index.lookup(described.path) && !added.value.some((e) => e.path === described.path)) {
+      added.value = [...added.value, described];
+    }
+    if (!checked.value.includes(described.path)) {
+      checked.value = [...checked.value, described.path];
+    }
     return;
   }
-  const text = errorText(added, picked);
-  toasts.push({ kind: "error", message: t(text.key, text.params), output: added.detail });
+  const text = errorText(described, picked);
+  toasts.push({ kind: "error", message: t(text.key, text.params), output: described.detail });
 }
 
 async function create(): Promise<void> {
@@ -57,7 +66,7 @@ async function create(): Promise<void> {
   saving.value = false;
   if (!project) return;
   dialogs.close();
-  await projects.open(project.id, "overview");
+  await projects.open(project.id);
 }
 </script>
 
@@ -94,7 +103,7 @@ async function create(): Promise<void> {
         data-testid="new-project-filter"
       />
     </label>
-    <RepositoryChecklist v-model="checked" :query="query" />
+    <RepositoryChecklist v-model="checked" :query="query" :added="added" />
     <template #footer-start>
       <Button
         variant="ghost"

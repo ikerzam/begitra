@@ -43,6 +43,7 @@ export const shortcutRows: readonly ShortcutRow[] = [
   { key: "graphFocus", groups: [["graph-focus"]] },
   { key: "reviewFocus", groups: [["review-focus"]] },
   { key: "changesFocus", groups: [["changes-focus"]] },
+  { key: "overviewFocus", groups: [["overview-focus"]] },
   { key: "toggleSidebar", groups: [["toggle-sidebar"]] },
   { key: "diffFrom", groups: [["diff-from"]] },
   { key: "compareWith", groups: [["compare-with"]] },

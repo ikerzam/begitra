@@ -32,17 +32,17 @@ describe("App", () => {
     expect(wrapper.find('[data-testid="app-root"]').exists()).toBe(true);
     await flushPromises();
     expect(wrapper.find('[data-testid="app-shell"]').exists()).toBe(true);
-    expect(wrapper.get('[data-testid="top-bar"]').text()).toContain("No repository open");
+    expect(wrapper.get('[data-testid="top-bar"]').text()).toContain("No project open");
     expect(wrapper.find('[data-testid="home-screen"]').exists()).toBe(true);
-    expect(wrapper.get('[data-testid="index-error"]').text()).toContain(
-      "The repository list could not be read.",
+    expect(wrapper.get('[data-testid="projects-error"]').text()).toContain(
+      "The list of projects could not be read.",
     );
     expect(wrapper.get('[data-testid="status-bar"]').text()).toContain("No repositories");
     wrapper.unmount();
   });
 
-  it("shows the empty home with an empty index and no scan folders", async () => {
-    mockIPC((cmd) => (cmd === "list_repositories" ? [] : null));
+  it("shows the empty home without a project", async () => {
+    mockIPC((cmd) => (cmd === "list_repositories" || cmd === "projects" ? [] : null));
     const wrapper = mountWithI18n(App, { global: { plugins: [createPinia()] } });
     await flushPromises();
     expect(wrapper.find('[data-testid="home-empty"]').exists()).toBe(true);
@@ -50,8 +50,8 @@ describe("App", () => {
     wrapper.unmount();
   });
 
-  it("reopens the last repository at launch while the index loads", async () => {
-    stored["lastRepository"] = "/r";
+  it("reopens the open project's repository at launch while the index loads", async () => {
+    stored["activeProject"] = 1;
     const calls: string[] = [];
     mockIPC((cmd, rawArgs) => {
       calls.push(cmd);
@@ -59,6 +59,21 @@ describe("App", () => {
       switch (cmd) {
         case "list_repositories":
           return [];
+        case "projects":
+          return [
+            {
+              id: 1,
+              name: "Geoportal",
+              kind: "list",
+              folder: null,
+              members: [{ path: "/r", origin: "hand" }],
+              pinned: false,
+              openedAt: 1,
+              lastRepository: "/r",
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          ];
         case "open_repository":
           return {
             root: args["path"],
@@ -77,10 +92,13 @@ describe("App", () => {
     await flushPromises();
     await new Promise((resolve) => setTimeout(resolve, 0));
     await flushPromises();
+    await vi.waitFor(() => expect(useRepoStore().state.kind).toBe("ready"));
     const commands = calls.filter((cmd) => !cmd.startsWith("plugin:"));
-    expect(commands.slice(0, 3)).toEqual(["list_repositories", "projects", "open_repository"]);
+    // The projects name the repository to reopen; the index loads beside the open.
+    expect(commands.slice(0, 2)).toEqual(["list_repositories", "projects"]);
+    expect(commands).toContain("open_repository");
     expect(useRepoStore().repo?.root).toBe("/r");
-    expect(wrapper.get('[data-testid="top-bar"]').text()).toContain("r");
+    expect(wrapper.get('[data-testid="top-bar"]').text()).toContain("Geoportal");
     expect(calls).toContain("watch_repository");
     wrapper.unmount();
   });

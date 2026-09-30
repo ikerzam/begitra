@@ -115,13 +115,14 @@
     "years": "hace {n} a"
   },
   "topBar": {
-    "noRepository": "Ningún repositorio abierto",
     "search": "Buscar o ejecutar un comando…",
     "settings": "Ajustes",
     "graphFocus": "Vista de grafo",
     "reviewFocus": "Vista de revisión",
     "changes": "Cambios",
-    "changesCount": "Cambios, {n} archivo cambiado | Cambios, {n} archivos cambiados"
+    "changesCount": "Cambios, {n} archivo cambiado | Cambios, {n} archivos cambiados",
+    "noProject": "Ningún proyecto abierto",
+    "overview": "Resumen del proyecto"
   },
   "sidebar": {
     "repos": "Repos",
@@ -243,68 +244,49 @@
       "switch": "Cambiando de rama {done} de {total} repositorios",
       "create": "Creando la rama en {done} de {total} repositorios"
     },
-    "readingRepositories": "Leyendo {n} repositorio | Leyendo {n} repositorios"
+    "readingRepositories": "Leyendo {n} repositorio | Leyendo {n} repositorios",
+    "lookingUp": "Buscando {name}"
   },
   "home": {
-    "title": "Repositorios",
-    "subtitle": "Escanea una carpeta para encontrar todos los repositorios y worktrees que contiene.",
+    "title": "Proyectos",
+    "subtitle": "Abre un repositorio o una carpeta de repositorios: cada uno es un proyecto.",
     "openFolder": "Abrir carpeta…",
-    "empty": "Todavía no hay repositorios. Añade una carpeta para escanear o abre uno directamente.",
-    "addFolderToScan": "Añadir una carpeta para escanear",
+    "empty": "Aún no hay proyectos. Abre un repositorio o una carpeta de repositorios, o añade una carpeta en la que Begitra los busque.",
+    "addFolderToScan": "Añadir una carpeta de repositorios",
     "pickerFailed": "No se ha podido abrir el selector de carpetas.",
     "repositories": "{n} repositorio | {n} repositorios",
     "worktrees": "{n} worktree | {n} worktrees",
-    "folders": "{n} carpeta | {n} carpetas",
-    "summary": "{repositories} en {folders}.",
-    "summaryWithWorktrees": "{repositories} y {worktrees} en {folders}.",
+    "summary": "{projects}, {repositories}.",
+    "summaryWithWorktrees": "{projects}, {repositories} y {worktrees}.",
     "lastScan": "Último escaneo {ago}.",
     "scanningFolders": "Escaneando {n} carpeta… | Escaneando {n} carpetas…",
     "foldersFailed": "Una carpeta no se ha podido escanear. | {n} carpetas no se han podido escanear.",
-    "loading": "Cargando repositorios…",
-    "scanFolders": "Carpetas a escanear",
-    "addFolder": "Añadir carpeta",
+    "loading": "Cargando proyectos…",
     "scan": "Escanear",
     "stop": "Detener",
-    "removeFolder": "Quitar carpeta",
-    "removeFolderNamed": "Quitar {path} de las carpetas a escanear",
     "folderState": {
       "queued": "en cola",
-      "scanning": "escaneando",
+      "scanning": "escaneando · {n} por ahora",
       "notFound": "no encontrada",
       "empty": "sin repositorios"
     },
     "foldersScanned": "{n} carpeta escaneada | {n} carpetas escaneadas",
     "repositoriesFound": "{n} repositorio encontrado | {n} repositorios encontrados",
-    "folderMissing": "No se ha podido escanear {path}. La carpeta se ha eliminado. Quítala de las carpetas a escanear o añádela de nuevo si se ha movido.",
+    "folderMissing": "No se ha podido escanear {path}. La carpeta se ha eliminado. Quita su proyecto o vuelve a abrir la carpeta si se ha movido.",
     "scanFailed": "El escaneo se detuvo con un error. {message}",
-    "loadFailed": "No se ha podido leer la lista de repositorios. {message}",
+    "loadFailed": "No se ha podido leer la lista de proyectos. {message}",
     "retry": "Reintentar",
-    "columns": {
-      "name": "Nombre",
-      "branch": "Rama",
-      "aheadBehind": "Delante/detrás",
-      "lastCommit": "Último commit",
-      "path": "Ruta"
-    },
-    "sortBy": "Ordenar por {column}",
     "sections": {
       "pinned": "Fijados",
       "recent": "Recientes",
-      "other": "Abiertos por separado"
+      "projects": "Proyectos"
     },
-    "soFar": "{n} por ahora",
-    "noneFound": "No se han encontrado repositorios en las carpetas a escanear. Escanea de nuevo o añade otra carpeta.",
-    "listLabel": "Repositorios",
+    "listLabel": "Proyectos",
     "rowActions": "Acciones de {name}",
     "pin": "Fijar",
     "unpin": "Desfijar",
-    "removeFromList": "Quitar de la lista",
     "dropHere": "Suelta una carpeta para abrirla",
-    "showChanges": "Ver cambios",
-    "showChangesIn": "Ver los cambios de {path}",
-    "saveAsProjectIn": "Guardar {path} como proyecto",
     "projects": {
-      "title": "Proyectos",
       "changes": "{n} con cambios",
       "behind": "{n} por detrás",
       "operation": {
@@ -315,7 +297,11 @@
       },
       "missing": "{n} no están",
       "upToDate": "al día"
-    }
+    },
+    "projectCount": "{n} proyecto | {n} proyectos",
+    "removeProject": "Quitar proyecto…",
+    "showDetails": "Ver detalles",
+    "pinned": "Fijado"
   },
   "graph": {
     "searchCommits": "Buscar commits",
@@ -348,7 +334,6 @@
       "unstaged": "{n} sin preparar",
       "staged": "{n} preparado | {n} preparados"
     },
-    "removeFromList": "Quitar de la lista",
     "diffFromChip": "Diff desde {hash}",
     "rangeEndChip": "Fin del rango {hash}",
     "clearDiffBase": "Quitar la base del diff",
@@ -365,7 +350,8 @@
     "clipboardUnavailable": "El portapapeles no está disponible.",
     "corruptPast": "No se pudo leer el historial más allá de {hash}. Falta un objeto o está corrupto, así que los commits anteriores no se muestran. Ejecuta git fsck en un terminal para revisar el repositorio.",
     "corruptStart": "No se pudo leer el historial. Falta un objeto o está corrupto. Ejecuta git fsck en un terminal para revisar el repositorio.",
-    "historyFailed": "No se pudo leer el resto del historial. {message}"
+    "historyFailed": "No se pudo leer el resto del historial. {message}",
+    "repository": "Repositorio"
   },
   "detail": {
     "commit": "Commit",
@@ -508,11 +494,7 @@
       "open-terminal": "Abrir en la terminal",
       "open-editor": "Abrir en el editor",
       "open-file-editor": "Abrir el fichero en el editor",
-      "pin-repository": "Fijar el repositorio",
-      "unpin-repository": "Desfijar el repositorio",
-      "go-to-repositories": "Ir a los repositorios",
       "scan-folders": "Escanear las carpetas",
-      "add-scan-folder": "Añadir carpeta a escanear…",
       "locale-en": "Idioma: inglés",
       "locale-es": "Idioma: español",
       "diff-from": "Diff desde…",
@@ -562,14 +544,16 @@
       "stash-changes": "Guardar los cambios en el stash…",
       "continue-operation": "Continuar la operación",
       "abort-operation": "Abortar la operación…",
-      "show-folder-changes": "Ver los cambios de la carpeta",
       "new-project": "Nuevo proyecto…",
       "edit-project": "Editar proyecto…",
       "show-project-overview": "Mostrar el resumen del proyecto",
-      "show-project-changes": "Mostrar los cambios del proyecto",
       "fetch-project": "Fetch del proyecto",
       "next-project-repo": "Siguiente repositorio del proyecto",
-      "previous-project-repo": "Repositorio anterior del proyecto"
+      "previous-project-repo": "Repositorio anterior del proyecto",
+      "pin-project": "Fijar el proyecto",
+      "unpin-project": "Desfijar el proyecto",
+      "go-to-projects": "Ir a los proyectos",
+      "add-folder": "Añadir carpeta…"
     },
     "repos": "Repos"
   },
@@ -609,10 +593,10 @@
     "years": "hace {n} año | hace {n} años"
   },
   "switcher": {
-    "label": "Cambiar de repositorio",
+    "label": "Cambiar de proyecto",
     "pinned": "Fijados",
     "recent": "Recientes",
-    "goToRepositories": "Ir a los repositorios"
+    "goToProjects": "Ir a los proyectos"
   },
   "picker": {
     "diffFrom": "Diff desde…",
@@ -993,12 +977,13 @@
     "discovery": {
       "title": "Descubrimiento",
       "scanFolders": "Carpetas a escanear",
-      "noFolders": "Aún no hay carpetas. Begitra busca en ellas repositorios y worktrees.",
+      "noFolders": "Aún no hay carpetas. Cada carpeta que Begitra escanea es un proyecto con los repositorios y worktrees que contiene.",
       "addFolder": "Añadir carpeta",
       "skipFolders": "Carpetas omitidas",
       "skipFoldersHint": "Separadas por comas. Se omiten a cualquier profundidad.",
       "maxDepth": "Profundidad máxima",
-      "maxDepthHint": "Las carpetas más profundas no se escanean."
+      "maxDepthHint": "Las carpetas más profundas no se escanean.",
+      "removeFolder": "Quitar {path} y su proyecto"
     },
     "git": {
       "title": "Git",
@@ -1068,7 +1053,8 @@
         "push": "Push",
         "markResolved": "Marcar como resuelto",
         "zoom": "Acercar / alejar / restablecer",
-        "nextPreviousProjectRepo": "Repositorio siguiente / anterior del proyecto"
+        "nextPreviousProjectRepo": "Repositorio siguiente / anterior del proyecto",
+        "overviewFocus": "Resumen del proyecto"
       }
     },
     "about": {
@@ -1117,13 +1103,11 @@
   "project": {
     "overview": "Resumen",
     "changes": "Cambios",
-    "tabs": "Vista del proyecto",
     "repositories": "{n} repositorio | {n} repositorios",
     "readingMeta": "leyendo {n} repositorio | leyendo {n} repositorios",
     "changesMeta": "{n} repositorio con cambios, {without} sin cambios | {n} repositorios con cambios, {without} sin cambios",
     "refresh": "Volver a leer todos los repositorios",
     "edit": "Editar proyecto…",
-    "saveAsProject": "Guardar como proyecto",
     "columns": {
       "repository": "Repositorio",
       "branch": "Rama",
@@ -1279,7 +1263,8 @@
       "repositories": "Repositorios",
       "filter": "Filtrar repositorios",
       "addRepository": "Añadir repositorio…",
-      "confirm": "Crear con {n} repositorio | Crear con {n} repositorios"
+      "confirm": "Crear con {n} repositorio | Crear con {n} repositorios",
+      "added": "Añadidos"
     },
     "editDialog": {
       "title": "Editar proyecto",
@@ -1293,13 +1278,31 @@
       "moveDown": "Bajar {name}",
       "remove": "Quitar {name} del proyecto",
       "none": "Aún no hay repositorios.",
-      "hint": "{up} y {down} mueven el repositorio con el foco y {remove} lo quita. Quitar uno del proyecto deja su carpeta y su entrada del índice como están.",
+      "hint": "{up} y {down} mueven el repositorio con el foco y {remove} lo quita. Quitar uno deja su carpeta como está.",
       "delete": "Borrar proyecto…",
-      "deleteTitle": "¿Borrar {name}?",
-      "deleteBody": "Se borra el proyecto; sus repositorios, sus carpetas y sus entradas del índice se quedan como están.",
-      "deleteConfirm": "Borrar proyecto"
+      "found": "Encontrados en su carpeta",
+      "noneFound": "El escaneo de su carpeta aún no ha encontrado ningún repositorio.",
+      "foundHint": "Los escaneos de la carpeta mantienen estos: un repositorio clonado en ella entra y uno borrado de ella sale.",
+      "byHand": "Añadidos a mano",
+      "leaving": "Sale de Begitra al guardar: ningún otro proyecto lo tiene. | Salen de Begitra al guardar: ningún otro proyecto los tiene."
     },
     "loadFailed": "No se ha podido leer la lista de repositorios. {message}",
-    "checklistNothing": "No hay ningún repositorio que añadir."
+    "checklistNothing": "No hay ningún repositorio que añadir.",
+    "emptyFolder": "No hay repositorios en {project}.",
+    "allMissing": "Faltan los repositorios de {project}. Edita el proyecto o recupera sus carpetas.",
+    "scanningFolder": "Buscando repositorios en {folder}…",
+    "leaving": {
+      "label": "Salen de Begitra"
+    },
+    "deleteDialog": {
+      "title": "¿Borrar {name}?",
+      "bodyKept": "Se borra el proyecto. Sus repositorios pertenecen a otros proyectos y se quedan en Begitra; no se toca ninguna carpeta.",
+      "bodyLeaving": "Se borra el proyecto y este repositorio sale de Begitra con él: ningún otro proyecto lo tiene. Su carpeta se queda como está y abrirlo de nuevo lo recupera. | Se borra el proyecto y estos {n} repositorios salen de Begitra con él: ningún otro proyecto los tiene. Sus carpetas se quedan como están y abrir uno de nuevo lo recupera.",
+      "confirm": "Borrar proyecto"
+    },
+    "removeDialog": {
+      "title": "¿Quitar {name} de {project}?",
+      "body": "Ningún otro proyecto lo tiene, así que sale de Begitra. Su carpeta se queda como está y abrirlo de nuevo lo recupera."
+    }
   }
 }

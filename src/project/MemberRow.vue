@@ -2,7 +2,9 @@
 // One member of the project Overview: the checkbox, the name (with the worktree
 // icon for a linked worktree), the branch with its lane dot and dirty dot, ahead and behind,
 // the changed files, the status, the last commit, the last fetch, and the terminal and editor
-// actions, or "Remove from project" across the last two columns for a missing member. The
+// actions, or "Remove from project" across the last two columns for a missing member ("Scan
+// again" for one of a folder project's own, which only a scan of its folder takes out). A
+// worktree under its repository is indented one step. The
 // table owns the focus, the selection, the roving tab stop and the keys; → and ← reach the row's
 // own buttons (`useRowActions`), which keep Enter and Space.
 
@@ -33,8 +35,6 @@ const props = defineProps<{
   /** The last commit's time, relative. */
   committed: string;
   outputOpen: boolean;
-  /** A missing member can leave the project from its row (a project's, not a folder's). */
-  removable: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -89,7 +89,12 @@ const hasCounts = computed(() => props.row.ahead !== null && props.row.behind !=
         @update:model-value="emit('toggle')"
       />
     </span>
-    <span role="gridcell" class="flex min-w-0 items-center gap-2" data-testid="member-name">
+    <span
+      role="gridcell"
+      class="flex min-w-0 items-center gap-2"
+      :class="{ 'member-nested': props.row.nested }"
+      data-testid="member-name"
+    >
       <ListTree
         v-if="props.row.worktree"
         :size="16"
@@ -142,7 +147,6 @@ const hasCounts = computed(() => props.row.ahead !== null && props.row.behind !=
     </span>
     <span v-if="props.row.missing" role="gridcell" class="member-wide flex justify-end">
       <button
-        v-if="props.removable"
         type="button"
         tabindex="-1"
         data-row-action
@@ -150,7 +154,7 @@ const hasCounts = computed(() => props.row.ahead !== null && props.row.behind !=
         data-testid="member-remove"
         @click.stop="emit('remove')"
       >
-        {{ t("project.removeFromProject") }}
+        {{ props.row.own ? t("folder.scanAgain") : t("project.removeFromProject") }}
       </button>
     </span>
     <template v-else>
@@ -188,5 +192,9 @@ const hasCounts = computed(() => props.row.ahead !== null && props.row.behind !=
 /* A missing member's "Remove from project" takes the Fetched and actions columns. */
 .member-wide {
   grid-column: span 2;
+}
+/* A worktree under its repository: one step in, as the Repos tab nests it. */
+.member-nested {
+  padding-left: var(--space-4);
 }
 </style>

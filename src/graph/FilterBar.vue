@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// The filter bar of the graph: search, scope, author,
-// date range and path, each filled when active; the pinned-commit chips; the count line and
-// "Clear" once something narrows the history.
+// The filter bar of the graph: the repository selector
+// while the open project holds more than one repository, then search, scope, author, date range
+// and path, each filled when active; the pinned-commit chips; the count line and "Clear" once
+// something narrows the history.
 
 import { Folder, Search, X } from "@lucide/vue";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
@@ -13,14 +14,17 @@ import Select from "@/components/Select.vue";
 import type { SelectOption } from "@/components/types";
 import { formatCount, shortHash } from "@/shell/format";
 import { DATE_RANGES, useGraphStore, type DateRange, type GraphScope } from "@/stores/graph";
+import { useProjectsStore } from "@/stores/projects";
 
 import PathPopover from "./PathPopover.vue";
+import RepoSelect from "./RepoSelect.vue";
 
 /** Delay between the last keystroke and the walk restart. */
 const SEARCH_DEBOUNCE_MS = 200;
 
 const { t, locale } = useI18n();
 const graph = useGraphStore();
+const projects = useProjectsStore();
 
 const text = ref(graph.filters.text);
 let debounce: ReturnType<typeof setTimeout> | undefined;
@@ -115,10 +119,11 @@ const countLine = computed(() => {
 
 <template>
   <div
-    class="flex h-bar-top shrink-0 items-center gap-2 border-b border-line px-3"
+    class="filter-bar flex h-bar-top shrink-0 items-center gap-2 overflow-x-auto border-b border-line px-3"
     data-testid="graph-filters"
   >
-    <div class="graph-search shrink-0">
+    <RepoSelect v-if="projects.multi" />
+    <div class="graph-search">
       <Input v-model="text" :placeholder="t('graph.searchCommits')" :icon="Search" />
     </div>
     <div class="graph-scope shrink-0">
@@ -220,9 +225,18 @@ const countLine = computed(() => {
 
 <style scoped>
 /* Control widths of the filter bar: search 200, then the three selects
-   sized to their content (124, 104, 104). None is on the spacing scale. */
+   sized to their content (124, 104, 104). None is on the spacing scale. A panel
+   narrower than the bar (the repository selector in front, a high zoom) shrinks the search
+   and the repository selector, never the selects, whose labels would be cut; past their
+   minimum widths the bar scrolls sideways rather than run under the detail panel. */
+.filter-bar {
+  scrollbar-width: none;
+}
+
 .graph-search {
+  flex-shrink: 2;
   width: 200px;
+  min-width: 112px;
 }
 
 .graph-scope {

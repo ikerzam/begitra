@@ -2,7 +2,7 @@ import { clearMocks } from "@tauri-apps/api/mocks";
 import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import HomeScreen from "@/discovery/HomeScreen.vue";
+import type { Project } from "@/ipc/schemas";
 import { ShortcutRegistry, setShortcutRegistry } from "@/shortcuts/registry";
 import { useIndexStore } from "@/stores/index";
 import { useProjectDialogsStore } from "@/stores/projectDialogs";
@@ -10,9 +10,10 @@ import { useProjectsStore } from "@/stores/projects";
 import { memoryStorage, useSettingsStore } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
 import { fakeBackend, settled, type Call } from "@/test/backend";
-import { entryOf, projectOf, summaryOf, worktreeOf } from "@/test/entries";
+import { entryOf, folderProjectOf, projectOf, summaryOf, worktreeOf } from "@/test/entries";
 import { mountWithI18n } from "@/test/mount";
 
+import DeleteProjectDialog from "./DeleteProjectDialog.vue";
 import EditProjectDialog from "./EditProjectDialog.vue";
 import NewProjectDialog from "./NewProjectDialog.vue";
 
@@ -21,18 +22,22 @@ const { open: pickFolder } = await import("@tauri-apps/plugin-dialog");
 
 const CODE = "/home/iker/code";
 const GEO = `${CODE}/geo`;
-const api = entryOf(`${GEO}/api`, { scanRoot: GEO, summary: summaryOf({ dirty: true }) });
-const web = entryOf(`${GEO}/web`, { scanRoot: GEO, summary: summaryOf({ behind: 2 }) });
-const webAuth = worktreeOf("/home/iker/wt/web-claude-auth", web.path, {
-  scanRoot: "/home/iker/wt",
-});
-const infra = entryOf(`${GEO}/infra`, {
-  scanRoot: GEO,
-  summary: summaryOf({ operation: "rebase" }),
-});
-const spike = entryOf("/tmp/tiles-spike", { scanRoot: null });
+const WT = "/home/iker/wt";
+const api = entryOf(`${GEO}/api`, { summary: summaryOf({ dirty: true }) });
+const web = entryOf(`${GEO}/web`, { summary: summaryOf({ behind: 2 }) });
+const webAuth = worktreeOf(`${WT}/web-claude-auth`, web.path);
+const infra = entryOf(`${GEO}/infra`, { summary: summaryOf({ operation: "rebase" }) });
+const spike = entryOf("/tmp/tiles-spike");
 const indexed = [api, web, webAuth, infra, spike];
-const probe = entryOf("/elsewhere/probe", { scanRoot: null });
+const probe = entryOf("/elsewhere/probe");
+
+/** Every indexed repository in a project, as the index keeps them. */
+const base: Project[] = [
+  folderProjectOf(10, GEO, [api.path, infra.path, web.path]),
+  folderProjectOf(11, WT, [webAuth.path]),
+  projectOf(12, "tiles-spike", [spike.path]),
+];
+const geoportal = projectOf(1, "Geoportal", [api.path, web.path, `${GEO}/gone`]);
 
 const of = (calls: Call[], cmd: string) => calls.filter((call) => call.cmd === cmd);
 const q = <T extends Element = HTMLElement>(selector: string) =>
@@ -43,17 +48,14 @@ async function flush(): Promise<void> {
   for (let i = 0; i < 6; i += 1) await settled();
 }
 
-async function load(
-  projects = [projectOf(1, "Geoportal", [api.path, web.path, `${GEO}/gone`])],
-  repositories = [...indexed],
-) {
+async function load(projects: Project[] = [geoportal, ...base], repositories = [...indexed]) {
   const calls = fakeBackend({
     repositories,
     projects,
     summaries: { [probe.path]: probe.summary },
   });
-  await useSettingsStore().update("scanRoots", [GEO, "/home/iker/wt"]);
-  await Promise.all([useProjectsStore().load(), useIndexStore().load()]);
+  const [store, index] = [useProjectsStore(), useIndexStore()];
+  await Promise.all([store.load(), index.load()]);
   return calls;
 }
 
@@ -69,56 +71,9 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-describe("Home's projects", () => {
-  it("lists each project with its count and what needs attention, and opens its view", async () => {
-    await load([
-      projectOf(1, "Geoportal", [api.path, web.path, infra.path, `${GEO}/gone`]),
-      projectOf(2, "Tiles", [spike.path]),
-    ]);
-    const wrapper = mountWithI18n(HomeScreen, { attachTo: document.body });
-    await flush();
-    const rows = wrapper.findAll('[data-testid="home-project"]');
-    expect(rows.map((row) => row.text())).toEqual([
-      "Geoportal4 repositories1 with changes · 1 behind · 1 rebasing · 1 missing",
-      "Tiles1 repositoryup to date",
-    ]);
-    // One Tab stop, which follows the focus as ↓ moves it.
-    const stops = () =>
-      wrapper
-        .findAll('[data-testid="home-project"]')
-        .map((button) => button.attributes("tabindex"));
-    expect(stops()).toEqual(["0", "-1"]);
-    (rows[0]?.element as HTMLElement).focus();
-    await rows[0]?.trigger("keydown", { key: "ArrowDown" });
-    expect(document.activeElement).toBe(rows[1]?.element);
-    expect(stops()).toEqual(["-1", "0"]);
-    await rows[1]?.trigger("click");
-    await flush();
-    expect(useShellStore().layoutMode).toBe("project");
-    expect(useSettingsStore().values.activeProject).toBe(2);
-    wrapper.unmount();
-  });
-
-  it("saves a scan folder's section as a project in path order", async () => {
-    const calls = await load([]);
-    const wrapper = mountWithI18n(HomeScreen, { attachTo: document.body });
-    await flush();
-    expect(wrapper.find('[data-testid="home-projects"]').exists()).toBe(false);
-    const saves = wrapper.findAll('[data-testid="save-folder-as-project"]');
-    await saves[0]?.trigger("click");
-    await flush();
-    expect(of(calls, "project_create").at(-1)?.args).toEqual({
-      name: "geo",
-      paths: [api.path, infra.path, web.path],
-    });
-    expect(useShellStore().layoutMode).toBe("project");
-    wrapper.unmount();
-  });
-});
-
 describe("the new-project dialog", () => {
-  it("makes a project of the checked repositories in the list's order and shows it", async () => {
-    const calls = await load([]);
+  it("makes a project of the checked repositories in the list's order and opens it", async () => {
+    const calls = await load(base);
     useProjectDialogsStore().create();
     const wrapper = mountWithI18n(NewProjectDialog, { attachTo: document.body });
     await flush();
@@ -142,17 +97,22 @@ describe("the new-project dialog", () => {
       paths: [api.path, web.path, webAuth.path],
     });
     expect(useProjectDialogsStore().creating).toBe(false);
-    expect(useShellStore().layoutMode).toBe("project");
+    // The new project opens on the graph of its first repository.
+    expect(useProjectsStore().active?.name).toBe("Geoportal");
+    expect(useShellStore().layoutMode).toBe("graph");
+    expect(of(calls, "open_repository").at(-1)?.args["path"]).toBe(api.path);
     wrapper.unmount();
   });
 
-  it("groups the list as Home does and narrows it with the filter", async () => {
-    await load([]);
+  it("groups the list by project and narrows it with the filter", async () => {
+    await load(base);
     const wrapper = mountWithI18n(NewProjectDialog, { attachTo: document.body });
     await flush();
     const names = () =>
       qa('[data-testid="checklist-item"]').map((item) => item.textContent?.trim());
-    expect(names()).toEqual(["api", "infra", "web", "web-claude-auth", "tiles-spike"]);
+    const groups = () => qa('[data-testid="checklist-group"]').map((g) => g.textContent?.trim());
+    expect(groups()).toEqual([GEO, "tiles-spike", WT]);
+    expect(names()).toEqual(["api", "infra", "web", "tiles-spike", "web-claude-auth"]);
     const filter = q<HTMLInputElement>('[data-testid="new-project-filter"]');
     if (!filter) throw new Error("no filter");
     filter.value = "web";
@@ -162,8 +122,20 @@ describe("the new-project dialog", () => {
     wrapper.unmount();
   });
 
+  it("lists a repository two projects hold once, under the first by name", async () => {
+    await load([geoportal, ...base]);
+    const wrapper = mountWithI18n(NewProjectDialog, { attachTo: document.body });
+    await flush();
+    const paths = qa('[data-testid="checklist-item"]').map((item) => item.dataset["path"]);
+    expect(paths.filter((path) => path === api.path)).toHaveLength(1);
+    // "geo" sorts before "Geoportal", which lists nothing else that is there.
+    const groups = qa('[data-testid="checklist-group"]').map((g) => g.textContent?.trim());
+    expect(groups).toEqual([GEO, "tiles-spike", WT]);
+    wrapper.unmount();
+  });
+
   it("walks the checklist with the arrows and j/k from one tab stop", async () => {
-    await load([]);
+    await load(base);
     const wrapper = mountWithI18n(NewProjectDialog, { attachTo: document.body });
     await flush();
     const boxes = () => qa('[data-testid="checklist-item"] input');
@@ -202,31 +174,34 @@ describe("the new-project dialog", () => {
     wrapper.unmount();
   });
 
-  it("adds a repository the index does not know yet, checked", async () => {
-    const repositories = [...indexed];
-    const calls = await load([], repositories);
-    // The backend knows the folder once it is added: its answer is the entry it stored.
-    repositories.push(probe);
+  it("describes a repository the index does not know yet, checked, and stores it only once the project is made", async () => {
+    const calls = await load(base);
     vi.mocked(pickFolder).mockResolvedValue(probe.path);
     const wrapper = mountWithI18n(NewProjectDialog, { attachTo: document.body });
     await flush();
     q<HTMLButtonElement>('[data-testid="new-project-add"]')?.click();
     await flush();
-    expect(of(calls, "refresh_repository").at(-1)?.args["path"]).toBe(probe.path);
+    expect(of(calls, "refresh_repository").at(-1)?.args).toMatchObject({
+      path: probe.path,
+      dirty: false,
+    });
     const added = q<HTMLInputElement>(
       `[data-testid="checklist-item"][data-path="${probe.path}"] input`,
     );
     expect(added?.checked).toBe(true);
+    expect(qa('[data-testid="checklist-group"]').at(-1)?.textContent?.trim()).toBe("Added");
+    // The probe stored nothing: the listing does not hold it until a project names it.
+    expect(useIndexStore().find(probe.path)).toBeUndefined();
     wrapper.unmount();
   });
 });
 
 describe("the edit dialog", () => {
-  async function editing() {
-    const calls = await load();
-    useProjectDialogsStore().edit(1);
+  async function editing(projects?: Project[], id = 1) {
+    const calls = await load(projects);
+    useProjectDialogsStore().edit(id);
     const wrapper = mountWithI18n(EditProjectDialog, {
-      props: { id: 1 },
+      props: { id },
       attachTo: document.body,
     });
     await flush();
@@ -253,6 +228,11 @@ describe("the edit dialog", () => {
     expect(members()).toEqual(["web", "api", "gone"]);
     qa('[data-testid="edit-project-remove"]')[2]?.click();
     await flush();
+    // `gone` belongs to no other project: the dialog names it before Save.
+    expect(q('[data-testid="edit-project-leaving"]')?.textContent).toContain(
+      "Leaves Begitra when you save",
+    );
+    expect(q('[data-testid="leaving-list"]')?.textContent).toContain("gone");
     q<HTMLButtonElement>('[data-testid="edit-project-add"]')?.click();
     await flush();
     q<HTMLInputElement>(`[data-testid="checklist-item"][data-path="${infra.path}"] input`)?.click();
@@ -271,6 +251,28 @@ describe("the edit dialog", () => {
     expect(of(calls, "project_set_members").at(-1)?.args).toEqual({
       id: 1,
       paths: [web.path, api.path, infra.path],
+    });
+    wrapper.unmount();
+  });
+
+  it("keeps a folder project's own repositories fixed and edits the ones added by hand", async () => {
+    const own = folderProjectOf(20, GEO, [api.path, infra.path], [spike.path, webAuth.path]);
+    const { calls, wrapper } = await editing([own, ...base.slice(1)], 20);
+    const fixed = qa('[data-testid="edit-project-own"] li').map((row) => row.textContent?.trim());
+    expect(fixed).toEqual(["api", "infra"]);
+    expect(q('[data-testid="edit-project-own"] [data-testid="edit-project-remove"]')).toBeNull();
+    expect(members()).toEqual(["tiles-spike", "web-claude-auth"]);
+    qa('[data-testid="edit-project-remove"]')[0]?.click();
+    await flush();
+    // tiles-spike is in its own project too: nothing leaves Begitra.
+    expect(q('[data-testid="edit-project-leaving"]')).toBeNull();
+    q<HTMLButtonElement>(
+      '[data-testid="edit-project-dialog"] [data-testid="dialog-confirm"]',
+    )?.click();
+    await flush();
+    expect(of(calls, "project_set_members").at(-1)?.args).toEqual({
+      id: 20,
+      paths: [webAuth.path],
     });
     wrapper.unmount();
   });
@@ -334,17 +336,44 @@ describe("the edit dialog", () => {
     wrapper.unmount();
   });
 
-  it("deletes the project after one confirmation that no repository is touched", async () => {
+  it("asks for the deletion in its own confirmation, which names what leaves Begitra", async () => {
     const { calls, wrapper } = await editing();
     q<HTMLButtonElement>('[data-testid="edit-project-delete"]')?.click();
     await flush();
-    const confirmation = q('[data-testid="delete-project-dialog"]');
-    expect(confirmation?.textContent).toContain("stay as they are");
-    confirmation?.querySelector<HTMLButtonElement>('[data-testid="dialog-confirm"]')?.click();
+    const dialogs = useProjectDialogsStore();
+    expect(dialogs.editing).toBeNull();
+    expect(dialogs.deleting).toBe(1);
+    wrapper.unmount();
+    const confirmation = mountWithI18n(DeleteProjectDialog, {
+      props: { id: 1 },
+      attachTo: document.body,
+    });
+    await flush();
+    const dialog = q('[data-testid="delete-project-dialog"]');
+    expect(dialog?.textContent).toContain("Delete Geoportal?");
+    // api and web stay in the folder project of geo; the missing member leaves with it.
+    expect(dialog?.textContent).toContain("this repository leaves Begitra with it");
+    expect(q('[data-testid="leaving-list"]')?.textContent).toContain("gone");
+    expect(q('[data-testid="leaving-list"]')?.textContent).not.toContain("api");
+    dialog?.querySelector<HTMLButtonElement>('[data-testid="dialog-confirm"]')?.click();
     await flush();
     expect(of(calls, "project_delete").at(-1)?.args).toEqual({ id: 1 });
-    expect(useProjectsStore().projects).toEqual([]);
-    expect(useProjectDialogsStore().editing).toBeNull();
-    wrapper.unmount();
+    expect(useProjectsStore().find(1)).toBeUndefined();
+    expect(dialogs.deleting).toBeNull();
+    confirmation.unmount();
+  });
+
+  it("says nothing leaves Begitra when every repository belongs to another project", async () => {
+    await load([projectOf(1, "Geoportal", [api.path, web.path]), ...base]);
+    const confirmation = mountWithI18n(DeleteProjectDialog, {
+      props: { id: 1 },
+      attachTo: document.body,
+    });
+    await flush();
+    expect(q('[data-testid="delete-project-dialog"]')?.textContent).toContain(
+      "Its repositories belong to other projects and stay in Begitra",
+    );
+    expect(q('[data-testid="leaving-list"]')).toBeNull();
+    confirmation.unmount();
   });
 });

@@ -3,12 +3,14 @@ import { flushPromises } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { IndexEntry } from "@/ipc/schemas";
 import { ShortcutRegistry, setShortcutRegistry } from "@/shortcuts/registry";
 import { useIndexStore } from "@/stores/index";
+import { useProjectsStore } from "@/stores/projects";
 import { useRepoStore } from "@/stores/repo";
 import { memoryStorage, useSettingsStore } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
+import { fakeBackend } from "@/test/backend";
+import { entryOf, projectOf } from "@/test/entries";
 import { mountWithI18n } from "@/test/mount";
 
 import PaletteOverlay from "./PaletteOverlay.vue";
@@ -27,82 +29,49 @@ afterEach(() => {
   setShortcutRegistry(undefined);
 });
 
-function entry(name: string, over: Partial<IndexEntry> = {}): IndexEntry {
-  return {
-    path: `/code/${name}`,
-    name,
-    kind: "main",
-    parentPath: null,
-    scanRoot: "/code",
-    summary: {
-      currentBranch: "main",
-      detached: false,
-      ahead: 0,
-      behind: 0,
-      lastCommitAt: null,
-      upstream: null,
-      operation: null,
-      fetchedAt: null,
-      lastCommitSubject: null,
-      dirty: null,
-    },
-    pinned: false,
-    lastOpenedAt: null,
-    refreshedAt: null,
-    missing: false,
-    ...over,
-  };
-}
-
 describe("PaletteOverlay", () => {
-  it("lists the matching repositories under Repos with their path and opens the chosen one", async () => {
-    const index = useIndexStore();
-    index.entries = [
-      entry("geoportal", { pinned: true }),
-      entry("begitra"),
-      entry("geoportal-infra"),
-    ];
-    index.loaded = true;
+  it("lists every project's repositories under Repos, the open project's first, and shows the chosen one", async () => {
     clearMocks();
-    const calls: string[] = [];
-    mockIPC((cmd, rawArgs) => {
-      calls.push(cmd);
-      const args = (rawArgs ?? {}) as Record<string, unknown>;
-      if (cmd === "open_repository") {
-        return {
-          root: args["path"],
-          commonDir: `${args["path"] as string}/.git`,
-          currentBranch: "main",
-          detached: false,
-          isLinkedWorktree: false,
-        };
-      }
-      if (cmd === "list_repositories") return index.entries;
-      if (cmd === "list_refs") return [];
-      return null;
+    const geo = entryOf("/code/geoportal");
+    const infra = entryOf("/code/geoportal-infra");
+    const begitra = entryOf("/code/begitra");
+    const calls = fakeBackend({
+      repositories: [geo, infra, begitra],
+      projects: [
+        projectOf(1, "Geoportal", [geo.path, infra.path], { openedAt: 10 }),
+        projectOf(2, "Tools", [begitra.path], { openedAt: 5 }),
+      ],
+      rootIsPath: true,
     });
-    const shell = useShellStore();
+    const [index, projects, shell] = [useIndexStore(), useProjectsStore(), useShellStore()];
+    await Promise.all([index.load(), projects.load()]);
+    await projects.open(2);
+    await flushPromises();
     shell.openPalette();
     const wrapper = mountWithI18n(PaletteOverlay, { attachTo: document.body });
-    // With an empty query only the pinned and recent repositories are listed.
+    // With an empty query: the recent projects, and the open project's repositories.
     const list = wrapper.get('[data-testid="palette-list"]');
+    expect(list.text()).toContain("Projects");
     expect(list.text()).toContain("Repos");
-    expect(wrapper.findAll('[data-testid="palette-row-context"]').map((c) => c.text())).toEqual([
-      "/code/geoportal",
-    ]);
+    const repoRows = () =>
+      wrapper
+        .findAll('[data-testid="palette-row"]')
+        .filter((row) => row.attributes("id") !== undefined)
+        .map((row) => row.text())
+        .filter((text) => text.endsWith("Tools") || text.endsWith("Geoportal"));
+    expect(repoRows()).toEqual(["begitraTools"]);
     const input = wrapper.get('[data-testid="palette-input"]');
-    await input.setValue("geo");
-    const rows = wrapper.findAll('[data-testid="palette-row"]');
-    expect(rows.map((r) => r.text())).toEqual([
-      "geoportal/code/geoportal",
-      "geoportal-infra/code/geoportal-infra",
+    await input.setValue("infra");
+    expect(wrapper.findAll('[data-testid="palette-row"]').map((r) => r.text())).toEqual([
+      "geoportal-infraGeoportal",
     ]);
-    await input.trigger("keydown", { key: "ArrowDown" });
     await input.trigger("keydown", { key: "Enter" });
     await flushPromises();
     expect(shell.paletteOpen).toBe(false);
-    expect(calls).toContain("open_repository");
-    expect(useRepoStore().repo?.root).toBe("/code/geoportal-infra");
+    // The repository of another project opens that project, showing it.
+    expect(projects.active?.name).toBe("Geoportal");
+    expect(calls.map((call) => call.cmd)).toContain("open_repository");
+    expect(useRepoStore().repo?.root).toBe(infra.path);
     expect(useSettingsStore().values.paletteRecents).toEqual([]);
     wrapper.unmount();
   });

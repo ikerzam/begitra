@@ -1,18 +1,18 @@
 <script setup lang="ts">
-// The project view and the folder view: the header (the project's
-// name or the folder's path, its count, the Overview and Changes tabs, refresh, and "Save as
-// project" for a folder) over the tab's content. The view's lifecycle lives here: the models and
-// the folder watchers start when it mounts and stop when it goes, and the members' summaries are
-// read once the rows are known and as members join, so switching tabs keeps them; the two tabs
-// are mounted one at a time, so their keys never both listen.
+// The open project's Overview and Changes, views of the top bar:
+// the 40px header (the project's name, its count or its changes line, refresh, and "Edit
+// project…" on the Overview) over the view the layout asks for. The views' lifecycle lives
+// here: the models and the folder watchers start when the layout mounts and stop when it goes,
+// and the members' summaries are read once the rows are known and as members join, so moving
+// between the two keeps them; the two views are mounted one at a time, so their keys never
+// both listen.
 
-import { Layers, Pencil, RefreshCw } from "@lucide/vue";
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { Pencil, RefreshCw } from "@lucide/vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Button from "@/components/Button.vue";
 import IconButton from "@/components/IconButton.vue";
-import TabsItem from "@/components/TabsItem.vue";
 import { useDiscoveryFormat } from "@/discovery/useDiscoveryFormat";
 import FolderLayout from "@/folder/FolderLayout.vue";
 import { useBulkStore } from "@/stores/bulk";
@@ -21,7 +21,6 @@ import { useIndexStore } from "@/stores/index";
 import { useOverviewStore } from "@/stores/overview";
 import { useProjectDialogsStore } from "@/stores/projectDialogs";
 import { useProjectsStore } from "@/stores/projects";
-import { useSettingsStore, type ProjectTab } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
 
 import BulkDialog from "./BulkDialog.vue";
@@ -34,23 +33,17 @@ const index = useIndexStore();
 const overview = useOverviewStore();
 const dialogs = useProjectDialogsStore();
 const projects = useProjectsStore();
-const settings = useSettingsStore();
 const shell = useShellStore();
 const format = useDiscoveryFormat();
-const overviewTab = ref<{ focusRows(): void } | null>(null);
-const changesTab = ref<{ focusLists(): void } | null>(null);
-const tabList = ref<HTMLElement | null>(null);
+const overviewView = ref<{ focusRows(): void } | null>(null);
+const changesView = ref<{ focusLists(): void } | null>(null);
 
-const tabs: ProjectTab[] = ["overview", "changes"];
-const tab = computed(() => settings.values.projectTab);
-const isProject = computed(() => folder.source?.kind === "project");
-const title = computed(() =>
-  isProject.value ? (folder.project?.name ?? "") : format.displayPath(folder.folder ?? ""),
-);
+const view = computed(() => projects.view ?? "overview");
+const title = computed(() => folder.project?.name ?? projects.active?.name ?? "");
 const meta = computed(() => {
   // A list that could not be read has no count to give.
-  if (index.loadError || (isProject.value && projects.loadError)) return "";
-  if (tab.value === "overview") {
+  if (index.loadError || projects.loadError) return "";
+  if (view.value === "overview") {
     // While the rows are not known, how many the project's list names.
     if (!overview.rowsKnown) {
       const named = folder.project?.members.length ?? 0;
@@ -67,32 +60,9 @@ const meta = computed(() => {
   return t("project.changesMeta", { n: n(withChanges), without }, withChanges);
 });
 
-function select(next: ProjectTab): void {
-  if (next !== tab.value) void settings.update("projectTab", next);
-}
-
-function onTabKeydown(event: KeyboardEvent): void {
-  const at = tabs.indexOf(tab.value);
-  let next = at;
-  if (event.key === "ArrowRight") next = (at + 1) % tabs.length;
-  else if (event.key === "ArrowLeft") next = (at - 1 + tabs.length) % tabs.length;
-  else return;
-  event.preventDefault();
-  const chosen = tabs[next];
-  if (!chosen) return;
-  select(chosen);
-  void nextTick(() => tabList.value?.querySelectorAll<HTMLElement>('[role="tab"]')[next]?.focus());
-}
-
 function refresh(): void {
   folder.refresh();
   overview.refresh();
-}
-
-/** Makes a project of the folder's repositories and worktrees in path order, on the same tab. */
-async function saveAsProject(): Promise<void> {
-  const shown = folder.folder;
-  if (shown !== null) await projects.saveFolder(shown, tab.value);
 }
 
 function edit(): void {
@@ -101,23 +71,23 @@ function edit(): void {
 }
 
 function focus(): void {
-  if (tab.value === "overview") overviewTab.value?.focusRows();
-  else changesTab.value?.focusLists();
+  if (view.value === "overview") overviewView.value?.focusRows();
+  else changesView.value?.focusLists();
 }
 
 defineExpose({ focus });
 
-// A project deleted meanwhile (another window, a stale setting at launch) leaves the view; a
-// list that could not be read keeps it, with its error.
+// A project deleted meanwhile (another window) leaves the view; a list that could not be read
+// keeps it, with its error.
 watch(
-  () => [isProject.value, projects.loaded, projects.loadError, folder.project] as const,
-  ([project, loaded, failed, shown]) => {
-    if (project && loaded && failed === null && shown === null) void shell.setLayoutMode("graph");
+  () => [projects.loaded, projects.loadError, folder.project] as const,
+  ([loaded, failed, shown]) => {
+    if (loaded && failed === null && shown === null) void shell.setLayoutMode("graph");
   },
 );
 
 // Each member's summary is read once the rows are known (a launch into the view, another
-// project shown) and when a member joins the source.
+// project opened) and when a member joins the project.
 watch(
   () =>
     overview.rowsKnown
@@ -150,8 +120,7 @@ onBeforeUnmount(() => {
       <div class="flex min-w-0 items-baseline gap-2">
         <h1
           class="truncate text-md font-medium text-fg"
-          :class="isProject ? '' : 'font-mono text-mono-sm'"
-          :data-tooltip="isProject ? undefined : (folder.folder ?? undefined)"
+          :data-tooltip="folder.folder ? format.displayPath(folder.folder) : undefined"
           data-testid="project-title"
         >
           {{ title }}
@@ -159,25 +128,6 @@ onBeforeUnmount(() => {
         <span v-if="meta" class="shrink-0 text-sm text-fg-muted" data-testid="project-meta">
           {{ meta }}
         </span>
-      </div>
-      <div
-        ref="tabList"
-        role="tablist"
-        :aria-label="t('project.tabs')"
-        class="flex items-center gap-4 self-stretch"
-        @keydown="onTabKeydown"
-      >
-        <TabsItem
-          v-for="id in tabs"
-          :id="`project-tab-${id}`"
-          :key="id"
-          tall
-          :label="t(`project.${id}`)"
-          :selected="tab === id"
-          :controls="`project-${id}`"
-          :data-testid="`project-tab-${id}`"
-          @select="select(id)"
-        />
       </div>
       <div class="ml-auto flex items-center gap-2">
         <IconButton
@@ -187,35 +137,23 @@ onBeforeUnmount(() => {
           @click="refresh"
         />
         <Button
-          v-if="!isProject"
+          v-if="view === 'overview'"
           variant="ghost"
-          :icon="Layers"
-          data-testid="save-as-project"
-          @click="() => void saveAsProject()"
+          :icon="Pencil"
+          data-testid="edit-project"
+          @click="edit"
         >
-          {{ t("project.saveAsProject") }}
-        </Button>
-        <Button v-else variant="ghost" :icon="Pencil" data-testid="edit-project" @click="edit">
           {{ t("project.edit") }}
         </Button>
-        <slot name="actions" />
       </div>
     </header>
     <ProjectOverview
-      v-if="tab === 'overview'"
-      id="project-overview"
-      ref="overviewTab"
-      role="tabpanel"
-      aria-labelledby="project-tab-overview"
+      v-if="view === 'overview'"
+      ref="overviewView"
+      :aria-label="t('project.overview')"
       @edit="edit"
     />
-    <FolderLayout
-      v-else
-      id="project-changes"
-      ref="changesTab"
-      role="tabpanel"
-      aria-labelledby="project-tab-changes"
-    />
+    <FolderLayout v-else ref="changesView" :aria-label="t('project.changes')" />
     <BulkDialog v-if="bulk.plan" />
   </div>
 </template>

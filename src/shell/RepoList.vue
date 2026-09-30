@@ -1,27 +1,27 @@
 <script setup lang="ts">
-// The Repos tab: the indexed repositories, pinned first then by name, each followed by its
-// worktrees, filtered by the sidebar filter; the open repository is selected, a missing one is
-// flagged, and ↵ opens the focused row through the index store. A repository that is open (or
-// failed to open) without being indexed is listed too, so the tab never hides the current one.
+// The Repos tab: the open project's repositories and worktrees in its order, each worktree
+// under its repository when both are members, filtered by the sidebar filter; the one the
+// project shows is selected, a missing one is flagged, and ↵ or a click shows the focused one
+// instead. A repository the project shows without holding it (opening, or gone from the
+// project meanwhile) is listed first, so the tab never hides the current one.
 
 import { FolderGit2, ListTree } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ListRow from "@/components/ListRow.vue";
-import type { IndexEntry } from "@/ipc/schemas";
 import { matchesQuery } from "@/palette/usePalette";
 import { useListNavigation } from "@/shortcuts/useListNavigation";
-import { useIndexStore } from "@/stores/index";
+import { useProjectsStore } from "@/stores/projects";
 import { useRepoStore } from "@/stores/repo";
 
-import { baseName } from "./format";
+import { baseName, sameFolder } from "./format";
 
 const props = defineProps<{ filter: string }>();
 
 const { t } = useI18n();
 const repo = useRepoStore();
-const index = useIndexStore();
+const projects = useProjectsStore();
 const listbox = ref<HTMLElement | null>(null);
 
 interface RepoListRow {
@@ -33,45 +33,25 @@ interface RepoListRow {
   missing: boolean;
 }
 
-/** The open repository's root, or the folder being opened or that failed to open. */
-const currentPath = computed(() => {
-  const state = repo.state;
-  if (state.kind === "ready") return repo.repo?.root ?? null;
-  if (state.kind === "opening" || state.kind === "error") return state.path;
-  return null;
-});
-
-function toRow(entry: IndexEntry, nested: boolean): RepoListRow {
-  const missing = entry.missing || (repo.state.kind === "error" && repo.state.path === entry.path);
-  return {
-    path: entry.path,
-    name: entry.name,
-    branch: entry.summary.detached ? t("statusBar.detached") : (entry.summary.currentBranch ?? ""),
-    worktree: entry.kind === "worktree",
-    nested,
-    missing,
-  };
-}
+/** The repository the project shows: the open one, or the one opening or failing. */
+const currentPath = computed(() => projects.shownPath);
 
 const rows = computed<RepoListRow[]>(() => {
   const filtering = props.filter.trim() !== "";
-  const listed = new Set<string>();
-  const list: RepoListRow[] = [];
-  for (const main of index.mains) {
-    listed.add(main.path);
-    list.push(toRow(main, false));
-    for (const worktree of index.worktreesOf(main.path)) {
-      listed.add(worktree.path);
-      list.push(toRow(worktree, !filtering));
-    }
-  }
-  for (const worktree of index.worktrees) {
-    if (listed.has(worktree.path)) continue;
-    listed.add(worktree.path);
-    list.push(toRow(worktree, false));
-  }
+  const failing = repo.state.kind === "error" ? repo.state.path : null;
+  const list: RepoListRow[] = projects.activeMembers.map((member) => {
+    const summary = member.entry?.summary;
+    return {
+      path: member.path,
+      name: member.name,
+      branch: summary?.detached ? t("statusBar.detached") : (summary?.currentBranch ?? ""),
+      worktree: member.entry?.kind === "worktree",
+      nested: member.nested && !filtering,
+      missing: member.missing || (failing !== null && sameFolder(failing, member.path)),
+    };
+  });
   const current = currentPath.value;
-  if (current !== null && !listed.has(current)) {
+  if (current !== null && !list.some((row) => sameFolder(row.path, current))) {
     list.unshift({
       path: current,
       name: baseName(current),
@@ -85,13 +65,16 @@ const rows = computed<RepoListRow[]>(() => {
 });
 const rowCount = computed(() => rows.value.length);
 
-/* The selection follows the open repository, then the user's moves. */
+/* The selection follows the repository the project shows, then the user's moves. */
 const selectedPath = ref<string | null>(currentPath.value);
 watch(currentPath, (path) => {
   selectedPath.value = path;
 });
 const selectedRow = computed({
-  get: () => rows.value.findIndex((row) => row.path === selectedPath.value),
+  get: () =>
+    rows.value.findIndex(
+      (row) => selectedPath.value !== null && sameFolder(row.path, selectedPath.value),
+    ),
   set: (position: number) => {
     selectedPath.value = rows.value[position]?.path ?? null;
   },
@@ -105,7 +88,8 @@ const navigation = useListNavigation({
 });
 
 function open(row: RepoListRow): void {
-  void index.open(row.path);
+  if (row.missing && !projects.isShown(row.path)) return;
+  void projects.show(row.path);
 }
 
 defineExpose({ focus: navigation.focus });
@@ -133,7 +117,12 @@ defineExpose({ focus: navigation.focus });
       :missing="row.missing"
       :selected="position === selectedRow"
       :tab-stop="position === tabStopRow"
-      @select="navigation.select(position)"
+      @select="
+        () => {
+          navigation.select(position);
+          open(row);
+        }
+      "
       @activate="open(row)"
     />
     <p v-if="rows.length === 0" class="px-3 py-2 text-md text-fg-secondary">

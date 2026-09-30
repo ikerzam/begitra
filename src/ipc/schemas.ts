@@ -655,16 +655,55 @@ export const IndexEntrySchema = v.object({
 });
 export type IndexEntry = v.InferOutput<typeof IndexEntrySchema>;
 
-/** A named, ordered group of repositories and worktrees, kept by path. */
+/** How a project holds its members: what the scans find under its folder, or a list. */
+export const ProjectKindSchema = v.picklist(["folder", "list"]);
+export type ProjectKind = v.InferOutput<typeof ProjectKindSchema>;
+
+/** How a member joined its project: found by its folder's scan, or added by hand. */
+export const MemberOriginSchema = v.picklist(["folder", "hand"]);
+export type MemberOrigin = v.InferOutput<typeof MemberOriginSchema>;
+
+export const MemberSchema = v.object({
+  /** Working tree root; it need not have an index entry. */
+  path: v.string(),
+  origin: MemberOriginSchema,
+});
+export type Member = v.InferOutput<typeof MemberSchema>;
+
+/**
+ * The unit the app opens: a name and its repositories and worktrees, by path. A folder
+ * project's members are its folder's own (path order), then the ones added by hand.
+ */
 export const ProjectSchema = v.object({
   id: v.pipe(v.number(), v.integer()),
   name: v.string(),
-  /** Member paths in the user's order; a path need not have an index entry. */
-  members: v.array(v.string()),
+  kind: ProjectKindSchema,
+  /** A folder project's folder; null for a list project. */
+  folder: v.nullable(v.string()),
+  members: v.array(MemberSchema),
+  pinned: v.boolean(),
+  /** Unix seconds of its last opening; null before any. */
+  openedAt: v.nullable(v.number()),
+  /** The repository it showed last; null before any. */
+  lastRepository: v.nullable(v.string()),
   createdAt: v.number(),
   updatedAt: v.number(),
 });
 export type Project = v.InferOutput<typeof ProjectSchema>;
+
+/** A project after an edit, and the paths the edit took out of the index. */
+export const ProjectEditSchema = v.object({
+  project: ProjectSchema,
+  removed: v.array(v.string()),
+});
+export type ProjectEdit = v.InferOutput<typeof ProjectEditSchema>;
+
+/** The project to open for a path, and the repository to show in it. */
+export const ProjectOpenSchema = v.object({
+  project: ProjectSchema,
+  repository: v.string(),
+});
+export type ProjectOpen = v.InferOutput<typeof ProjectOpenSchema>;
 
 export const ScanOptionsSchema = v.object({
   skip: v.array(v.string()),
@@ -997,15 +1036,16 @@ export const commandArgs = {
   watch_folder: v.object({ roots: v.array(path) }),
   unwatch_folder: v.object({}),
   list_repositories: v.object({}),
-  pin_repository: v.object({ path, pinned: v.boolean() }),
-  forget_repository: v.object({ path }),
   record_repository_open: v.object({ path }),
   refresh_repository: v.object({ path, dirty: v.boolean(), opId }),
-  remove_scan_root: v.object({ root: path }),
   projects: v.object({}),
   project_create: v.object({ name: projectName, paths: memberPaths }),
+  project_create_folder: v.object({ folder: path }),
+  project_for_path: v.object({ path, opId }),
   project_rename: v.object({ id: projectId, name: projectName }),
   project_set_members: v.object({ id: projectId, paths: memberPaths }),
+  project_set_pinned: v.object({ id: projectId, pinned: v.boolean() }),
+  project_record_open: v.object({ id: projectId, repository: v.nullable(path) }),
   project_delete: v.object({ id: projectId }),
   scan_folders: v.object({
     folders: v.array(path),

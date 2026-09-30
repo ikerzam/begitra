@@ -1,6 +1,9 @@
 // User settings, persisted through tauri-plugin-store in `settings.json`. The store starts
 // with platform defaults, `init` overlays what the file holds (each key validated on its own,
-// so a bad value falls back to its default), and every `update` writes through.
+// so a bad value falls back to its default), and every `update` writes through. The keys of
+// the versions before projects (the scan folders, the last repository, the folder view and the
+// project tab) are read once into `legacy` for the projects' migration step, which then drops
+// them (`dropLegacy`).
 
 import { load } from "@tauri-apps/plugin-store";
 import { defineStore } from "pinia";
@@ -14,9 +17,7 @@ import { PALETTE_THEMES, type PaletteThemeId } from "@/styles/themes";
 import { lineTemplates } from "./externalTemplates";
 
 export type LayoutMode =
-  "graph" | "review" | "compare" | "worktrees" | "settings" | "changes" | "folder" | "project";
-/** The tab of the project view (and of the folder view, a project of its folder). */
-export type ProjectTab = "overview" | "changes";
+  "graph" | "review" | "compare" | "worktrees" | "settings" | "changes" | "overview";
 export type TabWidth = 2 | 4 | 8;
 
 /** The filters a new review starts with (the settings' Diff section, "Hide by default"). */
@@ -61,9 +62,8 @@ export interface CompareEndpoints {
   b: CompareEndpoint;
 }
 
-/** Widths in px of the resizable columns of the two tables with a header; the last takes the rest. */
+/** Widths in px of the resizable columns of the table with a header; the last takes the rest. */
 export interface ColumnWidths {
-  home: { name: number; branch: number; ahead: number; commit: number };
   worktrees: { path: number; branch: number; state: number; ahead: number };
 }
 
@@ -88,20 +88,12 @@ export interface Settings {
   locale: Locale;
   /** Ids of the last commands run from the palette, most recent first. */
   paletteRecents: string[];
-  /** Absolute paths the scanner walks for repositories. */
-  scanRoots: string[];
   /** Folder names the scanner never enters. */
   skipFolders: string[];
-  /** How deep under a scan folder the scanner goes (0 is the folder itself). */
+  /** How deep under a folder project's folder the scanner goes (0 is the folder itself). */
   maxDepth: number;
-  /** Root of the repository to reopen at launch; null starts on the home screen. */
-  lastRepository: string | null;
-  /** The folder the folder view shows; null until one was shown. */
-  folderView: string | null;
-  /** The last project whose view was shown; null until one was. */
+  /** The open project, reopened at launch; null shows Home. */
   activeProject: number | null;
-  /** The tab the project view and the folder view show. */
-  projectTab: ProjectTab;
   /** Unix seconds of the last finished or stopped scan; null when none ran. */
   lastScanAt: number | null;
   /** The diff viewer's layout. */
@@ -161,7 +153,6 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   editorLineCommand: v.pipe(v.string(), v.maxLength(400)),
   paneSizes: v.object({ sidebar: px, detail: v.nullable(px), files: px, reviewRail: px }),
   columnWidths: v.object({
-    home: v.object({ name: px, branch: px, ahead: px, commit: px }),
     worktrees: v.object({ path: px, branch: px, state: px, ahead: px }),
   }),
   sidebarCollapsed: v.boolean(),
@@ -172,18 +163,13 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
     "worktrees",
     "settings",
     "changes",
-    "folder",
-    "project",
+    "overview",
   ]),
   locale: v.picklist(["en", "es"]),
   paletteRecents: v.array(v.string()),
-  scanRoots: v.array(path),
   skipFolders: v.array(path),
   maxDepth: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(32)),
-  lastRepository: v.nullable(path),
-  folderView: v.nullable(path),
   activeProject: v.nullable(v.pipe(v.number(), v.integer())),
-  projectTab: v.picklist(["overview", "changes"]),
   lastScanAt: v.nullable(v.pipe(v.number(), v.minValue(0))),
   diffLayout: v.picklist(["unified", "side-by-side"]),
   diffWrap: v.boolean(),
@@ -207,6 +193,31 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
 
 export const settingsKeys = Object.keys(schemas) as (keyof Settings)[];
 
+/**
+ * What a settings file of a version before projects held, for the one-time step that turns it
+ * into projects: the scan folders, the repository to reopen, the folder the folder view showed,
+ * and whether the app was left on the project view or the folder view.
+ */
+export interface LegacySettings {
+  scanRoots: string[];
+  lastRepository: string | null;
+  folderView: string | null;
+  /** The layout of the project view (`project`) or the folder view (`folder`); null otherwise. */
+  layoutMode: "project" | "folder" | null;
+}
+
+/** The keys `LegacySettings` reads, dropped from the file once the step ran. */
+export const legacyKeys = ["scanRoots", "lastRepository", "folderView", "projectTab"] as const;
+
+const legacySchemas = {
+  scanRoots: v.array(path),
+  lastRepository: v.nullable(path),
+  folderView: v.nullable(path),
+};
+
+/** The layout the project view and the folder view map to: the Overview and the Changes. */
+const legacyLayouts: Record<string, LayoutMode> = { project: "overview", folder: "changes" };
+
 /** Command templates per platform; the first entry is the default, the rest are fallbacks. */
 export function platformDefaults(platform: Platform): { terminal: string[]; editor: string[] } {
   switch (platform) {
@@ -228,7 +239,6 @@ export function platformDefaults(platform: Platform): { terminal: string[]; edit
 /** The tables' default column widths. */
 export function defaultColumnWidths(): ColumnWidths {
   return {
-    home: { name: 200, branch: 180, ahead: 84, commit: 80 },
     worktrees: { path: 200, branch: 200, state: 96, ahead: 84 },
   };
 }
@@ -245,13 +255,9 @@ export function defaultSettings(platform: Platform): Settings {
     layoutMode: "graph",
     locale: "en",
     paletteRecents: [],
-    scanRoots: [],
     skipFolders: [...defaultSkipFolders],
     maxDepth: 2,
-    lastRepository: null,
-    folderView: null,
     activeProject: null,
-    projectTab: "overview",
     lastScanAt: null,
     diffLayout: "unified",
     diffWrap: false,
@@ -278,6 +284,7 @@ export function defaultSettings(platform: Platform): Settings {
 export interface SettingsStorage {
   get<T>(key: string): Promise<T | undefined>;
   set(key: string, value: unknown): Promise<void>;
+  delete(key: string): Promise<boolean>;
   save(): Promise<void>;
 }
 
@@ -300,6 +307,7 @@ export function memoryStorage(initial: Partial<Record<string, unknown>> = {}): S
       data.set(key, value);
       return Promise.resolve();
     },
+    delete: (key) => Promise.resolve(data.delete(key)),
     save() {
       this.saved += 1;
       return Promise.resolve();
@@ -314,6 +322,8 @@ export const useSettingsStore = defineStore("settings", () => {
   const platform = ref<Platform>(detectPlatform());
   const values = ref<Settings>(defaultSettings(platform.value));
   const loaded = ref(false);
+  /** What the file held of a version before projects; null when it held none of it. */
+  const legacy = ref<LegacySettings | null>(null);
   let storage: SettingsStorage | undefined;
   /** Values changed since the last write, by key; kept until `init` when it has not run. */
   const pending = new Map<keyof Settings, unknown>();
@@ -322,20 +332,59 @@ export const useSettingsStore = defineStore("settings", () => {
   let settle: (() => void) | undefined;
 
   /** Reads every key from `backend`; invalid or missing keys keep their default. Values
-   * updated before the read finished win over the stored ones and are written through. */
+   * updated before the read finished win over the stored ones and are written through. The
+   * keys of a version before projects land in `legacy`, and its project and folder views map
+   * to the Overview and the Changes. */
   async function init(backend: SettingsStorage, forPlatform = platform.value): Promise<void> {
     platform.value = forPlatform;
     const next = defaultSettings(forPlatform);
     const stored = await Promise.all(settingsKeys.map((key) => backend.get<unknown>(key)));
+    const layout = stored[settingsKeys.indexOf("layoutMode")];
+    const oldLayout = typeof layout === "string" ? legacyLayouts[layout] : undefined;
     settingsKeys.forEach((key, index) => {
       const parsed = v.safeParse(schemas[key], stored[index]);
       if (parsed.success) (next as unknown as Record<string, unknown>)[key] = parsed.output;
     });
+    // The mapped layout is written through, so the file holds no retired layout past this read.
+    if (oldLayout && !pending.has("layoutMode")) pending.set("layoutMode", oldLayout);
+    legacy.value = await readLegacy(backend, oldLayout ? (layout as "project" | "folder") : null);
     for (const [key, value] of pending) (next as unknown as Record<string, unknown>)[key] = value;
     values.value = next;
     storage = backend;
     loaded.value = true;
     if (pending.size > 0) await flush();
+  }
+
+  /** The keys of a version before projects, validated one by one; null when none is there. */
+  async function readLegacy(
+    backend: SettingsStorage,
+    layoutMode: "project" | "folder" | null,
+  ): Promise<LegacySettings | null> {
+    const [roots, last, folder, tab] = await Promise.all(
+      legacyKeys.map((key) => backend.get<unknown>(key)),
+    );
+    if ([roots, last, folder, tab].every((value) => value === undefined) && layoutMode === null) {
+      return null;
+    }
+    const parse = <T>(schema: v.GenericSchema<unknown, T>, value: unknown, fallback: T): T => {
+      const parsed = v.safeParse(schema, value);
+      return parsed.success ? parsed.output : fallback;
+    };
+    return {
+      scanRoots: parse(legacySchemas.scanRoots, roots, []),
+      lastRepository: parse(legacySchemas.lastRepository, last, null),
+      folderView: parse(legacySchemas.folderView, folder, null),
+      layoutMode,
+    };
+  }
+
+  /** Drops the keys of a version before projects from the file, once their step ran. */
+  async function dropLegacy(): Promise<void> {
+    legacy.value = null;
+    if (!storage) return;
+    const backend = storage;
+    for (const key of legacyKeys) await backend.delete(key);
+    await backend.save();
   }
 
   /** Writes every pending value and saves once; a no-op until `init` provided the storage. */
@@ -395,9 +444,11 @@ export const useSettingsStore = defineStore("settings", () => {
     platform,
     values,
     loaded,
+    legacy,
     init,
     update,
     flush,
+    dropLegacy,
     terminalTemplates,
     editorTemplates,
     editorLineTemplates,

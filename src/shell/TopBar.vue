@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import { FileDiff, FilePen, GitGraph, Search, Settings } from "@lucide/vue";
+// The top bar: the project switcher, the palette trigger, and the layouts of the open project
+// (the settings, graph focus, review focus, the Changes with the count of the project's
+// changed files, and the Overview while the project holds more than one repository).
+
+import { FileDiff, FilePen, GitGraph, LayoutDashboard, Search, Settings } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
 
 import IconButton from "@/components/IconButton.vue";
@@ -7,18 +11,16 @@ import Kbd from "@/components/Kbd.vue";
 import { useShortcutHint } from "@/shortcuts/useShortcut";
 import type { LayoutMode } from "@/stores/settings";
 
-import RepoSwitcher from "./RepoSwitcher.vue";
+import ProjectSwitcher from "./ProjectSwitcher.vue";
 
 const props = defineProps<{
-  /** Name of the open repository, or null when none is open. */
-  repositoryName: string | null;
-  /** Root of the open repository, marked in the switcher menu. */
-  repositoryRoot: string | null;
   layoutMode: LayoutMode;
-  /** Files with a change in the working tree or the index: the Changes toggle's count. */
+  /** Files with a change in the open project's repositories: the Changes toggle's count. */
   changedCount: number;
-  /** Whether a repository is ready, which the changes screen needs. */
+  /** Whether the Changes can show: a repository is open, or the project holds several. */
   canShowChanges: boolean;
+  /** Whether the open project holds more than one repository: the Overview is offered. */
+  canShowOverview: boolean;
 }>();
 const emit = defineEmits<{ openFolder: []; openPalette: []; setLayoutMode: [mode: LayoutMode] }>();
 
@@ -28,6 +30,7 @@ const settingsHint = useShortcutHint("settings");
 const graphHint = useShortcutHint("graph-focus");
 const reviewHint = useShortcutHint("review-focus");
 const changesHint = useShortcutHint("changes-focus");
+const overviewHint = useShortcutHint("overview-focus");
 </script>
 
 <template>
@@ -35,16 +38,12 @@ const changesHint = useShortcutHint("changes-focus");
     class="flex h-bar-top shrink-0 items-center gap-4 border-b border-line px-3"
     data-testid="top-bar"
   >
-    <div class="flex min-w-0 flex-1 items-center">
-      <RepoSwitcher
-        :repository-name="props.repositoryName"
-        :repository-root="props.repositoryRoot"
-        @open-folder="emit('openFolder')"
-      />
+    <div class="switcher-slot flex min-w-0 flex-1 items-center">
+      <ProjectSwitcher @open-folder="emit('openFolder')" />
     </div>
     <button
       type="button"
-      class="palette-trigger flex h-control shrink-0 items-center gap-2 rounded-sm border border-line-strong px-3 text-md text-fg-muted hover:bg-hover"
+      class="palette-trigger flex h-control min-w-0 items-center gap-2 rounded-sm border border-line-strong px-3 text-md text-fg-muted hover:bg-hover"
       data-testid="palette-trigger"
       @click="emit('openPalette')"
     >
@@ -93,13 +92,28 @@ const changesHint = useShortcutHint("changes-focus");
         data-testid="mode-changes"
         @click="emit('setLayoutMode', 'changes')"
       />
+      <IconButton
+        v-if="props.canShowOverview"
+        :label="t('topBar.overview')"
+        :keys="overviewHint"
+        :icon="LayoutDashboard"
+        :pressed="props.layoutMode === 'overview'"
+        data-testid="mode-overview"
+        @click="emit('setLayoutMode', 'overview')"
+      />
     </div>
   </header>
 </template>
 
 <style scoped>
-/* The palette trigger is 480px wide; that width is not on the spacing scale. */
+/* The palette trigger is 480px wide; that width is not on the spacing scale. A window
+   short of room (a narrow one at a high zoom) shrinks it before the project's name, which keeps
+   room for a few letters. */
 .palette-trigger {
   width: 480px;
+  min-width: 140px;
+}
+.switcher-slot {
+  min-width: 120px;
 }
 </style>

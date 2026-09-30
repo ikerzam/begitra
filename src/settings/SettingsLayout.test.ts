@@ -7,11 +7,14 @@ import { nextTick } from "vue";
 import { defaultSkipFolders } from "@/ipc/commands";
 import { ShortcutRegistry, setShortcutRegistry, shortcutRegistry } from "@/shortcuts/registry";
 import { useIndexStore } from "@/stores/index";
+import { useProjectDialogsStore } from "@/stores/projectDialogs";
+import { useProjectsStore } from "@/stores/projects";
 import { useReviewStore } from "@/stores/review";
 import { memoryStorage, useSettingsStore } from "@/stores/settings";
 import { useSettingsScreenStore } from "@/stores/settingsScreen";
 import { useUpdaterStore } from "@/stores/updater";
 import { fakeBackend, settled, type FakeBackendOptions } from "@/test/backend";
+import { entryOf, folderProjectOf, projectOf, worktreeOf } from "@/test/entries";
 import { mountWithI18n } from "@/test/mount";
 import { chooseOption, optionLabels, shownLabel } from "@/test/select";
 
@@ -59,12 +62,12 @@ describe("SettingsLayout", () => {
       "Shortcuts",
     ]);
     expect(wrapper.get('[data-testid="scan-folders-empty"]').text()).toBe(
-      "No folders yet. Begitra scans these for repositories and worktrees.",
+      "No folders yet. Each folder Begitra scans is a project of the repositories and worktrees in it.",
     );
     expect(input(wrapper, "skip-folders").element.value).toBe(defaultSkipFolders.join(", "));
     expect(input(wrapper, "max-depth").element.value).toBe("2");
     const rows = wrapper.findAll('[data-testid="shortcut-rows"] li');
-    expect(rows).toHaveLength(23);
+    expect(rows).toHaveLength(24);
     expect(rows[0]?.text()).toContain("Command palette");
     expect(wrapper.get('[data-testid="shortcut-openFileEditor"]').find("kbd").text()).toBe(
       "Ctrl Shift E",
@@ -82,20 +85,29 @@ describe("SettingsLayout", () => {
     );
   });
 
-  it("lists the scan folders with their counts and removes one", async () => {
-    const wrapper = await mountSettings();
-    const settings = useSettingsStore();
-    await settings.update("scanRoots", ["/code", "/wt"]);
-    await useIndexStore().load();
+  it("lists the folder projects' folders with their counts, and removes one after its confirmation", async () => {
+    const api = entryOf("/code/api");
+    const auth = worktreeOf("/wt/auth", api.path);
+    const wrapper = await mountSettings({
+      repositories: [api, auth],
+      projects: [
+        folderProjectOf(1, "/code", [api.path]),
+        folderProjectOf(2, "/wt", [auth.path]),
+        projectOf(3, "Geoportal", [api.path]),
+      ],
+    });
+    const [projects, index] = [useProjectsStore(), useIndexStore()];
+    await Promise.all([projects.load(), index.load()]);
     await settled();
     await nextTick();
     const rows = wrapper.findAll('[data-testid="scan-folder"]');
     expect(rows).toHaveLength(2);
     expect(rows[0]?.text()).toContain("/code");
-    expect(rows[0]?.get('[data-testid="scan-folder-count"]').text()).toBe("0 repositories");
+    expect(rows[0]?.get('[data-testid="scan-folder-count"]').text()).toBe("1 repository");
+    expect(rows[1]?.get('[data-testid="scan-folder-count"]').text()).toBe("1 worktree");
+    // The removal asks first, naming what leaves Begitra with the project.
     await rows[1]!.get('[data-testid="scan-folder-remove"]').trigger("click");
-    await settled();
-    expect(settings.values.scanRoots).toEqual(["/code"]);
+    expect(useProjectDialogsStore().deleting).toBe(2);
   });
 
   it("commits the text fields on blur and Enter, splitting and clamping", async () => {

@@ -1,15 +1,15 @@
 // Wires the palette commands and the Repos section to the stores and the shell helpers; the
 // overlay only renders.
 
-import { FolderGit2, Layers, ListTree } from "@lucide/vue";
+import { Folder, FolderGit2, Layers, ListTree } from "@lucide/vue";
 import { nextTick } from "vue";
 import { computed, type ComputedRef } from "vue";
 
-import { useAddScanFolder } from "@/discovery/useAddScanFolder";
 import { useDiscoveryFormat } from "@/discovery/useDiscoveryFormat";
 import { i18n, setLocale } from "@/i18n";
-import type { IndexEntry } from "@/ipc/schemas";
+import type { Project } from "@/ipc/schemas";
 import { useNotesExport } from "@/review/useNotesExport";
+import { folderKey } from "@/shell/format";
 import { useExternal } from "@/shell/useExternal";
 import { useOpenFolder } from "@/shell/useOpenFolder";
 import { useIndexStore } from "@/stores/index";
@@ -22,10 +22,9 @@ import { usePickerStore } from "@/stores/picker";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
 import { useBulkStore } from "@/stores/bulk";
-import { useFolderStore } from "@/stores/folder";
 import { useOverviewStore } from "@/stores/overview";
 import { useProjectDialogsStore } from "@/stores/projectDialogs";
-import { useProjectsStore } from "@/stores/projects";
+import { useProjectsStore, type ProjectMember } from "@/stores/projects";
 import { useSettingsStore } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
 import { useWorktreesStore } from "@/stores/worktrees";
@@ -39,9 +38,7 @@ export function usePaletteActions(): PaletteActions {
   const repo = useRepoStore();
   const index = useIndexStore();
   const settings = useSettingsStore();
-  const folder = useFolderStore();
-  const { openFolder } = useOpenFolder();
-  const { addScanFolder } = useAddScanFolder();
+  const { openFolder, addFolder } = useOpenFolder();
   const external = useExternal();
   const review = useReviewStore();
   const notesExport = useNotesExport();
@@ -57,23 +54,19 @@ export function usePaletteActions(): PaletteActions {
 
   return {
     hasRepository: () => repo.state.kind === "ready",
-    repositoryPinned: () => {
-      const root = repo.repo?.root;
-      const entry = root === undefined ? undefined : index.find(root);
-      return entry ? entry.pinned : null;
-    },
-    hasScanFolders: () => index.scanRoots.length > 0,
+    projectPinned: () => projects.active?.pinned ?? null,
+    hasFolderProjects: () => projects.folders.length > 0,
     openFolder: async () => {
       await openFolder();
     },
-    goToRepositories: () => repo.close(),
+    goToProjects: () => projects.close(),
     scanFolders: () => index.startScan(),
-    addScanFolder: async () => {
-      await addScanFolder();
+    addFolder: async () => {
+      await addFolder();
     },
-    pinRepository: async (pinned) => {
-      const root = repo.repo?.root;
-      if (root !== undefined) await index.pin(root, pinned);
+    pinProject: async (pinned) => {
+      const active = projects.active;
+      if (active) await projects.setPinned(active.id, pinned);
     },
     setGraphFocus: () => void shell.setLayoutMode("graph"),
     setReviewFocus: () => void shell.setLayoutMode("review"),
@@ -121,11 +114,6 @@ export function usePaletteActions(): PaletteActions {
     swapComparison: () => compare.swap(),
     openComparisonInReview: () => compare.openInReview(),
     showWorktrees: () => worktrees.show(),
-    hasFolderView: () => settings.values.folderView !== null,
-    showFolderView: async () => {
-      const shown = settings.values.folderView;
-      if (shown !== null) await folder.open(shown);
-    },
     showChanges: () => shell.setLayoutMode("changes"),
     branchAction: (action) => picker.open({ kind: "branch-action", action }),
     network: (action) => {
@@ -153,19 +141,16 @@ export function usePaletteActions(): PaletteActions {
     hasPrunableWorktrees: () => worktrees.prunable.length > 0,
     pruneWorktrees: () => worktrees.askPrune(),
     hasActiveProject: () => projects.active !== null,
+    hasSeveralRepositories: () => projects.multi,
     newProject: () => projectDialogs.create(),
     editProject: () => {
       const active = projects.active;
       if (active) projectDialogs.edit(active.id);
     },
-    showProject: async (tab) => {
-      const active = projects.active;
-      if (active) await projects.open(active.id, tab);
-    },
+    showOverview: () => shell.setLayoutMode("overview"),
     fetchProject: async () => {
-      const active = projects.active;
-      if (!active) return;
-      await projects.open(active.id, "overview");
+      if (!projects.multi) return;
+      await shell.setLayoutMode("overview");
       // The Overview shows and adopts the project's rows before the fetch counts them.
       await nextTick();
       useOverviewStore().clearSelection();
@@ -177,55 +162,66 @@ export function usePaletteActions(): PaletteActions {
   };
 }
 
-/** The Projects section: every project, opening its Overview. */
+/**
+ * The Projects section: every project, opening it; the pinned and the recent ones listed while
+ * the query is empty. A folder project's context is its folder, a list project's its count.
+ */
 export function usePaletteProjects(): ComputedRef<PaletteRepo[]> {
   const projects = useProjectsStore();
+  const format = useDiscoveryFormat();
   const { t, n } = i18n.global;
-  return computed(() =>
-    projects.projects.map((project) => ({
+  return computed(() => {
+    const featured = new Set([...projects.pinned, ...projects.recent].map((p) => p.id));
+    return projects.sorted.map((project) => ({
       path: String(project.id),
       name: project.name,
-      context: t("project.repositories", { n: n(project.members.length) }, project.members.length),
-      featured: true,
-      icon: Layers,
-      run: () => projects.open(project.id, "overview"),
-    })),
-  );
+      context:
+        project.folder !== null
+          ? format.displayPath(project.folder)
+          : t("project.repositories", { n: n(project.members.length) }, project.members.length),
+      featured: featured.has(project.id),
+      icon: project.kind === "folder" ? Folder : Layers,
+      run: () => projects.open(project.id),
+    }));
+  });
 }
 
 /**
- * The Repos section: every indexed entry, the pinned and recent ones featured while the
- * query is empty, each opening through the index store; the active project's members first,
- * in its order, while the open repository is one of them or its view shows.
+ * The Repos section: the repositories of every project, each once with its project as the
+ * context (the open project for its own members, else the project opened last among those that
+ * hold it); the open project's first, in its order, and listed while the query is empty.
+ * Choosing one shows it in the open project, or opens its project showing it.
  */
 export function usePaletteRepos(): ComputedRef<PaletteRepo[]> {
-  const index = useIndexStore();
-  const format = useDiscoveryFormat();
   const projects = useProjectsStore();
-  const shell = useShellStore();
-  const toRepo = (entry: IndexEntry, featured: boolean): PaletteRepo => ({
-    path: entry.path,
-    name: entry.name,
-    context: format.displayPath(entry.path),
-    featured,
-    icon: entry.kind === "worktree" ? ListTree : FolderGit2,
-    run: () => index.open(entry.path),
-  });
   return computed(() => {
-    const inProject = projects.openIsMember || shell.layoutMode === "project";
-    const members = inProject
-      ? projects.activeMembers.flatMap((member) =>
-          member.entry && !member.missing ? [member.entry] : [],
-        )
-      : [];
-    const first = new Set(members.map((entry) => entry.path));
-    const featured = [...index.pinned, ...index.recent].filter((entry) => !first.has(entry.path));
-    const listed = new Set([...first, ...featured.map((entry) => entry.path)]);
-    const rest = [...index.mains, ...index.worktrees].filter((entry) => !listed.has(entry.path));
-    return [
-      ...members.map((entry) => toRepo(entry, true)),
-      ...featured.map((entry) => toRepo(entry, true)),
-      ...rest.map((entry) => toRepo(entry, false)),
-    ];
+    const listed = new Set<string>();
+    const rows: PaletteRepo[] = [];
+    const add = (member: ProjectMember, project: Project, featured: boolean): void => {
+      const key = folderKey(member.path);
+      if (member.missing || listed.has(key)) return;
+      listed.add(key);
+      rows.push({
+        path: member.path,
+        name: member.entry?.name ?? member.name,
+        context: project.name,
+        featured,
+        icon: member.entry?.kind === "worktree" ? ListTree : FolderGit2,
+        run: () =>
+          project.id === projects.active?.id
+            ? projects.show(member.path)
+            : projects.open(project.id, member.path),
+      });
+    };
+    const open = projects.active;
+    if (open) for (const member of projects.members(open)) add(member, open, true);
+    const byRecency = [...projects.projects].sort(
+      (a, b) => (b.openedAt ?? -1) - (a.openedAt ?? -1) || a.name.localeCompare(b.name),
+    );
+    for (const project of byRecency) {
+      for (const member of projects.members(project)) add(member, project, false);
+    }
+    const [first, rest] = [rows.filter((row) => row.featured), rows.filter((row) => !row.featured)];
+    return [...first, ...rest.sort((a, b) => a.name.localeCompare(b.name))];
   });
 }

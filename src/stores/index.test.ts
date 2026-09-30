@@ -3,13 +3,13 @@ import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { IndexEntry, RepoSummary, ScanMessage } from "@/ipc/schemas";
+import type { IndexEntry, Project, RepoSummary, ScanMessage } from "@/ipc/schemas";
 
 import { useIndexStore } from "./index";
 import { useOperationsStore } from "./operations";
+import { useProjectsStore } from "./projects";
 import { useRepoStore } from "./repo";
 import { memoryStorage, useSettingsStore } from "./settings";
-import { useToastsStore } from "./toasts";
 
 const CODE = "/home/iker/code";
 const WT = "/home/iker/wt";
@@ -79,6 +79,8 @@ interface Call {
 
 interface BackendOptions {
   entries?: IndexEntry[];
+  /** The folder projects, by folder; `CODE` and `WT` by default. */
+  folders?: string[];
   /** Messages a scan streams before `done`. */
   scan?: ScanMessage[];
   /** The scan's terminal message waits for this promise (to test Stop). */
@@ -87,14 +89,29 @@ interface BackendOptions {
   scanError?: { code: string; message: string };
   /** `open_repository` rejects with `repo.not_found`. */
   openFails?: boolean;
-  /** `pin_repository` rejects. */
-  pinFails?: boolean;
 }
 
-/** A fake backend holding the index in memory, so listings reflect pins, forgets and opens. */
+/** A folder project of `folder` holding nothing (the tests of the scan give its members). */
+function folderProject(id: number, folder: string): Project {
+  return {
+    id,
+    name: folder.slice(folder.lastIndexOf("/") + 1),
+    kind: "folder",
+    folder,
+    members: [],
+    pinned: false,
+    openedAt: null,
+    lastRepository: null,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+}
+
+/** A fake backend holding the index in memory, so listings reflect what the store asked. */
 function mockBackend(options: BackendOptions = {}) {
   const calls: Call[] = [];
   let entries = options.entries ?? fixture();
+  let folders = options.folders ?? [CODE, WT];
   const send = (channel: Channel<unknown>, messages: unknown[], gate?: Promise<void>) => {
     const deliver = () => {
       for (const message of messages) channel.onmessage(message);
@@ -112,18 +129,8 @@ function mockBackend(options: BackendOptions = {}) {
     switch (cmd) {
       case "list_repositories":
         return entries.map((e) => ({ ...e }));
-      case "pin_repository":
-        if (options.pinFails) return reject("index.database", "database is locked");
-        entries = entries.map((e) =>
-          e.path === path ? { ...e, pinned: args["pinned"] as boolean } : e,
-        );
-        return null;
-      case "forget_repository":
-        entries = entries.filter((e) => e.path !== path && e.parentPath !== path);
-        return null;
-      case "record_repository_open":
-        entries = entries.map((e) => (e.path === path ? { ...e, lastOpenedAt: 1_704_100_000 } : e));
-        return null;
+      case "projects":
+        return folders.map((folder, at) => folderProject(at + 1, folder));
       case "refresh_repository": {
         const found = entries.find((e) => e.path === path);
         if (!found || found.missing || options.openFails) {
@@ -138,14 +145,13 @@ function mockBackend(options: BackendOptions = {}) {
         entries = entries.map((e) => (e.path === path ? refreshed : e));
         return refreshed;
       }
-      case "remove_scan_root": {
-        const root = args["root"] as string;
-        entries = entries
-          .filter((e) => e.scanRoot !== root || e.pinned || e.lastOpenedAt !== null)
-          .map((e) => (e.scanRoot === root ? { ...e, scanRoot: null } : e));
-        return null;
-      }
       case "scan_folders": {
+        // The backend stores what the scan finds before it streams it.
+        for (const message of options.scan ?? []) {
+          if (message.kind !== "found" && message.kind !== "updated") continue;
+          const stored = message.entry;
+          entries = [...entries.filter((e) => e.path !== stored.path), stored];
+        }
         const messages: unknown[] = (options.scan ?? []).map((data, seq) => ({
           kind: "page",
           seq,
@@ -192,7 +198,13 @@ function mockBackend(options: BackendOptions = {}) {
         throw new Error(`unexpected command ${cmd}`);
     }
   });
-  return { calls, current: () => entries };
+  return {
+    calls,
+    current: () => entries,
+    setFolders: (next: string[]) => {
+      folders = next;
+    },
+  };
 }
 
 async function settled(): Promise<void> {
@@ -206,32 +218,36 @@ function names(list: IndexEntry[]): string[] {
 
 beforeEach(async () => {
   setActivePinia(createPinia());
-  await useSettingsStore().init(memoryStorage({ scanRoots: [CODE, WT] }), "linux");
+  await useSettingsStore().init(memoryStorage(), "linux");
 });
+
+/** Lists the index and the projects, whose folder projects are the scan's folders. */
+async function loaded(): Promise<ReturnType<typeof useIndexStore>> {
+  const store = useIndexStore();
+  await Promise.all([store.load(), useProjectsStore().load()]);
+  return store;
+}
 
 afterEach(() => {
   clearMocks();
 });
 
 describe("index store", () => {
-  it("loads the listing and derives mains, worktrees, pinned, recent and counts", async () => {
+  it("loads the listing and derives mains, worktrees and counts", async () => {
     mockBackend();
     const store = useIndexStore();
     expect(store.loaded).toBe(false);
     await store.load();
     expect(store.loaded).toBe(true);
+    expect(store.read).toBe(true);
     expect(store.loadError).toBeNull();
     expect(store.entries).toHaveLength(4);
-    // Pinned first, then by name.
-    expect(names(store.mains)).toEqual(["geoportal", "begitra", "tiles-spike"]);
+    expect(names(store.mains)).toEqual(["begitra", "geoportal", "tiles-spike"]);
     expect(names(store.worktreesOf(`${CODE}/geoportal`))).toEqual(["claude-auth"]);
     expect(store.worktreesOf(`${CODE}/begitra`)).toEqual([]);
-    expect(names(store.pinned)).toEqual(["geoportal"]);
-    // Recent excludes the pinned one and orders by last open, newest first.
-    expect(names(store.recent)).toEqual(["begitra"]);
-    expect(store.counts).toEqual({ repositories: 3, worktrees: 1, folders: 2 });
-    expect(store.folderCounts(CODE)).toEqual({ repositories: 3, worktrees: 0 });
-    expect(store.folderCounts(WT)).toEqual({ repositories: 0, worktrees: 1 });
+    expect(store.counts).toEqual({ repositories: 3, worktrees: 1 });
+    expect(store.lookup(`${CODE}/Begitra/`)).toBeUndefined();
+    expect(store.lookup(`${CODE}/begitra/`)?.name).toBe("begitra");
   });
 
   it("keeps the error of a listing that fails and reports it as loaded", async () => {
@@ -241,29 +257,12 @@ describe("index store", () => {
     const store = useIndexStore();
     await store.load();
     expect(store.loaded).toBe(true);
+    expect(store.read).toBe(false);
     expect(store.loadError?.code).toBe("internal");
     expect(store.entries).toEqual([]);
   });
 
-  it("sorts the All section by the chosen column and toggles the direction", async () => {
-    mockBackend();
-    const store = useIndexStore();
-    await store.load();
-    expect(store.sort).toEqual({ column: "name", direction: "asc" });
-    expect(names(store.all)).toEqual(["begitra", "geoportal", "tiles-spike"]);
-    store.setSort("name");
-    expect(store.sort.direction).toBe("desc");
-    expect(names(store.all)).toEqual(["tiles-spike", "geoportal", "begitra"]);
-    store.setSort("branch");
-    expect(store.sort).toEqual({ column: "branch", direction: "asc" });
-    expect(names(store.all)).toEqual(["begitra", "geoportal", "tiles-spike"]);
-    // Last commit starts with the newest first.
-    store.setSort("lastCommit");
-    expect(store.sort).toEqual({ column: "lastCommit", direction: "desc" });
-    expect(names(store.all)).toEqual(["tiles-spike", "geoportal", "begitra"]);
-  });
-
-  it("scans the folders: found then updated upsert by path, counts and folder states flow, done stamps the scan", async () => {
+  it("scans the folder projects' folders: found then updated upsert by path, states flow, done stamps the scan", async () => {
     const fresh = entry("map-core-bench", {
       summary: summary({ currentBranch: null, lastCommitAt: null, dirty: null }),
     });
@@ -279,10 +278,10 @@ describe("index store", () => {
         { kind: "folder-done", folder: WT, found: 0, missing: [] },
       ],
     });
-    const store = useIndexStore();
+    const store = await loaded();
     const settings = useSettingsStore();
     const operations = useOperationsStore();
-    await store.load();
+    expect(store.folders).toEqual([CODE, WT]);
     store.startScan();
     expect(store.scan).toEqual({
       kind: "scanning",
@@ -298,20 +297,43 @@ describe("index store", () => {
     await settled();
     const scan = calls.filter((c) => c.cmd === "scan_folders");
     expect(scan).toHaveLength(1);
-    expect(scan[0]?.args).toMatchObject({
-      folders: [CODE, WT],
-      options: { maxDepth: 2 },
-    });
+    expect(scan[0]?.args).toMatchObject({ folders: [CODE, WT], options: { maxDepth: 2 } });
     expect((scan[0]?.args["options"] as { skip: string[] }).skip).toContain("node_modules");
     expect(store.scan.kind).toBe("idle");
     expect(store.isScanning).toBe(false);
     expect(operations.isBusy).toBe(false);
     const found = store.entries.find((e) => e.name === "map-core-bench");
     expect(found?.summary.currentBranch).toBe("develop");
-    expect(store.entries).toHaveLength(5);
     expect(store.lastScanAt).toBeGreaterThan(1_700_000_000);
     expect(settings.values.lastScanAt).toBe(store.lastScanAt);
     expect(store.scanError).toBeNull();
+    // Each folder's end reads the projects and the listing again: the members it dropped left.
+    expect(calls.filter((c) => c.cmd === "projects")).toHaveLength(3);
+  });
+
+  it("makes a found repository one of the walked folder project's own members at once", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const found = entry("style-editor");
+    mockBackend({
+      scan: [
+        { kind: "folder-started", folder: CODE },
+        { kind: "found", entry: found },
+      ],
+      scanGate: gate,
+    });
+    const store = await loaded();
+    const projects = useProjectsStore();
+    store.startScan();
+    await settled();
+    expect(projects.folderProjectOf(CODE)?.members).toEqual([
+      { path: found.path, origin: "folder" },
+    ]);
+    expect(projects.folderProjectOf(WT)?.members).toEqual([]);
+    release();
+    await settled();
   });
 
   it("reports the folder states and the counts while the scan runs", async () => {
@@ -329,8 +351,7 @@ describe("index store", () => {
       ],
       scanGate: gate,
     });
-    const store = useIndexStore();
-    await store.load();
+    const store = await loaded();
     store.startScan();
     await settled();
     expect(store.scan).toEqual({
@@ -354,8 +375,7 @@ describe("index store", () => {
       ],
       scanGate: gate,
     });
-    const store = useIndexStore();
-    await store.load();
+    const store = await loaded();
     store.startScan();
     await settled();
     expect(store.isScanning).toBe(true);
@@ -382,16 +402,13 @@ describe("index store", () => {
         },
       ],
     });
-    const store = useIndexStore();
-    await store.load();
+    const store = await loaded();
     store.startScan();
     await settled();
     expect(store.scan.kind).toBe("idle");
     expect(store.folderErrors).toEqual({
       [WT]: { reason: "The system cannot find the path specified. (os error 3)" },
     });
-    expect(store.failedFolders).toEqual([WT]);
-    expect(store.entries.find((e) => e.name === "tiles-spike")?.missing).toBe(true);
 
     // The next scan finds the folder again: the flag goes away when the folder completes.
     clearMocks();
@@ -407,10 +424,27 @@ describe("index store", () => {
     expect(store.folderErrors).toEqual({});
   });
 
+  it("marks the members a folder's end names missing until the listing says otherwise", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    mockBackend({
+      scan: [{ kind: "folder-done", folder: CODE, found: 2, missing: [`${CODE}/tiles-spike`] }],
+      scanGate: gate,
+    });
+    const store = await loaded();
+    store.startScan([CODE]);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(store.entries.find((e) => e.name === "tiles-spike")?.missing).toBe(true);
+    release();
+    await settled();
+  });
+
   it("keeps the error of a scan that fails", async () => {
     mockBackend({ scanError: { code: "index.database", message: "database is locked" } });
-    const store = useIndexStore();
-    await store.load();
+    const store = await loaded();
     store.startScan();
     await settled();
     expect(store.scan.kind).toBe("idle");
@@ -420,69 +454,94 @@ describe("index store", () => {
     expect(store.scanError).toBeNull();
   });
 
-  it("does not scan without folders", () => {
-    const { calls } = mockBackend();
-    const store = useIndexStore();
+  it("does not scan without folders", async () => {
+    const { calls } = mockBackend({ folders: [] });
+    const store = await loaded();
+    store.startScan();
     store.startScan([]);
     expect(store.scan.kind).toBe("idle");
-    expect(calls).toEqual([]);
+    expect(calls.filter((c) => c.cmd === "scan_folders")).toEqual([]);
   });
 
-  it("pins and unpins at once and reverts when the backend refuses", async () => {
-    const backend = mockBackend();
-    const store = useIndexStore();
-    await store.load();
-    const pinning = store.pin(`${CODE}/begitra`, true);
-    expect(names(store.pinned)).toEqual(["begitra", "geoportal"]);
-    await pinning;
-    expect(backend.current().find((e) => e.name === "begitra")?.pinned).toBe(true);
-    await store.pin(`${CODE}/geoportal`, false);
-    expect(names(store.pinned)).toEqual(["begitra"]);
-    expect(names(store.recent)).toEqual(["geoportal"]);
-
-    clearMocks();
-    mockBackend({ pinFails: true });
-    await store.pin(`${CODE}/tiles-spike`, true);
-    expect(names(store.pinned)).toEqual(["begitra"]);
-    expect(useToastsStore().toasts).toHaveLength(1);
-    expect(useToastsStore().toasts[0]?.message).toContain("database is locked");
-  });
-
-  it("forgets an entry together with its worktrees", async () => {
-    const { calls } = mockBackend();
-    const store = useIndexStore();
-    await store.load();
-    await store.forget(`${CODE}/geoportal`);
-    expect(names(store.entries)).toEqual(["begitra", "tiles-spike"]);
-    expect(calls.find((c) => c.cmd === "forget_repository")?.args).toEqual({
-      path: `${CODE}/geoportal`,
+  it("scans a folder asked for during a scan once that scan ends, unless its project went", async () => {
+    let release = (): void => undefined;
+    const scanGate = new Promise<void>((resolve) => {
+      release = resolve;
     });
-  });
-
-  it("open records the open, delegates to the repository store and syncs the listing", async () => {
-    const { calls } = mockBackend();
-    const store = useIndexStore();
-    const repo = useRepoStore();
-    await store.load();
-    await store.open(`${CODE}/tiles-spike`);
+    const backend = mockBackend({ scanGate, folders: [CODE, WT, "/home/iker/more"] });
+    const store = await loaded();
+    store.startScan([CODE]);
+    store.startScan(["/home/iker/more", WT]);
+    expect(store.scan).toMatchObject({
+      kind: "scanning",
+      folders: { [CODE]: "queued", "/home/iker/more": "queued", [WT]: "queued" },
+    });
+    // The project of ~/wt goes while it waits.
+    backend.setFolders([CODE, "/home/iker/more"]);
+    await useProjectsStore().load();
+    store.forgetFolder(WT);
     await settled();
-    expect(repo.state.kind).toBe("ready");
-    expect(repo.repo?.root).toBe(`${CODE}/tiles-spike`);
-    const order = calls.map((c) => c.cmd);
-    expect(order.indexOf("record_repository_open")).toBeLessThan(order.indexOf("open_repository"));
-    expect(order.filter((c) => c === "list_repositories")).toHaveLength(2);
-    expect(store.entries.find((e) => e.name === "tiles-spike")?.lastOpenedAt).toBeGreaterThan(
-      1_704_100_000,
-    );
-    expect(names(store.recent)).toEqual(["tiles-spike", "begitra"]);
+    const scanned = () =>
+      backend.calls.filter((c) => c.cmd === "scan_folders").map((c) => c.args["folders"]);
+    expect(scanned()).toEqual([[CODE]]);
+    release();
+    await settled();
+    expect(scanned()).toEqual([[CODE], ["/home/iker/more"]]);
+    expect(store.scan.kind).toBe("idle");
   });
 
-  it("open asks for the entry of a folder outside the index and reloads the listing back home", async () => {
+  it("Stop drops the folders waiting for the scan", async () => {
+    let release = (): void => undefined;
+    const scanGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { calls } = mockBackend({ scanGate });
+    const store = await loaded();
+    store.startScan([CODE]);
+    store.startScan([WT]);
+    await store.stopScan();
+    release();
+    await settled();
+    expect(calls.filter((c) => c.cmd === "scan_folders").map((c) => c.args["folders"])).toEqual([
+      [CODE],
+    ]);
+    expect(store.scan.kind).toBe("idle");
+  });
+
+  it("refresh upserts the entry and flags a vanished one", async () => {
+    mockBackend();
+    const store = useIndexStore();
+    await store.load();
+    await store.refresh(`${CODE}/begitra`);
+    expect(store.entries.find((e) => e.name === "begitra")?.summary.ahead).toBe(9);
+    await store.refresh(`${CODE}/nowhere`);
+    expect(store.entries.some((e) => e.name === "nowhere")).toBe(false);
+    store.entries = [...store.entries, entry("gone", { missing: true })];
+    await store.refresh(`${CODE}/gone`);
+    expect(store.entries.find((e) => e.name === "gone")?.missing).toBe(true);
+  });
+
+  it("describes a repository for Add repository without storing it, and drops what a project write removed", async () => {
+    mockBackend();
+    const store = useIndexStore();
+    await store.load();
+    store.entries = store.entries.filter((e) => e.name !== "begitra");
+    const described = await store.describe(`${CODE}/begitra`);
+    expect("path" in described && described.name).toBe("begitra");
+    expect(store.find(`${CODE}/begitra`)).toBeUndefined();
+    const failed = await store.describe("/home/iker/not-a-repository");
+    expect("code" in failed && failed.code).toBe("repo.not_found");
+    store.drop([`${CODE}/geoportal`, `${WT}/claude-auth/`]);
+    expect(names(store.entries)).toEqual(["tiles-spike"]);
+  });
+
+  it("syncs the listing after an open, asking for a repository it does not list, and reads it again back home", async () => {
     const { calls } = mockBackend();
     const store = useIndexStore();
     const repo = useRepoStore();
     await store.load();
-    await store.open("/home/iker/oss/newcomer");
+    await repo.open("/home/iker/oss/newcomer");
+    await store.afterOpen("/home/iker/oss/newcomer");
     await settled();
     expect(repo.state.kind).toBe("ready");
     const refreshes = () =>
@@ -502,163 +561,14 @@ describe("index store", () => {
     expect(calls.filter((c) => c.cmd === "list_repositories")).toHaveLength(listings + 2);
   });
 
-  it("open flags the entry missing when the folder is gone and leaves the error state to the shell", async () => {
+  it("flags the entry missing when its folder is gone at an open", async () => {
     mockBackend({ openFails: true });
     const store = useIndexStore();
     const repo = useRepoStore();
     await store.load();
-    await store.open(`${CODE}/begitra`);
+    await repo.open(`${CODE}/begitra`);
+    await store.afterOpen(`${CODE}/begitra`);
     expect(repo.state.kind).toBe("error");
     expect(store.entries.find((e) => e.name === "begitra")?.missing).toBe(true);
-  });
-
-  it("openFolder opens the repository a picked folder lies in, and scans nothing", async () => {
-    const { calls } = mockBackend();
-    const store = useIndexStore();
-    const repo = useRepoStore();
-    const settings = useSettingsStore();
-    await store.load();
-    expect(await store.openFolder(`${CODE}/tiles-spike`)).toBe("repository");
-    await settled();
-    expect(repo.state.kind).toBe("ready");
-    expect(calls.some((c) => c.cmd === "scan_folders")).toBe(false);
-    expect(settings.values.scanRoots).toEqual([CODE, WT]);
-  });
-
-  it("openFolder makes a folder of repositories a scan folder and scans it, with no error state", async () => {
-    const { calls } = mockBackend({ openFails: true });
-    const store = useIndexStore();
-    const repo = useRepoStore();
-    const settings = useSettingsStore();
-    await store.load();
-    // The caller shows the folder's view.
-    expect(await store.openFolder("/home/iker/projects")).toBe("folder");
-    await settled();
-    expect(repo.state.kind).toBe("empty");
-    expect(settings.values.scanRoots).toEqual([CODE, WT, "/home/iker/projects"]);
-    expect(calls.filter((c) => c.cmd === "scan_folders").map((c) => c.args["folders"])).toEqual([
-      ["/home/iker/projects"],
-    ]);
-    // No index entry is flagged or asked for: the folder was never a repository.
-    expect(calls.some((c) => c.cmd === "refresh_repository")).toBe(false);
-    expect(store.entries.some((e) => e.missing)).toBe(false);
-  });
-
-  it("openFolder scans a folder that is already a scan folder again", async () => {
-    const { calls } = mockBackend({ openFails: true });
-    const store = useIndexStore();
-    const settings = useSettingsStore();
-    await store.load();
-    await store.openFolder(CODE);
-    await settled();
-    expect(settings.values.scanRoots).toEqual([CODE, WT]);
-    expect(calls.filter((c) => c.cmd === "scan_folders").map((c) => c.args["folders"])).toEqual([
-      [CODE],
-    ]);
-  });
-
-  it("scans a folder added during a scan once that scan ends", async () => {
-    let release = (): void => undefined;
-    const scanGate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const { calls } = mockBackend({ scanGate });
-    const store = useIndexStore();
-    await store.load();
-    store.startScan([CODE]);
-    expect(store.addRoot("/home/iker/more")).toBe(true);
-    expect(store.scan).toMatchObject({
-      kind: "scanning",
-      folders: { [CODE]: "queued", "/home/iker/more": "queued" },
-    });
-    await settled();
-    const scanned = () =>
-      calls.filter((c) => c.cmd === "scan_folders").map((c) => c.args["folders"]);
-    expect(scanned()).toEqual([[CODE]]);
-    release();
-    await settled();
-    expect(scanned()).toEqual([[CODE], ["/home/iker/more"]]);
-    expect(store.scan.kind).toBe("idle");
-  });
-
-  it("Stop drops the folders waiting for the scan", async () => {
-    let release = (): void => undefined;
-    const scanGate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const { calls } = mockBackend({ scanGate });
-    const store = useIndexStore();
-    await store.load();
-    store.startScan([CODE]);
-    store.addRoot("/home/iker/more");
-    await store.stopScan();
-    release();
-    await settled();
-    expect(calls.filter((c) => c.cmd === "scan_folders").map((c) => c.args["folders"])).toEqual([
-      [CODE],
-    ]);
-    expect(store.scan.kind).toBe("idle");
-  });
-
-  it("restore reopens the last repository and, when it is gone, returns the error and goes home flagged", async () => {
-    mockBackend();
-    const store = useIndexStore();
-    const repo = useRepoStore();
-    await store.load();
-    expect(await store.restore(`${CODE}/geoportal`)).toBeNull();
-    expect(repo.state.kind).toBe("ready");
-
-    clearMocks();
-    mockBackend({ openFails: true });
-    const failed = await store.restore(`${CODE}/begitra`);
-    expect(failed?.code).toBe("repo.not_found");
-    expect(repo.state.kind).toBe("empty");
-    expect(store.entries.find((e) => e.name === "begitra")?.missing).toBe(true);
-  });
-
-  it("refresh upserts the entry and flags a vanished one", async () => {
-    mockBackend();
-    const store = useIndexStore();
-    await store.load();
-    await store.refresh(`${CODE}/begitra`);
-    expect(store.entries.find((e) => e.name === "begitra")?.summary.ahead).toBe(9);
-    await store.refresh(`${CODE}/nowhere`);
-    expect(store.entries.some((e) => e.name === "nowhere")).toBe(false);
-    store.entries = [...store.entries, entry("gone", { missing: true })];
-    await store.refresh(`${CODE}/gone`);
-    expect(store.entries.find((e) => e.name === "gone")?.missing).toBe(true);
-  });
-
-  it("removeRoot drops the folder from the settings and its entries from the index", async () => {
-    const { calls } = mockBackend();
-    const store = useIndexStore();
-    const settings = useSettingsStore();
-    await store.load();
-    await store.removeRoot(WT);
-    expect(settings.values.scanRoots).toEqual([CODE]);
-    expect(calls.find((c) => c.cmd === "remove_scan_root")?.args).toEqual({ root: WT });
-    expect(names(store.entries)).toEqual(["geoportal", "begitra", "tiles-spike"]);
-    expect(store.counts.folders).toBe(1);
-    // A flagged folder loses its flag with its entry.
-    store.folderErrors = { [CODE]: { reason: "gone" } };
-    await store.removeRoot(CODE);
-    expect(store.folderErrors).toEqual({});
-    // Pinned and opened entries survive without a scan folder.
-    expect(names(store.entries)).toEqual(["geoportal", "begitra"]);
-  });
-
-  it("addRoot appends the folder once and scans it", async () => {
-    const { calls } = mockBackend({ scan: [] });
-    const store = useIndexStore();
-    const settings = useSettingsStore();
-    expect(store.addRoot("/home/iker/oss")).toBe(true);
-    expect(settings.values.scanRoots).toEqual([CODE, WT, "/home/iker/oss"]);
-    expect(store.scan).toMatchObject({ kind: "scanning", folders: { "/home/iker/oss": "queued" } });
-    await settled();
-    expect(calls.find((c) => c.cmd === "scan_folders")?.args).toMatchObject({
-      folders: ["/home/iker/oss"],
-    });
-    expect(store.addRoot("/home/iker/oss/")).toBe(false);
-    expect(settings.values.scanRoots).toHaveLength(3);
   });
 });

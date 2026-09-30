@@ -58,16 +58,16 @@ describe("shell store", () => {
     const storage = memoryStorage();
     await settings.init(storage, "windows");
     const shell = useShellStore();
-    expect(shell.columnWidths.home).toEqual({ name: 200, branch: 180, ahead: 84, commit: 80 });
-    await shell.setColumnWidth("home", "name", 260.4);
+    expect(shell.columnWidths.worktrees).toEqual({ path: 200, branch: 200, state: 96, ahead: 84 });
+    await shell.setColumnWidth("worktrees", "state", 120.4);
     await shell.setColumnWidth("worktrees", "path", 20);
     await shell.setColumnWidth("worktrees", "branch", 999);
-    expect(shell.columnWidths.home.name).toBe(260);
+    expect(shell.columnWidths.worktrees.state).toBe(120);
     expect(shell.columnWidths.worktrees.path).toBe(60);
     expect(shell.columnWidths.worktrees.branch).toBe(480);
     expect(storage.data.get("columnWidths")).toEqual(shell.columnWidths);
-    await shell.resetColumnWidth("home", "name");
-    expect(shell.columnWidths.home.name).toBe(200);
+    await shell.resetColumnWidth("worktrees", "state");
+    expect(shell.columnWidths.worktrees.state).toBe(96);
   });
 
   it("sizes the detail panel as 40% of the window minus the sidebar until it is dragged", async () => {

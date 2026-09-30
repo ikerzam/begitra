@@ -1,7 +1,7 @@
 // The commands the palette offers: every shortcut binding with an action, plus the actions
-// without a key (open and scan folders, pin, go to repositories, language). Labels are i18n
-// keys (`palette.commandsById.<id>`); the shortcut id gives the `Kbd` hint. The Repos section
-// is fed separately (see `usePalette`); branches and files are not listed.
+// without a key (open and scan folders, pin the project, go to projects, language). Labels are
+// i18n keys (`palette.commandsById.<id>`); the shortcut id gives the `Kbd` hint. The Projects
+// and Repos sections are fed separately (see `usePalette`).
 
 export interface PaletteCommand {
   /** Stable id; also the key of its label and, when bound, the shortcut id. */
@@ -18,14 +18,16 @@ export interface PaletteCommand {
 /** Actions the shell exposes to the palette; the shell wires them to stores. */
 export interface PaletteActions {
   hasRepository: () => boolean;
-  /** Whether the open repository is pinned; null when it is not in the index. */
-  repositoryPinned: () => boolean | null;
-  hasScanFolders: () => boolean;
+  /** Whether the open project is pinned; null without one. */
+  projectPinned: () => boolean | null;
+  /** Whether some folder project exists, whose folder "Scan folders" walks. */
+  hasFolderProjects: () => boolean;
   openFolder: () => Promise<void>;
-  goToRepositories: () => Promise<void>;
+  goToProjects: () => Promise<void>;
   scanFolders: () => void;
-  addScanFolder: () => Promise<void>;
-  pinRepository: (pinned: boolean) => Promise<void>;
+  /** "Add folder…": the folder's project, made and scanned. */
+  addFolder: () => Promise<void>;
+  pinProject: (pinned: boolean) => Promise<void>;
   setGraphFocus: () => void;
   setReviewFocus: () => void;
   toggleSidebar: () => void;
@@ -58,10 +60,7 @@ export interface PaletteActions {
   swapComparison: () => Promise<void>;
   openComparisonInReview: () => Promise<void>;
   showWorktrees: () => Promise<void>;
-  /** Whether a folder view was shown, for "Show folder changes" to return to it. */
-  hasFolderView: () => boolean;
-  showFolderView: () => Promise<void>;
-  /** Opens the changes screen. */
+  /** Opens the Changes: the changes screen, or the folder view of a project of several. */
   showChanges: () => Promise<void>;
   inChanges: () => boolean;
   /** "Stage all", "Unstage all" and "Discard all…" of the changes screen. */
@@ -81,20 +80,23 @@ export interface PaletteActions {
   /** Whether some worktree entry can be pruned (its folder is gone). */
   hasPrunableWorktrees: () => boolean;
   pruneWorktrees: () => void;
-  /** Whether a project was shown last (the active project). */
+  /** Whether a project is open. */
   hasActiveProject: () => boolean;
+  /** Whether the open project holds more than one repository. */
+  hasSeveralRepositories: () => boolean;
   newProject: () => void;
   editProject: () => void;
-  showProject: (tab: "overview" | "changes") => Promise<void>;
-  /** Fetches every member of the active project from its Overview. */
+  showOverview: () => Promise<void>;
+  /** Fetches every member of the open project from its Overview. */
   fetchProject: () => Promise<void>;
-  /** Opens the member after (1) or before (-1) the open repository in the active project. */
+  /** Shows the member after (1) or before (-1) the shown one in the open project. */
   projectNeighbour: (step: 1 | -1) => Promise<void>;
 }
 
 export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
   const withRepo = () => actions.hasRepository();
   const always = () => true;
+  const several = () => actions.hasSeveralRepositories();
   return [
     {
       id: "open-folder",
@@ -120,7 +122,7 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       id: "changes-focus",
       labelKey: "palette.commandsById.changes-focus",
       shortcutId: "changes-focus",
-      enabled: withRepo,
+      enabled: () => withRepo() || several(),
       run: actions.showChanges,
     },
     {
@@ -159,34 +161,34 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       run: () => actions.runShortcut("open-file-editor"),
     },
     {
-      id: "pin-repository",
-      labelKey: "palette.commandsById.pin-repository",
-      enabled: () => withRepo() && actions.repositoryPinned() === false,
-      run: () => actions.pinRepository(true),
+      id: "pin-project",
+      labelKey: "palette.commandsById.pin-project",
+      enabled: () => actions.projectPinned() === false,
+      run: () => actions.pinProject(true),
     },
     {
-      id: "unpin-repository",
-      labelKey: "palette.commandsById.unpin-repository",
-      enabled: () => withRepo() && actions.repositoryPinned() === true,
-      run: () => actions.pinRepository(false),
+      id: "unpin-project",
+      labelKey: "palette.commandsById.unpin-project",
+      enabled: () => actions.projectPinned() === true,
+      run: () => actions.pinProject(false),
     },
     {
-      id: "go-to-repositories",
-      labelKey: "palette.commandsById.go-to-repositories",
-      enabled: withRepo,
-      run: actions.goToRepositories,
+      id: "go-to-projects",
+      labelKey: "palette.commandsById.go-to-projects",
+      enabled: actions.hasActiveProject,
+      run: actions.goToProjects,
     },
     {
       id: "scan-folders",
       labelKey: "palette.commandsById.scan-folders",
-      enabled: () => actions.hasScanFolders(),
+      enabled: () => actions.hasFolderProjects(),
       run: actions.scanFolders,
     },
     {
-      id: "add-scan-folder",
-      labelKey: "palette.commandsById.add-scan-folder",
+      id: "add-folder",
+      labelKey: "palette.commandsById.add-folder",
       enabled: always,
-      run: actions.addScanFolder,
+      run: actions.addFolder,
     },
     {
       id: "diff-from",
@@ -292,12 +294,6 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       run: actions.showWorktrees,
     },
     {
-      id: "show-folder-changes",
-      labelKey: "palette.commandsById.show-folder-changes",
-      enabled: actions.hasFolderView,
-      run: actions.showFolderView,
-    },
-    {
       id: "add-worktree",
       labelKey: "palette.commandsById.add-worktree",
       shortcutId: "add-worktree",
@@ -325,33 +321,28 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
     {
       id: "show-project-overview",
       labelKey: "palette.commandsById.show-project-overview",
-      enabled: actions.hasActiveProject,
-      run: () => actions.showProject("overview"),
-    },
-    {
-      id: "show-project-changes",
-      labelKey: "palette.commandsById.show-project-changes",
-      enabled: actions.hasActiveProject,
-      run: () => actions.showProject("changes"),
+      shortcutId: "overview-focus",
+      enabled: several,
+      run: actions.showOverview,
     },
     {
       id: "fetch-project",
       labelKey: "palette.commandsById.fetch-project",
-      enabled: actions.hasActiveProject,
+      enabled: several,
       run: actions.fetchProject,
     },
     {
       id: "next-project-repo",
       labelKey: "palette.commandsById.next-project-repo",
       shortcutId: "next-project-repo",
-      enabled: actions.hasActiveProject,
+      enabled: several,
       run: () => actions.projectNeighbour(1),
     },
     {
       id: "previous-project-repo",
       labelKey: "palette.commandsById.previous-project-repo",
       shortcutId: "previous-project-repo",
-      enabled: actions.hasActiveProject,
+      enabled: several,
       run: () => actions.projectNeighbour(-1),
     },
     ...["stage-file", "unstage-file", "discard-file", "commit"].map((id) => ({
