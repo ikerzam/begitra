@@ -1,13 +1,15 @@
 <script setup lang="ts">
 // The popover of the Path filter: one repository-relative path (a file or a directory) and
 // Apply; Enter applies, Escape and a click outside close, an empty value clears the filter.
+// Fixed under its button (above it, or turned to its right edge, when the window is short of
+// room), so the filter bar can scroll sideways without cutting it; a scroll outside closes it.
 
 import { nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Button from "@/components/Button.vue";
 import Input from "@/components/Input.vue";
-import { fitSide, viewportSize } from "@/components/placement";
+import { hangFrom, viewportSize } from "@/components/placement";
 
 const props = defineProps<{
   /** The path currently filtering, shown as the initial value. */
@@ -20,8 +22,8 @@ const emit = defineEmits<{ apply: [path: string]; close: [] }>();
 const { t } = useI18n();
 const root = useTemplateRef<HTMLElement>("root");
 const value = ref(props.path);
-/* Lined up with the button's left edge, or its right one when the left would leave the window. */
-const align = ref<"start" | "end">("start");
+/* Where it hangs from the button; null until it is measured. */
+const box = ref<{ left: number; top: number } | null>(null);
 
 function apply(): void {
   emit("apply", value.value.trim());
@@ -44,24 +46,30 @@ function onPointerDownOutside(event: PointerEvent): void {
   emit("close");
 }
 
-/** From the button's left edge, turned to its right one when the popover would leave the window. */
+/** Under the button from its left edge, as a select's options hang from the select. */
 function place(): void {
   if (!root.value || !props.anchor) return;
-  align.value = fitSide(
-    root.value.getBoundingClientRect(),
+  const size = root.value.getBoundingClientRect();
+  const spot = hangFrom(
     props.anchor.getBoundingClientRect(),
-    { align: align.value, placement: "bottom" },
+    { width: size.width, height: size.height },
     viewportSize(),
-  ).align;
+  );
+  box.value = { left: spot.left, top: spot.top };
 }
 
 function onResize(): void {
-  align.value = "start";
   void nextTick(place);
+}
+
+function onScroll(event: Event): void {
+  if (event.target instanceof Node && root.value?.contains(event.target)) return;
+  emit("close");
 }
 
 onMounted(() => {
   document.addEventListener("pointerdown", onPointerDownOutside, true);
+  document.addEventListener("scroll", onScroll, true);
   window.addEventListener("resize", onResize);
   place();
   root.value?.querySelector("input")?.focus();
@@ -69,6 +77,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener("pointerdown", onPointerDownOutside, true);
+  document.removeEventListener("scroll", onScroll, true);
   window.removeEventListener("resize", onResize);
 });
 </script>
@@ -78,8 +87,12 @@ onBeforeUnmount(() => {
     ref="root"
     role="dialog"
     :aria-label="t('graph.pathFilter')"
-    :class="align === 'end' ? 'right-0' : 'left-0'"
-    class="path-popover absolute top-full z-20 mt-1 flex flex-col gap-2 rounded-lg border border-line-strong bg-raised p-2 shadow-overlay"
+    :style="
+      box
+        ? { left: `${box.left}px`, top: `${box.top}px` }
+        : { left: '0', top: '0', visibility: 'hidden' }
+    "
+    class="path-popover fixed z-20 flex flex-col gap-2 rounded-lg border border-line-strong bg-raised p-2 shadow-overlay"
     data-testid="path-popover"
     @keydown="onKeydown"
   >
