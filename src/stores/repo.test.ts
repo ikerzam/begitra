@@ -639,30 +639,101 @@ describe("repo store, after the review", () => {
     expect(await store.refreshRefs()).toEqual({ tipsMoved: false });
     expect(store.refs).toHaveLength(1);
     expect(store.state.kind).toBe("ready");
-    // A branch pointing elsewhere is a moved tip; a stash entry is not.
+    // A branch pointing elsewhere is a moved tip, and so is the newest stash, which the walk
+    // seeds from and draws; an older stash entry is not.
     const main = store.refs[0]!;
+    const stash = (n: number, target: string): GitRef => ({
+      ...main,
+      name: `stash@{${n}}`,
+      fullName: "refs/stash",
+      kind: "stash",
+      target,
+    });
     clearMocks();
     mockBackend({ refs: [{ ...main, target: commit(5).hash }] });
     expect(await store.refreshRefs()).toEqual({ tipsMoved: true });
     clearMocks();
-    mockBackend({
-      refs: [
-        { ...main, target: commit(5).hash },
-        {
-          ...main,
-          name: "stash@{0}",
-          fullName: "refs/stash",
-          kind: "stash",
-          target: "f".repeat(40),
-        },
-      ],
-    });
+    mockBackend({ refs: [{ ...main, target: commit(5).hash }, stash(1, "e".repeat(40))] });
     expect(await store.refreshRefs()).toEqual({ tipsMoved: false });
-    expect(tipsSignature(store.refs)).toBe(`refs/heads/main=${commit(5).hash}`);
-    expect(store.recentlyRestarted()).toBe(false);
-    store.restartWalk(store.walkScope, store.walkFilter);
-    expect(store.recentlyRestarted()).toBe(true);
-    expect(store.recentlyRestarted(0)).toBe(false);
+    clearMocks();
+    mockBackend({ refs: [{ ...main, target: commit(5).hash }, stash(0, "f".repeat(40))] });
+    expect(await store.refreshRefs()).toEqual({ tipsMoved: true });
+    expect(tipsSignature(store.refs)).toBe(
+      `refs/heads/main=${commit(5).hash}|refs/stash=${"f".repeat(40)}`,
+    );
+  });
+
+  describe("the history follows the refs", () => {
+    async function opened(options: BackendOptions) {
+      const calls = mockBackend(options);
+      const store = useRepoStore();
+      await store.open("/r");
+      await settled();
+      const walks = () => calls.filter((c) => c.cmd === "walk_commits").length;
+      return { store, walks, main: store.refs[0]! };
+    }
+
+    it("lists the history again when a listing shows other tips, whoever asked, once", async () => {
+      const options: BackendOptions = {};
+      const { store, walks, main } = await opened(options);
+      const before = walks();
+      // A push moved `origin/main`: the push's own listing shows it.
+      options.refs = [main, { ...main, name: "origin/main", fullName: "refs/remotes/origin/main" }];
+      await store.refreshRefs();
+      await settled();
+      expect(walks()).toBe(before + 1);
+      // The watcher's listing after it shows the same tips.
+      await store.refreshRefs();
+      await settled();
+      expect(walks()).toBe(before + 1);
+    });
+
+    it("lists the history again after a delete shown at git's answer", async () => {
+      const options: BackendOptions = {};
+      const { store, walks, main } = await opened(options);
+      const develop: GitRef = { ...main, name: "develop", fullName: "refs/heads/develop" };
+      options.refs = [main, develop];
+      await store.refreshRefs();
+      await settled();
+      const before = walks();
+      store.patchRefs({ kind: "delete", fullName: develop.fullName });
+      options.refs = [main];
+      await store.refreshRefs();
+      await settled();
+      expect(walks()).toBe(before + 1);
+    });
+
+    it("lists a write's reload once, even when the watcher's listing lands first", async () => {
+      const options: BackendOptions = {};
+      const { store, walks, main } = await opened(options);
+      const before = walks();
+      // A commit: the reload lists the refs with it, held here; the watcher's listing lands first.
+      let release = () => {};
+      options.refs = [{ ...main, target: commit(5).hash }];
+      options.refsGate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      store.reloadWalk(commit(5).hash);
+      await store.refreshRefs();
+      await settled();
+      expect(walks()).toBe(before + 1);
+      release();
+      await settled();
+      expect(walks()).toBe(before + 1);
+    });
+
+    it("lists a move that lands right after a reload, with no time window", async () => {
+      const options: BackendOptions = {};
+      const { store, walks, main } = await opened(options);
+      store.reloadWalk();
+      await settled();
+      const before = walks();
+      // An agent commits from a terminal a moment later.
+      options.refs = [{ ...main, target: commit(7).hash }];
+      await store.refreshRefs();
+      await settled();
+      expect(walks()).toBe(before + 1);
+    });
   });
 
   it("follows HEAD's branch through the refs listing, keeping an unborn branch's name", async () => {

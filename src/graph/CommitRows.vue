@@ -92,7 +92,7 @@ const navigation = useListNavigation({
 const badgesByName = computed(() => refsByName(props.refs));
 
 function badges(commit: CommitNode): Badge[] {
-  return commitBadges(commit.refs, badgesByName.value);
+  return commitBadges(commit.refs, badgesByName.value, commit.hash);
 }
 
 function date(commit: CommitNode): string {

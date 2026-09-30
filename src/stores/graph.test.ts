@@ -134,6 +134,21 @@ describe("graph store", () => {
     expect(calls.filter((c) => c.cmd === "count_commits")).toHaveLength(1);
   });
 
+  it("counts the scope again once the history is listed again, keeping the count meanwhile", async () => {
+    const calls = mockBackend();
+    const repo = useRepoStore();
+    const graph = useGraphStore();
+    await repo.open("/r");
+    await settled();
+    expect(calls.filter((c) => c.cmd === "count_commits")).toHaveLength(1);
+    // A commit or a fetch moved a tip: the history lists again, and so does the count.
+    repo.reloadWalk();
+    expect(graph.total?.count).toBe(30);
+    await settled();
+    expect(calls.filter((c) => c.cmd === "count_commits")).toHaveLength(2);
+    expect(graph.total?.count).toBe(30);
+  });
+
   it("text, author, date and path restart the walk with the engine's filter", async () => {
     const calls = mockBackend();
     const repo = useRepoStore();

@@ -73,7 +73,7 @@ export function headState(
 /** Where the tips point: every ref but the stash entries, as `fullName=target` sorted. */
 export function tipsSignature(refs: GitRef[]): string {
   return refs
-    .filter((entry) => entry.kind !== "stash")
+    .filter((entry) => entry.kind !== "stash" || entry.name === "stash@{0}")
     .map((entry) => `${entry.fullName}=${entry.target}`)
     .sort()
     .join("|");
@@ -129,8 +129,22 @@ export const useRepoStore = defineStore("repo", () => {
   let walkSerial = 0;
   /** Hash to select again once a restarted walk lists it. */
   let pendingSelection: string | null = null;
-  /** When the walk was last listed again, for the watcher (see `recentlyRestarted`). */
-  let lastRestartAt = 0;
+  /**
+   * The history follows the refs (`landed`): a logical clock orders the refs listings and the
+   * walk's starts, since a listing that started before the walk's last start was read by it.
+   */
+  let clock = 0;
+  /** Tick of the walk's last start. */
+  let walkTick = 0;
+  /** Tips of the listing the history is known to show, and that listing's tick. */
+  let shownTips: string | null = null;
+  let shownTick = 0;
+  /** The newest listing that started after the walk's start, until the older ones land. */
+  let pendingTips: { tips: string; tick: number } | null = null;
+  /** Ticks of the refs listings in flight. */
+  const listingsOut = new Set<number>();
+  /** Bumped by each reload of the history: the graph counts the scope again. */
+  const historyVersion = ref(0);
   /** A reloaded walk's first page replaces the rows kept meanwhile (`reloadWalk`). */
   const replacing = ref(false);
   /** The list a listing of the refs asked to animate, armed when the next one is stored. */
@@ -156,6 +170,10 @@ export const useRepoStore = defineStore("repo", () => {
     diffHandle = null;
     pendingSelection = null;
     replacing.value = false;
+    shownTips = null;
+    shownTick = 0;
+    pendingTips = null;
+    listingsOut.clear();
     repo.value = null;
     refs.value = [];
     refsLoaded.value = false;
@@ -237,10 +255,12 @@ export const useRepoStore = defineStore("repo", () => {
       // The first page paints before the refs arrive: listing refs with their ahead/behind
       // counts takes longer than the first page on a repository with many branches.
       startWalk(opened.root);
+      const tick = listingStarted();
       const listed = await ipc.listRefs(opened.root);
       if (myGeneration !== generation) return;
       refs.value = listed;
       refsLoaded.value = true;
+      landed(tick, tipsSignature(listed), true);
     } catch (error) {
       if (myGeneration !== generation) return;
       const failed = toAppError(error);
@@ -259,6 +279,7 @@ export const useRepoStore = defineStore("repo", () => {
    * the history changed and the list starts over.
    */
   function startWalk(root: string, skipPages = 0): void {
+    walkStarted();
     const myGeneration = generation;
     const myWalk = walkSerial;
     const opId = newOpId("walk");
@@ -289,7 +310,6 @@ export const useRepoStore = defineStore("repo", () => {
     walkFilter.value = filter;
     const root = repo.value?.root;
     if (!root || state.value.kind !== "ready") return;
-    lastRestartAt = Date.now();
     stopWalk();
     pendingSelection = selectHash ?? selectedCommit.value?.hash ?? null;
     replacing.value = false;
@@ -304,12 +324,20 @@ export const useRepoStore = defineStore("repo", () => {
    * an operation that went on, a refs change): the rows and the selection stay until the new
    * first page replaces them, where a filter's restart shows skeleton rows. `selectHash` (the
    * selected commit by default) is selected again when the first request lists it, otherwise
-   * the first row is; a walk that fails before its first page empties the rows.
+   * the first row is; a walk that fails before its first page empties the rows. The refs are
+   * listed with it, just before the walk starts, so that the walk has what that listing shows
+   * (`listing` carries the motion the listing arms).
    */
-  function reloadWalk(selectHash?: string): void {
+  function reloadWalk(selectHash?: string, listing: { arm?: MotionList } = {}): void {
     const root = repo.value?.root;
     if (!root || state.value.kind !== "ready") return;
-    lastRestartAt = Date.now();
+    void refreshRefs(listing);
+    relist(root, selectHash);
+  }
+
+  /** `reloadWalk` without its listing: a listing that just landed asked for it. */
+  function relist(root: string, selectHash?: string): void {
+    historyVersion.value += 1;
     stopWalk();
     pendingSelection = selectHash ?? selectedCommit.value?.hash ?? null;
     replacing.value = commits.value.length > 0;
@@ -494,39 +522,94 @@ export const useRepoStore = defineStore("repo", () => {
       });
   }
 
-  /** Lists the refs again (after a `repo:changed` with refs, or a branch switch outside). */
   /**
-   * Lists the refs again; `tipsMoved` says whether HEAD, a branch or a tag points somewhere
-   * else than before (a stash entry or a reflog touch does not count), so the watcher knows
-   * when the history must be listed again.
+   * Lists the refs again, after a write or a `repo:changed` with refs, whoever asks: when the
+   * listing shows tips other than the ones the history shows (HEAD, a branch, a remote branch,
+   * a tag, the newest stash), the history is listed again (`landed`). `tipsMoved` says whether
+   * they differ from the ones the history showed when the listing started; a patch of the refs
+   * shown (`patchRefs`) never hides a move, since listings are compared with listings.
    */
   async function refreshRefs(options: { arm?: MotionList } = {}): Promise<{ tipsMoved: boolean }> {
     const root = repo.value?.root;
     if (!root) return { tipsMoved: false };
     const myGeneration = generation;
     const mine = ++refsSerial;
+    const tick = listingStarted();
     if (options.arm) armNext = options.arm;
-    const before = tipsSignature(refs.value);
+    const before = shownTips;
     try {
       const listed = await ipc.listRefs(root);
       if (myGeneration !== generation) return { tipsMoved: false };
+      const tips = tipsSignature(listed);
       // A listing started later holds newer refs (a write's answer shown meanwhile, then read):
-      // this one still says whether the tips moved, for the history to follow.
-      if (mine !== refsSerial) return { tipsMoved: tipsSignature(listed) !== before };
-      // The watcher's listing may be the one that lands last: it carries the motion asked.
-      if (armNext !== null) arm(armNext);
-      armNext = null;
-      refs.value = listed;
-      refsLoaded.value = true;
-      refsError.value = null;
-      followHead(listed);
-      return { tipsMoved: tipsSignature(listed) !== before };
+      // only that one stores what it read.
+      const newest = mine === refsSerial;
+      if (newest) {
+        // The watcher's listing may be the one that lands last: it carries the motion asked.
+        if (armNext !== null) arm(armNext);
+        armNext = null;
+        refs.value = listed;
+        refsLoaded.value = true;
+        refsError.value = null;
+        followHead(listed);
+      }
+      landed(tick, tips, newest);
+      return { tipsMoved: before !== null && tips !== before };
     } catch (error) {
       // The refs shown stay until the next change; the picker reports the failure.
-      if (myGeneration === generation) refsError.value = toAppError(error);
+      if (myGeneration === generation) {
+        refsError.value = toAppError(error);
+        landed(tick, null, false);
+      }
       if (mine === refsSerial) armNext = null;
       return { tipsMoved: false };
     }
+  }
+
+  function listingStarted(): number {
+    clock += 1;
+    listingsOut.add(clock);
+    return clock;
+  }
+
+  /** A walk starts: a listing that landed before it was read by it too. */
+  function walkStarted(): void {
+    clock += 1;
+    walkTick = clock;
+    if (pendingTips !== null) {
+      shownTips = pendingTips.tips;
+      shownTick = pendingTips.tick;
+      pendingTips = null;
+    }
+  }
+
+  /**
+   * A refs listing landed. One that started before the walk's last start was read by that walk
+   * (the first one of a repository counts so too); the newest one after it lists the history
+   * again when its tips differ from the shown ones, once the listings from before that start
+   * have landed, since the write that restarted the walk is theirs to answer.
+   */
+  function landed(tick: number, tips: string | null, newest: boolean): void {
+    listingsOut.delete(tick);
+    if (tips !== null) {
+      if (shownTips === null || tick < walkTick) {
+        if (tick > shownTick) {
+          shownTips = tips;
+          shownTick = tick;
+        }
+      } else if (newest && (pendingTips === null || tick > pendingTips.tick)) {
+        pendingTips = { tips, tick };
+      }
+    }
+    for (const out of listingsOut) if (out < walkTick) return;
+    if (pendingTips === null) return;
+    const next = pendingTips;
+    pendingTips = null;
+    const moved = next.tips !== shownTips;
+    shownTips = next.tips;
+    shownTick = next.tick;
+    const root = repo.value?.root;
+    if (moved && root && state.value.kind === "ready") relist(root);
   }
 
   /**
@@ -566,11 +649,6 @@ export const useRepoStore = defineStore("repo", () => {
     if (!head || !current) return;
     if (current.currentBranch === head.currentBranch && current.detached === head.detached) return;
     repo.value = { ...current, ...head };
-  }
-
-  /** Whether the walk was listed again within `withinMs` (the app's own writes do it). */
-  function recentlyRestarted(withinMs = 2000): boolean {
-    return Date.now() - lastRestartAt < withinMs;
   }
 
   /** Closes the repository: its project's empty state, or Home, shows. */
@@ -613,7 +691,7 @@ export const useRepoStore = defineStore("repo", () => {
     reloadWalk,
     /** The history is listed again with the rows kept (`reloadWalk`). */
     reloading: replacing,
-    recentlyRestarted,
+    historyVersion,
     loadWorktrees,
     refreshRefs,
     patchRefs,

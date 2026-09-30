@@ -211,7 +211,7 @@ describe("remotes store", () => {
     expect(of(calls, "pull")[0]?.args["batch"]).toBe(false);
     expect(useToastsStore().toasts.at(-1)?.key).toBe("remotes.pulled");
     clearMocks();
-    fakeBackend({
+    const stopped = fakeBackend({
       remotes,
       outcome: {
         kind: "conflicts",
@@ -227,6 +227,8 @@ describe("remotes store", () => {
     await settled();
     expect(useShellStore().layoutMode).toBe("changes");
     expect(useSequencerStore().conflicts).toHaveLength(1);
+    // Its fetch moved the remote branches, and a rebase HEAD: the refs are listed again.
+    expect(of(stopped, "list_refs").length).toBeGreaterThan(0);
   });
 
   it("cancels the network command in flight without a toast", async () => {

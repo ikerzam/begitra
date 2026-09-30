@@ -61,6 +61,8 @@ export const useGraphStore = defineStore("graph", () => {
   /** Commits in the scope before the filters, once counted. */
   const total = ref<CommitCount | null>(null);
   let countedScope = "";
+  /** The history listing the count was made for (`repo.historyVersion`). */
+  let countedVersion = -1;
   let countRequest = 0;
   let authorsSeenUpTo = 0;
 
@@ -199,13 +201,22 @@ export const useGraphStore = defineStore("graph", () => {
     { immediate: true },
   );
 
-  // The scope is counted once its walk has answered a first page, off the first-paint path.
+  // The scope is counted once its walk has answered a first page, off the first-paint path, and
+  // again once the history is listed again after a move (a commit, a fetch); the last count
+  // shows until the new one arrives.
   watch(
-    () => [repo.repo?.root, repo.walk !== null, scopeKey(walkScope.value)] as const,
-    ([root, started, key]) => {
-      if (!root || !started || key === countedScope) return;
-      countedScope = key;
-      total.value = null;
+    () =>
+      [
+        repo.repo?.root,
+        repo.walk !== null,
+        scopeKey(walkScope.value),
+        repo.historyVersion,
+      ] as const,
+    ([root, started, scope, version]) => {
+      if (!root || !started || (scope === countedScope && version === countedVersion)) return;
+      if (scope !== countedScope) total.value = null;
+      countedScope = scope;
+      countedVersion = version;
       countRequest += 1;
       const request = countRequest;
       ipc
@@ -244,6 +255,7 @@ export const useGraphStore = defineStore("graph", () => {
       authorsSeenUpTo = 0;
       total.value = null;
       countedScope = "";
+      countedVersion = -1;
       countRequest += 1;
       review.clearPins();
     },

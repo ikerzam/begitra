@@ -264,8 +264,9 @@ export const useRemotesStore = defineStore("remotes", () => {
       { remote: remote ?? "" },
       (root, onEvent, opId) => ipc.fetch(root, remote, prune, onEvent, opId),
     );
-    if (!result) return false;
+    // A fetch that failed or was cancelled may have moved some remote branches already.
     void repo.refreshRefs();
+    if (!result) return false;
     toasts.push({
       kind: "success",
       message: "",
@@ -291,17 +292,19 @@ export const useRemotesStore = defineStore("remotes", () => {
       (root, onEvent, opId) => ipc.pull(root, request, onEvent, opId),
     );
     if (!result) {
-      // git may have refused and still left the merge or the rebase in progress.
+      // git may have refused and still left the merge or the rebase in progress; its fetch may
+      // have moved the remote branches.
       void sequencer.load();
+      void repo.refreshRefs();
       return false;
     }
     if (result.kind === "outcome" && result.outcome.kind === "conflicts") {
+      void repo.refreshRefs();
       sequencer.absorb(result.outcome);
       void shell.setLayoutMode("changes");
       return true;
     }
     void sequencer.load();
-    void repo.refreshRefs();
     const hash = result.kind === "outcome" ? result.outcome.hash : null;
     repo.reloadWalk(hash ?? undefined);
     toasts.push({

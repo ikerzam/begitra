@@ -141,13 +141,14 @@ export const useBranchesStore = defineStore("branches", () => {
 
   /** HEAD moved: the refs and the history follow, on `hash` when given. */
   function headMoved(hash?: string | null, listing: { arm?: "branches" } = {}): void {
-    void repo.refreshRefs(listing);
-    repo.reloadWalk(hash ?? undefined);
+    repo.reloadWalk(hash ?? undefined, listing);
   }
 
   /** An outcome: conflicts hand over to the sequencer on the changes screen; the rest toast. */
   function settle(outcome: Outcome, key: string, params: Record<string, string>): void {
     if (outcome.kind === "conflicts") {
+      // A rebase or a pick of several commits moved HEAD before it stopped.
+      void repo.refreshRefs();
       sequencer.absorb(outcome);
       void shell.setLayoutMode("changes");
       return;
@@ -332,7 +333,10 @@ export const useBranchesStore = defineStore("branches", () => {
     run: (root: string, opId: string) => Promise<Outcome>,
   ): Promise<Outcome | null> {
     const outcome = await write(label, run);
-    if (!outcome) void sequencer.load();
+    if (!outcome) {
+      void sequencer.load();
+      void repo.refreshRefs();
+    }
     return outcome;
   }
 

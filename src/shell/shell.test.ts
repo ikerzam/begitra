@@ -556,15 +556,21 @@ describe("launch and the watcher", () => {
     await settle();
     expect(walks()).toBe(2);
     expect(repo.selectedCommit?.hash).toBe(commit(1).hash);
-    // The app's own write listed the history itself: the event that follows does not again.
-    repo.restartWalk(repo.walkScope, repo.walkFilter, commit(2).hash);
+    // The app's own write moved the tip and listed the history itself, with the refs: the event
+    // that follows does not list it again.
+    tip.index = 4;
+    repo.reloadWalk(commit(2).hash);
     await settle();
     expect(walks()).toBe(3);
-    tip.index = 4;
     await emit("repo:changed", { repo: "/r", kinds: ["refs"], paths: [] });
     await settle();
     expect(walks()).toBe(3);
     expect(repo.selectedCommit?.hash).toBe(commit(2).hash);
+    // A terminal commit right after it is listed: no time window swallows it.
+    tip.index = 5;
+    await emit("repo:changed", { repo: "/r", kinds: ["refs"], paths: [] });
+    await settle();
+    expect(walks()).toBe(4);
     wrapper.unmount();
   });
 

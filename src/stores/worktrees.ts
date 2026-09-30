@@ -284,12 +284,15 @@ export const useWorktreesStore = defineStore("worktrees", () => {
       addOpen.value = false;
       clearError();
       void load();
+      // A new branch (`-b`) and the branch's worktree marker come with the refs.
+      void repo.refreshRefs();
       return added.path;
     } catch (failed) {
       error.value = toAppError(failed);
       errorPath.value = request.path;
       // git keeps the worktree when only its post-checkout hook failed: the list shows it.
       void load();
+      void repo.refreshRefs();
       return null;
     } finally {
       operations.finish(opId);
@@ -330,8 +333,18 @@ export const useWorktreesStore = defineStore("worktrees", () => {
     // The row leaves on git's answer, before the worktrees are read again.
     arm("worktrees");
     repo.patchWorktrees((listed) => listed.filter((worktree) => worktree.path !== path));
+    gone([path]);
     await load();
     return true;
+  }
+
+  /**
+   * Worktrees whose folders git removed: their project members are flagged missing,
+   * and their branches lose the worktree marker.
+   */
+  function gone(paths: string[]): void {
+    void repo.refreshRefs();
+    for (const path of paths) void index.refresh(path, false);
   }
 
   async function prune(): Promise<string[]> {
@@ -342,6 +355,7 @@ export const useWorktreesStore = defineStore("worktrees", () => {
     await run(null, async () => {
       pruned = await ipc.worktreePrune(root, newOpId("worktree-prune"));
     });
+    if (pruned.length > 0) gone(pruned);
     return pruned;
   }
 

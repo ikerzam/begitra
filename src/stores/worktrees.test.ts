@@ -198,6 +198,34 @@ describe("worktrees store", () => {
     expect(removes.map((call) => call.args["force"])).toEqual([false, true]);
   });
 
+  it("flags a removed or pruned worktree's entry missing and lists the refs again", async () => {
+    const calls = fakeBackend({
+      worktrees: fakeWorktrees(),
+      summaries,
+      summaryErrors: {
+        "/wt/claude-auth": { code: "repo.not_found", message: "No Git repository found" },
+      },
+    });
+    const { worktrees } = await openDashboard(calls);
+    const listings = () => calls.filter((call) => call.cmd === "list_refs").length;
+    const before = listings();
+    expect(await worktrees.remove("/wt/claude-auth", false)).toBe(true);
+    await settled();
+    // Its project member shows missing, and its branch loses the worktree marker.
+    const gone = (path: string) =>
+      calls.filter(
+        (call) =>
+          call.cmd === "refresh_repository" &&
+          call.args["path"] === path &&
+          call.args["dirty"] === false,
+      );
+    expect(gone("/wt/claude-auth")).toHaveLength(1);
+    expect(listings()).toBeGreaterThan(before);
+    expect(await worktrees.prune()).toEqual(["/wt/gone"]);
+    await settled();
+    expect(gone("/wt/gone")).toHaveLength(1);
+  });
+
   it("shows a removal while it runs and refuses a second one of the same worktree", async () => {
     const { worktrees, calls } = await openDashboard();
     const operations = useOperationsStore();

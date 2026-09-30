@@ -18,10 +18,12 @@ import type { StreamHandle } from "@/ipc/stream";
 import { classifyFailure } from "@/project/failures";
 import { precheck, type BulkPlan, type PlanItem } from "@/project/precheck";
 import type { BulkKind, DoneOutcome, MemberRun } from "@/project/run";
+import { sameFolder } from "@/shell/format";
 
 import { useFolderStore } from "./folder";
 import { useOperationsStore } from "./operations";
 import { useOverviewStore } from "./overview";
+import { useRepoStore } from "./repo";
 
 /** Members that run at once, all hosts together: members usually share one host. */
 export const BULK_AT_ONCE = 4;
@@ -216,9 +218,12 @@ export const useBulkStore = defineStore("bulk", () => {
           // read again; a fetch, a push and a new branch at HEAD change neither, and a reload
           // is a status of the whole tree, seconds on a large one.
           const touchesTree = kind.value === "pull" || kind.value === "switch";
+          const open = useRepoStore();
           for (const path of [job.path, ...job.riders]) {
             overview.refreshOne(path);
             if (touchesTree) folder.reload(path);
+            // The open repository's graph, branches and status bar follow its refs.
+            if (open.repo && sameFolder(path, open.repo.root)) void open.refreshRefs();
           }
           count();
           pump();

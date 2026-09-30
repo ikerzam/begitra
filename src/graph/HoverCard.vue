@@ -50,7 +50,9 @@ const relative = computed(() => {
   return rel.unit === "now" ? t("date.now") : t(`date.${rel.unit}`, { n: rel.n });
 });
 const absolute = computed(() => absoluteDate(props.commit.author.time, locale.value));
-const badges = computed(() => commitBadges(props.commit.refs, refsByName(props.refs)));
+const badges = computed(() =>
+  commitBadges(props.commit.refs, refsByName(props.refs), props.commit.hash),
+);
 
 const left = computed(() => {
   const width = typeof window === "undefined" ? Number.POSITIVE_INFINITY : window.innerWidth;

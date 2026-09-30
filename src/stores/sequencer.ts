@@ -98,14 +98,14 @@ export const useSequencerStore = defineStore("sequencer", () => {
     try {
       const outcome = await ipc.sequencer(root, action, opId);
       absorb(outcome);
-      if (outcome.kind !== "conflicts") {
-        void repo.refreshRefs();
-        repo.reloadWalk(outcome.hash ?? undefined);
-      }
+      // A step that stops again may have moved HEAD (a rebase's next pick): the refs say.
+      if (outcome.kind === "conflicts") void repo.refreshRefs();
+      else repo.reloadWalk(outcome.hash ?? undefined);
       return outcome;
     } catch (failure) {
       error.value = toAppError(failure);
       void load();
+      void repo.refreshRefs();
       return null;
     } finally {
       operations.finish(opId);

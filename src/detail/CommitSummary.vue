@@ -20,7 +20,9 @@ const relative = computed(() => {
 });
 const absolute = computed(() => absoluteDate(props.commit.author.time, locale.value));
 
-const badges = computed(() => commitBadges(props.commit.refs, refsByName(props.refs)));
+const badges = computed(() =>
+  commitBadges(props.commit.refs, refsByName(props.refs), props.commit.hash),
+);
 </script>
 
 <template>

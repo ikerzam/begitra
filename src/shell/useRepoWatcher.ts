@@ -1,10 +1,10 @@
 // Keeps the open repository current: starts the filesystem watcher when a repository opens
 // (a watcher that cannot start becomes a toast: the repository stays open without change
 // detection), and on `repo:changed` refreshes the refs when they or the worktrees changed (a
-// branch's worktree marker follows the worktrees; the history lists again when a tip moved,
-// unless the app's own write just did), the worktree list with either (a commit or a switch
-// moves a worktree's HEAD), the remotes with the refs (the configuration counts as refs), and
-// the index entry on any change. The backend debounces, so nothing is coalesced here.
+// branch's worktree marker follows the worktrees; the repo store lists the history again when
+// the listing shows other tips than the history), the worktree list with either (a commit or a
+// switch moves a worktree's HEAD), the remotes with the refs (the configuration counts as
+// refs), and the index entry on any change. The backend debounces, so nothing is coalesced here.
 
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { onBeforeUnmount, onMounted, watch } from "vue";
@@ -51,18 +51,13 @@ export function useRepoWatcher(): void {
     }
   }
 
-  /** A tip moved outside the app (a terminal, an agent): the graph follows, selection kept. */
-  async function followRefs(): Promise<void> {
-    const { tipsMoved } = await repo.refreshRefs();
-    if (tipsMoved && !repo.recentlyRestarted()) {
-      repo.reloadWalk();
-    }
-  }
-
   function onChange(change: RepoChanged): void {
     const root = repo.repo?.root;
     if (!root || change.repo !== root) return;
-    if (change.kinds.includes("refs") || change.kinds.includes("worktrees")) void followRefs();
+    // A tip moved outside the app (a terminal, an agent): the graph follows, selection kept.
+    if (change.kinds.includes("refs") || change.kinds.includes("worktrees")) {
+      void repo.refreshRefs();
+    }
     review.onRepoChanged(change);
     compare.onRepoChanged(change.kinds);
     void worktrees.onRepoChanged(change.kinds);
