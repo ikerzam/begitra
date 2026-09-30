@@ -1,6 +1,7 @@
 // The geometry of the lane area: where each visible row's dot sits, the segments its edges
-// draw down to the next row, and the lanes that did not fit. A pure function of the commits
-// and the viewport, shared by the canvas, the review-focus rail and the performance spec.
+// draw into it from the row above, and the lanes that did not fit. A pure function of the
+// commits and the viewport, shared by the canvas, the review-focus rail and the performance
+// spec.
 
 import type { CommitNode } from "@/ipc/schemas";
 
@@ -41,7 +42,10 @@ export interface Segment {
   fromY: number;
   toX: number;
   toY: number;
-  /** Lane whose colour the segment takes. */
+  /**
+   * Lane whose colour the segment takes: the one its line runs on, which is the lane it arrives
+   * from when it ends in the row's dot and the lane it goes on in otherwise.
+   */
   lane: number;
   /** Whether the segment changes lane and is drawn as a curve. */
   curved: boolean;
@@ -76,14 +80,29 @@ export interface GeometryInput {
   flat?: boolean;
 }
 
+/**
+ * A lane as a bit of a row's undrawn lanes. The engine sends lanes below twelve only; a dot's
+ * lane past 31 has no bit and goes uncounted.
+ */
+function bit(lane: number): number {
+  return lane < 32 ? 1 << lane : 0;
+}
+
+function bitCount(mask: number): number {
+  let count = 0;
+  for (let rest = mask >>> 0; rest !== 0; rest &= rest - 1) count += 1;
+  return count;
+}
+
 /** Centre x of a lane. */
 export function laneX(lane: number, layout: LaneLayout = PANEL_LAYOUT): number {
   return layout.offset + lane * layout.laneWidth;
 }
 
 /**
- * Dots, segments and overflow markers for the rows `start..end`. The row before `start` is
- * included for its segments, which reach into the first rendered row.
+ * Dots, segments and overflow markers for the rows `start..end`. Each row's edges lead into it
+ * from the row above, so the row after `end` is included for its segments, which leave the
+ * last rendered row.
  */
 export function graphGeometry(input: GeometryInput): GraphGeometry {
   const rowHeight = input.rowHeight ?? ROW_HEIGHT;
@@ -92,39 +111,42 @@ export function graphGeometry(input: GeometryInput): GraphGeometry {
   const dots: Dot[] = [];
   const segments: Segment[] = [];
   const overflows: Overflow[] = [];
-  const first = Math.max(0, Math.min(input.start, commits.length) - 1);
-  const last = Math.min(input.end, commits.length);
+  const first = Math.min(input.start, commits.length);
+  const last = Math.min(input.end + 1, commits.length);
   for (let i = first; i < last; i += 1) {
     const commit = commits[i];
     if (!commit) continue;
     const y = i * rowHeight - scrollTop + rowHeight / 2;
-    if (i >= input.start && commit.lane < layout.drawn) {
+    const rendered = i < input.end;
+    if (rendered && commit.lane < layout.drawn) {
       dots.push({ x: laneX(commit.lane, layout), y, lane: commit.lane, index: i });
     }
-    let dropped = commit.lane >= layout.drawn ? 1 : 0;
+    // The undrawn lanes of the row, each counted once: the dot's own and those its lines touch.
+    let undrawn = commit.lane >= layout.drawn ? bit(commit.lane) : 0;
     if (input.flat) {
-      if (i + 1 < commits.length) {
+      if (i > 0) {
         const x = laneX(0, layout);
-        segments.push({ fromX: x, fromY: y, toX: x, toY: y + rowHeight, lane: 0, curved: false });
+        segments.push({ fromX: x, fromY: y - rowHeight, toX: x, toY: y, lane: 0, curved: false });
       }
     } else {
       for (const edge of commit.edges) {
         if (edge.fromLane >= layout.drawn || edge.toLane >= layout.drawn) {
-          dropped += 1;
+          if (edge.fromLane >= layout.drawn) undrawn |= bit(edge.fromLane);
+          if (edge.toLane >= layout.drawn) undrawn |= bit(edge.toLane);
           continue;
         }
         segments.push({
           fromX: laneX(edge.fromLane, layout),
-          fromY: y,
+          fromY: y - rowHeight,
           toX: laneX(edge.toLane, layout),
-          toY: y + rowHeight,
-          lane: Math.max(edge.fromLane, edge.toLane),
+          toY: y,
+          lane: edge.parent === commit.hash ? edge.fromLane : edge.toLane,
           curved: edge.fromLane !== edge.toLane,
         });
       }
     }
-    const count = commit.overflow + dropped;
-    if (count > 0 && i >= input.start) overflows.push({ index: i, y, count });
+    const count = commit.overflow + bitCount(undrawn);
+    if (count > 0 && rendered) overflows.push({ index: i, y, count });
   }
   return { dots, segments, overflows };
 }

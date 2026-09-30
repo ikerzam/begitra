@@ -364,7 +364,11 @@ export function fakeCommit(n: number): CommitNode {
     body: n % 7 === 0 ? `body of ${n}` : "",
     refs: n === 0 ? ["HEAD", "main"] : [],
     lane: n % 3,
-    edges: [{ fromLane: n % 3, toLane: (n + 1) % 3, parent: (n + 1).toString(16) }],
+    // The line from the row above leads into this commit's dot.
+    edges:
+      n === 0
+        ? []
+        : [{ fromLane: (n + 2) % 3, toLane: n % 3, parent: n.toString(16).padStart(40, "0") }],
     overflow: 0,
   };
 }

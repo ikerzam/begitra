@@ -1,10 +1,11 @@
 //! Property test for the lane layout: on random DAGs built with libgit2, the order,
 //! lanes, edges and overflow of every commit are the same whatever the page size, in both walk
-//! orders, and the date-topo order equals `git log --date-order`.
+//! orders, the date-topo order equals `git log --date-order`, and every row's edges lead into it
+//! from the row above as the layout promises: lines meet only in the dot they lead to.
 
 mod support;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use git2::{Commit, Oid, Repository, Signature, Time};
 use git_core::engine::{Cancel, GitEngine};
@@ -41,9 +42,11 @@ impl XorShift {
 
 /// A random DAG of [`COMMITS`] commits with one to three parents each and a few extra roots,
 /// written with libgit2 into a fixture repository. With `ties`, three consecutive commits share
-/// a commit time so the tie-breaking of the queue is exercised too. Every childless commit gets
-/// a branch; the last commit is `main`.
-fn build_dag(seed: u64, ties: bool) -> Fixture {
+/// a commit time so the tie-breaking of the queue is exercised too. A merge's other parents
+/// are among the twelve commits before it, as in most histories, or, with `far`, anywhere
+/// before it, whose lines run past the drawn lanes. Every childless commit gets a branch; the
+/// last commit is `main`.
+fn build_dag(seed: u64, ties: bool, far: bool) -> Fixture {
     let f = Fixture::empty();
     let repo = Repository::open(&f.root).expect("open with git2");
     let tree_id = repo
@@ -68,7 +71,11 @@ fn build_dag(seed: u64, ties: bool) -> Fixture {
                 _ => 2,
             };
             for _ in 0..extra {
-                let parent = rng.below(i);
+                let parent = if far {
+                    rng.below(i)
+                } else {
+                    i - 1 - rng.below(i.min(12))
+                };
                 if !parents.contains(&parent) {
                     parents.push(parent);
                 }
@@ -133,52 +140,157 @@ fn git_log(f: &Fixture, flags: &[&str]) -> Vec<String> {
     f.git(&args).lines().map(str::to_owned).collect()
 }
 
-/// Every edge leads to a later row drawn on the edge's `to_lane`, and every parent still ahead
-/// has an edge unless the overflow hides it.
-fn check_edges(nodes: &[CommitNode], context: &str) {
+/// Every row's edges lead into it from the row above. The lines that lead to the row's commit
+/// end in its dot; the others go on, straight but for a parent line leaving the commit right
+/// above, one line per lane. Each line that goes on arrives on the next row from where it left
+/// this one, every parent still ahead gets a line from its commit's lane, and every line into
+/// the next row comes from one of these; the first parent's line goes on from the commit's own
+/// lane, and a commit sits on the leftmost lane of the lines that meet in it. Rows next to lanes
+/// past the drawn columns are not checked for continuity, their edges being dropped; the number
+/// of row pairs checked is returned.
+fn check_edges(nodes: &[CommitNode], context: &str) -> usize {
     let row: HashMap<&str, usize> = nodes
         .iter()
         .enumerate()
         .map(|(i, node)| (node.hash.as_str(), i))
         .collect();
+    let wide = |i: usize| {
+        nodes
+            .get(i)
+            .is_some_and(|node| node.overflow > 0 || node.lane >= MAX_LANES)
+    };
+    let mut checked = 0;
     for (index, node) in nodes.iter().enumerate() {
-        for edge in &node.edges {
-            let target = row[edge.parent.as_str()];
+        if index == 0 {
             assert!(
-                target > index,
-                "{context}: {} has an edge up to {}",
-                node.hash,
-                edge.parent
+                node.edges.is_empty(),
+                "{context}: a line above the first row"
             );
-            assert_eq!(
-                nodes[target].lane, edge.to_lane,
-                "{context}: {} edge to {}",
-                node.hash, edge.parent
-            );
+        }
+        let above = index.checked_sub(1).map(|i| &nodes[i]);
+        let mut going_on = HashSet::new();
+        for edge in &node.edges {
             assert!(
                 edge.from_lane < MAX_LANES && edge.to_lane < MAX_LANES,
                 "{context}: {}",
                 node.hash
             );
-        }
-        for parent in &node.parents {
-            let target = row[parent.as_str()];
-            let drawn = node.edges.iter().any(|edge| &edge.parent == parent);
-            let hidden = node.lane >= MAX_LANES || nodes[target].lane >= MAX_LANES;
             assert!(
-                drawn || hidden || target < index,
-                "{context}: {} lacks the edge to {parent}",
+                row[edge.parent.as_str()] >= index,
+                "{context}: a line into {} leads up to {}",
+                node.hash,
+                edge.parent
+            );
+            if edge.parent == node.hash {
+                assert_eq!(
+                    edge.to_lane, node.lane,
+                    "{context}: a line to {} ends beside its dot",
+                    node.hash
+                );
+                // A line that ran on its own lane into the row (not one the commit above just
+                // opened) arrives from that lane, never left of the commit's.
+                let opened_above = above.is_some_and(|commit| edge.from_lane == commit.lane);
+                assert!(
+                    opened_above || edge.from_lane >= node.lane,
+                    "{context}: {} is not on the leftmost lane of its lines",
+                    node.hash
+                );
+                continue;
+            }
+            let split = above.is_some_and(|commit| {
+                edge.from_lane == commit.lane && commit.parents.contains(&edge.parent)
+            });
+            assert!(
+                edge.from_lane == edge.to_lane || split,
+                "{context}: the line to {} bends on {}'s row",
+                edge.parent,
+                node.hash
+            );
+            assert!(
+                going_on.insert(edge.to_lane),
+                "{context}: two lines on lane {} at {}",
+                edge.to_lane,
+                node.hash
+            );
+            assert_ne!(
+                edge.to_lane, node.lane,
+                "{context}: the line to {} crosses {}'s dot",
+                edge.parent, node.hash
+            );
+        }
+        let Some(next) = nodes.get(index + 1) else {
+            continue;
+        };
+        if wide(index) || wide(index + 1) {
+            continue;
+        }
+        checked += 1;
+        if let Some(first) = node.parents.first() {
+            if row
+                .get(first.as_str())
+                .is_some_and(|&target| target > index + 1)
+            {
+                assert!(
+                    next.edges.iter().any(|later| later.from_lane == node.lane
+                        && later.to_lane == node.lane
+                        && &later.parent == first),
+                    "{context}: {}'s first parent line leaves its lane",
+                    node.hash
+                );
+            }
+        }
+        for edge in node.edges.iter().filter(|edge| edge.parent != node.hash) {
+            assert!(
+                next.edges
+                    .iter()
+                    .any(|later| later.from_lane == edge.to_lane && later.parent == edge.parent),
+                "{context}: the line to {} stops on lane {} after {}",
+                edge.parent,
+                edge.to_lane,
                 node.hash
             );
         }
+        for parent in &node.parents {
+            if row
+                .get(parent.as_str())
+                .is_some_and(|&target| target > index)
+            {
+                assert!(
+                    next.edges
+                        .iter()
+                        .any(|later| later.from_lane == node.lane && &later.parent == parent),
+                    "{context}: {} lacks the line to {parent}",
+                    node.hash
+                );
+            }
+        }
+        for later in &next.edges {
+            let went_on = node.edges.iter().any(|edge| {
+                edge.parent != node.hash
+                    && edge.to_lane == later.from_lane
+                    && edge.parent == later.parent
+            });
+            let leaves = later.from_lane == node.lane && node.parents.contains(&later.parent);
+            assert!(
+                went_on || leaves,
+                "{context}: a line into {} comes from nowhere",
+                next.hash
+            );
+        }
     }
+    checked
 }
 
 #[test]
 fn every_page_size_gives_the_same_order_lanes_and_edges() {
-    for (seed, ties) in [(42, false), (7, false), (2024, true)] {
-        let context = format!("seed {seed} ties {ties}");
-        let f = build_dag(seed, ties);
+    for (seed, ties, far) in [
+        (42, false, false),
+        (7, false, false),
+        (2024, true, false),
+        (99, false, true),
+    ] {
+        let context = format!("seed {seed} ties {ties} far {far}");
+        let f = build_dag(seed, ties, far);
         let engine = Git2Engine::open(&f.root).expect("open");
         let date_order = git_log(&f, &["--date-order"]);
         let plain = git_log(&f, &[]);
@@ -193,7 +305,13 @@ fn every_page_size_gives_the_same_order_lanes_and_edges() {
                 WalkOrder::DateTopo => assert_eq!(hashes(&big), date_order, "{context}"),
                 WalkOrder::Lazy => assert_eq!(hashes(&big), plain, "{context}"),
             }
-            check_edges(&big, &context);
+            let checked = check_edges(&big, &context);
+            // Most rows stay within the drawn lanes, so the continuity checks run on them.
+            assert!(
+                far || checked * 2 >= big.len(),
+                "{context}: only {checked} of {} rows checked",
+                big.len()
+            );
             assert!(
                 big.iter().all(|node| node.author.offset_minutes == 120
                     && node.committer.offset_minutes == 120),

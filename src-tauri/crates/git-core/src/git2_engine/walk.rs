@@ -336,10 +336,16 @@ impl Walk {
             // Lines between non-adjacent commits would not be parent edges.
             (0, Vec::new(), 0)
         } else {
-            let drawable: Vec<&str> = ahead
+            let mut drawable: Vec<&str> = Vec::with_capacity(ahead.len());
+            for parent in ahead
                 .iter()
                 .filter_map(|&index| parents.get(index).map(String::as_str))
-                .collect();
+            {
+                // libgit2 can write a commit that names a parent twice; one line leads to it.
+                if !drawable.contains(&parent) {
+                    drawable.push(parent);
+                }
+            }
             let placement = self.layout.place(&hash, &drawable);
             (placement.lane, placement.edges, placement.overflow)
         };

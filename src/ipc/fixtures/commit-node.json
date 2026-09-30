@@ -1,28 +1,23 @@
 {
-  "hash": "0000000000000000000000000000000000000001",
+  "hash": "0000000000000000000000000000000000000002",
   "parents": [
-    "0000000000000000000000000000000000000002",
-    "0000000000000000000000000000000000000003"
+    "0000000000000000000000000000000000000004"
   ],
   "author": {
-    "name": "Iker",
-    "email": "iker@example.com",
-    "time": 1704067260,
-    "offsetMinutes": 120
-  },
-  "committer": {
     "name": "Iker",
     "email": "iker@example.com",
     "time": 1704067320,
     "offsetMinutes": 120
   },
-  "subject": "feat: commit 1",
-  "body": "",
-  "refs": [
-    "HEAD",
-    "main",
-    "origin/main"
-  ],
+  "committer": {
+    "name": "Iker",
+    "email": "iker@example.com",
+    "time": 1704067380,
+    "offsetMinutes": 120
+  },
+  "subject": "feat: commit 2",
+  "body": "Body paragraph.\n\nSecond paragraph.",
+  "refs": [],
   "lane": 0,
   "edges": [
     {

@@ -63,7 +63,8 @@ fn hash(n: u8) -> String {
     format!("{:0>40}", format!("{n:x}"))
 }
 
-fn commit(n: u8, parents: &[u8], lane: u32) -> CommitNode {
+/// A commit of the fixtures with the edges that lead into its row: `(from, to, leads to)`.
+fn commit(n: u8, parents: &[u8], lane: u32, edges: &[(u32, u32, u8)]) -> CommitNode {
     CommitNode {
         hash: hash(n),
         parents: parents.iter().map(|p| hash(*p)).collect(),
@@ -85,13 +86,12 @@ fn commit(n: u8, parents: &[u8], lane: u32) -> CommitNode {
             vec![]
         },
         lane,
-        edges: parents
+        edges: edges
             .iter()
-            .enumerate()
-            .map(|(i, p)| Edge {
-                from_lane: lane,
-                to_lane: lane + u32::try_from(i).unwrap_or(0),
-                parent: hash(*p),
+            .map(|&(from_lane, to_lane, leads_to)| Edge {
+                from_lane,
+                to_lane,
+                parent: hash(leads_to),
             })
             .collect(),
         overflow: 0,
@@ -398,9 +398,10 @@ fn walk_page() -> WalkPage {
         walk_id: "walk-1".to_owned(),
         index: 0,
         commits: vec![
-            commit(1, &[2, 3], 0),
-            commit(2, &[4], 0),
-            commit(3, &[4], 1),
+            // 1 merges 3 into 2: the row of 2 draws the split, both lines to 4 go on.
+            commit(1, &[2, 3], 0, &[]),
+            commit(2, &[4], 0, &[(0, 0, 2), (0, 1, 3)]),
+            commit(3, &[4], 1, &[(0, 0, 4), (1, 1, 3)]),
         ],
         done: false,
     }
@@ -851,7 +852,7 @@ fn write_fixtures() {
         ],
     );
     write("refs", &refs());
-    write("commit-node", &commit(1, &[2, 3], 0));
+    write("commit-node", &commit(2, &[4], 0, &[(0, 0, 2), (0, 1, 3)]));
     write("walk-page", &walk_page());
     write(
         "stream-page",

@@ -99,6 +99,10 @@ export const SignatureSchema = v.object({
 });
 export type Signature = v.InferOutput<typeof SignatureSchema>;
 
+/**
+ * A line leading into a row from the row above: `fromLane` on the row above, `toLane` on this
+ * row (the commit's own lane when the line leads to it), `parent` the commit it leads to.
+ */
 export const EdgeSchema = v.object({
   fromLane: count,
   toLane: count,

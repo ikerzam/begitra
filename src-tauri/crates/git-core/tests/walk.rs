@@ -468,7 +468,11 @@ fn skewed_dates_keep_date_topo_equal_to_git_and_lazy_complete() {
     );
     let skewed = &lazy[row(&d3)];
     assert_eq!(skewed.parents, vec![d2.clone()]);
-    assert!(skewed.edges.iter().all(|edge| edge.parent != d2));
+    // No line leaves it for the parent already shown above.
+    assert!(lazy[row(&d3)..]
+        .iter()
+        .flat_map(|node| &node.edges)
+        .all(|edge| edge.parent != d2));
     assert!(skewed.refs.contains(&"develop".to_owned()));
 }
 
@@ -485,7 +489,8 @@ fn lanes_and_edges_do_not_depend_on_the_page_size() {
         "pages of 2 and of 500 give the same lanes and edges"
     );
 
-    // Every edge points at a later row, drawn on the edge's `to_lane`, across page boundaries too.
+    // Every edge leads into its row from the row above, to this row's commit or a later one,
+    // and ends in the dot of the commit it leads to, across page boundaries too.
     let row: HashMap<&str, usize> = nodes
         .iter()
         .enumerate()
@@ -495,31 +500,36 @@ fn lanes_and_edges_do_not_depend_on_the_page_size() {
         for edge in &node.edges {
             let target = row[edge.parent.as_str()];
             assert!(
-                target > index,
-                "{}: edge to {} points up",
+                target >= index,
+                "{}: a line to {} points up",
                 node.hash,
                 edge.parent
             );
-            assert_eq!(
-                nodes[target].lane, edge.to_lane,
-                "{}: edge to {}",
-                node.hash, edge.parent
-            );
+            if target == index {
+                assert_eq!(edge.to_lane, node.lane, "{}: ends in its dot", node.hash);
+            }
         }
     }
     let boundary_rows = small
         .iter()
-        .take(small.len() - 1)
-        .map(|page| page.commits.last().expect("page"));
+        .skip(1)
+        .map(|page| page.commits.first().expect("page"));
     let crossing: Vec<_> = boundary_rows.flat_map(|node| node.edges.clone()).collect();
     assert!(!crossing.is_empty(), "some edge crosses a page boundary");
 
-    let octopus = nodes
+    // The row after the octopus draws its four lines leaving its lane.
+    let at = nodes
         .iter()
-        .find(|node| node.parents.len() == 4)
+        .position(|node| node.parents.len() == 4)
         .expect("octopus merge");
+    let octopus = &nodes[at];
     assert_eq!(octopus.lane, 0);
-    let to_lanes: Vec<u32> = octopus.edges.iter().map(|edge| edge.to_lane).collect();
+    let to_lanes: Vec<u32> = nodes[at + 1]
+        .edges
+        .iter()
+        .filter(|edge| edge.from_lane == octopus.lane && octopus.parents.contains(&edge.parent))
+        .map(|edge| edge.to_lane)
+        .collect();
     assert_eq!(to_lanes, vec![0, 1, 2, 3]);
     assert!(nodes.iter().all(|node| node.overflow == 0));
 }
@@ -1373,13 +1383,26 @@ fn range_walks_and_counts_equal_git_rev_list_without_reading_the_excluded_histor
         // is the `walk_range_first_page` benchmark's to show (a wall-clock bound here would
         // be flaky on a loaded CI machine) and `range_members`' unit tests' to pin.
     }
-    // An edge into the excluded side is never drawn: feature's first commit has no parent
-    // edge, since its parent is on main.
+    // An edge into the excluded side is never drawn: no line leaves feature's first commit,
+    // since its parent is on main.
     let scope = WalkScope::Range {
         exclude: "main".to_owned(),
         include: "feature".to_owned(),
     };
     let listed = walk_all(&engine, &scope, 500, WalkOrder::Lazy);
+    let inside: Vec<&str> = listed.iter().map(|node| node.hash.as_str()).collect();
     let oldest = listed.last().expect("four commits");
-    assert!(oldest.edges.is_empty(), "{:?}", oldest.edges);
+    let edges: Vec<_> = listed.iter().flat_map(|node| &node.edges).collect();
+    assert!(
+        edges
+            .iter()
+            .all(|edge| inside.contains(&edge.parent.as_str())),
+        "{edges:?}"
+    );
+    assert!(
+        edges
+            .iter()
+            .all(|edge| !oldest.parents.contains(&edge.parent)),
+        "{edges:?}"
+    );
 }

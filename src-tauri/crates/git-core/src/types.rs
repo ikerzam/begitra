@@ -88,13 +88,13 @@ pub struct Signature {
     pub offset_minutes: i32,
 }
 
-/// A line of the graph leaving a row towards a parent on a later row.
+/// A line of the graph leading into a row from the row above.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Edge {
-    /// Lane the line leaves from on this row.
+    /// Lane the line leaves from on the row above.
     pub from_lane: u32,
-    /// Lane the line arrives at on the next row.
+    /// Lane the line arrives at on this row: the commit's own when it leads to the commit.
     pub to_lane: u32,
     /// Hash of the commit the line leads to.
     pub parent: String,
@@ -123,10 +123,12 @@ pub struct CommitNode {
     pub refs: Vec<String>,
     /// Lane holding this commit's dot.
     pub lane: u32,
-    /// Lines leaving this row: one per parent, plus the lanes passing straight through
-    /// (`from_lane == to_lane`, `parent` the commit that lane is waiting for).
+    /// Lines leading into this row from the row above, one per lane active there: the ones
+    /// that lead to this commit end in its dot, the others go on (`parent` the commit each
+    /// leads to).
     pub edges: Vec<Edge>,
-    /// Number of active lanes that did not fit in the drawn columns.
+    /// Lines into this row left out of `edges` because they touch lanes past the drawn
+    /// columns.
     pub overflow: u32,
 }
 

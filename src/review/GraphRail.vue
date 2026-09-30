@@ -18,20 +18,25 @@ const WINDOW = 14;
 const RAIL_LAYOUT: LaneLayout = { laneWidth: 12, offset: 10, drawn: 3 };
 const RAIL_WIDTH = 48;
 
+/**
+ * The rows around the selected one. The canvas gets the whole list with the window as its
+ * range, so the lines that enter the first row and leave the last one are drawn to the edges.
+ */
 const window = computed(() => {
   const start = Math.max(0, props.selectedIndex - WINDOW);
   const end = Math.min(props.commits.length, props.selectedIndex + WINDOW + 1);
-  return { start, commits: props.commits.slice(start, end) };
+  return { start, end, commits: props.commits.slice(start, end) };
 });
 
 const height = computed(() => window.value.commits.length * ROW_HEIGHT);
 
-/** Where the ring sits: over the selected commit's dot. */
+/** Where the ring sits: over the selected commit's dot, on the last drawn lane past it. */
 const ring = computed(() => {
   const commit = props.commits[props.selectedIndex];
-  if (!commit || commit.lane >= RAIL_LAYOUT.drawn) return null;
+  if (!commit) return null;
+  const lane = Math.min(commit.lane, RAIL_LAYOUT.drawn - 1);
   const row = props.selectedIndex - window.value.start;
-  return { left: laneX(commit.lane, RAIL_LAYOUT), top: row * ROW_HEIGHT + ROW_HEIGHT / 2 };
+  return { left: laneX(lane, RAIL_LAYOUT), top: row * ROW_HEIGHT + ROW_HEIGHT / 2 };
 });
 </script>
 
@@ -45,10 +50,10 @@ const ring = computed(() => {
          as the graph panel's scrolling needs, and would push the buttons under the drawing. -->
     <div class="pointer-events-none absolute top-0 left-0" aria-hidden="true">
       <GraphCanvas
-        :commits="window.commits"
-        :start="0"
-        :end="window.commits.length"
-        :scroll-top="0"
+        :commits="props.commits"
+        :start="window.start"
+        :end="window.end"
+        :scroll-top="window.start * ROW_HEIGHT"
         :height="height"
         :width="RAIL_WIDTH"
         :layout="RAIL_LAYOUT"
