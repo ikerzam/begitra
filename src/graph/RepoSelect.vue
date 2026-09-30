@@ -1,9 +1,8 @@
 <script setup lang="ts">
-// The graph's repository selector: the app's select naming the
-// repository the open project shows and listing the project's repositories in its order, each
-// worktree under its repository, a missing one flagged and not choosable; choosing one shows
-// its graph and makes it the one the project shows. The filter bar shows it while the project
-// holds more than one repository.
+// The graph's repository selector: the app's select naming the repository the open project shows
+// and listing the project's repositories in its order, each worktree under its repository, a
+// missing one flagged and not choosable; choosing one shows its graph and makes it the one the
+// project shows. The filter bar shows it while the project holds more than one repository.
 
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";

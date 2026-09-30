@@ -1,11 +1,11 @@
 <script setup lang="ts">
-// The folder view, the Changes of a project of several repositories:
-// the list panel (the scan's line while it walks, a section per repository with changes, the
-// group of the others, and the commit box of the repository the selection is in), the divider
-// of the changes screen, and the viewer of the selected file; without repositories, "Scan
-// again" for a folder project and "Edit project…" for a list project. The header, the refresh
-// and the view's lifecycle are `ProjectLayout`'s. The keys are `useFolderKeys`'s; a discard
-// confirms once and names the repository.
+// The folder view, the Changes of a project of several repositories: the list panel (the scan's
+// line while it walks, a section per repository with changes, the group of the others, and the
+// commit box of the repository the selection is in), the divider of the changes screen, and the
+// viewer of the selected file; without repositories, "Scan again" for a folder project and "Edit
+// project…" for a list project. The header, the refresh and the view's lifecycle are
+// `ProjectLayout`'s. The keys are `useFolderKeys`'s; a discard confirms once and names the
+// repository.
 
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
