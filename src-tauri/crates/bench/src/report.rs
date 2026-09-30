@@ -43,6 +43,11 @@ pub fn budget(id: &str) -> Option<Duration> {
         ("status", _) => 2_000,
         // The libgit2 fallback of the status, recorded without a budget.
         ("status_libgit2", _) => return None,
+        // Home and the palette read the index's full listing with its projects: the repository
+        // index's budget for 500 entries.
+        ("projects", "listing") => 50,
+        // The launch's path to the first graph page of the open project's repository.
+        ("project_restore", _) => 300,
         ("discovery", "scan_first_result") => 100,
         ("discovery", "scan_full") => 2_000,
         ("worktrees", "synthetic") => 50,
@@ -157,16 +162,21 @@ mod tests {
                 id: "custom/thing".to_owned(),
                 median: Duration::from_micros(1500),
             },
+            Measurement {
+                id: "projects/listing".to_owned(),
+                median: Duration::from_micros(1160),
+            },
         ];
         let text = rows(&measurements, "2026-09-19", "abc1234", "laptop");
         let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines.len(), 3);
+        assert_eq!(lines.len(), 4);
         assert_eq!(
             lines[0],
             "| 2026-09-19 | abc1234 | laptop | refs | synthetic | 12 ms | < 300 ms | ok |"
         );
         assert!(lines[1].ends_with("| 900 ms | < 300 ms | red |"));
         assert!(lines[2].ends_with("| 1.50 ms | - | no budget |"));
+        assert!(lines[3].ends_with("| projects | listing | 1.16 ms | < 50 ms | ok |"));
     }
 
     #[test]

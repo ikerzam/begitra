@@ -1,6 +1,6 @@
 //! Criterion benches of the projects on an index on disk.
 //!
-//! `projects_listing` is the index's full listing with its projects, what Home and the palette
+//! `projects/listing` is the index's full listing with its projects, what Home and the palette
 //! read: 500 entries, one folder project holding them all and 49 list projects of ten. The
 //! budget is the repository index's, 50 ms for 500 entries, projects included.
 //! `project_restore` is the launch's path to the first page: the projects listed (the open
@@ -57,13 +57,15 @@ fn index_on_disk() -> (tempfile::TempDir, Index) {
 
 fn projects_listing(c: &mut Criterion) {
     let (_dir, index) = index_on_disk();
-    c.bench_function("projects_listing", |b| {
+    let mut group = c.benchmark_group("projects");
+    group.bench_function("listing", |b| {
         b.iter(|| {
             let entries = index.list().expect("list");
             let projects = index.projects().expect("projects");
             assert_eq!((entries.len(), projects.len()), (ENTRIES, LISTS + 1));
         });
     });
+    group.finish();
 }
 
 /// The repository the open project showed last, as the launch finds it.
