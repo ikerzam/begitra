@@ -166,15 +166,17 @@ onBeforeUnmount(() => {
       :aria-disabled="option.disabled ? 'true' : undefined"
       :data-value="option.value"
       class="flex h-control w-full shrink-0 cursor-default items-center gap-2 rounded-sm px-2 text-md whitespace-nowrap"
-      :class="
+      :class="[
         option.disabled
           ? 'text-fg-disabled'
-          : ['text-fg', index === props.active ? 'bg-selected' : 'hover:bg-hover']
-      "
+          : ['text-fg', index === props.active ? 'bg-selected' : 'hover:bg-hover'],
+        { 'option-nested': option.nested },
+      ]"
       data-testid="option"
       @click="!option.disabled && emit('choose', index)"
     >
       <span class="flex-1 truncate">{{ option.label }}</span>
+      <span v-if="option.hint" class="shrink-0 text-sm text-fg-muted">{{ option.hint }}</span>
       <Check
         v-if="option.value === props.selected"
         :size="16"
@@ -185,3 +187,10 @@ onBeforeUnmount(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+/* An option under the one before it (a worktree under its repository), one step in. */
+.option-nested {
+  padding-left: var(--space-5);
+}
+</style>

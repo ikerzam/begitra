@@ -9,6 +9,10 @@ export interface SelectOption {
   value: string;
   label: string;
   disabled?: boolean;
+  /** Listed one step in, under the option before it (a worktree under its repository). */
+  nested?: boolean;
+  /** Muted text after the label ("not found"). */
+  hint?: string;
 }
 
 /** One choice of a `RadioGroup`: the value, its label and an optional muted hint. */
