@@ -1,8 +1,11 @@
-//! Scanning the configured folders as a stream: entries are reported as soon as the scanner
-//! finds them and again once their summary is known, while counts and folder states flow in
-//! between.
+//! Scanning the folder projects' folders as a stream: entries are reported as soon as the
+//! scanner finds them and again once their summary is known, while counts and folder states
+//! flow in between. A found entry becomes one of its folder project's own members; a folder
+//! whose walk completes lets go of the members it did not find and whose `.git` is gone.
 
-use std::path::PathBuf;
+use std::collections::{HashMap, HashSet};
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -10,7 +13,7 @@ use std::time::Duration;
 
 use git_core::engine::Cancel as GitCancel;
 use git_core::summary::describe;
-use repo_index::{scanner, Cancel as ScanCancel, IndexEntry, ScanEvent, ScanOptions};
+use repo_index::{scanner, Cancel as ScanCancel, IndexEntry, ScanEvent, ScanOptions, Upserted};
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::State;
@@ -64,7 +67,9 @@ pub enum ScanMessage {
         folder: PathBuf,
         /// Repositories and worktrees found under it.
         found: u64,
-        /// Entries of earlier scans of this folder that were not found again.
+        /// The folder's own members that were not found again and whose `.git` is gone: they
+        /// left the folder project (and the index when no other project holds them), or stay
+        /// flagged missing when none of the folder's members was found (an unmounted drive).
         missing: Vec<PathBuf>,
     },
     /// A scan folder could not be read; the scan went on with the others.
@@ -76,7 +81,8 @@ pub enum ScanMessage {
     },
 }
 
-/// Scans `folders` and streams the results; cancellable through `op_id`.
+/// Scans `folders`, the folder projects' folders, and streams the results; cancellable
+/// through `op_id`. An entry found under a folder that has no project is not stored.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state, on_page))]
 pub async fn scan_folders(
@@ -140,8 +146,7 @@ pub fn run_scan<S: Sink<ScanMessage>>(
     drop(result_tx);
 
     let stamp = now();
-    let mut seen_by_root: std::collections::HashMap<PathBuf, Vec<PathBuf>> =
-        std::collections::HashMap::new();
+    let mut seen_by_root: HashMap<PathBuf, HashSet<PathBuf>> = HashMap::new();
     let mut failure: Option<AppError> = None;
     let mut stopped = false;
     {
@@ -177,18 +182,20 @@ pub fn run_scan<S: Sink<ScanMessage>>(
                     seen_by_root
                         .entry(found.scan_root.clone())
                         .or_default()
-                        .push(found.path.clone());
+                        .insert(found.path.clone());
                     let stored = state.with_index(|index| {
-                        index.upsert_found(&found, stamp)?;
-                        index
-                            .get(&found.path)?
-                            .ok_or_else(|| AppError::internal("the found entry vanished"))
+                        match index.upsert_found(&found, stamp)? {
+                            Upserted::Stored => Ok(index.get(&found.path)?),
+                            // The folder's project went while the scan ran.
+                            Upserted::NoFolderProject => Ok(None),
+                        }
                     });
                     match stored {
-                        Ok(entry) => {
+                        Ok(Some(entry)) => {
                             let _ = work_tx.send(found.path.clone());
                             stream.page(ScanMessage::Found { entry })
                         }
+                        Ok(None) => true,
                         Err(error) => {
                             failure = Some(error);
                             return std::ops::ControlFlow::Break(());
@@ -198,7 +205,7 @@ pub fn run_scan<S: Sink<ScanMessage>>(
                 ScanEvent::FolderDone { folder, found } => {
                     let folder = normalise(&folder);
                     let seen = seen_by_root.remove(&folder).unwrap_or_default();
-                    let missing = match mark_missing(state, &folder, &seen, stamp) {
+                    let missing = match complete_folder(state, &folder, &seen, stamp) {
                         Ok(missing) => missing,
                         Err(error) => {
                             failure = Some(error);
@@ -250,25 +257,34 @@ pub fn run_scan<S: Sink<ScanMessage>>(
     Ok(())
 }
 
-/// Flags the entries of `folder` the scan did not report again, unless their `.git` is still
-/// on disk (an unreadable subfolder, a lowered depth or a new skip name hid them, the
-/// repository itself is fine).
-fn mark_missing(
+/// Ends the complete walk of `folder`: of its folder project's own members the scan did not
+/// find, those whose `.git` is gone leave the project (and the index when no other project
+/// holds them), while those whose `.git` is still on disk stay (an unreadable subfolder, a
+/// lowered depth or a new skip name hid them). The disk is read outside the index's lock.
+/// Answers the members not found and gone, sorted.
+fn complete_folder(
     state: &AppState,
-    folder: &std::path::Path,
-    seen: &[PathBuf],
+    folder: &Path,
+    seen: &HashSet<PathBuf>,
     stamp: i64,
 ) -> Result<Vec<PathBuf>, AppError> {
-    let candidates =
-        state.with_index(|index| Ok(index.mark_missing_under_root(folder, seen, stamp)?))?;
-    let mut missing = Vec::new();
-    for path in candidates {
-        if std::fs::symlink_metadata(path.join(".git")).is_ok() {
-            state.with_index(|index| Ok(index.mark_missing(&path, false)?))?;
-        } else {
-            missing.push(path);
+    let members = state.with_index(|index| Ok(index.folder_members(folder)?))?;
+    let (mut gone, mut present) = (Vec::new(), Vec::new());
+    for path in members.into_iter().filter(|path| !seen.contains(path)) {
+        match std::fs::symlink_metadata(path.join(".git")) {
+            Err(error)
+                if matches!(error.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) =>
+            {
+                gone.push(path);
+            }
+            // On disk, or unreadable, which is not gone.
+            _ => present.push(path),
         }
     }
+    let end = state
+        .with_index(|index| Ok(index.complete_folder_scan(folder, &gone, &present, stamp)?))?;
+    let mut missing: Vec<PathBuf> = end.left.into_iter().chain(end.held).collect();
+    missing.sort();
     Ok(missing)
 }
 
@@ -277,7 +293,7 @@ fn mark_missing(
 fn deliver_summary<S: Sink<ScanMessage>>(
     state: &AppState,
     stream: &mut Stream<ScanMessage, S>,
-    path: &std::path::Path,
+    path: &Path,
     result: Result<git_core::summary::RepoSummary, git_core::error::GitError>,
 ) -> Result<(), AppError> {
     let entry = state.with_index(|index| {
@@ -316,6 +332,46 @@ mod tests {
         git(&["commit", "-q", "--allow-empty", "-m", "init"]);
     }
 
+    /// The folder project of `folder`, as `project_create_folder` makes it.
+    fn folder_project(state: &AppState, folder: &Path) -> repo_index::Project {
+        state
+            .with_index(|index| Ok(index.create_folder_project(&normalise(folder), 1)?))
+            .expect("folder project")
+    }
+
+    /// Scans `folders` to the end and answers the stream's messages.
+    async fn scan(state: &AppState, folders: Vec<PathBuf>) -> Vec<StreamMessage<ScanMessage>> {
+        let ops = Operations::default();
+        let collector = Collector::<ScanMessage>::default();
+        let worker = state.clone();
+        let options = ScanOptions::default();
+        run_stream(
+            &ops,
+            "scan",
+            SCAN_TIMEOUT,
+            collector.clone(),
+            move |cancel, stream| run_scan(&worker, &folders, &options, &cancel, stream),
+        )
+        .await
+        .expect("scan ok");
+        collector.messages()
+    }
+
+    /// The paths of a folder project's members.
+    fn members(state: &AppState, id: i64) -> Vec<PathBuf> {
+        let projects = state
+            .with_index(|index| Ok(index.projects()?))
+            .expect("projects");
+        projects
+            .into_iter()
+            .find(|project| project.id == id)
+            .expect("the project")
+            .members
+            .into_iter()
+            .map(|member| member.path)
+            .collect()
+    }
+
     #[tokio::test]
     async fn streams_found_entries_then_their_summaries_and_stores_them() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -324,6 +380,7 @@ mod tests {
         init_repo(&root.join("beta"));
         std::fs::write(root.join("beta").join("dirty.txt"), b"x").expect("write");
         let state = AppState::default();
+        let project = folder_project(&state, &root);
         let ops = Operations::default();
         let collector = Collector::<ScanMessage>::default();
         let worker = state.clone();
@@ -374,6 +431,79 @@ mod tests {
                 ..
             }
         )));
+        // Both are the folder project's own members.
+        assert_eq!(members(&state, project.id).len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_folder_without_a_project_stores_nothing() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path().join("code");
+        init_repo(&root.join("alpha"));
+        let state = AppState::default();
+        let messages = scan(&state, vec![root]).await;
+        assert!(!messages.iter().any(|m| matches!(
+            m,
+            StreamMessage::Page {
+                data: ScanMessage::Found { .. },
+                ..
+            }
+        )));
+        let stored = state.with_index(|index| Ok(index.list()?)).expect("list");
+        assert!(stored.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_complete_scan_lets_go_of_what_left_the_disk_and_a_stopped_one_changes_nothing() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path().join("code");
+        init_repo(&root.join("alpha"));
+        init_repo(&root.join("beta"));
+        init_repo(&root.join("gamma"));
+        let state = AppState::default();
+        let project = folder_project(&state, &root);
+        scan(&state, vec![root.clone()]).await;
+        assert_eq!(members(&state, project.id).len(), 3);
+
+        // Gamma's folder goes: a stopped scan changes no membership.
+        std::fs::remove_dir_all(root.join("gamma")).expect("remove gamma");
+        let collector = Collector::<ScanMessage>::default();
+        let cancel = GitCancel::new();
+        let sink = CancellingSink {
+            inner: collector.clone(),
+            cancel: cancel.clone(),
+        };
+        let mut stream = Stream::new(sink);
+        let error = run_scan(
+            &state,
+            std::slice::from_ref(&root),
+            &ScanOptions::default(),
+            &cancel,
+            &mut stream,
+        )
+        .expect_err("stopped after the first entry");
+        assert_eq!(error.code, "op.cancelled");
+        assert_eq!(members(&state, project.id).len(), 3);
+
+        // A complete scan lets gamma go, from the project and the index, and says so.
+        let messages = scan(&state, vec![root.clone()]).await;
+        let missing: Vec<PathBuf> = messages
+            .iter()
+            .find_map(|m| match m {
+                StreamMessage::Page {
+                    data: ScanMessage::FolderDone { missing, .. },
+                    ..
+                } => Some(missing.clone()),
+                _ => None,
+            })
+            .expect("the folder ended");
+        assert_eq!(missing.len(), 1);
+        assert!(missing[0].ends_with("gamma"), "{missing:?}");
+        let left = members(&state, project.id);
+        assert_eq!(left.len(), 2);
+        assert!(!left.iter().any(|path| path.ends_with("gamma")));
+        let stored = state.with_index(|index| Ok(index.list()?)).expect("list");
+        assert_eq!(stored.len(), 2);
     }
 
     #[tokio::test]
@@ -407,6 +537,7 @@ mod tests {
         for i in 0..30 {
             init_repo(&root.join(format!("r{i}")));
         }
+        folder_project(&state, &root);
         let collector = Collector::<ScanMessage>::default();
         let cancel = GitCancel::new();
         let sink = CancellingSink {

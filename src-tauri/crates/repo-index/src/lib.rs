@@ -1,5 +1,6 @@
-//! SQLite-backed index for Begitra: discovered repositories and worktrees, review state and
-//! caches, plus the scanner that finds repositories under the configured folders.
+//! SQLite-backed index for Begitra: discovered repositories and worktrees, the projects that
+//! hold them (every entry belongs to at least one), review state and caches, plus the scanner
+//! that finds repositories under the folders of folder projects.
 //!
 //! The crate knows nothing of git objects: the scanner only looks for `.git` entries on disk,
 //! and the summaries stored in the index are computed by `git-core` and handed in.
@@ -20,6 +21,7 @@ pub use cancel::Cancel;
 pub use error::{IndexError, IndexResult};
 pub use index::Index;
 pub use types::{
-    Annotation, AnnotationKey, AnnotationKind, Found, IndexEntry, Operation, Project, RepoKind,
-    RepoSummary, ScanEvent, ScanOptions, Upstream,
+    Annotation, AnnotationKey, AnnotationKind, FolderScanEnd, Found, IndexEntry, Member,
+    MemberOrigin, Operation, Project, ProjectEdit, ProjectKind, RepoKind, RepoSummary, ScanEvent,
+    ScanOptions, Upserted, Upstream,
 };

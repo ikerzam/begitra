@@ -1,5 +1,6 @@
 //! The repository index: one SQLite database with the repositories and worktrees found by the
-//! scanner or opened by path, their last summary, pins and recents.
+//! scanner or opened by path, their last summary and recents, and the projects that hold them
+//! (`projects.rs`).
 
 use std::path::{Path, PathBuf};
 
@@ -7,7 +8,8 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::error::IndexResult;
 use crate::migrations;
-use crate::types::{Found, IndexEntry, Operation, RepoKind, RepoSummary, Upstream};
+use crate::projects;
+use crate::types::{Found, IndexEntry, Operation, RepoKind, RepoSummary, Upserted, Upstream};
 
 /// The index database.
 pub struct Index {
@@ -33,6 +35,10 @@ impl Index {
     }
 
     pub(crate) fn prepare(mut connection: Connection) -> IndexResult<Self> {
+        // A transaction takes the write lock when it begins: one that reads before it writes
+        // would otherwise fail at once, without the busy timeout, when a second instance of
+        // the app writes in between.
+        connection.set_transaction_behavior(rusqlite::TransactionBehavior::Immediate);
         migrations::migrate(&mut connection)?;
         Ok(Self { connection })
     }
@@ -42,16 +48,26 @@ impl Index {
         &self.connection
     }
 
-    /// Records a repository or worktree found by the scanner (or opened by path when
-    /// `found.scan_root` is empty), keeping its summary, pin and recents when it was known;
-    /// `now` is the first-seen time of a new entry.
-    pub fn upsert_found(&self, found: &Found, now: i64) -> IndexResult<()> {
-        let scan_root = if found.scan_root.as_os_str().is_empty() {
-            None
+    /// Records a repository or worktree found by the scanner, or opened by path when
+    /// `found.scan_root` is empty, keeping its summary, pin and recents when it was known
+    /// (`now` is the first-seen time of a new entry), and keeps it in a project: found under a
+    /// folder, it becomes one of that folder project's own members (one it held by hand turns
+    /// its own); opened by path, it gets a list project of one when no project holds it.
+    /// Found under a folder that has no project (removed while the scan ran), it is not
+    /// stored.
+    pub fn upsert_found(&self, found: &Found, now: i64) -> IndexResult<Upserted> {
+        let transaction = self.connection.unchecked_transaction()?;
+        let path = path_text(&found.path);
+        let (scan_root, folder_project) = if found.scan_root.as_os_str().is_empty() {
+            (None, None)
         } else {
-            Some(path_text(&found.scan_root))
+            let root = path_text(&found.scan_root);
+            let Some(id) = projects::folder_project_id(&transaction, &root)? else {
+                return Ok(Upserted::NoFolderProject);
+            };
+            (Some(root), Some(id))
         };
-        self.connection.execute(
+        transaction.execute(
             "INSERT INTO repos (path, name, kind, parent_path, scan_root, refreshed_at, missing)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)
              ON CONFLICT(path) DO UPDATE SET
@@ -61,7 +77,7 @@ impl Index {
                scan_root = COALESCE(excluded.scan_root, repos.scan_root),
                missing = 0",
             params![
-                path_text(&found.path),
+                path,
                 found.name,
                 kind_text(found.kind),
                 found.parent_path.as_deref().map(path_text),
@@ -69,7 +85,14 @@ impl Index {
                 now,
             ],
         )?;
-        Ok(())
+        match folder_project {
+            Some(id) => projects::add_folder_member(&transaction, id, &path)?,
+            None => {
+                projects::project_holding(&transaction, &path, &found.name, now)?;
+            }
+        }
+        transaction.commit()?;
+        Ok(Upserted::Stored)
     }
 
     /// Stores a fresh summary of `path`.
@@ -104,14 +127,14 @@ impl Index {
         Ok(())
     }
 
-    /// Every entry, pinned first, then by name and path.
+    /// Every entry, by name (whatever the case), then by path.
     pub fn list(&self) -> IndexResult<Vec<IndexEntry>> {
         let mut statement = self.connection.prepare(
             "SELECT path, name, kind, parent_path, scan_root, current_branch, detached, dirty,
                     ahead, behind, last_commit_at, pinned, last_opened_at, refreshed_at, missing,
                     upstream, operation, fetched_at, last_commit_subject, upstream_remote,
                     upstream_branch, upstream_push_remote
-             FROM repos ORDER BY pinned DESC, name COLLATE NOCASE ASC, path ASC",
+             FROM repos ORDER BY name COLLATE NOCASE ASC, path ASC",
         )?;
         let rows = statement.query_map([], entry_from_row)?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
@@ -133,25 +156,6 @@ impl Index {
             .optional()?)
     }
 
-    /// Pins or unpins an entry.
-    pub fn set_pinned(&self, path: &Path, pinned: bool) -> IndexResult<()> {
-        self.connection.execute(
-            "UPDATE repos SET pinned = ?2 WHERE path = ?1",
-            params![path_text(path), pinned],
-        )?;
-        Ok(())
-    }
-
-    /// Forgets an entry and, for a main repository, its worktrees.
-    pub fn forget(&self, path: &Path) -> IndexResult<()> {
-        let text = path_text(path);
-        self.connection.execute(
-            "DELETE FROM repos WHERE path = ?1 OR parent_path = ?1",
-            params![text],
-        )?;
-        Ok(())
-    }
-
     /// Records that an entry was opened now.
     pub fn record_open(&self, path: &Path, now: i64) -> IndexResult<()> {
         self.connection.execute(
@@ -170,53 +174,20 @@ impl Index {
         Ok(())
     }
 
-    /// Drops every entry found under `root` (a removed scan folder); pinned entries and
-    /// entries opened by hand stay, without a scan folder.
-    pub fn remove_root(&self, root: &Path) -> IndexResult<()> {
-        let text = path_text(root);
-        self.connection.execute(
-            "DELETE FROM repos WHERE scan_root = ?1 AND pinned = 0 AND last_opened_at IS NULL",
-            params![text],
-        )?;
-        // Worktrees whose repository just went (and that were never pinned or opened).
-        self.connection.execute(
-            "DELETE FROM repos WHERE kind = 'worktree' AND pinned = 0 AND last_opened_at IS NULL
-               AND parent_path IS NOT NULL
-               AND parent_path NOT IN (SELECT path FROM repos WHERE kind = 'main')",
-            [],
-        )?;
-        self.connection.execute(
-            "UPDATE repos SET scan_root = NULL WHERE scan_root = ?1",
-            params![text],
-        )?;
-        Ok(())
-    }
-
-    /// The paths under `root` that a scan did not report again: their folders are gone.
-    pub fn mark_missing_under_root(
-        &self,
-        root: &Path,
-        seen: &[PathBuf],
-        now: i64,
-    ) -> IndexResult<Vec<PathBuf>> {
-        let mut statement = self
-            .connection
-            .prepare("SELECT path FROM repos WHERE scan_root = ?1")?;
-        let known: Vec<String> = statement
-            .query_map(params![path_text(root)], |row| row.get(0))?
-            .collect::<Result<_, _>>()?;
-        let seen: std::collections::HashSet<String> = seen.iter().map(|p| path_text(p)).collect();
-        let mut gone = Vec::new();
-        for path in known {
-            if !seen.contains(&path) {
-                self.connection.execute(
-                    "UPDATE repos SET missing = 1, refreshed_at = ?2 WHERE path = ?1",
-                    params![path, now],
-                )?;
-                gone.push(PathBuf::from(path));
-            }
-        }
-        Ok(gone)
+    /// The paths of the entries no project holds: none, while the membership rule holds.
+    #[cfg(test)]
+    pub(crate) fn loose_entries(&self) -> Vec<String> {
+        self.connection
+            .prepare(
+                "SELECT path FROM repos WHERE path NOT IN (
+                   SELECT m.path FROM project_members m JOIN projects p ON p.id = m.project_id)",
+            )
+            .and_then(|mut statement| {
+                statement
+                    .query_map([], |row| row.get(0))?
+                    .collect::<Result<Vec<String>, _>>()
+            })
+            .expect("loose entries")
     }
 }
 
@@ -318,11 +289,23 @@ mod tests {
         }
     }
 
+    /// An index with the folder project of `/code`, where [`found`] entries are stored.
+    fn index_with_code() -> Index {
+        let index = Index::in_memory().expect("index");
+        index
+            .create_folder_project(Path::new("/code"), 1)
+            .expect("folder project");
+        index
+    }
+
     #[test]
     fn upserting_twice_keeps_one_row_and_its_summary() {
-        let index = Index::in_memory().expect("index");
+        let index = index_with_code();
         let alpha = found("/code/alpha", RepoKind::Main, None);
-        index.upsert_found(&alpha, 1).expect("insert");
+        assert_eq!(
+            index.upsert_found(&alpha, 1).expect("insert"),
+            Upserted::Stored
+        );
         let summary = RepoSummary {
             current_branch: Some("main".to_owned()),
             ahead: Some(2),
@@ -334,78 +317,78 @@ mod tests {
         index
             .update_summary(&alpha.path, &summary, 2)
             .expect("summary");
-        index.set_pinned(&alpha.path, true).expect("pin");
-        index.upsert_found(&alpha, 3).expect("second insert");
+        index.record_open(&alpha.path, 5).expect("open");
+        assert_eq!(
+            index.upsert_found(&alpha, 3).expect("second insert"),
+            Upserted::Stored
+        );
         let list = index.list().expect("list");
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].summary, summary);
-        assert!(list[0].pinned);
+        assert_eq!(list[0].last_opened_at, Some(5));
         assert_eq!(list[0].refreshed_at, Some(2));
     }
 
     #[test]
-    fn lists_pinned_first_then_by_name_and_forgets_worktrees_with_their_repository() {
-        let index = Index::in_memory().expect("index");
-        index
-            .upsert_found(&found("/code/zeta", RepoKind::Main, None), 1)
-            .expect("insert");
-        index
-            .upsert_found(&found("/code/alpha", RepoKind::Main, None), 1)
-            .expect("insert");
-        index
-            .upsert_found(
-                &found("/wt/feature", RepoKind::Worktree, Some("/code/alpha")),
-                1,
-            )
-            .expect("insert");
-        index
-            .set_pinned(Path::new("/code/zeta"), true)
-            .expect("pin");
+    fn lists_by_name_with_worktrees_as_entries_of_their_own() {
+        let index = index_with_code();
+        for entry in [
+            found("/code/zeta", RepoKind::Main, None),
+            found("/code/alpha", RepoKind::Main, None),
+            found("/code/feature", RepoKind::Worktree, Some("/code/alpha")),
+        ] {
+            assert_eq!(
+                index.upsert_found(&entry, 1).expect("insert"),
+                Upserted::Stored
+            );
+        }
         let names: Vec<String> = index
             .list()
             .expect("list")
             .into_iter()
             .map(|e| e.name)
             .collect();
-        assert_eq!(names, ["zeta", "alpha", "feature"]);
-        index.forget(Path::new("/code/alpha")).expect("forget");
-        let names: Vec<String> = index
-            .list()
-            .expect("list")
-            .into_iter()
-            .map(|e| e.name)
-            .collect();
-        assert_eq!(names, ["zeta"]);
+        assert_eq!(names, ["alpha", "feature", "zeta"]);
+        let feature = index
+            .get(Path::new("/code/feature"))
+            .expect("get")
+            .expect("feature");
+        assert_eq!(feature.kind, RepoKind::Worktree);
+        assert_eq!(
+            feature.parent_path.as_deref(),
+            Some(Path::new("/code/alpha"))
+        );
     }
 
     #[test]
-    fn recents_missing_and_removed_roots() {
-        let index = Index::in_memory().expect("index");
+    fn recents_and_missing_folders() {
+        let index = index_with_code();
         let alpha = found("/code/alpha", RepoKind::Main, None);
         let beta = found("/code/beta", RepoKind::Main, None);
-        index.upsert_found(&alpha, 1).expect("insert");
-        index.upsert_found(&beta, 1).expect("insert");
+        assert_eq!(
+            index.upsert_found(&alpha, 1).expect("insert"),
+            Upserted::Stored
+        );
+        assert_eq!(
+            index.upsert_found(&beta, 1).expect("insert"),
+            Upserted::Stored
+        );
         index.record_open(&alpha.path, 42).expect("open");
         index.mark_missing(&beta.path, true).expect("missing");
         let entry = index.get(&alpha.path).expect("get").expect("alpha");
         assert_eq!(entry.last_opened_at, Some(42));
         assert!(index.get(&beta.path).expect("get").expect("beta").missing);
-        // A scan that no longer reports beta flags it; alpha was reported.
-        let gone = index
-            .mark_missing_under_root(Path::new("/code"), std::slice::from_ref(&alpha.path), 50)
-            .expect("mark");
-        assert_eq!(gone, std::slice::from_ref(&beta.path));
-        // Removing the root drops beta (never opened, not pinned) and keeps alpha without a root.
-        index.remove_root(Path::new("/code")).expect("remove root");
-        let list = index.list().expect("list");
-        assert_eq!(list.len(), 1);
-        assert_eq!(list[0].name, "alpha");
-        assert!(list[0].scan_root.is_none());
+        // Found again, it is no longer missing.
+        assert_eq!(
+            index.upsert_found(&beta, 2).expect("insert"),
+            Upserted::Stored
+        );
+        assert!(!index.get(&beta.path).expect("get").expect("beta").missing);
     }
 
     #[test]
     fn five_hundred_entries_list_quickly() {
-        let index = Index::in_memory().expect("index");
+        let index = index_with_code();
         let summary = RepoSummary {
             current_branch: Some("main".to_owned()),
             upstream: Some(Upstream {
@@ -424,7 +407,10 @@ mod tests {
         };
         for i in 0..500 {
             let entry = found(&format!("/code/repo-{i:03}"), RepoKind::Main, None);
-            index.upsert_found(&entry, 1).expect("insert");
+            assert_eq!(
+                index.upsert_found(&entry, 1).expect("insert"),
+                Upserted::Stored
+            );
             index
                 .update_summary(&entry.path, &summary, 2)
                 .expect("summary");
@@ -442,9 +428,12 @@ mod tests {
 
     #[test]
     fn a_summary_keeps_the_upstream_the_operation_and_the_last_fetch() {
-        let index = Index::in_memory().expect("index");
+        let index = index_with_code();
         let alpha = found("/code/alpha", RepoKind::Main, None);
-        index.upsert_found(&alpha, 1).expect("insert");
+        assert_eq!(
+            index.upsert_found(&alpha, 1).expect("insert"),
+            Upserted::Stored
+        );
         let fresh = index.get(&alpha.path).expect("get").expect("alpha");
         assert_eq!(fresh.summary.upstream, None);
         assert_eq!(
@@ -542,7 +531,28 @@ mod tests {
                 ..RepoSummary::default()
             }
         );
-        assert!(index.projects().expect("projects").is_empty());
+        // Version 5 puts every entry in a project: the scan folder's, and a pinned project of
+        // one for each pinned entry, which no pinned project held.
+        let projects = index.projects().expect("projects");
+        assert_eq!(projects.len(), 4);
+        let code = projects
+            .iter()
+            .find(|project| project.name == "code")
+            .expect("the folder project");
+        assert_eq!(code.folder.as_deref(), Some(Path::new("/code")));
+        assert_eq!(code.members.len(), 40);
+        assert_eq!(code.opened_at, Some(1_700_000_030));
+        assert_eq!(
+            code.last_repository.as_deref(),
+            Some(Path::new("/code/repo-30"))
+        );
+        let pinned: Vec<&str> = projects
+            .iter()
+            .filter(|project| project.pinned)
+            .map(|project| project.name.as_str())
+            .collect();
+        assert_eq!(pinned, ["repo-00", "repo-01", "repo-02"]);
+        assert!(index.loose_entries().is_empty());
         let notes = index
             .list_annotations(Path::new("/code/repo-00"), "HEAD")
             .expect("notes");

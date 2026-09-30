@@ -1,4 +1,5 @@
-//! The repository index: listing, pinning, forgetting, recents and one-off refreshes.
+//! The repository index: listing, recents and one-off refreshes. Pins, forgetting and scan
+//! folders belong to projects (`commands::projects`): every entry lives in one.
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -6,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use git_core::engine::Cancel;
 use git_core::summary::{describe, describe_head, RepoSummary};
 use git_core::types::OperationState;
-use repo_index::{Found, IndexEntry, Operation, RepoKind};
+use repo_index::{Found, IndexEntry, Operation, RepoKind, Upserted};
 use tauri::State;
 
 use crate::error::AppError;
@@ -76,8 +77,31 @@ fn index_operation(operation: OperationState) -> Operation {
     }
 }
 
-/// Describes `path` and stores the result: the entry (created when unknown) and its summary.
-/// Returns the stored entry.
+/// An entry for `summary` that the index does not hold: what a description answers for a
+/// repository no project names yet.
+fn described_entry(found: &Found, summary: &RepoSummary, dirty: bool) -> IndexEntry {
+    let mut stored = index_summary(summary);
+    if !dirty {
+        stored.dirty = None;
+    }
+    IndexEntry {
+        path: found.path.clone(),
+        name: found.name.clone(),
+        kind: found.kind,
+        parent_path: found.parent_path.clone(),
+        scan_root: None,
+        summary: stored,
+        pinned: false,
+        last_opened_at: None,
+        refreshed_at: None,
+        missing: false,
+    }
+}
+
+/// Describes `path` and stores the result: the summary of a known entry, and an unknown one
+/// when some project names its path (it joins no project of one). A repository no project
+/// names is described without being stored, so the "Add repository…" probe of a dialog that
+/// is then cancelled leaves nothing behind. Returns the entry.
 pub fn refresh_entry(
     state: &AppState,
     path: &Path,
@@ -103,7 +127,12 @@ pub fn refresh_entry(
     let stamp = now();
     state.with_index(|index| {
         if index.get(&found.path)?.is_none() {
-            index.upsert_found(&found, stamp)?;
+            if !index.is_member(&found.path)? {
+                return Ok(described_entry(&found, &summary, dirty));
+            }
+            // Opened by path, so it cannot miss a folder project: stored in its project.
+            let upserted = index.upsert_found(&found, stamp)?;
+            debug_assert_eq!(upserted, Upserted::Stored);
         }
         let mut stored = index_summary(&summary);
         if !dirty {
@@ -127,34 +156,6 @@ pub async fn list_repositories(state: State<'_, AppState>) -> Result<Vec<IndexEn
     tokio::task::spawn_blocking(move || app.with_index(|index| Ok(index.list()?)))
         .await
         .map_err(|join| AppError::internal(format!("index task failed: {join}")))?
-}
-
-/// Pins or unpins an entry.
-#[tauri::command]
-#[tracing::instrument(level = "debug", skip(state))]
-pub async fn pin_repository(
-    state: State<'_, AppState>,
-    path: PathBuf,
-    pinned: bool,
-) -> Result<(), AppError> {
-    let app = state.inner().clone();
-    tokio::task::spawn_blocking(move || {
-        app.with_index(|index| Ok(index.set_pinned(&normalise(&path), pinned)?))
-    })
-    .await
-    .map_err(|join| AppError::internal(format!("index task failed: {join}")))?
-}
-
-/// Forgets an entry (and a repository's worktrees) until a scan finds it again.
-#[tauri::command]
-#[tracing::instrument(level = "debug", skip(state))]
-pub async fn forget_repository(state: State<'_, AppState>, path: PathBuf) -> Result<(), AppError> {
-    let app = state.inner().clone();
-    tokio::task::spawn_blocking(move || {
-        app.with_index(|index| Ok(index.forget(&normalise(&path))?))
-    })
-    .await
-    .map_err(|join| AppError::internal(format!("index task failed: {join}")))?
 }
 
 /// Records that `path` was opened now (the recents order).
@@ -191,18 +192,6 @@ pub async fn refresh_repository(
     .await
 }
 
-/// Drops entries under a removed scan folder (pinned and opened ones stay without a folder).
-#[tauri::command]
-#[tracing::instrument(level = "debug", skip(state))]
-pub async fn remove_scan_root(state: State<'_, AppState>, root: PathBuf) -> Result<(), AppError> {
-    let app = state.inner().clone();
-    tokio::task::spawn_blocking(move || {
-        app.with_index(|index| Ok(index.remove_root(&normalise(&root))?))
-    })
-    .await
-    .map_err(|join| AppError::internal(format!("index task failed: {join}")))?
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -214,18 +203,66 @@ mod tests {
         assert!(output.status.success(), "git {args:?} failed");
     }
 
+    /// A repository with one commit at `root`.
+    fn repository(root: &Path) {
+        std::fs::create_dir_all(root).expect("mkdir");
+        git(root, &["init", "-q", "-b", "main"]);
+        git(root, &["config", "user.email", "t@x"]);
+        git(root, &["config", "user.name", "t"]);
+        git(root, &["commit", "-q", "--allow-empty", "-m", "init"]);
+    }
+
+    /// The root git and the index name for `root`.
+    fn described_root(root: &Path) -> PathBuf {
+        let summary = describe_head(root, &Cancel::never()).expect("describe");
+        normalise(&summary.root)
+    }
+
+    #[test]
+    fn a_repository_no_project_names_is_described_not_stored() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path().join("probe");
+        repository(&root);
+        let state = AppState::default();
+        let cancel = Cancel::never();
+        let entry = refresh_entry(&state, &root, false, &cancel).expect("describe");
+        assert_eq!(entry.name, "probe");
+        assert_eq!(entry.summary.current_branch.as_deref(), Some("main"));
+        let listed = state.with_index(|index| Ok(index.list()?)).expect("list");
+        assert!(listed.is_empty(), "the probe stored {listed:?}");
+        let projects = state
+            .with_index(|index| Ok(index.projects()?))
+            .expect("projects");
+        assert!(projects.is_empty());
+        // Once a project names it, a refresh stores it in that project and makes none.
+        let path = described_root(&root);
+        state
+            .with_index(|index| {
+                Ok(index.create_project("Tiles", std::slice::from_ref(&path), 1)?)
+            })
+            .expect("create");
+        refresh_entry(&state, &root, false, &cancel).expect("refresh");
+        let listed = state.with_index(|index| Ok(index.list()?)).expect("list");
+        assert_eq!(listed.len(), 1);
+        let projects = state
+            .with_index(|index| Ok(index.projects()?))
+            .expect("projects");
+        assert_eq!(projects.len(), 1);
+    }
+
     #[test]
     fn a_refresh_without_the_dirty_flag_keeps_the_stored_one() {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path().join("repo");
-        std::fs::create_dir_all(&root).expect("mkdir");
-        git(&root, &["init", "-q", "-b", "main"]);
-        git(&root, &["config", "user.email", "t@x"]);
-        git(&root, &["config", "user.name", "t"]);
-        git(&root, &["commit", "-q", "--allow-empty", "-m", "init"]);
+        repository(&root);
         std::fs::write(root.join("dirty.txt"), b"x").expect("write");
         let state = AppState::default();
         let cancel = Cancel::never();
+        // A project names it, so the refresh stores it.
+        let path = described_root(&root);
+        state
+            .with_index(|index| Ok(index.create_project("Repo", &[path], 1)?))
+            .expect("create");
         let entry = refresh_entry(&state, &root, true, &cancel).expect("refresh");
         assert_eq!(entry.summary.dirty, Some(true));
         git(&root, &["switch", "-q", "-c", "other"]);

@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-use git2::{Buf, ErrorCode, Repository, StatusOptions, StatusShow};
+use git2::{Buf, ErrorCode, Repository, RepositoryOpenFlags, StatusOptions, StatusShow};
 use serde::{Deserialize, Serialize};
 
 use crate::engine::Cancel;
@@ -89,6 +89,31 @@ pub fn describe(path: &Path, cancel: &Cancel) -> GitResult<RepoSummary> {
 #[tracing::instrument(level = "debug", skip_all, fields(path = %path.display()))]
 pub fn describe_head(path: &Path, cancel: &Cancel) -> GitResult<RepoSummary> {
     read(path, false, cancel)
+}
+
+/// The working tree root of the repository or worktree that contains `path` (its root or any
+/// folder inside it), found as [`crate::git2_engine::Git2Engine::open`] finds it:
+/// [`GitError::NotFound`] when none does, [`GitError::Invalid`] for a bare repository. For
+/// opening a folder the user picks; [`describe`] and [`describe_head`] open `path` itself
+/// only, so an entry whose repository is gone is never described as a repository around it.
+pub fn repository_root(path: &Path) -> GitResult<PathBuf> {
+    let repo = Repository::open_ext(
+        path,
+        RepositoryOpenFlags::CROSS_FS,
+        std::iter::empty::<&std::ffi::OsStr>(),
+    )
+    .map_err(|error| match error.code() {
+        ErrorCode::NotFound => GitError::NotFound(path.to_path_buf()),
+        _ => GitError::Invalid {
+            path: path.to_path_buf(),
+            reason: error.message().to_owned(),
+        },
+    })?;
+    let workdir = repo.workdir().ok_or_else(|| GitError::Invalid {
+        path: path.to_path_buf(),
+        reason: "bare repositories are not supported".to_owned(),
+    })?;
+    Ok(workdir.components().collect())
 }
 
 fn read(path: &Path, with_dirty: bool, cancel: &Cancel) -> GitResult<RepoSummary> {

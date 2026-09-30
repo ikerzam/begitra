@@ -1,0 +1,30 @@
+[
+  {
+    "project": {
+      "id": 2,
+      "name": "Geoportal",
+      "kind": "list",
+      "folder": null,
+      "members": [
+        {
+          "path": "/home/iker/code/geoportal",
+          "origin": "hand"
+        },
+        {
+          "path": "/home/iker/code/claude-auth",
+          "origin": "hand"
+        },
+        {
+          "path": "/home/iker/wt/gone",
+          "origin": "hand"
+        }
+      ],
+      "pinned": true,
+      "openedAt": 1704072000,
+      "lastRepository": "/home/iker/code/claude-auth",
+      "createdAt": 1704060000,
+      "updatedAt": 1704070000
+    },
+    "repository": "/home/iker/code/claude-auth"
+  }
+]

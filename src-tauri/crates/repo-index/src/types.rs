@@ -225,20 +225,96 @@ pub struct RepoSummary {
     pub dirty: Option<bool>,
 }
 
-/// A named, ordered group of repositories and worktrees.
+/// How a project holds its members.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProjectKind {
+    /// The repositories and worktrees the scans find under its folder, then any added by hand.
+    Folder,
+    /// The repositories and worktrees added to it, in the order given.
+    List,
+}
+
+/// How a member joined its project.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MemberOrigin {
+    /// Found by a scan of the project's folder; the scans keep it.
+    Folder,
+    /// Added by hand; only an edit of the project removes it.
+    Hand,
+}
+
+/// One repository or worktree of a project.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Member {
+    /// Working tree root; it need not have an index entry.
+    pub path: PathBuf,
+    /// Found by the scan of the project's folder or added by hand.
+    pub origin: MemberOrigin,
+}
+
+/// A named group of repositories and worktrees: the unit the app opens. Every index entry
+/// belongs to at least one project.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
     /// Stable id.
     pub id: i64,
-    /// The name the user gave it.
+    /// Its name: the folder's for a folder project until renamed.
     pub name: String,
-    /// Member paths in the user's order; a path need not have an index entry.
-    pub members: Vec<PathBuf>,
+    /// A folder project or a list project.
+    pub kind: ProjectKind,
+    /// A folder project's folder; `None` for a list project.
+    pub folder: Option<PathBuf>,
+    /// The folder's own members in path order, then the ones added by hand in their order.
+    pub members: Vec<Member>,
+    /// Pinned to the top of Home.
+    pub pinned: bool,
+    /// Last time it was opened, unix seconds.
+    pub opened_at: Option<i64>,
+    /// The repository it showed last.
+    pub last_repository: Option<PathBuf>,
     /// Creation time, unix seconds.
     pub created_at: i64,
-    /// Time of the last rename or change of members, unix seconds.
+    /// Time of the last rename or change of members by hand, unix seconds.
     pub updated_at: i64,
+}
+
+/// A project after an edit, with the repositories and worktrees the edit took out of the
+/// index.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectEdit {
+    /// The project as stored.
+    pub project: Project,
+    /// Paths that belong to no project any more: they left the index with their notes.
+    pub removed: Vec<PathBuf>,
+}
+
+/// What the end of a complete scan of a folder changed in its folder project.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderScanEnd {
+    /// The folder's own members the scan did not find and whose `.git` is gone: they left
+    /// the folder project, and those another project holds are flagged missing.
+    pub left: Vec<PathBuf>,
+    /// Of those, the ones no other project holds: they left the index, their notes kept.
+    pub removed: Vec<PathBuf>,
+    /// The folder's own members, all read as gone by a scan that found none of them (an
+    /// unmounted drive reads as an empty folder): kept, flagged missing.
+    pub held: Vec<PathBuf>,
+}
+
+/// What [`crate::Index::upsert_found`] did.
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Upserted {
+    /// The entry is stored and belongs to a project.
+    Stored,
+    /// Found under a folder that has no project (removed while the scan ran): nothing stored.
+    NoFolderProject,
 }
 
 /// One row of the index, as the home screen lists it.
@@ -253,11 +329,12 @@ pub struct IndexEntry {
     pub kind: RepoKind,
     /// For a worktree, the root of the repository that owns it.
     pub parent_path: Option<PathBuf>,
-    /// The scan folder it was found under; `None` when opened by path.
+    /// The folder whose scan found it last, which may belong to no project any more; `None`
+    /// when only opened by path. Membership is the projects', never this field's.
     pub scan_root: Option<PathBuf>,
     /// The last summary.
     pub summary: RepoSummary,
-    /// Pinned to the top of the list.
+    /// The pin an index of version 4 held, read only: pins belong to projects.
     pub pinned: bool,
     /// Last time it was opened, unix seconds.
     pub last_opened_at: Option<i64>,

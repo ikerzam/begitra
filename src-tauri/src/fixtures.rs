@@ -21,12 +21,14 @@ use serde::Serialize;
 use syntax::{Highlight, Symbol, SymbolKind, Token, TokenClass};
 
 use repo_index::{
-    Annotation, AnnotationKind, IndexEntry, Operation as IndexOperation, Project, RepoKind,
-    RepoSummary as IndexSummary, ScanOptions, Upstream as IndexUpstream,
+    Annotation, AnnotationKind, IndexEntry, Member, MemberOrigin, Operation as IndexOperation,
+    Project, ProjectEdit, ProjectKind, RepoKind, RepoSummary as IndexSummary, ScanOptions,
+    Upstream as IndexUpstream,
 };
 
 use crate::channels::StreamMessage;
 use crate::commands::diff::DiffPage;
+use crate::commands::projects::ProjectOpen;
 use crate::commands::remotes::NetworkEvent;
 use crate::commands::review::AnnotationWrite;
 use crate::commands::scan::ScanMessage;
@@ -454,6 +456,64 @@ fn app_errors() -> Vec<AppError> {
         .collect()
 }
 
+/// A member of a project under `/home/iker`.
+fn member(path: &str, origin: MemberOrigin) -> Member {
+    Member {
+        path: PathBuf::from(format!("/home/iker/{path}")),
+        origin,
+    }
+}
+
+/// A folder project, a list project with a pin and a last repository, and an empty one.
+fn projects() -> Vec<Project> {
+    vec![
+        Project {
+            id: 1,
+            name: "code".to_owned(),
+            kind: ProjectKind::Folder,
+            folder: Some(PathBuf::from("/home/iker/code")),
+            members: vec![
+                member("code/claude-auth", MemberOrigin::Folder),
+                member("code/geoportal", MemberOrigin::Folder),
+                member("wt/tiles-spike", MemberOrigin::Hand),
+            ],
+            pinned: false,
+            opened_at: None,
+            last_repository: None,
+            created_at: 1_704_050_000,
+            updated_at: 1_704_050_000,
+        },
+        Project {
+            id: 2,
+            name: "Geoportal".to_owned(),
+            kind: ProjectKind::List,
+            folder: None,
+            members: vec![
+                member("code/geoportal", MemberOrigin::Hand),
+                member("code/claude-auth", MemberOrigin::Hand),
+                member("wt/gone", MemberOrigin::Hand),
+            ],
+            pinned: true,
+            opened_at: Some(1_704_072_000),
+            last_repository: Some(PathBuf::from("/home/iker/code/claude-auth")),
+            created_at: 1_704_060_000,
+            updated_at: 1_704_070_000,
+        },
+        Project {
+            id: 3,
+            name: "empty".to_owned(),
+            kind: ProjectKind::List,
+            folder: None,
+            members: Vec::new(),
+            pinned: false,
+            opened_at: None,
+            last_repository: None,
+            created_at: 1_704_080_000,
+            updated_at: 1_704_080_000,
+        },
+    ]
+}
+
 fn index_entry(name: &str, kind: RepoKind, parent: Option<&str>) -> IndexEntry {
     IndexEntry {
         path: PathBuf::from(format!("/home/iker/code/{name}")),
@@ -726,28 +786,27 @@ fn write_fixtures() {
         ],
     );
     write("scan-messages", &scan_messages());
+    let listed = projects();
+    write("projects", &listed);
     write(
-        "projects",
+        "project-edits",
         &[
-            Project {
-                id: 1,
-                name: "geoportal".to_owned(),
-                members: vec![
-                    PathBuf::from("/home/iker/code/geoportal"),
-                    PathBuf::from("/home/iker/code/claude-auth"),
-                    PathBuf::from("/home/iker/wt/gone"),
-                ],
-                created_at: 1_704_060_000,
-                updated_at: 1_704_070_000,
+            ProjectEdit {
+                project: listed[1].clone(),
+                removed: vec![PathBuf::from("/home/iker/wt/tiles-old")],
             },
-            Project {
-                id: 2,
-                name: "empty".to_owned(),
-                members: Vec::new(),
-                created_at: 1_704_080_000,
-                updated_at: 1_704_080_000,
+            ProjectEdit {
+                project: listed[2].clone(),
+                removed: Vec::new(),
             },
         ],
+    );
+    write(
+        "project-opens",
+        &[ProjectOpen {
+            project: listed[1].clone(),
+            repository: PathBuf::from("/home/iker/code/claude-auth"),
+        }],
     );
     write(
         "scan-stream-page",

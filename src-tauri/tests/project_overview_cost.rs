@@ -21,7 +21,7 @@ use git_core::engine::{Cancel, GitEngine};
 use git_core::git2_engine::Git2Engine;
 use git_core::summary::describe_head;
 use git_core::types::Prompts;
-use repo_index::{Found, Index, RepoKind, RepoSummary};
+use repo_index::{Found, Index, RepoKind, RepoSummary, Upserted};
 
 /// Summaries read at once, as the Overview reads them.
 const READS_AT_ONCE: usize = 4;
@@ -117,9 +117,12 @@ fn overview_of_the_synthetic_worktrees() {
     roots.sort();
     assert_eq!(roots.len(), 20, "20 linked worktrees");
 
-    // The index as a scan leaves it: an entry and a summary each (read without the status,
-    // which only this setup would pay), and a project of the 20.
+    // The index as a scan leaves it: the folder's project, an entry and a summary each (read
+    // without the status, which only this setup would pay), and a project of the 20.
     let index = Index::in_memory().expect("index");
+    index
+        .create_folder_project(&folder, 0)
+        .expect("folder project");
     for root in &roots {
         let found = Found {
             path: root.clone(),
@@ -131,7 +134,10 @@ fn overview_of_the_synthetic_worktrees() {
             parent_path: Some(bench_repos().join("synthetic")),
             scan_root: folder.clone(),
         };
-        index.upsert_found(&found, 1).expect("insert");
+        assert_eq!(
+            index.upsert_found(&found, 1).expect("insert"),
+            Upserted::Stored
+        );
         let summary = describe_head(root, &Cancel::never()).expect("summary");
         index
             .update_summary(root, &index_summary(&summary), 2)
@@ -145,7 +151,8 @@ fn overview_of_the_synthetic_worktrees() {
     let projects = index.projects().expect("projects");
     let first_rows = started.elapsed();
     assert_eq!(listed.len(), 20);
-    assert_eq!(projects[0].members.len(), 20);
+    // The folder's project and the list project hold the 20 each.
+    assert!(projects.iter().all(|project| project.members.len() == 20));
 
     let before = private_mb();
     let times = Arc::new(Mutex::new(Vec::new()));

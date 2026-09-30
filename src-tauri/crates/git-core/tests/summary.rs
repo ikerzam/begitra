@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use git_core::engine::Cancel;
 use git_core::error::GitError;
-use git_core::summary::{describe, Upstream};
+use git_core::summary::{describe, describe_head, repository_root, Upstream};
 use git_core::types::OperationState;
 use support::Fixture;
 
@@ -61,6 +61,31 @@ fn an_unborn_repository_has_no_tip() {
     assert!(summary.last_commit_at.is_none());
     assert!(summary.last_commit_subject.is_none());
     assert_eq!(summary.dirty, Some(false));
+}
+
+#[test]
+fn a_folder_inside_a_repository_has_the_repository_s_root_and_one_outside_has_none() {
+    let f = Fixture::basic();
+    let inside = f.root.join("src").join("deep");
+    fs::create_dir_all(&inside).expect("mkdir");
+    let root = repository_root(&inside).expect("root from inside");
+    assert_eq!(
+        fs::canonicalize(&root).expect("canonical"),
+        fs::canonicalize(&f.root).expect("canonical")
+    );
+    assert_eq!(repository_root(&f.root).expect("root of the root"), root);
+    let summary = describe_head(&root, &Cancel::never()).expect("summary");
+    assert_eq!(summary.name, "repo");
+    // describe_head itself opens the root only: from inside it finds nothing.
+    assert!(matches!(
+        describe_head(&inside, &Cancel::never()),
+        Err(GitError::NotFound(_))
+    ));
+    let outside = tempfile::tempdir().expect("tempdir");
+    assert!(matches!(
+        repository_root(outside.path()),
+        Err(GitError::NotFound(_))
+    ));
 }
 
 #[test]
