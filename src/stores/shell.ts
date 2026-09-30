@@ -1,5 +1,6 @@
 // Shell layout state: layout mode, sidebar rail, pane sizes (persisted through the settings
-// store), the narrow-window collapse of the review rail, and the palette.
+// store), the narrow-window collapse of the review rail, the sidebar and the detail panel
+// under the zoom, and the palette.
 
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
@@ -29,6 +30,18 @@ export type ColumnTable = keyof ColumnWidths;
 /** Below this window width the review rail collapses. */
 export const REVIEW_RAIL_BREAKPOINT = 1100;
 
+/**
+ * Below this page width, which only the zoom reaches (the window's minimum is 1024), the
+ * sidebar starts as its rail and the detail panel gives way to the graph panel.
+ */
+export const NARROW_BREAKPOINT = 1024;
+/** The sidebar's rail (`--rail-w`). */
+const RAIL_WIDTH = 48;
+/** Under the narrow breakpoint: the width the detail panel leaves the graph panel (its lanes,
+ * a subject and the time), and the detail panel's own floor (the summary and the file names). */
+const NARROW_GRAPH_MIN = 320;
+const NARROW_DETAIL_MIN = 280;
+
 export function clampPane(pane: keyof PaneSizes, px: number): number {
   const { min, max } = paneLimits[pane];
   return Math.round(Math.min(Math.max(px, min), max));
@@ -47,24 +60,45 @@ export type SidebarTab = "repos" | "branches" | "worktrees";
 /** The user's say on the review rail; "auto" follows the window width. */
 export type ReviewRailPreference = "auto" | "shown" | "hidden";
 
+/** The sidebar under the narrow breakpoint: its rail ("auto") until the user shows it. */
+export type NarrowSidebar = "auto" | "shown";
+
 export const useShellStore = defineStore("shell", () => {
   const settings = useSettingsStore();
   const windowWidth = ref(1440);
   const reviewRailPreference = ref<ReviewRailPreference>("auto");
+  /** Session state, not a setting: a toggle while zoomed would otherwise hide the sidebar of
+   * the next unzoomed launch. */
+  const narrowSidebar = ref<NarrowSidebar>("auto");
   const paletteOpen = ref(false);
   /** Repos while nothing is open (the home screen); the shell switches to Branches on open. */
   const sidebarTab = ref<SidebarTab>("repos");
 
   const layoutMode = computed<LayoutMode>(() => settings.values.layoutMode);
-  const sidebarCollapsed = computed(() => settings.values.sidebarCollapsed);
+  const narrow = computed(() => windowWidth.value < NARROW_BREAKPOINT);
+  /** The remembered setting; under the narrow breakpoint the rail, until the user shows it. */
+  const sidebarCollapsed = computed(() =>
+    narrow.value ? narrowSidebar.value === "auto" : settings.values.sidebarCollapsed,
+  );
   const paneSizes = computed<PaneSizes>(() => settings.values.paneSizes);
   const columnWidths = computed<ColumnWidths>(() => settings.values.columnWidths);
 
-  /** Width of the detail panel: the pinned size after a drag, else the fraction of the window. */
+  /**
+   * Width of the detail panel: the pinned size after a drag, else the fraction of the window.
+   * Under the narrow breakpoint it leaves the graph panel 320px, down to 280px of its own, the
+   * share taken of the window less what the sidebar or its rail takes.
+   */
   const detailWidth = computed(() => {
     const pinned = paneSizes.value.detail;
-    if (pinned !== null) return clampPane("detail", pinned);
-    return defaultDetailWidth(windowWidth.value, paneSizes.value.sidebar);
+    if (!narrow.value) {
+      if (pinned !== null) return clampPane("detail", pinned);
+      return defaultDetailWidth(windowWidth.value, paneSizes.value.sidebar);
+    }
+    const side = sidebarCollapsed.value ? RAIL_WIDTH : paneSizes.value.sidebar;
+    const width = pinned ?? DETAIL_FRACTION * (windowWidth.value - side);
+    const room = windowWidth.value - side - NARROW_GRAPH_MIN;
+    const capped = Math.min(width, room, paneLimits.detail.max);
+    return Math.round(Math.max(NARROW_DETAIL_MIN, capped));
   });
 
   /** The review rail follows the user's toggle, else it hides below the breakpoint. */
@@ -78,7 +112,12 @@ export const useShellStore = defineStore("shell", () => {
     return settings.update("layoutMode", mode);
   }
 
+  /** ⌘B: under the narrow breakpoint it shows or hides the sidebar for the session only. */
   function toggleSidebar(): Promise<void> {
+    if (narrow.value) {
+      narrowSidebar.value = narrowSidebar.value === "auto" ? "shown" : "auto";
+      return Promise.resolve();
+    }
     return settings.update("sidebarCollapsed", !settings.values.sidebarCollapsed);
   }
 
@@ -121,10 +160,13 @@ export const useShellStore = defineStore("shell", () => {
     return setColumnWidth(table, column, width);
   }
 
-  /** Crossing the breakpoint in either direction hands the rail back to the automatic rule. */
+  /** Crossing a breakpoint in either direction hands its rail back to the automatic rule. */
   function setWindowWidth(px: number): void {
-    const narrow = px < REVIEW_RAIL_BREAKPOINT;
-    if (narrow !== windowWidth.value < REVIEW_RAIL_BREAKPOINT) reviewRailPreference.value = "auto";
+    const railNarrow = px < REVIEW_RAIL_BREAKPOINT;
+    if (railNarrow !== windowWidth.value < REVIEW_RAIL_BREAKPOINT) {
+      reviewRailPreference.value = "auto";
+    }
+    if (px < NARROW_BREAKPOINT !== narrow.value) narrowSidebar.value = "auto";
     windowWidth.value = px;
   }
 
@@ -161,10 +203,11 @@ export const useShellStore = defineStore("shell", () => {
     }
   }
 
-  /** Expands the sidebar on `tab` (the rail icons do this). */
+  /** Expands the sidebar on `tab` (the rail icons do this); for the session when narrow. */
   async function expandSidebar(tab: SidebarTab): Promise<void> {
     setSidebarTab(tab);
-    if (settings.values.sidebarCollapsed) await settings.update("sidebarCollapsed", false);
+    if (narrow.value) narrowSidebar.value = "shown";
+    else if (settings.values.sidebarCollapsed) await settings.update("sidebarCollapsed", false);
   }
 
   return {

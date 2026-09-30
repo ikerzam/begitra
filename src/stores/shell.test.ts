@@ -88,6 +88,64 @@ describe("shell store", () => {
     expect((storage.data.get("paneSizes") as { detail: number }).detail).toBe(520);
   });
 
+  it("shows the sidebar as its rail under 1024px until the user shows it, for the session", async () => {
+    const settings = useSettingsStore();
+    await settings.init(memoryStorage(), "windows");
+    const shell = useShellStore();
+    shell.setWindowWidth(1440);
+    expect(shell.sidebarCollapsed).toBe(false);
+    // 1440px at 175% zoom.
+    shell.setWindowWidth(823);
+    expect(shell.sidebarCollapsed).toBe(true);
+    await shell.expandSidebar("branches");
+    expect(shell.sidebarCollapsed).toBe(false);
+    expect(shell.sidebarTab).toBe("branches");
+    await shell.toggleSidebar();
+    expect(shell.sidebarCollapsed).toBe(true);
+    await shell.toggleSidebar();
+    expect(shell.sidebarCollapsed).toBe(false);
+    // The remembered setting is left as it was.
+    expect(settings.values.sidebarCollapsed).toBe(false);
+    // Crossing 1024px hands the sidebar back to the rule.
+    shell.setWindowWidth(1440);
+    expect(shell.sidebarCollapsed).toBe(false);
+    shell.setWindowWidth(823);
+    expect(shell.sidebarCollapsed).toBe(true);
+    // A sidebar collapsed at normal widths stays collapsed there.
+    await shell.expandSidebar("repos");
+    shell.setWindowWidth(1440);
+    await shell.toggleSidebar();
+    shell.setWindowWidth(823);
+    shell.setWindowWidth(1440);
+    expect(shell.sidebarCollapsed).toBe(true);
+  });
+
+  it("gives the graph panel 320px under 1024px, the detail panel down to 280px", async () => {
+    const settings = useSettingsStore();
+    await settings.init(memoryStorage(), "windows");
+    const shell = useShellStore();
+    // 40% of the page less the rail: 823 - 48 = 775.
+    shell.setWindowWidth(823);
+    expect(shell.detailWidth).toBe(310);
+    // 1280px at 200%: its share (237) is under the floor.
+    shell.setWindowWidth(640);
+    expect(shell.detailWidth).toBe(280);
+    // A dragged width leaves the graph panel 320px: 823 - 48 - 320.
+    await shell.setPaneSize("detail", 520);
+    shell.setWindowWidth(823);
+    expect(shell.detailWidth).toBe(455);
+    shell.setWindowWidth(1440);
+    expect(shell.detailWidth).toBe(520);
+    // With the sidebar shown while narrow the room is the page less the sidebar.
+    await shell.resetPaneSize("detail");
+    shell.setWindowWidth(823);
+    await shell.expandSidebar("repos");
+    expect(shell.detailWidth).toBe(280);
+    // 1024px and above keep the normal limits, 360 to 900.
+    shell.setWindowWidth(1024);
+    expect(shell.detailWidth).toBe(360);
+  });
+
   it("collapses the review rail below 1100px until the user shows it", async () => {
     const settings = useSettingsStore();
     await settings.init(memoryStorage(), "macos");
