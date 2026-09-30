@@ -1,11 +1,11 @@
 [
   {
-    "version": "0.5.0",
+    "version": "0.6.0",
     "logFile": "/home/iker/.local/share/dev.begitra.app/logs/begitra-2026-09-22.log",
     "logDir": "/home/iker/.local/share/dev.begitra.app/logs"
   },
   {
-    "version": "0.5.0",
+    "version": "0.6.0",
     "logFile": null,
     "logDir": null
   }

@@ -1,5 +1,18 @@
 [
   {
+    "version": "0.6.0",
+    "date": "2026-09-30",
+    "title": { "en": "Everything is a project", "es": "Todo es un proyecto" },
+    "highlight": {
+      "en": "A folder, a repository or a group of them: each is a project you open and move through with one key",
+      "es": "Una carpeta, un repositorio o un grupo de ellos: cada uno es un proyecto que abres y recorres con una tecla"
+    },
+    "notes": {
+      "en": "Begitra now opens projects. A folder of repositories is a project its scans keep up to date (a repository cloned into it joins, one deleted from it leaves), a repository you open on its own is a project of one, and the projects you made stay as they were; a repository can belong to several. Opening a project shows the graph of the repository you left it on, and the selector at the start of the filter bar, the Repos tab, the palette and Alt+Down and Alt+Up move between its repositories; its Overview (Ctrl+4) and its Changes (Ctrl+3) are in the top bar. Home lists your projects, pinned, recent and all of them, with what needs attention in each, and the top bar's switcher and the palette speak projects too. Removing a project, or a repository from one, names any repository that would leave Begitra with it, and never touches a folder. Your scan folders, pins, recents and projects move over on the first launch; the index moves to version 5, so going back to 0.5 afterwards is not supported.",
+      "es": "Begitra ahora abre proyectos. Una carpeta de repositorios es un proyecto que sus escaneos mantienen al día (un repositorio clonado en ella entra, uno borrado de ella sale), un repositorio que abres por separado es un proyecto de uno, y los proyectos que ya tenías siguen como estaban; un repositorio puede estar en varios. Abrir un proyecto muestra el grafo del repositorio en el que lo dejaste, y el selector al principio de la barra de filtros, la pestaña Repos, la paleta y Alt+Abajo y Alt+Arriba te mueven entre sus repositorios; su Resumen (Ctrl+4) y sus Cambios (Ctrl+3) están en la barra superior. Inicio lista tus proyectos, fijados, recientes y todos, con lo que necesita atención en cada uno, y el selector de la barra superior y la paleta también hablan de proyectos. Quitar un proyecto, o un repositorio de uno, nombra cualquier repositorio que saldría de Begitra con él, y nunca toca una carpeta. Tus carpetas de escaneo, fijados, recientes y proyectos pasan solos en el primer arranque; el índice pasa a la versión 5, así que volver después a 0.5 no está soportado."
+    }
+  },
+  {
     "version": "0.5.0",
     "date": "2026-09-30",
     "title": { "en": "Themes and the whole file", "es": "Temas y el fichero entero" },
