@@ -1,17 +1,21 @@
-# Monthly updates for the three ecosystems, minor and patch grouped into one pull request
+# Weekly updates for the three ecosystems, minor and patch grouped into one pull request
 # each: a Tauri, Vue or libgit2 major is a decision Iker makes himself, the rest is
 # noise when split. The actions are pinned by commit, so this is what keeps them fresh.
-# Monthly, not weekly: every pull request is a run of its own.
+# Each pull request runs the Linux checks and a green patch or minor npm or Cargo update merges
+# itself (workflows/dependabot.yml); the seven-day cooldown proposes only versions a week old,
+# since nobody reads a merge that makes itself and most bad releases are pulled within days.
 
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
-      interval: monthly
+      interval: weekly
       day: monday
       time: "06:00"
     open-pull-requests-limit: 3
+    cooldown:
+      default-days: 7
     groups:
       frontend:
         patterns: ["*"]
@@ -22,10 +26,12 @@ updates:
   - package-ecosystem: cargo
     directory: /src-tauri
     schedule:
-      interval: monthly
+      interval: weekly
       day: monday
       time: "06:00"
     open-pull-requests-limit: 3
+    cooldown:
+      default-days: 7
     groups:
       rust:
         patterns: ["*"]
@@ -36,10 +42,12 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: monthly
+      interval: weekly
       day: monday
       time: "06:00"
     open-pull-requests-limit: 3
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns: ["*"]

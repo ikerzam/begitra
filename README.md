@@ -53,13 +53,14 @@ that is red on one operating system only is usually a path, line-ending or syste
 for that platform. Re-run a single job from the run page when the failure looks unrelated to the
 change.
 
-Two more workflows: `release.yml` builds the installers on a `v*` tag (running the checks above
-first) or, started by hand from the Actions tab, builds them without releasing and keeps them as
-artifacts of the run; `audit.yml` checks the
-production npm dependencies and `src-tauri/Cargo.lock` against their advisories every Monday and
-on demand (one Ubuntu job of about a minute). Dependabot opens the monthly dependency updates,
-including the actions themselves, which are pinned by commit; its pull requests run no checks
-unless you start one.
+Three more workflows: `release.yml`, started by hand from the Actions tab, runs the checks above
+and builds the installers without releasing them, keeping them as artifacts of the run (a release
+is built on Windows with `scripts/release.mjs` and published to the release site);
+`audit.yml` checks the production npm dependencies and `src-tauri/Cargo.lock` against their
+advisories every Monday and on demand (one Ubuntu job of about a minute); and `dependabot.yml`
+runs the checks on Ubuntu for each of Dependabot's weekly updates, which include the actions
+themselves (pinned by commit), and merges a patch or minor npm or Cargo update that passes them.
+A major, an update of the actions and a failing one wait for review.
 
 ## Git workflow
 

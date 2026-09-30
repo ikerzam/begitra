@@ -6,12 +6,22 @@ name: CI
 # three-platform matrix costs about 90 of the 2,000 included minutes a month per run, and on
 # a push it would only repeat the lefthook pre-push hook. What CI adds is the other two
 # platforms, which is worth having before a release and when a change touches paths,
-# processes or the filesystem: Actions -> CI -> "Run workflow", and `release.yml` calls it
-# on a tag.
+# processes or the filesystem: Actions -> CI -> "Run workflow", and `release.yml` calls it.
+# `dependabot.yml` calls it on each Dependabot pull request with Ubuntu alone, about 20 minutes.
 
 on:
   workflow_dispatch:
+    inputs:
+      platforms:
+        description: The platforms of the rust job, as a JSON list
+        type: string
+        default: '["ubuntu-latest", "windows-latest", "macos-latest"]'
   workflow_call:
+    inputs:
+      platforms:
+        description: The platforms of the rust job, as a JSON list
+        type: string
+        default: '["ubuntu-latest", "windows-latest", "macos-latest"]'
 
 # Nothing here writes; the release workflow that calls it grants the write to its own job.
 permissions:
@@ -65,7 +75,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: ${{ fromJSON(inputs.platforms) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 

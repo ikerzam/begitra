@@ -1,0 +1,60 @@
+name: Dependabot
+
+# Each Dependabot pull request runs the checks on Linux alone (ci.yml's Ubuntu jobs, about 20
+# of the 2,000 billed minutes a month a run), and a patch or minor update of npm or Cargo whose
+# checks pass merges itself. A major waits for Iker (a Tauri, Vue or libgit2 major is his call,
+# not a bot's), and so does an update of the actions, which changes the workflows themselves: this
+# token may not merge those. A red check leaves the pull request open.
+#
+# Not `pull_request_target`: the checks run the update's code (install scripts included) with
+# the pull request's own workflows and a read-only token. Only the merge job writes, and it
+# checks out nothing. Not auto-merge: it needs branch protection, which a private repository on
+# the free plan lacks; merging in a job that needs the checks does the same.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  metadata:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    outputs:
+      update-type: ${{ steps.metadata.outputs.update-type }}
+      # From the branch name: npm_and_yarn, cargo or github_actions.
+      ecosystem: ${{ steps.metadata.outputs.package-ecosystem }}
+    steps:
+      - id: metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  checks:
+    needs: metadata
+    uses: ./.github/workflows/ci.yml
+    with:
+      platforms: '["ubuntu-latest"]'
+
+  merge:
+    needs: [metadata, checks]
+    # An allow-list, not an exclusion: a new ecosystem waits for Iker until it is named here.
+    if: >-
+      (needs.metadata.outputs.update-type == 'version-update:semver-patch' ||
+      needs.metadata.outputs.update-type == 'version-update:semver-minor') &&
+      (needs.metadata.outputs.ecosystem == 'npm_and_yarn' ||
+      needs.metadata.outputs.ecosystem == 'cargo')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      # Only the commit the checks ran on: a push that lands meanwhile makes the merge refuse.
+      - name: Squash-merge the update
+        run: gh pr merge --squash --delete-branch --match-head-commit "$HEAD_SHA" "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
