@@ -33,11 +33,10 @@ is "begira", Basque for "look!", with git inside it. Downloads and release notes
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs when you start it (Actions › CI › "Run workflow") and when
-`release.yml` calls it on a tag, never by itself. A private repository is billed 1× for Linux,
-2× for Windows and 10× for macOS, so one three-platform run costs about 90 of the 2,000
-included minutes a month, and on a push it would only repeat the `pre-push` hook. What it adds
-is the other two platforms: start it before a release and after a change that touches paths,
-processes or the filesystem. It has two jobs:
+`release.yml` calls it on a tag, never by itself: on a push it would repeat the `pre-push`
+hook, which runs the same suites on Windows. What it adds is the other two platforms: start it
+before a release and after a change that touches paths, processes or the filesystem. It has
+two jobs:
 
 1. **web** (Ubuntu): `pnpm lint`, `pnpm format:check`, `pnpm typecheck`, `pnpm test:run`,
    `pnpm build`, and the Tailwind theme regenerated from `design/tokens.json` with no diff. The

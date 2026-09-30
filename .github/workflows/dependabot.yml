@@ -1,16 +1,15 @@
 name: Dependabot
 
 # Each Dependabot pull request runs, on Linux alone, the check its update can break: ci.yml's
-# `web` job for npm (about 5 of the 2,000 billed minutes a month), its `rust` job for Cargo
-# (about 11); a patch or minor update of npm or Cargo whose check passes merges itself. A
+# `web` job for npm (about 5 minutes), its `rust` job for Cargo (about 11); a patch or minor update of npm or Cargo whose check passes merges itself. A
 # major waits for Iker (a Tauri, Vue or libgit2 major is his call), and so does an
 # update of the actions, which changes the workflows themselves: this token may not merge
 # those. A red check leaves the pull request open.
 #
 # Not `pull_request_target`: the checks run the update's code (install scripts included) with
 # the pull request's own workflows and a read-only token. Only the merge job writes, and it
-# checks out nothing. Not auto-merge: it needs branch protection, which a private repository on
-# the free plan lacks; merging in a job that needs the checks does the same.
+# checks out nothing. Not auto-merge: it needs required checks on the branch, and merging in a
+# job that needs the checks does the same.
 
 on:
   pull_request:
@@ -23,8 +22,7 @@ jobs:
   metadata:
     if: github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
-    # The action lists the pull request's commits, which a private repository answers with 403
-    # to a token without the pull requests scope.
+    # The action lists the pull request's commits, which needs the pull requests scope.
     permissions:
       contents: read
       pull-requests: read
@@ -38,7 +36,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-  # An update of the actions merges by hand, so it spends no minutes on checks.
+  # An update of the actions merges by hand, so it runs no checks here.
   checks:
     needs: metadata
     if: >-

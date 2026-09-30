@@ -1,8 +1,7 @@
 name: Audit
 
 # The dependencies against their advisories, every Monday and on demand. One Ubuntu job of
-# about a minute: three or four billed minutes a month, which is the cheapest useful thing
-# Actions does here. A failure is a red run, which GitHub mails.
+# about a minute. A failure is a red run, which GitHub mails.
 
 on:
   schedule:
