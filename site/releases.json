@@ -1,5 +1,21 @@
 [
   {
+    "version": "0.6.3",
+    "date": "2026-09-30",
+    "title": {
+      "en": "Staging at once, and rows that move",
+      "es": "Stage al instante y filas que se mueven"
+    },
+    "highlight": {
+      "en": "Staging, unstaging and discarding show at once, rows move when you act, and Whole file folds again",
+      "es": "Stage, unstage y descartar se ven al instante, las filas se mueven cuando actúas y Whole file vuelve a plegar"
+    },
+    "notes": {
+      "en": "Staging, unstaging or discarding a file moves it between the lists before git answers, and the next file is selected at once, so s, u and Backspace can go down a list without waiting; the actions run one after another in the order you asked, and one git refuses puts the lists back, drops the ones asked after it and says why. A commit asked right after staging runs once the stages end. Rows collapse and expand when your action moves them, in the changes lists, the branch, stash and worktree lists, the worktree dashboard and Home, never on their own or in a list of more than 200 rows, and not at all with the system's reduced motion. After a commit, a checkout or a pull the graph keeps its rows until the new history replaces them, instead of flashing empty. A deleted or renamed branch, a deleted tag, a dropped stash and an added or removed worktree show as soon as git answers; locking a worktree and pinning a project show at once, and a pin no longer comes undone when the projects are listed again. Turning Whole file off folds the lines you opened by hand again, and turning it on keeps the line at the top of the view.",
+      "es": "Hacer stage, unstage o descartar un fichero lo mueve entre las listas antes de que git responda, y el siguiente fichero queda seleccionado al momento, así que s, u y Retroceso pueden bajar por una lista sin esperar; las acciones se ejecutan una tras otra en el orden en que las pediste, y una que git rechaza devuelve las listas a su estado, descarta las pedidas después y explica por qué. Un commit pedido justo después de hacer stage se ejecuta cuando terminan los stages. Las filas se pliegan y se despliegan cuando tu acción las mueve, en las listas de cambios, las de ramas, stash y worktrees, el panel de worktrees y Home, nunca por sí solas ni en una lista de más de 200 filas, y en absoluto con la preferencia de movimiento reducido del sistema. Tras un commit, un checkout o un pull, el grafo conserva sus filas hasta que la nueva historia las sustituye, en vez de quedarse vacío un instante. Una rama borrada o renombrada, un tag borrado, un stash descartado y un worktree añadido o quitado se ven en cuanto git responde; bloquear un worktree y fijar un proyecto se ven al instante, y un proyecto fijado ya no se desfija al volver a listar los proyectos. Desactivar Whole file vuelve a plegar las líneas que abriste a mano, y activarlo mantiene la línea que estaba arriba de la vista."
+    }
+  },
+  {
     "version": "0.6.2",
     "date": "2026-09-30",
     "title": { "en": "Long lines, zoom and feedback", "es": "Líneas largas, zoom y avisos" },
