@@ -1,5 +1,18 @@
 [
   {
+    "version": "0.6.1",
+    "date": "2026-09-30",
+    "title": { "en": "Filters open again", "es": "Los filtros vuelven a abrirse" },
+    "highlight": {
+      "en": "The graph's filter lists open again",
+      "es": "Las listas de los filtros del grafo vuelven a abrirse"
+    },
+    "notes": {
+      "en": "In 0.6.0 the graph's filter bar opened its lists out of sight (the repository selector, the branch, author and date filters and the path filter), so none of them could be used. They open again, and the bar's edges still fade while it scrolls.",
+      "es": "En 0.6.0 la barra de filtros del grafo abría sus listas sin que se vieran (el selector de repositorio, los filtros de rama, autor y fecha y el de ruta), así que no se podía usar ninguno. Vuelven a abrirse, y los bordes de la barra siguen difuminándose cuando se desplaza."
+    }
+  },
+  {
     "version": "0.6.0",
     "date": "2026-09-30",
     "title": { "en": "Everything is a project", "es": "Todo es un proyecto" },
