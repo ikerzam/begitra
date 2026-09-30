@@ -39,6 +39,20 @@ describe("Dialog", () => {
     expect(scrim.classes()).toContain("z-20");
   });
 
+  it("scrolls its body and content between a fixed title and buttons in a short window", () => {
+    wrapper = mountWithI18n(Dialog, {
+      props: removeProps,
+      slots: { default: "<ul data-testid='long-list'></ul>" },
+      attachTo: document.body,
+    });
+    const content = wrapper.get("[data-testid='dialog-content']");
+    expect(content.classes()).toEqual(expect.arrayContaining(["min-h-0", "overflow-y-auto"]));
+    expect(content.find("p").exists()).toBe(true);
+    expect(content.find("[data-testid='long-list']").exists()).toBe(true);
+    expect(content.find("h2").exists()).toBe(false);
+    expect(content.find("[data-testid='dialog-confirm']").exists()).toBe(false);
+  });
+
   it("uses a red confirm button for the destructive variant and 32px buttons", () => {
     wrapper = mountWithI18n(Dialog, { props: removeProps, attachTo: document.body });
     const confirm = wrapper.get("[data-testid='dialog-confirm']");

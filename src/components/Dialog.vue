@@ -81,10 +81,20 @@ onBeforeUnmount(() => {
       class="dialog flex flex-col gap-4 rounded-lg border border-line-strong bg-raised p-5 shadow-overlay"
       @keydown="onKeydown"
     >
-      <h2 :id="titleId" class="text-xl font-semibold text-fg">{{ props.title }}</h2>
-      <p v-if="props.body" :id="bodyId" class="text-md text-fg-secondary">{{ props.body }}</p>
-      <slot />
-      <div class="mt-2 flex items-center justify-end gap-2">
+      <h2 :id="titleId" class="shrink-0 text-xl font-semibold text-fg">{{ props.title }}</h2>
+      <!-- The content scrolls between the title and the buttons when the window is too short for
+           it: a grid of rows as tall as their content, so a list that scrolls itself keeps its
+           height rather than shrink to nothing (its automatic minimum is 0); 4px inside its
+           edges keep the focus rings of its controls. -->
+      <div
+        v-if="props.body || $slots.default"
+        class="-m-1 grid min-h-0 auto-rows-max grid-cols-1 gap-4 overflow-y-auto p-1"
+        data-testid="dialog-content"
+      >
+        <p v-if="props.body" :id="bodyId" class="text-md text-fg-secondary">{{ props.body }}</p>
+        <slot />
+      </div>
+      <div class="mt-2 flex shrink-0 items-center justify-end gap-2">
         <!-- An action of its own at the start of the footer ("Add repository…", "Delete project…"). -->
         <div v-if="$slots['footer-start']" class="mr-auto flex items-center">
           <slot name="footer-start" />
@@ -108,10 +118,12 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-/* A dialog is 440px wide; it shrinks on narrow windows. */
+/* A dialog is 440px wide; it shrinks on narrow windows and
+   keeps 16px from a short window's edges, its content scrolling. */
 .dialog {
   width: 440px;
   max-width: calc(100vw - var(--space-6));
+  max-height: calc(100vh - var(--space-6));
 }
 .dialog[data-size="lg"] {
   width: 560px;
