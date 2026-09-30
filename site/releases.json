@@ -1,5 +1,21 @@
 [
   {
+    "version": "0.6.4",
+    "date": "2026-09-30",
+    "title": {
+      "en": "Menus on the graph's chips, and a graph that follows",
+      "es": "Menús en los chips del grafo, y un grafo que sigue los cambios"
+    },
+    "highlight": {
+      "en": "Right-click a branch, remote branch, tag or stash chip for its actions, and the graph follows a push, a fetch or a new tag at once",
+      "es": "Clic derecho en un chip de rama, rama remota, etiqueta o stash para sus acciones, y el grafo sigue al momento un push, un fetch o una etiqueta nueva"
+    },
+    "notes": {
+      "en": "Right-click a chip on the graph, or a row of the branch list, for the actions of what it names. A local branch adds Copy branch name, and its Delete… can delete its upstream on the remote too. A remote branch checks out as the local branch that tracks it, pulls into the current branch, fetches its remote, and deletes itself on the remote after a confirmation that names the remote; a delete that meets a branch someone pushed to after your last fetch is refused, so no commit you have not seen is lost. A tag checks out detached and says so, pushes alone to the remote you pick, and deletes after a confirmation, on a remote too. The stash chip has its own menu (Apply, Pop, Copy stash name, Copy hash and Drop…), where it used to offer a branch's actions. After a delete, the toast's Show command gives the git command that brings the ref back. The graph now follows every change of the refs: a push, a fetch, a tag, a rename or a delete moves or removes its chip at once, a pull or a rebase that stops on conflicts shows where HEAD went, and a commit an agent makes right after one of yours is no longer missed. A removed worktree reads as missing in its project, and the count of commits follows a fetch. Pushing a branch that shares its name with a tag works, and two quick clicks on a row's button no longer open the row.",
+      "es": "Clic derecho en un chip del grafo, o en una fila de la lista de ramas, para las acciones de lo que nombra. Una rama local añade Copiar el nombre de la rama, y su Borrar… puede borrar también su upstream en el remoto. Una rama remota hace checkout como la rama local que la sigue, hace pull a la rama actual, hace fetch de su remoto y se borra del remoto tras una confirmación que nombra el remoto; un borrado que se encuentra con una rama en la que alguien hizo push después de tu último fetch se rechaza, así que no se pierde ningún commit que no hayas visto. Una etiqueta va a su commit sin rama y lo dice, se sube sola al remoto que elijas y se borra tras una confirmación, también en un remoto. El chip del stash tiene su propio menú (Aplicar, Sacar, Copiar el nombre del stash, Copiar hash y Borrar…), donde antes ofrecía las acciones de una rama. Tras un borrado, Ver el comando del aviso da el comando de git que recupera la ref. El grafo sigue ahora cada cambio de las refs: un push, un fetch, una etiqueta, un renombrado o un borrado mueve o quita su chip al momento, un pull o un rebase que se detiene en conflictos muestra dónde quedó HEAD, y ya no se pierde un commit que un agente hace justo después de uno tuyo. Un worktree quitado aparece como carpeta no encontrada en su proyecto, y el recuento de commits sigue a un fetch. Hacer push de una rama que se llama como una etiqueta funciona, y dos clics rápidos en un botón de una fila ya no abren la fila."
+    }
+  },
+  {
     "version": "0.6.3",
     "date": "2026-09-30",
     "title": {
