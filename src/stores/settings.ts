@@ -236,7 +236,7 @@ export function platformDefaults(platform: Platform): { terminal: string[]; edit
   }
 }
 
-/** The tables' default column widths. */
+/** The worktrees table's default column widths. */
 export function defaultColumnWidths(): ColumnWidths {
   return {
     worktrees: { path: 200, branch: 200, state: 96, ahead: 84 },

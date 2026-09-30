@@ -1,9 +1,9 @@
 <script setup lang="ts">
 // The header of Home: the title, the count line, "Open
-// folder…", "New project…", and Scan over every folder project, which becomes Stop while a
-// scan runs; under it, the scan's progress line.
+// folder…", "New project…", and Scan over every folder project (primary), which becomes Stop
+// (secondary) while a scan runs; under it, the scan's progress line.
 
-import { FolderOpen, Plus } from "@lucide/vue";
+import { Plus } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
 
 import Button from "@/components/Button.vue";
@@ -31,12 +31,7 @@ const format = useDiscoveryFormat();
         <p class="text-md text-fg-muted" data-testid="home-summary">{{ format.summary.value }}</p>
       </div>
       <div class="flex shrink-0 items-center gap-2">
-        <Button
-          variant="secondary"
-          :icon="FolderOpen"
-          data-testid="home-open-folder"
-          @click="emit('openFolder')"
-        >
+        <Button variant="secondary" data-testid="home-open-folder" @click="emit('openFolder')">
           {{ t("home.openFolder") }}
         </Button>
         <Button
@@ -49,7 +44,7 @@ const format = useDiscoveryFormat();
         </Button>
         <Button
           v-if="index.isScanning"
-          variant="primary"
+          variant="secondary"
           data-testid="scan-stop"
           @click="() => void index.stopScan()"
         >

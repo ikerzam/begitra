@@ -1,9 +1,10 @@
 <script setup lang="ts">
 // One project on Home: its icon (a folder for a folder project, the layers icon for
 // a list project, the alert in `--danger` when its folder was not found), its name, its folder
-// in mono, its count or the state of its folder's scan, what needs attention ("2 with changes ·
-// 1 behind", the warnings in `--warn`, "up to date" otherwise) and a chevron; the "…" and a
-// right click open its menu. The list owns the focus, the selection and the keys.
+// in mono (the whole of each in a tooltip), its count and the state of its folder's scan 16px
+// apart, what needs attention ("2 with changes · 1 behind", the warnings in `--warn`, "up to
+// date" otherwise, nothing until the index is read) and a chevron; the "…" and a right click
+// open its menu. The list owns the focus, the selection and the keys.
 
 import { ChevronRight, CircleAlert, Ellipsis, Folder, Layers, Pin } from "@lucide/vue";
 import { computed } from "vue";
@@ -18,11 +19,15 @@ const props = defineProps<{
   project: Project;
   /** The folder as displayed (home abbreviated); empty for a list project. */
   folder: string;
-  /** Its count, or the state of its folder's scan. */
-  status: string;
+  /** Its count of repositories and worktrees. */
+  count: string;
+  /** The state of its folder's scan ("queued", "scanning", "not found"); empty when none. */
+  scan: string;
   /** The last scans could not read its folder. */
   failed: boolean;
   attention: AttentionPart[];
+  /** Whether the index is read, so its members' states are known. */
+  attentionKnown: boolean;
   /** Position in the flat list of rows, for the roving focus. */
   index: number;
   selected: boolean;
@@ -80,7 +85,11 @@ function onMore(event: MouseEvent): void {
       class="shrink-0"
       :class="props.failed ? 'text-danger' : 'text-fg-secondary'"
     />
-    <span class="project-name truncate text-fg" data-testid="home-project-name">
+    <span
+      class="project-name truncate text-fg"
+      :data-tooltip="props.project.name"
+      data-testid="home-project-name"
+    >
       {{ props.project.name }}
     </span>
     <Pin
@@ -93,22 +102,27 @@ function onMore(event: MouseEvent): void {
     <span
       v-if="props.folder"
       class="project-folder truncate font-mono text-mono-sm text-fg-muted"
+      :data-tooltip="props.project.folder ?? undefined"
       data-testid="home-project-folder"
     >
       {{ props.folder }}
     </span>
-    <span
-      class="shrink-0 text-sm"
-      :class="props.failed ? 'text-danger' : 'text-fg-muted'"
-      data-testid="home-project-status"
-    >
-      {{ props.status }}
+    <span class="flex shrink-0 items-center gap-4 text-sm text-fg-muted">
+      <span data-testid="home-project-status">{{ props.count }}</span>
+      <span
+        v-if="props.scan"
+        :class="{ 'text-danger': props.failed }"
+        data-testid="home-project-scan"
+      >
+        {{ props.scan }}
+      </span>
     </span>
     <span
       class="flex min-w-0 items-center gap-2 truncate text-sm"
       data-testid="home-project-attention"
     >
-      <template v-if="props.attention.length === 0">
+      <template v-if="!props.attentionKnown" />
+      <template v-else-if="props.attention.length === 0">
         <span class="text-fg-muted">{{ t("home.projects.upToDate") }}</span>
       </template>
       <template v-for="(part, at) in props.attention" v-else :key="part.text">

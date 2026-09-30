@@ -5,7 +5,7 @@
 // first), the banner of a scan that failed, then the projects. The empty Home stays in the shell
 // as `HomeEmpty`.
 
-import { computed, ref } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ErrorBanner from "@/components/ErrorBanner.vue";
@@ -27,6 +27,7 @@ const projects = useProjectsStore();
 const dialogs = useProjectDialogsStore();
 const format = useDiscoveryFormat();
 const list = ref<{ focus(): void } | null>(null);
+const screen = ref<HTMLElement | null>(null);
 
 /** The folder projects whose folder the last scans could not read, with the reason. */
 const failed = computed(() =>
@@ -46,11 +47,29 @@ const scanErrorMessage = computed(() => {
   return t("home.scanFailed", { message: t(text.key, text.params) });
 });
 
+/* "Remove project…" on a missing folder's banner: the banner goes with the project, and the
+   focus it held moves to the list rather than drop to the page. Keyed on the projects the
+   banners name, since `failed` is a new array whenever the projects change. */
+watch(
+  () => failed.value.map((item) => item.project.id).join(","),
+  () => {
+    if (!screen.value?.contains(document.activeElement)) return;
+    void nextTick(() => {
+      const active = document.activeElement;
+      if (active === null || active === document.body) list.value?.focus();
+    });
+  },
+);
+
 defineExpose({ focus: () => list.value?.focus() });
 </script>
 
 <template>
-  <section class="flex min-w-0 flex-1 flex-col overflow-y-auto" data-testid="home-screen">
+  <section
+    ref="screen"
+    class="flex min-w-0 flex-1 flex-col overflow-y-auto"
+    data-testid="home-screen"
+  >
     <HomeHeader @open-folder="emit('openFolder')" />
     <div
       v-for="item in failed"

@@ -1,11 +1,12 @@
 <script setup lang="ts">
 // Home's projects: Pinned, Recent and Projects (every project by name) in one
 // listbox with roving focus, a project listed again in Projects when it is pinned or recent;
-// ↵, a double click or ↵ on the focused row opens it; its menu opens from the "…", a right
+// a click, or ↵ on the focused row, opens it; its menu opens from the "…", a right
 // click, or the menu key and Shift F10 on the focused row. Skeleton rows while the list loads,
-// the banner with "Try again" when it cannot be read.
+// the banner with "Try again" when it, or the index that says what needs attention, cannot be
+// read.
 
-import { computed, nextTick, ref, useId } from "vue";
+import { computed, nextTick, ref, useId, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ErrorBanner from "@/components/ErrorBanner.vue";
@@ -13,6 +14,7 @@ import SkeletonRow from "@/components/SkeletonRow.vue";
 import type { Project } from "@/ipc/schemas";
 import { errorText } from "@/shell/errorMessage";
 import { useListNavigation } from "@/shortcuts/useListNavigation";
+import { useIndexStore } from "@/stores/index";
 import { useProjectsStore } from "@/stores/projects";
 
 import ProjectRow from "./ProjectRow.vue";
@@ -21,6 +23,7 @@ import { useAttention } from "./useAttention";
 import { useDiscoveryFormat } from "./useDiscoveryFormat";
 
 const { t, n } = useI18n();
+const index = useIndexStore();
 const projects = useProjectsStore();
 const format = useDiscoveryFormat();
 const attention = useAttention();
@@ -61,6 +64,18 @@ const selectedRow = computed({
 });
 const tabStopRow = computed(() => Math.max(0, selectedRow.value));
 
+/* A deleted or unpinned project's row goes: the selection moves to the row now in its place
+   (or the last one), and the focus with it when the list held it, so it never drops to the
+   page. Checked before the rows update, while the focused row is still there. */
+watch(rows, (next, previous) => {
+  const key = selectedKey.value;
+  if (key === null || next.some((row) => row.key === key)) return;
+  const at = previous.findIndex((row) => row.key === key);
+  const hadFocus = listbox.value?.contains(document.activeElement) ?? false;
+  selectedKey.value = next[Math.min(Math.max(at, 0), next.length - 1)]?.key ?? null;
+  if (hadFocus && selectedKey.value !== null) void nextTick(() => navigation.focus());
+});
+
 function open(project: Project): void {
   void projects.open(project.id);
 }
@@ -79,11 +94,24 @@ function position(row: ListRow): number {
   return rows.value.indexOf(row);
 }
 
-const loadErrorMessage = computed(() => {
-  if (!projects.loadError) return "";
-  const text = errorText(projects.loadError);
-  return t("home.loadFailed", { message: t(text.key, text.params) });
+/* The projects' failure, else the index's: without the index the rows cannot say what needs
+   attention (the Overview's banner reads the same two). */
+const loadFailure = computed(() => {
+  if (projects.loadError) return { error: projects.loadError, key: "home.loadFailed" };
+  if (index.loadError) return { error: index.loadError, key: "project.loadFailed" };
+  return null;
 });
+const loadErrorMessage = computed(() => {
+  const failure = loadFailure.value;
+  if (!failure) return "";
+  const text = errorText(failure.error);
+  return t(failure.key, { message: t(text.key, text.params) });
+});
+
+function retry(): void {
+  if (projects.loadError) void projects.load();
+  if (index.loadError) void index.load();
+}
 
 /* The row menu: opened from the "…", a right click, or the keyboard on the selected row. */
 const menu = ref<{ project: Project; x: number; y: number } | null>(null);
@@ -93,9 +121,11 @@ function openMenu(row: ListRow, x: number, y: number): void {
   menu.value = { project: row.project, x, y };
 }
 
+/* The row takes the focus at once: a dialog the choice opens mounts after it and records the
+   row as the place to return to (a focus moved later would land behind the dialog). */
 function closeMenu(): void {
   menu.value = null;
-  void nextTick(() => navigation.focus());
+  navigation.focus();
 }
 
 function onKeydown(event: KeyboardEvent): void {
@@ -153,24 +183,31 @@ defineExpose({ focus: navigation.focus });
           :key="row.key"
           :project="row.project"
           :folder="row.project.folder === null ? '' : format.displayPath(row.project.folder)"
-          :status="format.projectStatus(row.project)"
+          :count="format.projectCount(row.project)"
+          :scan="format.projectScan(row.project)"
           :failed="row.project.folder !== null && format.folderFailed(row.project.folder)"
           :attention="attention(row.project)"
+          :attention-known="index.read && !index.loadError"
           :index="position(row)"
           :selected="position(row) === selectedRow"
           :tab-stop="position(row) === tabStopRow"
-          @select="navigation.select(position(row))"
+          @select="
+            () => {
+              navigation.select(position(row));
+              open(row.project);
+            }
+          "
           @activate="open(row.project)"
           @menu="(x, y) => openMenu(row, x, y)"
         />
       </div>
     </div>
-    <div v-if="projects.loadError" class="px-5 pt-3" data-testid="projects-error">
+    <div v-if="loadFailure" class="px-5 pt-3" data-testid="projects-error">
       <ErrorBanner
         :message="loadErrorMessage"
-        :output="projects.loadError.detail"
+        :output="loadFailure.error.detail"
         :action="t('home.retry')"
-        @action="() => void projects.load()"
+        @action="retry"
       />
     </div>
     <ProjectRowMenu

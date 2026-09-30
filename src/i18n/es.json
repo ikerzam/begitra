@@ -266,7 +266,7 @@
     "stop": "Detener",
     "folderState": {
       "queued": "en cola",
-      "scanning": "escaneando · {n} por ahora",
+      "scanning": "escaneando",
       "notFound": "no encontrada",
       "empty": "sin repositorios"
     },
@@ -1094,11 +1094,11 @@
     "readingOne": "Leyendo…",
     "noChanges": "Sin cambios",
     "looking": "Buscando repositorios en {folder}…",
-    "empty": "No hay repositorios en {folder}.",
+    "empty": "No hay repositorios en {project}.",
     "scanFailed": "No se ha podido escanear {folder}.",
     "scanAgain": "Escanear de nuevo",
     "allClean": "Nada que commitear en {n} repositorio. | Nada que commitear en {n} repositorios.",
-    "allCleanDetail": "Nada que commitear en {folder}. Edita ficheros, o deja que lo haga un agente, y aparecerán aquí."
+    "allCleanDetail": "Nada que commitear en {project}. Edita ficheros, o deja que lo haga un agente, y aparecerán aquí."
   },
   "project": {
     "overview": "Resumen",
@@ -1290,6 +1290,7 @@
     "checklistNothing": "No hay ningún repositorio que añadir.",
     "emptyFolder": "No hay repositorios en {project}.",
     "allMissing": "Faltan los repositorios de {project}. Edita el proyecto o recupera sus carpetas.",
+    "allMissingFolder": "Faltan los repositorios de {project}. Vuelve a escanear su carpeta o recupera sus carpetas.",
     "scanningFolder": "Buscando repositorios en {folder}…",
     "leaving": {
       "label": "Salen de Begitra"

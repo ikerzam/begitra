@@ -1,5 +1,6 @@
 import { clearMocks } from "@tauri-apps/api/mocks";
 import { flushPromises, type VueWrapper } from "@vue/test-utils";
+import { defineComponent, h } from "vue";
 import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,6 +12,9 @@ import { memoryStorage, useSettingsStore } from "@/stores/settings";
 import { fakeBackend, type Call, type FakeBackendOptions } from "@/test/backend";
 import { entryOf, folderProjectOf, projectOf, summaryOf, worktreeOf } from "@/test/entries";
 import { mountWithI18n } from "@/test/mount";
+
+import DeleteProjectDialog from "@/project/DeleteProjectDialog.vue";
+import EditProjectDialog from "@/project/EditProjectDialog.vue";
 
 import HomeScreen from "./HomeScreen.vue";
 
@@ -68,6 +72,24 @@ function sections(wrapper: VueWrapper): string[] {
       .map((part) => part.text())
       .join(" "),
   );
+}
+
+/** Home with the project dialogs over it, as the shell renders them. */
+function mountHomeWithDialogs() {
+  const dialogs = useProjectDialogsStore();
+  const Shell = defineComponent({
+    setup: () => () =>
+      h("div", [
+        h(HomeScreen),
+        dialogs.editing === null
+          ? null
+          : h(EditProjectDialog, { id: dialogs.editing, key: dialogs.editing }),
+        dialogs.deleting === null
+          ? null
+          : h(DeleteProjectDialog, { id: dialogs.deleting, key: `delete:${dialogs.deleting}` }),
+      ]),
+  });
+  return mountWithI18n(Shell, { attachTo: document.body });
 }
 
 /** The rows of a section, by name. */
@@ -134,6 +156,17 @@ describe("HomeScreen", () => {
     });
   });
 
+  it("opens a project on a click", async () => {
+    const { wrapper } = await mountHome();
+    const geoportal = wrapper.get(
+      '[data-testid="home-section-pinned"] [data-testid="home-project"]',
+    );
+    await geoportal.trigger("click");
+    await flushPromises();
+    expect(useProjectsStore().active?.name).toBe("Geoportal");
+    expect(useRepoStore().repo?.root).toBe(api.path);
+  });
+
   it("offers each project's menu: pin, edit, open its folder, and remove", async () => {
     const { wrapper, calls } = await mountHome();
     const code = wrapper
@@ -184,10 +217,13 @@ describe("HomeScreen", () => {
     const code = wrapper
       .get('[data-testid="home-section-projects"]')
       .findAll('[data-testid="home-project"]')[0]!;
-    expect(code.get('[data-testid="home-project-status"]').text()).toBe("scanning · 2 so far");
+    // The count stays beside the scan's state, 16px apart (no middle dot).
+    expect(code.get('[data-testid="home-project-status"]').text()).toBe("3 repositories");
+    expect(code.get('[data-testid="home-project-scan"]').text()).toBe("scanning");
     index.scan = { ...index.scan, folders: { [CODE]: "queued" } };
     await flushPromises();
-    expect(code.get('[data-testid="home-project-status"]').text()).toBe("queued");
+    expect(code.get('[data-testid="home-project-status"]').text()).toBe("3 repositories");
+    expect(code.get('[data-testid="home-project-scan"]').text()).toBe("queued");
   });
 
   it("flags a folder project whose folder is gone, with its banner and Remove project", async () => {
@@ -200,9 +236,9 @@ describe("HomeScreen", () => {
     const code = wrapper
       .get('[data-testid="home-section-projects"]')
       .findAll('[data-testid="home-project"]')[0]!;
-    const status = code.get('[data-testid="home-project-status"]');
-    expect(status.text()).toBe("not found");
-    expect(status.classes()).toContain("text-danger");
+    const scan = code.get('[data-testid="home-project-scan"]');
+    expect(scan.text()).toBe("not found");
+    expect(scan.classes()).toContain("text-danger");
     const banner = wrapper.get('[data-testid="scan-folder-error"]');
     expect(banner.text()).toContain(
       `Couldn't scan ${CODE}. The folder was removed. Remove its project, or open the folder again if it moved.`,
@@ -240,8 +276,81 @@ describe("HomeScreen", () => {
     await store.load();
     await flushPromises();
     expect(wrapper.get('[data-testid="projects-error"]').text()).toContain(
-      "The list of projects could not be read.",
+      "Couldn't read the list of projects.",
     );
+    wrapper.unmount();
+  });
+
+  it("shows the index's failure with Try again, and no line of what needs attention until it is read", async () => {
+    backend({ failIndex: true });
+    const [index, store] = [useIndexStore(), useProjectsStore()];
+    await store.load();
+    const wrapper = mountWithI18n(HomeScreen);
+    await flushPromises();
+    const code = () =>
+      wrapper
+        .get('[data-testid="home-section-projects"]')
+        .findAll('[data-testid="home-project"]')[0]!;
+    // Nothing is said of the repositories' states before the index is read.
+    expect(code().get('[data-testid="home-project-attention"]').text()).toBe("");
+    await index.load();
+    await flushPromises();
+    const banner = wrapper.get('[data-testid="projects-error"]');
+    expect(banner.text()).toContain("Couldn't read the list of repositories.");
+    expect(code().get('[data-testid="home-project-attention"]').text()).toBe("");
+    clearMocks();
+    backend();
+    const retry = banner.findAll("button").find((button) => button.text() === "Try again");
+    await retry!.trigger("click");
+    await flushPromises();
+    expect(wrapper.find('[data-testid="projects-error"]').exists()).toBe(false);
+    expect(code().get('[data-testid="home-project-attention"]').text()).toBe(
+      "1 with changes · 1 behind · 1 rebasing",
+    );
+    wrapper.unmount();
+  });
+
+  it("keeps the focus in the dialog a row's menu opens, and gives it back to the row", async () => {
+    backend();
+    const [index, store] = [useIndexStore(), useProjectsStore()];
+    await Promise.all([index.load(), store.load()]);
+    const wrapper = mountHomeWithDialogs();
+    await flushPromises();
+    const code = () =>
+      wrapper
+        .get('[data-testid="home-section-projects"]')
+        .findAll('[data-testid="home-project"]')[0]!;
+    await code().trigger("contextmenu", { clientX: 300, clientY: 400 });
+    await wrapper.get('[data-testid="menu-edit"]').trigger("click");
+    await flushPromises();
+    const dialog = wrapper.get('[role="dialog"]');
+    expect(dialog.element.contains(document.activeElement)).toBe(true);
+    await dialog.trigger("keydown", { key: "Escape" });
+    await flushPromises();
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+    expect(document.activeElement).toBe(code().element);
+    wrapper.unmount();
+  });
+
+  it("moves the selection and the focus to the row in a deleted project's place", async () => {
+    backend();
+    const [index, store] = [useIndexStore(), useProjectsStore()];
+    await Promise.all([index.load(), store.load()]);
+    const wrapper = mountHomeWithDialogs();
+    await flushPromises();
+    const code = wrapper
+      .get('[data-testid="home-section-projects"]')
+      .findAll('[data-testid="home-project"]')[0]!;
+    await code.trigger("contextmenu", { clientX: 300, clientY: 400 });
+    await wrapper.get('[data-testid="menu-remove"]').trigger("click");
+    await flushPromises();
+    await wrapper.get('[data-testid="dialog-confirm"]').trigger("click");
+    await flushPromises();
+    expect(rowsOf(wrapper, "projects")).toEqual(["Geoportal", "probe"]);
+    const focused = document.activeElement as HTMLElement;
+    expect(focused.dataset["index"]).toBe("2");
+    expect(focused.getAttribute("aria-selected")).toBe("true");
+    expect(focused.textContent).toContain("Geoportal");
     wrapper.unmount();
   });
 

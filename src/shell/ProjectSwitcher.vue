@@ -5,7 +5,7 @@
 // ↵ picks, esc closes.
 
 import { Check, ChevronDown, Folder, FolderOpen, Layers, LayoutGrid, Plus } from "@lucide/vue";
-import { computed, nextTick, ref } from "vue";
+import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ContextMenu from "@/components/ContextMenu.vue";
@@ -34,9 +34,11 @@ function toggle(): void {
   open.value = !open.value;
 }
 
+/* The button takes the focus at once, so a dialog the choice opens ("New project…") returns
+   to it when it closes. */
 function close(): void {
   open.value = false;
-  void nextTick(() => button.value?.focus());
+  button.value?.focus();
 }
 
 function onButtonKeydown(event: KeyboardEvent): void {

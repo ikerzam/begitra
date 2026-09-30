@@ -1,4 +1,4 @@
-// The sentences of Home: the header's count line, the progress line, a project's count or the
+// The sentences of Home: the header's count line, the progress line, a project's count and the
 // state of its folder's scan, relative dates and abbreviated paths. Components only render.
 
 import { computed, type ComputedRef } from "vue";
@@ -18,8 +18,10 @@ export interface DiscoveryFormat {
   progressLine: ComputedRef<string>;
   /** What the running scan does with a folder: queued, scanning, or nothing. */
   folderState: (folder: string) => FolderScanState | undefined;
-  /** A project's count, "3 so far" while its folder's scan walks it, or "not found". */
-  projectStatus: (project: Project) => string;
+  /** A project's count: "3 repositories, 1 worktree", "no repositories" for an empty folder. */
+  projectCount: (project: Project) => string;
+  /** The state of a folder project's scan: "queued", "scanning", "not found"; empty otherwise. */
+  projectScan: (project: Project) => string;
   /** Whether the last scans could not read a folder (rendered in the danger colour). */
   folderFailed: (folder: string) => boolean;
   /** "2h ago" for a commit time; empty when unknown. */
@@ -89,20 +91,23 @@ export function useDiscoveryFormat(): DiscoveryFormat {
     return Object.keys(index.folderErrors).some((known) => sameFolder(known, folder));
   }
 
-  function projectStatus(project: Project): string {
-    const folder = project.folder;
-    if (folder === null) return t("project.repositories", project.members.length);
-    const state = folderState(folder);
+  function projectCount(project: Project): string {
+    if (project.folder === null) return t("project.repositories", project.members.length);
     const { repositories, worktrees } = projects.folderCounts(project);
-    if (state === "queued") return t("home.folderState.queued");
-    if (state === "scanning")
-      return t("home.folderState.scanning", { n: repositories + worktrees });
-    if (folderFailed(folder)) return t("home.folderState.notFound");
     const parts: string[] = [];
     const hand = project.members.length - repositories - worktrees;
     if (repositories + hand > 0) parts.push(t("home.repositories", repositories + hand));
     if (worktrees > 0) parts.push(t("home.worktrees", worktrees));
     return parts.length > 0 ? parts.join(", ") : t("home.folderState.empty");
+  }
+
+  function projectScan(project: Project): string {
+    const folder = project.folder;
+    if (folder === null) return "";
+    const state = folderState(folder);
+    if (state === "queued") return t("home.folderState.queued");
+    if (state === "scanning") return t("home.folderState.scanning");
+    return folderFailed(folder) ? t("home.folderState.notFound") : "";
   }
 
   function displayPath(path: string): string {
@@ -113,7 +118,8 @@ export function useDiscoveryFormat(): DiscoveryFormat {
     summary,
     progressLine,
     folderState,
-    projectStatus,
+    projectCount,
+    projectScan,
     folderFailed,
     shortAgo,
     displayPath,

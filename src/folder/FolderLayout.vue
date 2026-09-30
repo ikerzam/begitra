@@ -1,10 +1,11 @@
 <script setup lang="ts">
-// The Changes tab of the project view and the folder view: the list
-// panel (the scan's line while it walks, a section per repository with changes, the group of
-// the others, and the commit box of the repository the selection is in), the divider of the
-// changes screen, and the viewer of the selected file. The header, the refresh and the view's
-// lifecycle are `ProjectLayout`'s. The keys are `useFolderKeys`'s; a discard confirms once and
-// names the repository.
+// The folder view, the Changes of a project of several repositories:
+// the list panel (the scan's line while it walks, a section per repository with changes, the
+// group of the others, and the commit box of the repository the selection is in), the divider
+// of the changes screen, and the viewer of the selected file; without repositories, "Scan
+// again" for a folder project and "Edit project…" for a list project. The header, the refresh
+// and the view's lifecycle are `ProjectLayout`'s. The keys are `useFolderKeys`'s; a discard
+// confirms once and names the repository.
 
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -24,6 +25,7 @@ import PaneResizer from "@/shell/PaneResizer.vue";
 import { useFolderStore } from "@/stores/folder";
 import { useIndexStore } from "@/stores/index";
 import { useOverviewStore } from "@/stores/overview";
+import { useProjectDialogsStore } from "@/stores/projectDialogs";
 import { paneLimits, useShellStore } from "@/stores/shell";
 
 import FolderGroup from "./FolderGroup.vue";
@@ -34,6 +36,7 @@ const { t, n } = useI18n();
 const folder = useFolderStore();
 const index = useIndexStore();
 const overview = useOverviewStore();
+const dialogs = useProjectDialogsStore();
 const shell = useShellStore();
 const format = useDiscoveryFormat();
 const discard = useDiscardDialog();
@@ -42,7 +45,11 @@ const viewer = ref<{ actOnSelection(action: "stage" | "unstage" | "discard"): bo
 );
 const keys = useFolderKeys({ folder, discard, viewer });
 const listsWidth = computed(() => `${shell.paneSizes.files}px`);
-const shownFolder = computed(() => format.displayPath(folder.folder ?? ""));
+/** Where the view looks, for its scan's lines: a folder project's folder, a list project's
+ * name. */
+const shownFolder = computed(() =>
+  folder.folder !== null ? format.displayPath(folder.folder) : (folder.project?.name ?? ""),
+);
 const reading = computed(() => folder.state === "scanning" || folder.state === "loading");
 
 /** The branch the box names, "detached HEAD" when detached. */
@@ -129,11 +136,24 @@ watch(
         <EmptyState
           v-else-if="folder.state === 'empty'"
           class="flex-1"
-          :message="t('folder.empty', { folder: shownFolder })"
+          :message="t('folder.empty', { project: folder.project?.name ?? '' })"
           data-testid="folder-empty"
         >
-          <Button variant="secondary" data-testid="folder-scan-again" @click="folder.scanAgain()">
+          <Button
+            v-if="folder.folder !== null"
+            variant="secondary"
+            data-testid="folder-scan-again"
+            @click="folder.scanAgain()"
+          >
             {{ t("folder.scanAgain") }}
+          </Button>
+          <Button
+            v-else-if="folder.project"
+            variant="secondary"
+            data-testid="folder-edit-project"
+            @click="dialogs.edit(folder.project.id)"
+          >
+            {{ t("project.edit") }}
           </Button>
         </EmptyState>
         <EmptyState
@@ -191,7 +211,7 @@ watch(
     <EmptyState
       v-else-if="folder.state === 'clean'"
       class="flex-1"
-      :message="t('folder.allCleanDetail', { folder: shownFolder })"
+      :message="t('folder.allCleanDetail', { project: folder.project?.name ?? '' })"
     />
     <div v-else class="min-w-0 flex-1" />
     <Dialog

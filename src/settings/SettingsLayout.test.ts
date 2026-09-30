@@ -61,6 +61,11 @@ describe("SettingsLayout", () => {
       "About",
       "Shortcuts",
     ]);
+    // Skeleton rows until the projects are read; the empty sentence only then.
+    expect(wrapper.find('[data-testid="scan-folders-loading"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="scan-folders-empty"]').exists()).toBe(false);
+    await useProjectsStore().load();
+    await nextTick();
     expect(wrapper.get('[data-testid="scan-folders-empty"]').text()).toBe(
       "No folders yet. Each folder Begitra scans is a project of the repositories and worktrees in it.",
     );
@@ -105,9 +110,28 @@ describe("SettingsLayout", () => {
     expect(rows[0]?.text()).toContain("/code");
     expect(rows[0]?.get('[data-testid="scan-folder-count"]').text()).toBe("1 repository");
     expect(rows[1]?.get('[data-testid="scan-folder-count"]').text()).toBe("1 worktree");
+    // A folder the last scan could not read is flagged as Home flags it.
+    index.folderErrors = { "/wt": { reason: "The system cannot find the path specified." } };
+    await nextTick();
+    const flagged = wrapper.findAll('[data-testid="scan-folder"]')[1]!;
+    expect(flagged.get('[data-testid="scan-folder-scan"]').text()).toBe("not found");
+    expect(flagged.get('[data-testid="scan-folder-scan"]').classes()).toContain("text-danger");
+    expect(flagged.get("svg").classes()).toContain("text-danger");
+    index.folderErrors = {};
+    await nextTick();
     // The removal asks first, naming what leaves Begitra with the project.
-    await rows[1]!.get('[data-testid="scan-folder-remove"]').trigger("click");
+    const remove = rows[1]!.get<HTMLElement>('[data-testid="scan-folder-remove"]');
+    remove.element.focus();
+    await remove.trigger("click");
     expect(useProjectDialogsStore().deleting).toBe(2);
+    // Once it is gone, the focus its control held moves to the remove control in its place,
+    // here the one before it, the last row having gone.
+    await projects.remove(2);
+    await settled();
+    await nextTick();
+    const [kept] = wrapper.findAll('[data-testid="scan-folder"]');
+    expect(wrapper.findAll('[data-testid="scan-folder"]')).toHaveLength(1);
+    expect(document.activeElement).toBe(kept!.get('[data-testid="scan-folder-remove"]').element);
   });
 
   it("commits the text fields on blur and Enter, splitting and clamping", async () => {

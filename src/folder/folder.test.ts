@@ -8,6 +8,7 @@ import type { IndexEntry } from "@/ipc/schemas";
 import { ShortcutRegistry, setShortcutRegistry } from "@/shortcuts/registry";
 import { installShortcuts } from "@/shortcuts/useShortcut";
 import { useIndexStore } from "@/stores/index";
+import { useProjectDialogsStore } from "@/stores/projectDialogs";
 import { useProjectsStore } from "@/stores/projects";
 import { memoryStorage, useSettingsStore } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
@@ -263,7 +264,7 @@ describe("the folder view's Changes", () => {
   it("shows a folder whose repositories are gone with Scan again, and one with nothing to commit", async () => {
     const empty = await mountFolder({ repositories: [] });
     expect(empty.wrapper.get('[data-testid="folder-empty"]').text()).toContain(
-      "No repositories in /code",
+      "No repositories in code.",
     );
     await empty.wrapper.get('[data-testid="folder-scan-again"]').trigger("click");
     expect(of(empty.calls, "scan_folders").at(-1)?.args["folders"]).toEqual([CODE]);
@@ -283,6 +284,33 @@ describe("the folder view's Changes", () => {
     );
     expect(clean.wrapper.find('[data-testid="commit-box"]').exists()).toBe(false);
     clean.wrapper.unmount();
+  });
+});
+
+describe("a list project's Changes", () => {
+  it("names the project and offers Edit project… when none of its repositories is there", async () => {
+    const { wrapper } = await mountFolder({
+      repositories: [],
+      projects: [
+        {
+          ...folderProjectOf(1, CODE, []),
+          kind: "list",
+          folder: null,
+          name: "Geoportal",
+          members: [
+            { path: "/code/a", origin: "hand" },
+            { path: "/code/b", origin: "hand" },
+          ],
+        },
+      ],
+    });
+    expect(wrapper.get('[data-testid="folder-empty"]').text()).toContain(
+      "No repositories in Geoportal.",
+    );
+    expect(wrapper.find('[data-testid="folder-scan-again"]').exists()).toBe(false);
+    await wrapper.get('[data-testid="folder-edit-project"]').trigger("click");
+    expect(useProjectDialogsStore().editing).toBe(1);
+    wrapper.unmount();
   });
 });
 

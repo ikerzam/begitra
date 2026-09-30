@@ -45,7 +45,11 @@ const message = computed(() => {
   if (scanning.value) {
     return t("project.scanningFolder", { folder: format.displayPath(folder.value ?? "") });
   }
-  if (allMissing.value) return t("project.allMissing", { project: name });
+  if (allMissing.value) {
+    return folder.value === null
+      ? t("project.allMissing", { project: name })
+      : t("project.allMissingFolder", { project: name });
+  }
   return folder.value === null
     ? t("project.empty", { project: name })
     : t("project.emptyFolder", { project: name });

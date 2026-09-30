@@ -35,7 +35,7 @@ describe("App", () => {
     expect(wrapper.get('[data-testid="top-bar"]').text()).toContain("No project open");
     expect(wrapper.find('[data-testid="home-screen"]').exists()).toBe(true);
     expect(wrapper.get('[data-testid="projects-error"]').text()).toContain(
-      "The list of projects could not be read.",
+      "Couldn't read the list of projects.",
     );
     expect(wrapper.get('[data-testid="status-bar"]').text()).toContain("No repositories");
     wrapper.unmount();

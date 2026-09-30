@@ -266,7 +266,7 @@
     "stop": "Stop",
     "folderState": {
       "queued": "queued",
-      "scanning": "scanning · {n} so far",
+      "scanning": "scanning",
       "notFound": "not found",
       "empty": "no repositories"
     },
@@ -274,7 +274,7 @@
     "repositoriesFound": "{n} repository found | {n} repositories found",
     "folderMissing": "Couldn't scan {path}. The folder was removed. Remove its project, or open the folder again if it moved.",
     "scanFailed": "The scan stopped with an error. {message}",
-    "loadFailed": "The list of projects could not be read. {message}",
+    "loadFailed": "Couldn't read the list of projects. {message}",
     "retry": "Try again",
     "sections": {
       "pinned": "Pinned",
@@ -1094,11 +1094,11 @@
     "readingOne": "Reading…",
     "noChanges": "No changes",
     "looking": "Looking for repositories in {folder}…",
-    "empty": "No repositories in {folder}.",
+    "empty": "No repositories in {project}.",
     "scanFailed": "Couldn't scan {folder}.",
     "scanAgain": "Scan again",
     "allClean": "Nothing to commit in {n} repository. | Nothing to commit in {n} repositories.",
-    "allCleanDetail": "Nothing to commit in {folder}. Edit files, or let an agent, and they show up here."
+    "allCleanDetail": "Nothing to commit in {project}. Edit files, or let an agent, and they show up here."
   },
   "project": {
     "overview": "Overview",
@@ -1290,6 +1290,7 @@
     "checklistNothing": "No repository to add.",
     "emptyFolder": "No repositories in {project}.",
     "allMissing": "The repositories of {project} are missing. Edit the project, or bring their folders back.",
+    "allMissingFolder": "The repositories of {project} are missing. Scan its folder again, or bring their folders back.",
     "scanningFolder": "Looking for repositories in {folder}…",
     "leaving": {
       "label": "Leaving Begitra"
