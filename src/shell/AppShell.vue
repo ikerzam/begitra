@@ -247,17 +247,18 @@ watch(
   },
 );
 
-// The sidebar follows the repository: the Repos tab on failure and at home, the branches
-// once open, unless the dashboard is being restored (its tab keeps it up).
+// The sidebar follows the repository: the Repos tab on failure and at home, the branches as
+// soon as another repository starts opening (a large one takes a moment, and the tab should
+// not wait for it), unless the dashboard is being restored (its tab keeps it up).
 watch(
   () => repo.state.kind,
   (kind) => {
     if (kind === "error" || kind === "empty") shell.setSidebarTab("repos");
-    if (kind === "ready") {
+    if (kind === "opening" || kind === "ready") {
       shell.setSidebarTab(shell.layoutMode === "worktrees" ? "worktrees" : "branches");
-      // An operation stopped before the app opened the repository shows its banner at once.
-      void sequencer.load();
     }
+    // An operation stopped before the app opened the repository shows its banner at once.
+    if (kind === "ready") void sequencer.load();
   },
 );
 

@@ -1006,6 +1006,24 @@ describe("Sidebar", () => {
     return wrapper;
   }
 
+  it("shows the Branches tab as soon as another repository starts opening", async () => {
+    const wrapper = await openShell();
+    const [shell, projects] = [useShellStore(), useProjectsStore()];
+    await wrapper.get('[data-testid="tab-repos"]').trigger("click");
+    expect(shell.sidebarTab).toBe("repos");
+    // Not once it is open: a large repository takes a moment, and the tab does not wait.
+    const showing = projects.show("/other");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(useRepoStore().state.kind).toBe("opening");
+    await wrapper.vm.$nextTick();
+    expect(shell.sidebarTab).toBe("branches");
+    await showing;
+    await settle();
+    expect(shell.sidebarTab).toBe("branches");
+    wrapper.unmount();
+  });
+
   it("leaves no native tooltip in the shell: every hint is the app's", async () => {
     const wrapper = await openShell();
     for (const tab of ["repos", "branches", "worktrees"]) {
