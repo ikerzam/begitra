@@ -206,8 +206,8 @@ describe("useFolderStore", () => {
     const { calls } = await openFolder();
     const before = of(calls, "diff").length;
     window.dispatchEvent(new Event("focus"));
-    await settled();
-    expect(of(calls, "diff").length - before).toBe(6);
+    // Both lists of the three repositories, two reads at a time.
+    await vi.waitFor(() => expect(of(calls, "diff").length - before).toBe(6));
     window.dispatchEvent(new Event("focus"));
     await settled();
     expect(of(calls, "diff").length - before).toBe(6);
@@ -261,11 +261,17 @@ describe("useFolderStore", () => {
     const { calls, settings } = await openFolder();
     const before = of(calls, "close_repository").length;
     void settings.update("activeProject", 2);
+    // The other project's repositories close theirs too once their lists are read, so the
+    // test waits for the three of the project left, whenever those land.
     await vi.waitFor(() => {
-      const closed = of(calls, "close_repository")
-        .slice(before)
-        .map((call) => call.args["root"]);
-      expect(new Set(closed)).toEqual(new Set(["/code/api", "/code/infra", "/code/web"]));
+      const closed = new Set(
+        of(calls, "close_repository")
+          .slice(before)
+          .map((call) => call.args["root"]),
+      );
+      expect(["/code/api", "/code/infra", "/code/web"].filter((root) => !closed.has(root))).toEqual(
+        [],
+      );
     });
   });
 
