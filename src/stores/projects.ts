@@ -16,6 +16,7 @@ import * as ipc from "@/ipc/commands";
 import { toAppError, type AppError } from "@/ipc/errors";
 import { newOpId } from "@/ipc/invoke";
 import type { IndexEntry, MemberOrigin, OperationState, Project, ProjectEdit } from "@/ipc/schemas";
+import { arm } from "@/motion/motion";
 import { errorText } from "@/shell/errorMessage";
 import { baseName, folderKey, isUnder, pathUnder, sameFolder } from "@/shell/format";
 
@@ -334,15 +335,37 @@ export const useProjectsStore = defineStore("projects", () => {
     if (known) replace({ ...known, ...changes });
   }
 
+  /** A counter for the order of listings and stored pins. */
+  let clock = 0;
+  /** Bumped by each listing: only the one started last stores what it read. */
+  let listSerial = 0;
+  /**
+   * The pins asked: in flight (`storedAt` null) or stored at a tick of `clock`. A listing that
+   * started before a pin was stored may not hold it, so the pin shows over what it read; a
+   * listing started after it holds it, and the pin is forgotten.
+   */
+  const pins = new Map<number, { pinned: boolean; storedAt: number | null }>();
+
   /** Lists the projects; a failure is kept in `loadError` and the list stays as it was. */
   async function load(): Promise<void> {
+    const mine = ++listSerial;
+    const startedAt = ++clock;
     try {
-      projects.value = await ipc.listProjects();
+      const listed = await ipc.listProjects();
+      if (mine !== listSerial) return;
+      for (const [id, pin] of pins) {
+        if (pin.storedAt !== null && pin.storedAt < startedAt) pins.delete(id);
+      }
+      projects.value = listed.map((project) => {
+        const pin = pins.get(project.id);
+        return pin ? { ...project, pinned: pin.pinned } : project;
+      });
       loadError.value = null;
     } catch (error) {
+      if (mine !== listSerial) return;
       loadError.value = toAppError(error);
     } finally {
-      loaded.value = true;
+      if (mine === listSerial) loaded.value = true;
     }
   }
 
@@ -657,14 +680,26 @@ export const useProjectsStore = defineStore("projects", () => {
     }
   }
 
-  /** Pins or unpins a project at once; a refusal reverts it and shows a toast. */
+  /**
+   * Pins or unpins a project at once, and a listing read before the index stored it does not
+   * undo it; a refusal reverts it and shows a toast.
+   */
   async function setPinned(id: number, pinnedNow: boolean): Promise<void> {
     const before = find(id);
     if (!before) return;
+    const pin = { pinned: pinnedNow, storedAt: null as number | null };
+    pins.set(id, pin);
+    arm("projects");
     patchProject(id, { pinned: pinnedNow });
     try {
-      if (!(await ipc.setProjectPinned(id, pinnedNow))) await forgetProject(id);
+      if (await ipc.setProjectPinned(id, pinnedNow)) pin.storedAt = ++clock;
+      else {
+        if (pins.get(id) === pin) pins.delete(id);
+        await forgetProject(id);
+      }
     } catch (error) {
+      if (pins.get(id) === pin) pins.delete(id);
+      arm("projects");
       patchProject(id, { pinned: before.pinned });
       report(error);
     }

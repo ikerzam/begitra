@@ -10,7 +10,13 @@ import {
   summaryOf,
   worktreeOf,
 } from "@/test/entries";
-import { fakeBackend, settled, type Call } from "@/test/backend";
+import {
+  fakeBackend,
+  settled,
+  writeGate,
+  type Call,
+  type FakeBackendOptions,
+} from "@/test/backend";
 
 import { useIndexStore } from "./index";
 import { useProjectDialogsStore } from "./projectDialogs";
@@ -214,6 +220,26 @@ describe("projects store", () => {
     expect(of(calls, "project_set_pinned")[0]?.args).toEqual({ id: 1, pinned: true });
     fakeBackend({ projects: [geoportal], failProjects: true });
     await projects.setPinned(1, false);
+    expect(projects.find(1)?.pinned).toBe(true);
+  });
+
+  it("keeps a pin over a listing of the projects read before the index stored it", async () => {
+    const options: FakeBackendOptions = { projects: [geoportal] };
+    fakeBackend(options);
+    const projects = useProjectsStore();
+    await projects.load();
+    const gate = writeGate();
+    options.listingGate = gate;
+    // Read while Geoportal is not pinned, this listing lands after the pin was stored.
+    const early = projects.load();
+    await projects.setPinned(1, true);
+    gate.release();
+    await early;
+    expect(projects.find(1)?.pinned).toBe(true);
+    // A listing that starts afterwards reads the stored pin, and the pin is forgotten.
+    const later = projects.load();
+    gate.release();
+    await later;
     expect(projects.find(1)?.pinned).toBe(true);
   });
 

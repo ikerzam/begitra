@@ -154,8 +154,8 @@ export interface FakeBackendOptions {
    */
   writeGate?: WriteGate;
   /**
-   * Holds each `list_refs` and `list_worktrees` until the test lets it go, answering as things
-   * were when it was asked; set it after the open to hold the listings that follow a write.
+   * Holds each `list_refs`, `list_worktrees` and `projects` until the test lets it go, answering
+   * as things were when it was asked; set it after the open to hold the listings that follow.
    */
   listingGate?: WriteGate;
   /** What `commit_context` answers, over the defaults (a born branch, no template). */
@@ -1126,9 +1126,11 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
           }
           // The argv that ran, as the backend answers: the first template's words.
           return String((args["templates"] as string[] | undefined)?.[0] ?? "").split(" ");
-        case "projects":
+        case "projects": {
           if (options.failProjects) return projectFailure();
-          return [...projects].sort(byName).map(copyProject);
+          const listed = [...projects].sort(byName).map(copyProject);
+          return options.listingGate ? options.listingGate.hold(cmd, () => listed) : listed;
+        }
         case "project_create": {
           if (options.failProjects) return projectFailure();
           projectClock += 1;

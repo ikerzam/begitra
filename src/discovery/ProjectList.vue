@@ -10,6 +10,7 @@ import { computed, nextTick, ref, useId, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ErrorBanner from "@/components/ErrorBanner.vue";
+import MotionRows from "@/components/MotionRows.vue";
 import SkeletonRow from "@/components/SkeletonRow.vue";
 import type { Project } from "@/ipc/schemas";
 import { errorText } from "@/shell/errorMessage";
@@ -178,28 +179,30 @@ defineExpose({ focus: navigation.focus });
             {{ n(section.rows.length) }}
           </span>
         </div>
-        <ProjectRow
-          v-for="row in section.rows"
-          :key="row.key"
-          :project="row.project"
-          :folder="row.project.folder === null ? '' : format.displayPath(row.project.folder)"
-          :count="format.projectCount(row.project)"
-          :scan="format.projectScan(row.project)"
-          :failed="row.project.folder !== null && format.folderFailed(row.project.folder)"
-          :attention="attention(row.project)"
-          :attention-known="index.read && !index.loadError"
-          :index="position(row)"
-          :selected="position(row) === selectedRow"
-          :tab-stop="position(row) === tabStopRow"
-          @select="
-            () => {
-              navigation.select(position(row));
-              open(row.project);
-            }
-          "
-          @activate="open(row.project)"
-          @menu="(x, y) => openMenu(row, x, y)"
-        />
+        <MotionRows list="projects" :count="section.rows.length" role="none">
+          <ProjectRow
+            v-for="row in section.rows"
+            :key="row.key"
+            :project="row.project"
+            :folder="row.project.folder === null ? '' : format.displayPath(row.project.folder)"
+            :count="format.projectCount(row.project)"
+            :scan="format.projectScan(row.project)"
+            :failed="row.project.folder !== null && format.folderFailed(row.project.folder)"
+            :attention="attention(row.project)"
+            :attention-known="index.read && !index.loadError"
+            :index="position(row)"
+            :selected="position(row) === selectedRow"
+            :tab-stop="position(row) === tabStopRow"
+            @select="
+              () => {
+                navigation.select(position(row));
+                open(row.project);
+              }
+            "
+            @activate="open(row.project)"
+            @menu="(x, y) => openMenu(row, x, y)"
+          />
+        </MotionRows>
       </div>
     </div>
     <div v-if="loadFailure" class="px-5 pt-3" data-testid="projects-error">
