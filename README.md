@@ -58,8 +58,9 @@ and builds the installers without releasing them, keeping them as artifacts of t
 is built on Windows with `scripts/release.mjs` and published to the release site);
 `audit.yml` checks the production npm dependencies and `src-tauri/Cargo.lock` against their
 advisories every Monday and on demand (one Ubuntu job of about a minute); and `dependabot.yml`
-runs the checks on Ubuntu for each of Dependabot's weekly updates, which include the actions
-themselves (pinned by commit), and merges a patch or minor npm or Cargo update that passes them.
+runs, on Ubuntu, the check each of Dependabot's weekly updates can break (the frontend's for npm,
+the engine's for Cargo; the updates of the actions, pinned by commit, run none) and merges a patch
+or minor npm or Cargo update that passes it.
 A major, an update of the actions and a failing one wait for review.
 
 ## Git workflow

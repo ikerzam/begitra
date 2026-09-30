@@ -7,7 +7,8 @@ name: CI
 # a push it would only repeat the lefthook pre-push hook. What CI adds is the other two
 # platforms, which is worth having before a release and when a change touches paths,
 # processes or the filesystem: Actions -> CI -> "Run workflow", and `release.yml` calls it.
-# `dependabot.yml` calls it on each Dependabot pull request with Ubuntu alone, about 20 minutes.
+# `dependabot.yml` calls it on each Dependabot pull request with Ubuntu alone and the job the
+# update can break: `web` for npm (about 5 minutes), `rust` for Cargo (about 11).
 
 on:
   workflow_dispatch:
@@ -16,12 +17,28 @@ on:
         description: The platforms of the rust job, as a JSON list
         type: string
         default: '["ubuntu-latest", "windows-latest", "macos-latest"]'
+      web:
+        description: Run the frontend's checks
+        type: boolean
+        default: true
+      rust:
+        description: Run the engine's checks
+        type: boolean
+        default: true
   workflow_call:
     inputs:
       platforms:
         description: The platforms of the rust job, as a JSON list
         type: string
         default: '["ubuntu-latest", "windows-latest", "macos-latest"]'
+      web:
+        description: Run the frontend's checks
+        type: boolean
+        default: true
+      rust:
+        description: Run the engine's checks
+        type: boolean
+        default: true
 
 # Nothing here writes; the release workflow that calls it grants the write to its own job.
 permissions:
@@ -38,6 +55,7 @@ env:
 jobs:
   web:
     name: web (ubuntu-latest)
+    if: inputs.web
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -71,6 +89,7 @@ jobs:
 
   rust:
     name: rust (${{ matrix.os }})
+    if: inputs.rust
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
