@@ -123,91 +123,95 @@ const countLine = computed(() => {
     class="flex h-bar-top shrink-0 items-center gap-2 border-b border-line"
     data-testid="graph-filters"
   >
-    <div
-      class="filter-controls flex h-full min-w-0 flex-auto items-center gap-2 overflow-x-auto px-3"
-      data-testid="filter-controls"
-    >
-      <RepoSelect v-if="projects.multi" />
-      <div class="graph-search">
-        <Input v-model="text" :placeholder="t('graph.searchCommits')" :icon="Search" />
-      </div>
-      <div class="graph-scope">
-        <Select
-          v-model="scopeValue"
-          :options="scopeOptions"
-          :label="t('graph.scope')"
-          :active="graph.filters.scope.kind !== 'all'"
-          data-testid="filter-scope"
-        />
-      </div>
-      <div class="graph-author">
-        <Select
-          v-model="authorValue"
-          :options="authorOptions"
-          :label="t('graph.author')"
-          :active="graph.filters.author !== ''"
-          data-testid="filter-author"
-        />
-      </div>
-      <div class="graph-date">
-        <Select
-          v-model="dateValue"
-          :options="dateOptions"
-          :label="t('graph.date')"
-          :active="graph.filters.dateRange !== 'any'"
-          data-testid="filter-date"
-        />
-      </div>
-      <div class="relative shrink-0">
-        <Button
-          ref="pathButton"
-          variant="ghost"
-          :icon="Folder"
-          :class="{ 'bg-selected text-fg': graph.filters.path !== '' }"
-          :aria-expanded="pathOpen"
-          data-testid="filter-path"
-          @click="pathOpen = !pathOpen"
-        >
-          {{ graph.filters.path || t("graph.path") }}
-        </Button>
-        <PathPopover
-          v-if="pathOpen"
-          :path="graph.filters.path"
-          :anchor="pathButton?.$el"
-          @apply="graph.setPath"
-          @close="closePath"
-        />
-      </div>
-      <span
-        v-if="graph.diffBase"
-        class="flex h-control shrink-0 items-center gap-1 rounded-md bg-selected pl-3 text-md text-fg"
-        data-testid="chip-diff-base"
+    <div class="filter-row relative flex h-full min-w-0 flex-auto">
+      <div
+        class="filter-controls flex h-full w-full items-center gap-2 overflow-x-auto px-3"
+        data-testid="filter-controls"
       >
-        {{ t("graph.diffFromChip", { hash: shortHash(graph.diffBase) }) }}
-        <button
-          type="button"
-          class="flex h-control w-control items-center justify-center rounded-md text-fg-secondary hover:text-fg"
-          :aria-label="t('graph.clearDiffBase')"
-          @click="graph.setDiffBase(null)"
+        <RepoSelect v-if="projects.multi" />
+        <div class="graph-search">
+          <Input v-model="text" :placeholder="t('graph.searchCommits')" :icon="Search" />
+        </div>
+        <div class="graph-scope">
+          <Select
+            v-model="scopeValue"
+            :options="scopeOptions"
+            :label="t('graph.scope')"
+            :active="graph.filters.scope.kind !== 'all'"
+            data-testid="filter-scope"
+          />
+        </div>
+        <div class="graph-author">
+          <Select
+            v-model="authorValue"
+            :options="authorOptions"
+            :label="t('graph.author')"
+            :active="graph.filters.author !== ''"
+            data-testid="filter-author"
+          />
+        </div>
+        <div class="graph-date">
+          <Select
+            v-model="dateValue"
+            :options="dateOptions"
+            :label="t('graph.date')"
+            :active="graph.filters.dateRange !== 'any'"
+            data-testid="filter-date"
+          />
+        </div>
+        <div class="relative shrink-0">
+          <Button
+            ref="pathButton"
+            variant="ghost"
+            :icon="Folder"
+            :class="{ 'bg-selected text-fg': graph.filters.path !== '' }"
+            :aria-expanded="pathOpen"
+            data-testid="filter-path"
+            @click="pathOpen = !pathOpen"
+          >
+            {{ graph.filters.path || t("graph.path") }}
+          </Button>
+          <PathPopover
+            v-if="pathOpen"
+            :path="graph.filters.path"
+            :anchor="pathButton?.$el"
+            @apply="graph.setPath"
+            @close="closePath"
+          />
+        </div>
+        <span
+          v-if="graph.diffBase"
+          class="flex h-control shrink-0 items-center gap-1 rounded-md bg-selected pl-3 text-md text-fg"
+          data-testid="chip-diff-base"
         >
-          <X :size="16" :stroke-width="1.5" aria-hidden="true" />
-        </button>
-      </span>
-      <span
-        v-if="graph.rangeEnd"
-        class="flex h-control shrink-0 items-center gap-1 rounded-md bg-selected pl-3 text-md text-fg"
-        data-testid="chip-range-end"
-      >
-        {{ t("graph.rangeEndChip", { hash: shortHash(graph.rangeEnd) }) }}
-        <button
-          type="button"
-          class="flex h-control w-control items-center justify-center rounded-md text-fg-secondary hover:text-fg"
-          :aria-label="t('graph.clearRangeEnd')"
-          @click="graph.setRangeEnd(null)"
+          {{ t("graph.diffFromChip", { hash: shortHash(graph.diffBase) }) }}
+          <button
+            type="button"
+            class="flex h-control w-control items-center justify-center rounded-md text-fg-secondary hover:text-fg"
+            :aria-label="t('graph.clearDiffBase')"
+            @click="graph.setDiffBase(null)"
+          >
+            <X :size="16" :stroke-width="1.5" aria-hidden="true" />
+          </button>
+        </span>
+        <span
+          v-if="graph.rangeEnd"
+          class="flex h-control shrink-0 items-center gap-1 rounded-md bg-selected pl-3 text-md text-fg"
+          data-testid="chip-range-end"
         >
-          <X :size="16" :stroke-width="1.5" aria-hidden="true" />
-        </button>
-      </span>
+          {{ t("graph.rangeEndChip", { hash: shortHash(graph.rangeEnd) }) }}
+          <button
+            type="button"
+            class="flex h-control w-control items-center justify-center rounded-md text-fg-secondary hover:text-fg"
+            :aria-label="t('graph.clearRangeEnd')"
+            @click="graph.setRangeEnd(null)"
+          >
+            <X :size="16" :stroke-width="1.5" aria-hidden="true" />
+          </button>
+        </span>
+      </div>
+      <span class="filter-fade filter-fade-start" aria-hidden="true" />
+      <span class="filter-fade filter-fade-end" aria-hidden="true" />
     </div>
     <span
       v-if="countLine"
@@ -270,49 +274,72 @@ const countLine = computed(() => {
   height: 0;
 }
 
-/* Instead, the edge with controls past it fades over 24px. The fade follows the scroll (a
-   scroll-driven animation of two registered lengths); a row that fits has no scroll timeline,
-   so the animation does nothing and the row shows whole. The mask's colour is only its alpha. */
-@property --filter-fade-start {
-  syntax: "<length>";
-  inherits: false;
-  initial-value: 0px;
+/* Instead, the edge with controls past it fades over 24px: two strips over the row's edges,
+   from transparent to the bar's background, that pass the pointer through. Not a mask on the
+   row, which would clip what the row paints outside its box, the select lists and the path
+   popover included. The strips follow the row's scroll through a named scroll timeline; a row
+   that fits has no timeline, so they keep their resting opacity of 0. */
+.filter-fade {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: var(--space-5);
+  pointer-events: none;
+  opacity: 0;
 }
 
-@property --filter-fade-end {
-  syntax: "<length>";
-  inherits: false;
-  initial-value: 0px;
+.filter-fade-start {
+  left: 0;
+  background: linear-gradient(to left, transparent, var(--bg-app));
+}
+
+.filter-fade-end {
+  right: 0;
+  background: linear-gradient(to right, transparent, var(--bg-app));
 }
 
 @supports (animation-timeline: scroll()) {
+  .filter-row {
+    timeline-scope: --filter-row;
+  }
+
   .filter-controls {
-    mask-image: linear-gradient(
-      to right,
-      transparent,
-      black var(--filter-fade-start),
-      black calc(100% - var(--filter-fade-end)),
-      transparent
-    );
-    animation: filter-fade linear both;
-    animation-timeline: scroll(self inline);
+    scroll-timeline: --filter-row inline;
+  }
+
+  .filter-fade {
+    animation-duration: 1ms;
+    animation-timing-function: linear;
+    animation-fill-mode: both;
+    animation-timeline: --filter-row;
+  }
+
+  .filter-fade-start {
+    animation-name: filter-fade-start;
+  }
+
+  .filter-fade-end {
+    animation-name: filter-fade-end;
   }
 }
 
-@keyframes filter-fade {
+@keyframes filter-fade-start {
   0% {
-    --filter-fade-start: 0px;
-    --filter-fade-end: var(--space-5);
+    opacity: 0;
   }
-  8% {
-    --filter-fade-start: var(--space-5);
+  8%,
+  100% {
+    opacity: 1;
   }
+}
+
+@keyframes filter-fade-end {
+  0%,
   92% {
-    --filter-fade-end: var(--space-5);
+    opacity: 1;
   }
   100% {
-    --filter-fade-start: var(--space-5);
-    --filter-fade-end: 0px;
+    opacity: 0;
   }
 }
 </style>
