@@ -109,7 +109,7 @@ export const useBranchesStore = defineStore("branches", () => {
   /** HEAD moved: the refs and the history follow, on `hash` when given. */
   function headMoved(hash?: string | null): void {
     void repo.refreshRefs();
-    repo.restartWalk(repo.walkScope, repo.walkFilter, hash ?? undefined);
+    repo.reloadWalk(hash ?? undefined);
   }
 
   /** An outcome: conflicts hand over to the sequencer on the changes screen; the rest toast. */

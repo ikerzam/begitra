@@ -267,7 +267,7 @@ export const useRemotesStore = defineStore("remotes", () => {
     void sequencer.load();
     void repo.refreshRefs();
     const hash = result.kind === "outcome" ? result.outcome.hash : null;
-    repo.restartWalk(repo.walkScope, repo.walkFilter, hash ?? undefined);
+    repo.reloadWalk(hash ?? undefined);
     toasts.push({
       kind: result.kind === "outcome" && result.outcome.kind === "up-to-date" ? "info" : "success",
       message: "",

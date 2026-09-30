@@ -100,7 +100,7 @@ export const useSequencerStore = defineStore("sequencer", () => {
       absorb(outcome);
       if (outcome.kind !== "conflicts") {
         void repo.refreshRefs();
-        repo.restartWalk(repo.walkScope, repo.walkFilter, outcome.hash ?? undefined);
+        repo.reloadWalk(outcome.hash ?? undefined);
       }
       return outcome;
     } catch (failure) {

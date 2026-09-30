@@ -118,6 +118,8 @@ export const useRepoStore = defineStore("repo", () => {
   let pendingSelection: string | null = null;
   /** When the walk was last listed again, for the watcher (see `recentlyRestarted`). */
   let lastRestartAt = 0;
+  /** A reloaded walk's first page replaces the rows kept meanwhile (`reloadWalk`). */
+  let replacing = false;
 
   const selectedCommit = computed<CommitNode | undefined>(() => commits.value[selectedIndex.value]);
   const canLoadMore = computed(
@@ -134,6 +136,7 @@ export const useRepoStore = defineStore("repo", () => {
     void diffHandle?.cancel();
     diffHandle = null;
     pendingSelection = null;
+    replacing = false;
     repo.value = null;
     refs.value = [];
     refsLoaded.value = false;
@@ -260,9 +263,28 @@ export const useRepoStore = defineStore("repo", () => {
     lastRestartAt = Date.now();
     stopWalk();
     pendingSelection = selectHash ?? selectedCommit.value?.hash ?? null;
+    replacing = false;
     commits.value = [];
     walk.value = null;
     selectedIndex.value = -1;
+    startWalk(root);
+  }
+
+  /**
+   * Lists the current history again after the repository moved (a commit, a checkout, a pull,
+   * an operation that went on, a refs change): the rows and the selection stay until the new
+   * first page replaces them, where a filter's restart shows skeleton rows. `selectHash` (the
+   * selected commit by default) is selected again when the first request lists it, otherwise
+   * the first row is; a walk that fails before its first page empties the rows.
+   */
+  function reloadWalk(selectHash?: string): void {
+    const root = repo.value?.root;
+    if (!root || state.value.kind !== "ready") return;
+    lastRestartAt = Date.now();
+    stopWalk();
+    pendingSelection = selectHash ?? selectedCommit.value?.hash ?? null;
+    replacing = commits.value.length > 0;
+    walk.value = null;
     startWalk(root);
   }
 
@@ -291,6 +313,11 @@ export const useRepoStore = defineStore("repo", () => {
     skipBefore?: number,
   ): void {
     if (myGeneration !== generation || myWalk !== walkSerial) return;
+    if (replacing) {
+      replacing = false;
+      commits.value = [];
+      selectedIndex.value = -1;
+    }
     const skip = skipBefore ?? walk.value?.skipBefore ?? 0;
     if (page.index === 0 && skip > 0 && page.commits[0]?.hash !== commits.value[0]?.hash) {
       // The history changed under the restarted walk: start the list over.
@@ -359,6 +386,12 @@ export const useRepoStore = defineStore("repo", () => {
         walkRecovered = true;
         startWalk(root, position.nextIndex);
         return;
+      }
+      if (replacing) {
+        // The rows kept for a reload belong to a history that moved: the banner stands alone.
+        replacing = false;
+        commits.value = [];
+        selectedIndex.value = -1;
       }
       walkError.value = failed;
       // No more pages are asked for: the banner says where history stops.
@@ -509,6 +542,7 @@ export const useRepoStore = defineStore("repo", () => {
     open,
     loadMore,
     restartWalk,
+    reloadWalk,
     recentlyRestarted,
     loadWorktrees,
     refreshRefs,

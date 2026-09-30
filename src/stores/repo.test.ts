@@ -50,6 +50,10 @@ interface BackendOptions {
   openGate?: Promise<void>;
   /** Walk pages are delivered only after this promise resolves. */
   walkGate?: Promise<void>;
+  /** The walks after the open's deliver their pages only after this promise resolves. */
+  reloadGate?: Promise<void>;
+  /** The walks after the open's fail before their first page. */
+  reloadFails?: boolean;
   /** What `list_refs` answers instead of the one `main`. */
   refs?: GitRef[];
 }
@@ -107,6 +111,15 @@ function mockBackend(options: BackendOptions = {}): Call[] {
           // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
           return Promise.reject({ code: "op.unknown_walk", message: "Walk walk-1 is not open" });
         }
+        if (cmd === "walk_commits" && walks > 1 && options.reloadFails) {
+          send(args["onPage"] as Channel<unknown>, [
+            {
+              kind: "error",
+              error: { code: "repo.corrupt_object", message: "object 6c1f0ab is missing" },
+            },
+          ]);
+          return null;
+        }
         const first = cmd === "walk_commits" ? 0 : (args["nextIndex"] as number);
         const maxPages = args["maxPages"] as number;
         // A ref scope lists the first three commits; a text filter keeps the subjects holding it.
@@ -138,11 +151,11 @@ function mockBackend(options: BackendOptions = {}): Call[] {
           if (done) break;
         }
         messages.push({ kind: "done" });
-        // Filtered walks wait on the gate; the plain walk of an open never does.
+        // Filtered walks wait on the gate, a reload on its own; the plain walk of an open never does.
         send(
           args["onPage"] as Channel<unknown>,
           messages,
-          walkOptions?.filter ? options.walkGate : undefined,
+          walkOptions?.filter ? options.walkGate : walks > 1 ? options.reloadGate : undefined,
         );
         return null;
       }
@@ -299,6 +312,58 @@ describe("repo store", () => {
     expect(store.commits).toHaveLength(0);
     expect(store.repo).toBeNull();
     expect(calls.some((c) => c.cmd === "close_repository" && c.args["root"] === "/r")).toBe(true);
+  });
+});
+
+describe("repo store, reloaded walks", () => {
+  it("keeps the rows and the selection until the reloaded history's first page replaces them", async () => {
+    let open!: () => void;
+    const reloadGate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    const calls = mockBackend({ reloadGate });
+    const store = useRepoStore();
+    await store.open("/r");
+    await settled();
+    store.select(2);
+    await settled();
+    const before = store.commits;
+    store.reloadWalk();
+    await settled();
+    // No skeleton rows: the rows and the selection stay while the history is listed again.
+    expect(store.commits).toBe(before);
+    expect(store.selectedIndex).toBe(2);
+    open();
+    await settled();
+    expect(calls.filter((c) => c.cmd === "walk_commits")).toHaveLength(2);
+    expect(store.commits).not.toBe(before);
+    expect(store.commits).toHaveLength(before.length);
+    expect(store.selectedIndex).toBe(2);
+    expect(store.detail?.hash).toBe(commit(2).hash);
+  });
+
+  it("selects the commit the reload names", async () => {
+    mockBackend();
+    const store = useRepoStore();
+    await store.open("/r");
+    await settled();
+    store.reloadWalk(commit(4).hash);
+    await settled();
+    expect(store.selectedIndex).toBe(4);
+    expect(store.detail?.hash).toBe(commit(4).hash);
+  });
+
+  it("empties the rows when the reloaded walk fails before its first page", async () => {
+    mockBackend({ reloadFails: true });
+    const store = useRepoStore();
+    await store.open("/r");
+    await settled();
+    expect(store.commits.length).toBeGreaterThan(0);
+    store.reloadWalk();
+    await settled();
+    expect(store.commits).toHaveLength(0);
+    expect(store.selectedIndex).toBe(-1);
+    expect(store.walkError?.code).toBe("repo.corrupt_object");
   });
 });
 

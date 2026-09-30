@@ -28,7 +28,7 @@ export const useChangesStore = defineStore("changes", () => {
   const model = createChangesModel({
     root: () => repo.repo?.root ?? null,
     // The graph lists the history again with the new commit selected.
-    onCommitted: (hash) => repo.restartWalk(repo.walkScope, repo.walkFilter, hash),
+    onCommitted: (hash) => repo.reloadWalk(hash),
   });
 
   // An open or a close empties the lists at once, so no count of the last repository shows

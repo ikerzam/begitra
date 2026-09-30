@@ -55,7 +55,7 @@ export function useRepoWatcher(): void {
   async function followRefs(): Promise<void> {
     const { tipsMoved } = await repo.refreshRefs();
     if (tipsMoved && !repo.recentlyRestarted()) {
-      repo.restartWalk(repo.walkScope, repo.walkFilter);
+      repo.reloadWalk();
     }
   }
 
