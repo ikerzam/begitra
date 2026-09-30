@@ -3,7 +3,15 @@ import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { worktreeLock } from "@/ipc/commands";
-import { fakeBackend, fakeCommit, fakeWorktrees, settled, type Call } from "@/test/backend";
+import {
+  fakeBackend,
+  fakeCommit,
+  fakeWorktrees,
+  settled,
+  writeGate,
+  type Call,
+  type FakeBackendOptions,
+} from "@/test/backend";
 
 import { projectOf } from "@/test/entries";
 
@@ -228,6 +236,44 @@ describe("worktrees store", () => {
     expect(operations.operations.some((op) => op.label === "operations.checkingWorktrees")).toBe(
       false,
     );
+  });
+
+  it("shows a lock before git answers, and what git holds when it refuses", async () => {
+    const gate = writeGate();
+    const { worktrees } = await openDashboard(
+      fakeBackend({ worktrees: fakeWorktrees(), summaries, writeGate: gate }),
+    );
+    const locking = worktrees.lock("/wt/claude-auth", "review");
+    expect(worktrees.rows[1]?.locked).toBe(true);
+    expect(worktrees.rows[1]?.lockReason).toBe("review");
+    gate.refuse();
+    expect(await locking).toBe(false);
+    expect(worktrees.rows[1]?.locked).toBe(false);
+    expect(worktrees.error?.detail).toContain("index.lock");
+    const unlocking = worktrees.unlock("/wt/claude-auth");
+    expect(worktrees.rows[1]?.locked).toBe(false);
+    gate.release();
+    expect(await unlocking).toBe(true);
+  });
+
+  it("takes a removed row out and shows an added one from git's answer, before the listing", async () => {
+    const options: FakeBackendOptions = { worktrees: fakeWorktrees(), summaries };
+    const { worktrees } = await openDashboard(fakeBackend(options));
+    // The listings after the writes wait: what shows meanwhile is git's answer.
+    const gate = writeGate();
+    options.listingGate = gate;
+    void worktrees.remove("/wt/claude-auth", false);
+    await settled();
+    expect(worktrees.rows.map((row) => row.name)).toEqual(["r", "gone"]);
+    const added = await worktrees.add({
+      path: "/r.worktrees/topic",
+      branch: { kind: "new", name: "topic", start: "main" },
+    });
+    expect(added).toBe("/r.worktrees/topic");
+    expect(worktrees.addOpen).toBe(false);
+    expect(worktrees.rows.map((row) => row.name)).toEqual(["r", "gone", "topic"]);
+    expect(worktrees.selected?.name).toBe("topic");
+    expect(gate.waiting.filter((cmd) => cmd === "list_worktrees")).toHaveLength(2);
   });
 
   it("prunes the entries whose folders are gone, locks and unlocks", async () => {

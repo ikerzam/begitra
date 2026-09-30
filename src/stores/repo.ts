@@ -135,6 +135,8 @@ export const useRepoStore = defineStore("repo", () => {
   let replacing = false;
   /** Bumped by each listing of the refs: only the one started last may store what it read. */
   let refsSerial = 0;
+  /** The same for the listings of the worktrees. */
+  let worktreesSerial = 0;
 
   const selectedCommit = computed<CommitNode | undefined>(() => commits.value[selectedIndex.value]);
   const canLoadMore = computed(
@@ -182,15 +184,25 @@ export const useRepoStore = defineStore("repo", () => {
     const root = repo.value?.root;
     if (!root) return;
     const myGeneration = generation;
+    const mine = ++worktreesSerial;
     try {
       const list = await ipc.listWorktrees(root);
-      if (myGeneration !== generation) return;
+      // A listing started later holds newer worktrees (a write's answer shown meanwhile).
+      if (myGeneration !== generation || mine !== worktreesSerial) return;
       worktrees.value = list;
       worktreesError.value = null;
     } catch (error) {
       if (myGeneration !== generation) return;
       worktreesError.value = toAppError(error);
     }
+  }
+
+  /**
+   * Shows what git answered about the worktrees (one added, one removed) before they are listed
+   * again; the listing that follows replaces it.
+   */
+  function patchWorktrees(change: (listed: Worktree[]) => Worktree[]): void {
+    worktrees.value = change(worktrees.value);
   }
 
   /** Whether `root` (or the path being opened) is the repository the store shows now. */
@@ -597,6 +609,7 @@ export const useRepoStore = defineStore("repo", () => {
     loadWorktrees,
     refreshRefs,
     patchRefs,
+    patchWorktrees,
     select,
     close,
     retry,

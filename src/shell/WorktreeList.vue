@@ -9,6 +9,7 @@ import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ListRow from "@/components/ListRow.vue";
+import MotionRows from "@/components/MotionRows.vue";
 import { refocusAfterMenu } from "@/components/menuFocus";
 import { matchesQuery } from "@/palette/usePalette";
 import { useListNavigation } from "@/shortcuts/useListNavigation";
@@ -124,22 +125,24 @@ defineExpose({ focus: navigation.focus });
     data-testid="worktree-list"
     @keydown="onKeydown"
   >
-    <ListRow
-      v-for="(row, index) in rows"
-      :key="row.key"
-      :data-index="index"
-      :name="row.name"
-      :lane="row.lane"
-      :icon="ListTree"
-      icon-beside
-      :missing="row.missing"
-      :meta="row.missing ? t('sidebar.notFound') : ''"
-      :selected="index === selectedRow"
-      :tab-stop="index === tabStopRow"
-      @select="navigation.select(index)"
-      @activate="() => void worktrees.openAsContext(row.key)"
-      @contextmenu="(event: MouseEvent) => onContextMenu(index, event)"
-    />
+    <MotionRows list="worktrees" :count="rows.length" role="none">
+      <ListRow
+        v-for="(row, index) in rows"
+        :key="row.key"
+        :data-index="index"
+        :name="row.name"
+        :lane="row.lane"
+        :icon="ListTree"
+        icon-beside
+        :missing="row.missing"
+        :meta="row.missing ? t('sidebar.notFound') : ''"
+        :selected="index === selectedRow"
+        :tab-stop="index === tabStopRow"
+        @select="navigation.select(index)"
+        @activate="() => void worktrees.openAsContext(row.key)"
+        @contextmenu="(event: MouseEvent) => onContextMenu(index, event)"
+      />
+    </MotionRows>
     <p v-if="rows.length === 0" class="px-3 py-2 text-md text-fg-secondary">
       {{ repo.state.kind === "ready" ? t("sidebar.noWorktrees") : t("sidebar.noRepository") }}
     </p>

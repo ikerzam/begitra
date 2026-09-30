@@ -11,6 +11,7 @@ import * as ipc from "@/ipc/commands";
 import { AppError, toAppError } from "@/ipc/errors";
 import { newOpId } from "@/ipc/invoke";
 import type { RepoChangeKind, WorktreeAdd } from "@/ipc/schemas";
+import { arm } from "@/motion/motion";
 import { baseName, sameFolder } from "@/shell/format";
 
 import { useCompareStore } from "./compare";
@@ -68,6 +69,8 @@ export const useWorktreesStore = defineStore("worktrees", () => {
   const addOpen = ref(false);
   const prompt = ref<WorktreePrompt | null>(null);
   const aheadBehind = ref(new Map<string, { ahead: number; behind: number }>());
+  /** Locks and unlocks asked and not yet read back: the rows show them before git answers. */
+  const locking = ref(new Map<string, { locked: boolean; reason: string | null }>());
   let serial = 0;
 
   const active = computed(() => shell.layoutMode === "worktrees" && repo.state.kind === "ready");
@@ -87,6 +90,7 @@ export const useWorktreesStore = defineStore("worktrees", () => {
       const counts = worktree.isMain
         ? { ahead: current?.ahead ?? null, behind: current?.behind ?? null }
         : (aheadBehind.value.get(worktree.path) ?? { ahead: null, behind: null });
+      const asked = locking.value.get(worktree.path);
       return {
         path: worktree.path,
         name: baseName(worktree.path),
@@ -94,8 +98,8 @@ export const useWorktreesStore = defineStore("worktrees", () => {
         head: worktree.head,
         detached: worktree.detached,
         isMain: worktree.isMain,
-        locked: worktree.locked,
-        lockReason: worktree.lockReason,
+        locked: asked ? asked.locked : worktree.locked,
+        lockReason: asked ? asked.reason : worktree.lockReason,
         prunable: worktree.prunable,
         dirty: summary?.dirty ?? null,
         lastCommitAt: summary?.lastCommitAt ?? tip?.author.time ?? null,
@@ -269,12 +273,17 @@ export const useWorktreesStore = defineStore("worktrees", () => {
     operations.start(opId, "operations.addingWorktree");
     try {
       const added = await ipc.worktreeAdd(root, request, opId);
-      await load();
+      // The row shows from git's answer; the listing and the rows' figures follow.
+      arm("worktrees");
+      repo.patchWorktrees((listed) =>
+        listed.some((worktree) => worktree.path === added.path) ? listed : [...listed, added],
+      );
       selectedPath.value = added.path;
       // The new worktree joins the open project.
       void useProjectsStore().join(added.path);
       addOpen.value = false;
       clearError();
+      void load();
       return added.path;
     } catch (failed) {
       error.value = toAppError(failed);
@@ -318,6 +327,9 @@ export const useWorktreesStore = defineStore("worktrees", () => {
       operations.finish(opId);
     }
     if (selectedPath.value === path) selectedPath.value = null;
+    // The row leaves on git's answer, before the worktrees are read again.
+    arm("worktrees");
+    repo.patchWorktrees((listed) => listed.filter((worktree) => worktree.path !== path));
     await load();
     return true;
   }
@@ -337,17 +349,40 @@ export const useWorktreesStore = defineStore("worktrees", () => {
     const root = repo.repo?.root;
     if (!root) return false;
     prompt.value = null;
-    return run(path, async () => {
-      await ipc.worktreeLock(root, path, reason, newOpId("worktree-lock"));
-    });
+    return asking(path, { locked: true, reason }, () =>
+      run(path, async () => {
+        await ipc.worktreeLock(root, path, reason, newOpId("worktree-lock"));
+      }),
+    );
   }
 
   async function unlock(path: string): Promise<boolean> {
     const root = repo.repo?.root;
     if (!root) return false;
-    return run(path, async () => {
-      await ipc.worktreeUnlock(root, path, newOpId("worktree-unlock"));
-    });
+    return asking(path, { locked: false, reason: null }, () =>
+      run(path, async () => {
+        await ipc.worktreeUnlock(root, path, newOpId("worktree-unlock"));
+      }),
+    );
+  }
+
+  /**
+   * Shows the row's lock state `state` while `write` runs and the list is read again; a refusal
+   * shows what git holds.
+   */
+  async function asking(
+    path: string,
+    state: { locked: boolean; reason: string | null },
+    write: () => Promise<boolean>,
+  ): Promise<boolean> {
+    locking.value = new Map(locking.value).set(path, state);
+    try {
+      return await write();
+    } finally {
+      const left = new Map(locking.value);
+      left.delete(path);
+      locking.value = left;
+    }
   }
 
   /** Asks before a removal; nothing while that worktree's removal already runs. */

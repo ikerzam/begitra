@@ -7,6 +7,7 @@
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
+import MotionRows from "@/components/MotionRows.vue";
 import SkeletonRow from "@/components/SkeletonRow.vue";
 import WorktreeRow from "@/components/WorktreeRow.vue";
 import { useDiscoveryFormat } from "@/discovery/useDiscoveryFormat";
@@ -158,33 +159,35 @@ defineExpose({ focus, keyboardOnTabs });
         <template v-if="showSkeleton">
           <SkeletonRow v-for="i in props.skeletonRows" :key="i" :index="i - 1" height="list" />
         </template>
-        <WorktreeRow
-          v-for="(row, index) in props.rows"
-          :key="row.path"
-          :data-index="index"
-          :path="format.displayPath(row.path)"
-          :branch="row.branch ?? (row.head ? row.head.slice(0, 7) : '')"
-          :lane="props.lanes[row.path] ?? 0"
-          :dirty="row.dirty === true"
-          :locked="row.locked"
-          :lock-reason="row.lockReason ?? ''"
-          :missing="row.prunable"
-          :main="row.isMain"
-          :ahead="row.ahead"
-          :behind="row.behind"
-          :last-commit="row.lastSubject ?? ''"
-          :last-commit-date="date(row.lastCommitAt)"
-          :selected="index === selectedIndex"
-          :tab-stop="index === tabStop"
-          :removing="props.removing.includes(row.path)"
-          @select="navigation.select(index)"
-          @activate="emit('activate', row.path)"
-          @compare="emit('compare', row.path)"
-          @terminal="emit('terminal', row.path)"
-          @editor="emit('editor', row.path)"
-          @remove="emit('remove', row.path)"
-          @menu="(x, y) => emit('menu', row.path, x, y)"
-        />
+        <MotionRows list="worktrees" :count="props.rows.length" role="none">
+          <WorktreeRow
+            v-for="(row, index) in props.rows"
+            :key="row.path"
+            :data-index="index"
+            :path="format.displayPath(row.path)"
+            :branch="row.branch ?? (row.head ? row.head.slice(0, 7) : '')"
+            :lane="props.lanes[row.path] ?? 0"
+            :dirty="row.dirty === true"
+            :locked="row.locked"
+            :lock-reason="row.lockReason ?? ''"
+            :missing="row.prunable"
+            :main="row.isMain"
+            :ahead="row.ahead"
+            :behind="row.behind"
+            :last-commit="row.lastSubject ?? ''"
+            :last-commit-date="date(row.lastCommitAt)"
+            :selected="index === selectedIndex"
+            :tab-stop="index === tabStop"
+            :removing="props.removing.includes(row.path)"
+            @select="navigation.select(index)"
+            @activate="emit('activate', row.path)"
+            @compare="emit('compare', row.path)"
+            @terminal="emit('terminal', row.path)"
+            @editor="emit('editor', row.path)"
+            @remove="emit('remove', row.path)"
+            @menu="(x, y) => emit('menu', row.path, x, y)"
+          />
+        </MotionRows>
       </div>
     </div>
     <p class="shrink-0 px-3 py-3 text-sm text-fg-muted" data-testid="worktree-footer">

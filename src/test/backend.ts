@@ -154,8 +154,8 @@ export interface FakeBackendOptions {
    */
   writeGate?: WriteGate;
   /**
-   * Holds each `list_refs` until the test lets it go, answering the refs as they were when it
-   * was asked; set it after the open to hold the listings that follow a write.
+   * Holds each `list_refs` and `list_worktrees` until the test lets it go, answering as things
+   * were when it was asked; set it after the open to hold the listings that follow a write.
    */
   listingGate?: WriteGate;
   /** What `commit_context` answers, over the defaults (a born branch, no template). */
@@ -757,8 +757,10 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
               conflicts: ["src/lib.ts", "src/other.ts"],
             }
           );
-        case "list_worktrees":
-          return worktrees.map((worktree) => ({ ...worktree }));
+        case "list_worktrees": {
+          const listed = worktrees.map((worktree) => ({ ...worktree }));
+          return options.listingGate ? options.listingGate.hold(cmd, () => listed) : listed;
+        }
         case "worktree_add": {
           if (options.failWorktreeAdd) {
             // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
@@ -803,19 +805,29 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
         }
         case "worktree_lock": {
           const path = args["path"] as string;
-          worktrees = worktrees.map((worktree) =>
-            worktree.path === path
-              ? { ...worktree, locked: true, lockReason: (args["reason"] as string | null) ?? null }
-              : worktree,
-          );
-          return null;
+          const lock = () => {
+            worktrees = worktrees.map((worktree) =>
+              worktree.path === path
+                ? {
+                    ...worktree,
+                    locked: true,
+                    lockReason: (args["reason"] as string | null) ?? null,
+                  }
+                : worktree,
+            );
+            return null;
+          };
+          return options.writeGate ? options.writeGate.hold(cmd, lock) : lock();
         }
         case "worktree_unlock": {
           const path = args["path"] as string;
-          worktrees = worktrees.map((worktree) =>
-            worktree.path === path ? { ...worktree, locked: false, lockReason: null } : worktree,
-          );
-          return null;
+          const unlock = () => {
+            worktrees = worktrees.map((worktree) =>
+              worktree.path === path ? { ...worktree, locked: false, lockReason: null } : worktree,
+            );
+            return null;
+          };
+          return options.writeGate ? options.writeGate.hold(cmd, unlock) : unlock();
         }
         case "detect_git":
           if (options.gitDetection === false) {
