@@ -220,6 +220,9 @@ describe("the widest line, the sideways scroll's reach", () => {
     expect(displayColumns("漢字", 4)).toBe(4);
     expect(displayColumns("ＡＢ", 4)).toBe(4);
     expect(displayColumns("🚀x", 4)).toBe(3);
+    // Symbols fonts draw as emoji count wide too.
+    expect(displayColumns("✅ ok", 4)).toBe(5);
+    expect(displayColumns("⭐", 4)).toBe(2);
     expect(displayColumns("café", 4)).toBe(4);
   });
 

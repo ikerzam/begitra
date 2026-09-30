@@ -238,10 +238,12 @@ export function wrappedLines(text: string, columns: number): number {
 
 /**
  * Characters a mono font draws two columns wide: Hangul Jamo, the CJK blocks and syllables,
- * full-width forms, and the emoji planes. An approximation of Unicode's East Asian Width.
+ * full-width forms, the emoji planes, and the symbols and dingbats fonts draw as emoji (✅ ⭐
+ * ⚡ ❌). An approximation of Unicode's East Asian Width that errs wide: a column too many only
+ * lets the scroll go a little past a line's end, a column too few keeps its end out of reach.
  */
 const WIDE =
-  /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-\u9fff\ua000-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6\u{1f300}-\u{1f6ff}\u{1f900}-\u{1faff}\u{20000}-\u{3fffd}]/u;
+  /[\u1100-\u115f\u2600-\u27bf\u2b00-\u2bff\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-\u9fff\ua000-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6\u{1f000}-\u{1f6ff}\u{1f700}-\u{1f7ff}\u{1f900}-\u{1faff}\u{20000}-\u{3fffd}]/u;
 
 /** Anything but printable ASCII: a tab, a control character or a non-ASCII one. */
 const NOT_PLAIN = /[^\x20-\x7e]/;

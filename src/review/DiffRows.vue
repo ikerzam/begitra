@@ -93,13 +93,26 @@ const rows = computed(() => rowsOf(props.hunks, review.layout, unchangedLines.un
 
 const { columns, charWidth, textWidth, measure } = useColumns(body, layout);
 const heights = computed(() => rowHeights(rows.value, review.wrap, columns.value));
+/** The widest text of the rendered rows, in px, read with the widths before an input. */
+const renderedWidest = ref(0);
+function measureWidths(): void {
+  measure();
+  let widest = 0;
+  for (const text of body.value?.querySelectorAll<HTMLElement>('[data-testid="line-content"]') ??
+    []) {
+    widest = Math.max(widest, text.scrollWidth);
+  }
+  renderedWidest.value = widest;
+}
 const side = useSideScroll({
   textWidth,
   charWidth,
   widest: computed(() => widestColumns(rows.value, review.tabWidth)),
+  rendered: renderedWidest,
   wrap: computed(() => review.wrap),
-  fileKey: computed(() => props.file.path),
-  measure,
+  // The same path in another repository (the folder view) is another file.
+  fileKey: computed(() => `${root.value ?? ""}\u0000${props.file.path}`),
+  measure: measureWidths,
   scrollRowsBy: (dy) => {
     if (body.value) body.value.scrollTop += dy;
   },
@@ -484,136 +497,144 @@ defineExpose({
 </script>
 
 <template>
-  <div
-    ref="body"
-    class="diff-body relative min-h-0 flex-1 overflow-auto bg-app font-mono text-code text-fg"
-    :data-theme="codeTheme"
-    :style="{ '--diff-tab-width': review.tabWidth, '--diff-scroll-x': `${side.scrollX.value}px` }"
-    data-testid="diff-body"
-    tabindex="0"
-    @scroll.passive="onScroll"
-    @wheel="side.onWheel"
-    @keydown="onKeydown"
-    @contextmenu="onContextMenu"
-  >
+  <!-- The rows scroll in the body; the sideways strip sits under it, so it covers no row. -->
+  <div class="flex min-h-0 flex-1 flex-col">
     <div
-      class="relative"
-      :style="{ height: `${virtual.totalHeight.value}px` }"
-      data-testid="diff-rows"
+      ref="body"
+      class="diff-body relative min-h-0 flex-1 overflow-auto bg-app font-mono text-code text-fg"
+      :data-theme="codeTheme"
+      :style="{ '--diff-tab-width': review.tabWidth, '--diff-scroll-x': `${side.scrollX.value}px` }"
+      data-testid="diff-body"
+      tabindex="0"
+      @scroll.passive="onScroll"
+      @wheel="side.onWheel"
+      @keydown="onKeydown"
+      @contextmenu="onContextMenu"
     >
-      <template v-for="index in rendered" :key="rows[index]?.key ?? index">
-        <div
-          class="absolute right-0 left-0"
-          :style="{ top: `${virtual.rowTop(index)}px`, minHeight: `${heights[index]}px` }"
-          :data-row="index"
-        >
-          <template v-if="rows[index]?.kind === 'hunk'">
-            <HunkRow
-              data-hunk
-              :range="hunkRange(rows[index].hunk)"
-              :symbol="hunkSymbol(rows[index].hunk)"
-              :reviewed="review.isHunkReviewed(props.file.path, rows[index].hunk)"
-              @toggle-reviewed="review.toggleHunkReviewed(props.file.path, rows[index].hunk)"
-            >
-              <template v-if="$slots.hunkActions" #default>
-                <slot
-                  name="hunkActions"
-                  :hunk="rows[index].hunk"
-                  :hunk-index="rows[index].hunkIndex"
+      <div
+        class="relative"
+        :style="{ height: `${virtual.totalHeight.value}px` }"
+        data-testid="diff-rows"
+      >
+        <template v-for="index in rendered" :key="rows[index]?.key ?? index">
+          <div
+            class="absolute right-0 left-0"
+            :style="{ top: `${virtual.rowTop(index)}px`, minHeight: `${heights[index]}px` }"
+            :data-row="index"
+          >
+            <template v-if="rows[index]?.kind === 'hunk'">
+              <HunkRow
+                data-hunk
+                :range="hunkRange(rows[index].hunk)"
+                :symbol="hunkSymbol(rows[index].hunk)"
+                :reviewed="review.isHunkReviewed(props.file.path, rows[index].hunk)"
+                @toggle-reviewed="review.toggleHunkReviewed(props.file.path, rows[index].hunk)"
+              >
+                <template v-if="$slots.hunkActions" #default>
+                  <slot
+                    name="hunkActions"
+                    :hunk="rows[index].hunk"
+                    :hunk-index="rows[index].hunkIndex"
+                  />
+                </template>
+              </HunkRow>
+            </template>
+            <template v-else-if="rows[index]?.kind === 'line'">
+              <DiffRow
+                :kind="lineKind(rows[index].line)"
+                :old-number="rows[index].line.oldNumber ?? undefined"
+                :new-number="rows[index].line.newNumber ?? undefined"
+                :selected="isSelected(rows[index])"
+                :cursor="cursorRow === index"
+                :class="{
+                  'h-auto min-h-row-diff': review.wrap,
+                  'cursor-pointer': props.selectable && rows[index].line.kind !== 'context',
+                }"
+                @click="(event: MouseEvent) => onRowClick(index, event)"
+              >
+                <LineContent
+                  :line="rows[index].line"
+                  :tokens="highlight.tokensOf(rows[index].line)"
+                  :wrap="review.wrap"
                 />
-              </template>
-            </HunkRow>
-          </template>
-          <template v-else-if="rows[index]?.kind === 'line'">
-            <DiffRow
-              :kind="lineKind(rows[index].line)"
-              :old-number="rows[index].line.oldNumber ?? undefined"
-              :new-number="rows[index].line.newNumber ?? undefined"
-              :selected="isSelected(rows[index])"
-              :cursor="cursorRow === index"
-              :class="{
-                'h-auto min-h-row-diff': review.wrap,
-                'cursor-pointer': props.selectable && rows[index].line.kind !== 'context',
-              }"
-              @click="(event: MouseEvent) => onRowClick(index, event)"
-            >
-              <LineContent
-                :line="rows[index].line"
-                :tokens="highlight.tokensOf(rows[index].line)"
+              </DiffRow>
+            </template>
+            <template v-else-if="rows[index]?.kind === 'gap'">
+              <GapRow
+                :count="rows[index].newEnd - rows[index].newStart + 1"
+                :place="rows[index].place"
+                :state="unchangedLines.state.value"
+                :layout="layout"
+                @show-all="(event: MouseEvent) => revealGapAt(index, 'all', event)"
+                @show-next="(event: MouseEvent) => revealGapAt(index, 'next', event)"
+                @show-previous="(event: MouseEvent) => revealGapAt(index, 'previous', event)"
+              />
+            </template>
+            <template v-else-if="rows[index]?.kind === 'context'">
+              <DiffRow
+                v-if="layout === 'unified'"
+                kind="context"
+                :old-number="rows[index].line.oldNumber ?? undefined"
+                :new-number="rows[index].line.newNumber ?? undefined"
+                :class="{ 'h-auto min-h-row-diff': review.wrap }"
+              >
+                <LineContent
+                  :line="rows[index].line"
+                  :tokens="highlight.tokens.value.new(rows[index].line)"
+                  :wrap="review.wrap"
+                />
+              </DiffRow>
+              <SideBySideRow
+                v-else
+                :left="rows[index].line"
+                :right="rows[index].line"
+                :left-tokens="highlight.tokens.value.new(rows[index].line)"
+                :right-tokens="highlight.tokens.value.new(rows[index].line)"
                 :wrap="review.wrap"
               />
-            </DiffRow>
-          </template>
-          <template v-else-if="rows[index]?.kind === 'gap'">
-            <GapRow
-              :count="rows[index].newEnd - rows[index].newStart + 1"
-              :place="rows[index].place"
-              :state="unchangedLines.state.value"
-              :layout="layout"
-              @show-all="(event: MouseEvent) => revealGapAt(index, 'all', event)"
-              @show-next="(event: MouseEvent) => revealGapAt(index, 'next', event)"
-              @show-previous="(event: MouseEvent) => revealGapAt(index, 'previous', event)"
-            />
-          </template>
-          <template v-else-if="rows[index]?.kind === 'context'">
-            <DiffRow
-              v-if="layout === 'unified'"
-              kind="context"
-              :old-number="rows[index].line.oldNumber ?? undefined"
-              :new-number="rows[index].line.newNumber ?? undefined"
-              :class="{ 'h-auto min-h-row-diff': review.wrap }"
-            >
-              <LineContent
-                :line="rows[index].line"
-                :tokens="highlight.tokens.value.new(rows[index].line)"
+            </template>
+            <template v-else-if="rows[index]?.kind === 'pair'">
+              <SideBySideRow
+                :left="rows[index].left"
+                :right="rows[index].right"
+                :left-tokens="rows[index].left ? highlight.tokens.value.old(rows[index].left) : []"
+                :right-tokens="
+                  rows[index].right ? highlight.tokens.value.new(rows[index].right) : []
+                "
                 :wrap="review.wrap"
+                :left-selected="isSelected(rows[index], 'left')"
+                :right-selected="isSelected(rows[index], 'right')"
+                :cursor="cursorRow === index"
+                @select-side="(side, event) => onSideClick(index, side, event)"
               />
-            </DiffRow>
-            <SideBySideRow
-              v-else
-              :left="rows[index].line"
-              :right="rows[index].line"
-              :left-tokens="highlight.tokens.value.new(rows[index].line)"
-              :right-tokens="highlight.tokens.value.new(rows[index].line)"
-              :wrap="review.wrap"
-            />
-          </template>
-          <template v-else-if="rows[index]?.kind === 'pair'">
-            <SideBySideRow
-              :left="rows[index].left"
-              :right="rows[index].right"
-              :left-tokens="rows[index].left ? highlight.tokens.value.old(rows[index].left) : []"
-              :right-tokens="rows[index].right ? highlight.tokens.value.new(rows[index].right) : []"
-              :wrap="review.wrap"
-              :left-selected="isSelected(rows[index], 'left')"
-              :right-selected="isSelected(rows[index], 'right')"
-              :cursor="cursorRow === index"
-              @select-side="(side, event) => onSideClick(index, side, event)"
-            />
-          </template>
-        </div>
-      </template>
+            </template>
+          </div>
+        </template>
+      </div>
+      <LineMenu
+        v-if="menu"
+        :x="menu.x"
+        :y="menu.y"
+        :path="props.file.path"
+        :line="menu.line"
+        :selection="menu.selection"
+        @open="openAtLine"
+        @close="closeMenu"
+      />
     </div>
-    <!-- The sideways scroll's strip: as wide as the body, its content wider by the reach. -->
+    <!-- The sideways scroll's strip: as wide as the body, its content wider by the reach; out
+         of the tab order and hidden from assistive technology, which reads every line whole. -->
     <div
       v-if="side.reach.value > 0"
       ref="strip"
-      class="sticky bottom-0 left-0 overflow-x-auto bg-app"
+      class="shrink-0 overflow-x-auto bg-app"
+      tabindex="-1"
+      aria-hidden="true"
       data-testid="diff-side-scroll"
       @scroll.passive="side.onStripScroll"
     >
       <div class="h-px" :style="{ width: `calc(100% + ${side.reach.value}px)` }" />
     </div>
-    <LineMenu
-      v-if="menu"
-      :x="menu.x"
-      :y="menu.y"
-      :path="props.file.path"
-      :line="menu.line"
-      :selection="menu.selection"
-      @open="openAtLine"
-      @close="closeMenu"
-    />
   </div>
 </template>
 

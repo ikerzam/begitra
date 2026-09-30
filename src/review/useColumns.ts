@@ -34,7 +34,8 @@ export function useColumns(body: Ref<HTMLElement | null>, layout: Ref<DiffLayout
     columns.value = Math.max(MIN_COLUMNS, Math.floor(textWidth.value / charWidth.value));
   }
 
-  onMounted(() => {
+  /** The mono "M" on a canvas, again when a font loads (Geist Mono can land after mount). */
+  function measureChar(): void {
     const probe = document.createElement("canvas").getContext("2d");
     if (probe && body.value) {
       probe.font = getComputedStyle(body.value).font || "12px monospace";
@@ -42,13 +43,21 @@ export function useColumns(body: Ref<HTMLElement | null>, layout: Ref<DiffLayout
       if (measured > 0) charWidth.value = measured;
     }
     measure();
+  }
+
+  onMounted(() => {
+    measureChar();
+    document.fonts?.addEventListener?.("loadingdone", measureChar);
     if (typeof ResizeObserver !== "undefined" && body.value) {
       observer = new ResizeObserver(() => measure());
       observer.observe(body.value);
     }
   });
 
-  onBeforeUnmount(() => observer?.disconnect());
+  onBeforeUnmount(() => {
+    observer?.disconnect();
+    document.fonts?.removeEventListener?.("loadingdone", measureChar);
+  });
 
   watch(layout, measure);
 

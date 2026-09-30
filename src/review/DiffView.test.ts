@@ -624,19 +624,28 @@ describe("DiffView", () => {
     expect(offset()).toBe("100px");
     await wheel(body.element, { deltaY: 50, shiftKey: true });
     expect(offset()).toBe("150px");
-    // A plain vertical wheel scrolls the rows, not the text.
+    // A plain vertical wheel scrolls the rows, not the text, nor does a vertical swipe's
+    // sideways jitter.
     await wheel(body.element, { deltaY: 40 });
+    await wheel(body.element, { deltaX: 5, deltaY: 40 });
     expect(offset()).toBe("150px");
     // Eight characters of 7.2px (jsdom has no canvas to measure the font).
     await body.trigger("keydown", { key: "ArrowRight" });
     expect(offset()).toBe("208px");
     await body.trigger("keydown", { key: "ArrowLeft" });
     expect(offset()).toBe("150px");
+    // Shift and → move a text column less eight characters: 690 - 57.6.
+    await body.trigger("keydown", { key: "ArrowRight", shiftKey: true });
+    expect(offset()).toBe("782px");
     // As far as the widest line and one column past the 690px text column (800 less the
     // gutters): 301 × 7.2 − 690.
     await wheel(body.element, { deltaX: 99999 });
     expect(offset()).toBe("1478px");
-    expect(wrapper.find('[data-testid="diff-side-scroll"]').exists()).toBe(true);
+    // The strip sits under the rows, not over them, out of the tab order.
+    const strip = wrapper.get('[data-testid="diff-side-scroll"]');
+    expect(body.find('[data-testid="diff-side-scroll"]').exists()).toBe(false);
+    expect(strip.attributes("tabindex")).toBe("-1");
+    expect(strip.attributes("aria-hidden")).toBe("true");
     // Only the text moves: every line's text carries the shift, the numbers are outside it.
     for (const text of wrapper.findAll('[data-testid="line-text"]')) {
       expect(text.classes()).toContain("line-shift");
