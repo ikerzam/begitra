@@ -31,3 +31,18 @@ export function onRowActionsKeydown(event: KeyboardEvent): boolean {
   next.focus();
   return true;
 }
+
+/**
+ * Whether a click or a double click happened on one of the row's own controls (a button, a
+ * link, a checkbox): two quick clicks on "Show output" are the button's, never the row's
+ * double click that opens it.
+ */
+export function onRowControl(event: Event): boolean {
+  const row = event.currentTarget;
+  const target = event.target;
+  if (!(target instanceof Element)) return false;
+  const control = target.closest("button, a, input, [role='button'], [role='checkbox']");
+  return (
+    control !== null && control !== row && (!(row instanceof Element) || row.contains(control))
+  );
+}

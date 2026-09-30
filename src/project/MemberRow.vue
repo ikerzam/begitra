@@ -17,7 +17,7 @@ import Checkbox from "@/components/Checkbox.vue";
 import DirtyDot from "@/components/DirtyDot.vue";
 import IconButton from "@/components/IconButton.vue";
 import LaneDot from "@/components/LaneDot.vue";
-import { onRowActionsKeydown } from "@/components/useRowActions";
+import { onRowActionsKeydown, onRowControl } from "@/components/useRowActions";
 import type { OverviewRow } from "@/stores/overview";
 
 import MemberStatus from "./MemberStatus.vue";
@@ -77,7 +77,7 @@ const hasCounts = computed(() => props.row.ahead !== null && props.row.behind !=
     class="member-row grid h-row-list items-center gap-4 border-l-2 px-3 text-md whitespace-nowrap"
     :class="props.focused ? 'border-accent bg-selected' : 'border-transparent hover:bg-hover'"
     @click="emit('focus')"
-    @dblclick="emit('open')"
+    @dblclick="(event: MouseEvent) => onRowControl(event) || emit('open')"
     @keydown="onRowActionsKeydown"
   >
     <span role="gridcell" class="flex items-center" @click.stop>

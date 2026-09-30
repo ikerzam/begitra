@@ -14,6 +14,7 @@ import IconButton from "@/components/IconButton.vue";
 import type { Project } from "@/ipc/schemas";
 
 import type { AttentionPart } from "./useAttention";
+import { onRowControl } from "@/components/useRowActions";
 
 const props = defineProps<{
   project: Project;
@@ -73,7 +74,7 @@ function onMore(event: MouseEvent): void {
     class="group relative flex h-row-list items-center gap-3 border-l-2 px-3 text-md whitespace-nowrap"
     :class="props.selected ? 'border-accent bg-selected' : 'border-transparent hover:bg-hover'"
     @click="emit('select')"
-    @dblclick="emit('activate')"
+    @dblclick="(event: MouseEvent) => onRowControl(event) || emit('activate')"
     @keydown="onKeydown"
     @contextmenu="onContextMenu"
   >

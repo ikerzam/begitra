@@ -5,6 +5,7 @@ import { useI18n } from "vue-i18n";
 import AheadBehind from "./AheadBehind.vue";
 import DirtyDot from "./DirtyDot.vue";
 import LaneDot from "./LaneDot.vue";
+import { onRowControl } from "./useRowActions";
 
 const props = withDefaults(
   defineProps<{
@@ -61,7 +62,7 @@ function onKeydown(event: KeyboardEvent): void {
     class="repo-row group relative grid h-row-list items-center gap-4 border-l-2 px-3 text-md whitespace-nowrap"
     :class="props.selected ? 'border-accent bg-selected' : 'border-transparent hover:bg-hover'"
     @click="emit('select')"
-    @dblclick="emit('activate')"
+    @dblclick="(event: MouseEvent) => onRowControl(event) || emit('activate')"
     @keydown="onKeydown"
   >
     <span class="flex items-center overflow-hidden" data-testid="repo-row-name">

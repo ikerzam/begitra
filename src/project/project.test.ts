@@ -183,6 +183,21 @@ describe("the project view", () => {
     wrapper.unmount();
   });
 
+  it("opens a member on a double click of its row, never of one of its buttons", async () => {
+    const { calls, wrapper } = await mountProject();
+    const opens = () => of(calls, "open_repository").length;
+    const before = opens();
+    // Two quick clicks on "Remove from project", "Show output" or the terminal are the button's.
+    await row(wrapper, "old-spike").get('[data-testid="member-remove"]').trigger("dblclick");
+    await row(wrapper, "api").get('[data-testid="member-terminal"]').trigger("dblclick");
+    await flush();
+    expect(opens()).toBe(before);
+    await row(wrapper, "api").get('[data-testid="member-name"]').trigger("dblclick");
+    await flush();
+    expect(of(calls, "open_repository").at(-1)?.args["path"]).toBe(api.path);
+    wrapper.unmount();
+  });
+
   it("removes a missing member from the project from its row, asking first as it leaves Begitra", async () => {
     const { calls, wrapper } = await mountProject();
     await row(wrapper, "old-spike").get('[data-testid="member-remove"]').trigger("click");

@@ -14,6 +14,7 @@ import DirtyDot from "./DirtyDot.vue";
 import IconButton from "./IconButton.vue";
 import LaneDot from "./LaneDot.vue";
 import Progress from "./Progress.vue";
+import { onRowControl } from "./useRowActions";
 
 const props = withDefaults(
   defineProps<{
@@ -102,7 +103,7 @@ function onContextMenu(event: MouseEvent): void {
     class="worktree-row grid h-row-list items-center gap-4 border-l-2 px-3 text-md whitespace-nowrap"
     :class="props.selected ? 'border-accent bg-selected' : 'border-transparent hover:bg-hover'"
     @click="emit('select')"
-    @dblclick="emit('activate')"
+    @dblclick="(event: MouseEvent) => onRowControl(event) || emit('activate')"
     @keydown="onKeydown"
     @contextmenu="onContextMenu"
   >
