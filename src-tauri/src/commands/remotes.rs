@@ -255,14 +255,7 @@ pub async fn push(
     op_id: String,
     on_page: Channel<StreamMessage<NetworkEvent>>,
 ) -> Result<(), AppError> {
-    validate_optional_name("remote", request.remote.as_deref())?;
-    validate_optional_name("branch", request.branch.as_deref())?;
-    if request.branch.is_some() && request.remote.is_none() {
-        return Err(AppError::invalid_argument(
-            "remote",
-            "a branch without a remote",
-        ));
-    }
+    validate_push(&request)?;
     let app = state.inner().clone();
     let worker = app.clone();
     run_stream(
@@ -285,6 +278,33 @@ pub async fn push(
         },
     )
     .await
+}
+
+/// A push names what it pushes with its remote: a branch or a tag, not both; a tag or a
+/// delete takes neither `setUpstream` nor `forceWithLease`, and a delete names what it
+/// deletes.
+fn validate_push(request: &PushRequest) -> Result<(), AppError> {
+    validate_optional_name("remote", request.remote.as_deref())?;
+    validate_optional_name("branch", request.branch.as_deref())?;
+    validate_optional_name("tag", request.tag.as_deref())?;
+    let bad = |field: &str, why: &str| Err(AppError::invalid_argument(field, why));
+    if request.branch.is_some() && request.tag.is_some() {
+        return bad("tag", "a branch and a tag together");
+    }
+    let names = request.branch.is_some() || request.tag.is_some();
+    if (names || request.delete) && request.remote.is_none() {
+        return bad("remote", "a branch, a tag or a delete without a remote");
+    }
+    if request.delete && !names {
+        return bad("delete", "a delete that names no branch or tag");
+    }
+    if (request.tag.is_some() || request.delete) && request.set_upstream {
+        return bad("setUpstream", "an upstream on a tag or a delete");
+    }
+    if (request.tag.is_some() || request.delete) && request.force_with_lease {
+        return bad("forceWithLease", "a force on a tag or a delete");
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -343,6 +363,75 @@ mod tests {
         assert!(validate_pull(&named).is_ok());
         assert_eq!(prompts(true), Prompts::Never);
         assert_eq!(prompts(false), Prompts::Allowed);
+    }
+
+    #[test]
+    fn pushes_name_a_branch_or_a_tag_with_a_remote_and_a_delete_what_it_deletes() {
+        let base = PushRequest {
+            remote: Some("origin".to_owned()),
+            ..PushRequest::default()
+        };
+        for good in [
+            PushRequest::default(),
+            PushRequest {
+                branch: Some("main".to_owned()),
+                set_upstream: true,
+                force_with_lease: true,
+                ..base.clone()
+            },
+            PushRequest {
+                tag: Some("v1.2.0".to_owned()),
+                ..base.clone()
+            },
+            PushRequest {
+                branch: Some("feature/x".to_owned()),
+                delete: true,
+                ..base.clone()
+            },
+            PushRequest {
+                tag: Some("v1".to_owned()),
+                delete: true,
+                ..base.clone()
+            },
+        ] {
+            assert!(validate_push(&good).is_ok(), "{good:?}");
+        }
+        for bad in [
+            PushRequest {
+                branch: Some("main".to_owned()),
+                tag: Some("v1".to_owned()),
+                ..base.clone()
+            },
+            PushRequest {
+                tag: Some("v1".to_owned()),
+                ..PushRequest::default()
+            },
+            PushRequest {
+                branch: Some("main".to_owned()),
+                ..PushRequest::default()
+            },
+            PushRequest {
+                delete: true,
+                ..base.clone()
+            },
+            PushRequest {
+                tag: Some("v1".to_owned()),
+                force_with_lease: true,
+                ..base.clone()
+            },
+            PushRequest {
+                branch: Some("feature/x".to_owned()),
+                delete: true,
+                set_upstream: true,
+                ..base.clone()
+            },
+            PushRequest {
+                tag: Some("-v1".to_owned()),
+                ..base.clone()
+            },
+        ] {
+            assert_eq!(code(validate_push(&bad)), "ipc.invalid_argument", "{bad:?}");
+        }
     }
 
     #[test]

@@ -33,18 +33,18 @@ fn read(f: &Fixture, relative: &str) -> String {
 fn creates_a_branch_from_a_start_point_with_and_without_checkout() {
     let f = Fixture::basic();
     let e = engine(&f);
-    e.branch_create("feature/one", "v1", false, &never())
+    e.branch_create("feature/one", "v1", false, false, &never())
         .expect("create");
     assert_eq!(f.rev("feature/one"), f.rev("v1^{commit}"));
     assert_eq!(head_ref(&f), "refs/heads/main");
-    e.branch_create("feature/two", "v1", true, &never())
+    e.branch_create("feature/two", "v1", true, false, &never())
         .expect("create and switch");
     assert_eq!(head_ref(&f), "refs/heads/feature/two");
     assert_eq!(f.head(), f.rev("v1^{commit}"));
     // The tree of v1 has no docs folder.
     assert!(!f.root.join("docs/guide.md").exists());
     let error = e
-        .branch_create("feature/one", "main", false, &never())
+        .branch_create("feature/one", "main", false, false, &never())
         .expect_err("exists already");
     assert!(matches!(error, GitError::Cli { .. }), "{error:?}");
 }
@@ -162,6 +162,41 @@ fn tags_are_created_lightweight_or_annotated_and_deleted() {
 }
 
 #[test]
+fn a_deleted_tag_answers_what_it_pointed_at_so_git_tag_puts_it_back() {
+    let f = Fixture::basic();
+    let e = engine(&f);
+    e.tag_create("light", "main~1", None, &never())
+        .expect("lightweight");
+    e.tag_create("v2", "main", Some("Version 2"), &never())
+        .expect("annotated");
+    let light = f.git(&["rev-parse", "refs/tags/light"]);
+    let object = f.git(&["rev-parse", "refs/tags/v2"]);
+    assert_ne!(
+        object,
+        f.head(),
+        "an annotated tag's ref names its tag object"
+    );
+
+    let was = e.tag_delete("light", &never()).expect("delete light");
+    assert_eq!(was.as_deref(), Some(light.as_str()));
+    // A cloned or fetched tag lives in `packed-refs`: it answers the same.
+    f.git(&["pack-refs", "--all"]);
+    let was = e.tag_delete("v2", &never()).expect("delete v2");
+    assert_eq!(was.as_deref(), Some(object.as_str()));
+    assert!(!f.try_git(&["rev-parse", "--verify", "refs/tags/v2"]).0);
+
+    // The answer restores the annotated tag whole: its object, its message.
+    f.git(&["tag", "v2", &object]);
+    assert_eq!(f.git(&["cat-file", "-t", "refs/tags/v2"]), "tag");
+    assert_eq!(
+        f.git(&["tag", "-l", "--format=%(contents:subject)", "v2"]),
+        "Version 2"
+    );
+    let error = e.tag_delete("gone", &never()).expect_err("no such tag");
+    assert!(matches!(error, GitError::Cli { .. }));
+}
+
+#[test]
 fn sets_and_unsets_the_upstream() {
     let f = Fixture::basic().with_remote();
     let e = engine(&f);
@@ -187,13 +222,13 @@ fn sets_and_unsets_the_upstream() {
 fn names_with_slashes_and_unicode_work_and_a_dash_is_a_name_not_an_option() {
     let f = Fixture::basic();
     let e = engine(&f);
-    e.branch_create("feat/ünïcödé/x", "main", false, &never())
+    e.branch_create("feat/ünïcödé/x", "main", false, false, &never())
         .expect("unicode");
     assert_eq!(f.rev("feat/ünïcödé/x"), f.head());
     // git itself refuses a name that starts with a dash as invalid; the bridge refuses it
     // earlier. Here the engine passes it after `--` so it is never read as an option.
     let error = e
-        .branch_create("-x", "main", false, &never())
+        .branch_create("-x", "main", false, false, &never())
         .expect_err("invalid name");
     assert!(matches!(error, GitError::Cli { .. }), "{error:?}");
     assert!(!f.try_git(&["rev-parse", "--verify", "refs/heads/-x"]).0);
@@ -541,4 +576,99 @@ fn an_autostash_that_conflicts_after_a_clean_rebase_is_a_stop() {
     f.git(&["reset", "-q", "--hard"]);
     f.git(&["stash", "drop", "-q"]);
     f.tick();
+}
+
+#[test]
+fn creates_a_branch_that_tracks_a_remote_branch_whatever_auto_setup_merge_says() {
+    let f = Fixture::basic().with_remote();
+    let e = engine(&f);
+    f.git(&["config", "branch.autoSetupMerge", "false"]);
+    e.branch_create(
+        "remote-develop",
+        "refs/remotes/origin/develop",
+        true,
+        true,
+        &never(),
+    )
+    .expect("create, switch and track");
+    assert_eq!(head_ref(&f), "refs/heads/remote-develop");
+    assert_eq!(f.head(), f.rev("refs/remotes/origin/develop"));
+    assert_eq!(
+        f.git(&["rev-parse", "--abbrev-ref", "remote-develop@{upstream}"]),
+        "origin/develop"
+    );
+    // Without the checkout, `git branch --track` records the upstream too.
+    e.branch_create(
+        "remote-main",
+        "refs/remotes/origin/main",
+        false,
+        true,
+        &never(),
+    )
+    .expect("create and track");
+    assert_eq!(head_ref(&f), "refs/heads/remote-develop");
+    assert_eq!(
+        f.git(&["rev-parse", "--abbrev-ref", "remote-main@{upstream}"]),
+        "origin/main"
+    );
+}
+
+#[test]
+fn a_tracked_branch_from_a_ref_two_remotes_claim_is_refused_before_anything_changes() {
+    let f = Fixture::basic().with_remote();
+    let e = engine(&f);
+    let origin = f.sibling("origin.git");
+    let origin = origin.to_str().expect("utf-8 temp path");
+    f.git(&["config", "remote.mirror.url", origin]);
+    f.git(&[
+        "config",
+        "remote.mirror.fetch",
+        "+refs/heads/*:refs/remotes/origin/*",
+    ]);
+    for checkout in [true, false] {
+        e.branch_create(
+            "remote-develop",
+            "refs/remotes/origin/develop",
+            checkout,
+            true,
+            &never(),
+        )
+        .expect_err("ambiguous upstream");
+        assert_eq!(head_ref(&f), "refs/heads/main", "checkout: {checkout}");
+        assert_eq!(
+            f.git(&["status", "--porcelain"]),
+            "",
+            "checkout: {checkout}"
+        );
+        assert!(
+            !f.try_git(&["rev-parse", "--verify", "refs/heads/remote-develop"])
+                .0,
+            "checkout: {checkout}"
+        );
+    }
+}
+
+#[test]
+fn a_tracked_branch_from_a_ref_no_remote_fetches_is_refused_before_anything_changes() {
+    let f = Fixture::basic().with_remote();
+    let e = engine(&f);
+    f.git(&[
+        "update-ref",
+        "refs/remotes/stale/develop",
+        "refs/remotes/origin/develop",
+    ]);
+    e.branch_create(
+        "stale-develop",
+        "refs/remotes/stale/develop",
+        true,
+        true,
+        &never(),
+    )
+    .expect_err("no remote fetches it");
+    assert_eq!(head_ref(&f), "refs/heads/main");
+    assert_eq!(f.git(&["status", "--porcelain"]), "");
+    assert!(
+        !f.try_git(&["rev-parse", "--verify", "refs/heads/stale-develop"])
+            .0
+    );
 }

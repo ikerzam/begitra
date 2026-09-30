@@ -2,13 +2,33 @@
   {
     "remote": null,
     "branch": null,
+    "tag": null,
+    "delete": false,
     "setUpstream": false,
     "forceWithLease": false
   },
   {
     "remote": "origin",
     "branch": "claude/fix-auth",
+    "tag": null,
+    "delete": false,
     "setUpstream": true,
     "forceWithLease": true
+  },
+  {
+    "remote": "origin",
+    "branch": null,
+    "tag": "v1.2.0",
+    "delete": false,
+    "setUpstream": false,
+    "forceWithLease": false
+  },
+  {
+    "remote": "origin",
+    "branch": "feature/x",
+    "tag": null,
+    "delete": true,
+    "setUpstream": false,
+    "forceWithLease": false
   }
 ]

@@ -1063,6 +1063,8 @@ fn fetch_push_bare(c: &mut Criterion) {
         let request = PushRequest {
             remote: Some(remote.clone()),
             branch: Some("main".to_owned()),
+            tag: None,
+            delete: false,
             set_upstream: false,
             force_with_lease: false,
         };

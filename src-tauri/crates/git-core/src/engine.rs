@@ -250,12 +250,14 @@ pub trait GitEngine: Send + Sync {
     fn commit_context(&self, cancel: &Cancel) -> GitResult<CommitContext>;
 
     /// Creates a branch at `start` (`git branch`), checking it out at once when asked
-    /// (`git switch -c`).
+    /// (`git switch -c`), and taking `start` as its upstream with `track` (`--track`),
+    /// whatever `branch.autoSetupMerge` says.
     fn branch_create(
         &self,
         name: &str,
         start: &str,
         checkout: bool,
+        track: bool,
         cancel: &Cancel,
     ) -> GitResult<()>;
 
@@ -294,8 +296,9 @@ pub trait GitEngine: Send + Sync {
         cancel: &Cancel,
     ) -> GitResult<()>;
 
-    /// Deletes a tag.
-    fn tag_delete(&self, name: &str, cancel: &Cancel) -> GitResult<()>;
+    /// Deletes a tag and answers what it pointed at: the tag object of an annotated tag, which
+    /// `git tag <name> <hash>` puts back whole; `None` for a symbolic tag ref.
+    fn tag_delete(&self, name: &str, cancel: &Cancel) -> GitResult<Option<String>>;
 
     /// Sets a branch's upstream, or unsets it with `None`.
     fn set_upstream(&self, branch: &str, upstream: Option<&str>, cancel: &Cancel) -> GitResult<()>;
@@ -346,8 +349,11 @@ pub trait GitEngine: Send + Sync {
         cancel: &Cancel,
     ) -> GitResult<Outcome>;
 
-    /// Pushes with the progress streamed and `prompts` as in [`GitEngine::fetch`]; a
-    /// rejected push is [`GitError::Cli`].
+    /// Pushes with the progress streamed and `prompts` as in [`GitEngine::fetch`]: a branch or
+    /// a tag by its full ref name, or deletes one on the remote (a branch's delete with a lease
+    /// on its remote-tracking ref). A rejected push, a stale lease included, is
+    /// [`GitError::Cli`]; a request that names both, or a ref without a remote, is
+    /// [`GitError::Git`].
     fn push(
         &self,
         request: &PushRequest,

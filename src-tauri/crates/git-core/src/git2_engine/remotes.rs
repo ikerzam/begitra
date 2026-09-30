@@ -234,15 +234,42 @@ pub(super) fn fetch(
     }
 }
 
-/// A branch name on a fetch or push line is a refspec: one that starts with `+` would force
-/// the update whatever the request said, so it is refused before git sees it (the bridge
-/// refuses it first; `git check-ref-format` alone would accept it as a name).
+/// A branch name on a pull line is a refspec: one that starts with `+` would force the update
+/// whatever the request said, so it is refused before git sees it (the bridge refuses it first;
+/// `git check-ref-format` alone would accept it as a name). A push names its ref in full
+/// (`push_ref`), where a `+` cannot lead, and keeps the check as a second guard.
 fn plain_refspec(branch: Option<&str>) -> GitResult<()> {
     match branch {
         Some(branch) if branch.starts_with('+') => Err(GitError::Git(format!(
-            "a branch to fetch or push cannot start with '+' ({branch}): it would force the update"
+            "a branch or a tag to fetch or push cannot start with '+' ({branch}): it would force the update"
         ))),
         _ => Ok(()),
+    }
+}
+
+/// The ref a push names after its remote, always by its full name (`refs/heads/<branch>`,
+/// `refs/tags/<tag>`): a branch and a tag of one name are never taken for each other, and a
+/// branch named like a word of git's refspecs (`tag`) is never read as one. A branch or a tag
+/// names its remote, since git would otherwise drop it and push what `push.default` picks.
+fn push_ref(request: &PushRequest) -> GitResult<Option<String>> {
+    let named = request.branch.is_some() || request.tag.is_some();
+    if (named || request.delete) && request.remote.is_none() {
+        return Err(GitError::Git(
+            "a branch or a tag to push, or a ref to delete, names its remote".to_owned(),
+        ));
+    }
+    if request.delete && !named {
+        return Err(GitError::Git(
+            "a delete on a remote names a branch or a tag".to_owned(),
+        ));
+    }
+    match (request.branch.as_deref(), request.tag.as_deref()) {
+        (Some(_), Some(_)) => Err(GitError::Git(
+            "a push names a branch or a tag, not both".to_owned(),
+        )),
+        (Some(branch), None) => Ok(Some(format!("refs/heads/{branch}"))),
+        (None, Some(tag)) => Ok(Some(format!("refs/tags/{tag}"))),
+        (None, None) => Ok(None),
     }
 }
 
@@ -461,7 +488,7 @@ fn fork_point(
 }
 
 /// See [`GitEngine::push`].
-#[tracing::instrument(level = "debug", skip_all, fields(remote = ?request.remote, branch = ?request.branch, set_upstream = request.set_upstream, lease = request.force_with_lease, prompts = ?prompts))]
+#[tracing::instrument(level = "debug", skip_all, fields(remote = ?request.remote, branch = ?request.branch, tag = ?request.tag, delete = request.delete, set_upstream = request.set_upstream, lease = request.force_with_lease, prompts = ?prompts))]
 pub(super) fn push(
     engine: &Git2Engine,
     request: &PushRequest,
@@ -470,18 +497,32 @@ pub(super) fn push(
     cancel: &Cancel,
 ) -> GitResult<NetworkResult> {
     plain_refspec(request.branch.as_deref())?;
+    plain_refspec(request.tag.as_deref())?;
+    let pushed = push_ref(request)?;
     let mut args = vec!["push", "--progress"];
+    if request.delete {
+        args.push("--delete");
+    }
+    // A tag goes alone and a delete sends nothing: `push.followTags` would add every annotated
+    // tag the remote lacks.
+    if request.tag.is_some() || request.delete {
+        args.push("--no-follow-tags");
+    }
     if request.set_upstream {
         args.push("--set-upstream");
     }
-    if request.force_with_lease {
+    // A branch deleted on the remote carries a lease on its remote-tracking ref: git refuses
+    // (`stale info`) when the remote branch moved since the last fetch, so the delete never
+    // drops commits the app did not show, and the tip the app kept is the one deleted. A tag
+    // has no remote-tracking ref to lease on.
+    if request.force_with_lease || (request.delete && request.branch.is_some()) {
         args.push("--force-with-lease");
     }
     if let Some(remote) = request.remote.as_deref() {
         args.push("--");
         args.push(remote);
-        if let Some(branch) = request.branch.as_deref() {
-            args.push(branch);
+        if let Some(pushed) = pushed.as_deref() {
+            args.push(pushed);
         }
     }
     let (exit, result) = network(engine, &args, prompts, progress, cancel)?;
@@ -495,6 +536,55 @@ pub(super) fn push(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn request(branch: Option<&str>, tag: Option<&str>, delete: bool) -> PushRequest {
+        PushRequest {
+            remote: Some("origin".to_owned()),
+            branch: branch.map(str::to_owned),
+            tag: tag.map(str::to_owned),
+            delete,
+            ..PushRequest::default()
+        }
+    }
+
+    #[test]
+    fn a_push_names_its_ref_in_full_and_refuses_what_it_cannot_name() {
+        let named = |request: &PushRequest| push_ref(request).expect("named");
+        assert_eq!(
+            named(&request(Some("feature"), None, false)).as_deref(),
+            Some("refs/heads/feature")
+        );
+        assert_eq!(
+            named(&request(Some("tag"), None, false)).as_deref(),
+            Some("refs/heads/tag")
+        );
+        assert_eq!(
+            named(&request(None, Some("v1"), false)).as_deref(),
+            Some("refs/tags/v1")
+        );
+        assert_eq!(
+            named(&request(Some("feature"), None, true)).as_deref(),
+            Some("refs/heads/feature")
+        );
+        assert_eq!(
+            named(&request(None, Some("v1"), true)).as_deref(),
+            Some("refs/tags/v1")
+        );
+        // A plain `git push` names nothing.
+        assert_eq!(named(&PushRequest::default()), None);
+        let refused = |request: PushRequest| push_ref(&request).is_err();
+        assert!(refused(request(Some("a"), Some("b"), false)));
+        assert!(refused(request(None, None, true)));
+        for (branch, tag, delete) in [
+            (Some("feature"), None, false),
+            (None, Some("v1"), false),
+            (Some("feature"), None, true),
+        ] {
+            let mut without_remote = request(branch, tag, delete);
+            without_remote.remote = None;
+            assert!(refused(without_remote), "{branch:?} {tag:?} {delete}");
+        }
+    }
 
     #[test]
     fn remote_lines_are_paired_by_name() {

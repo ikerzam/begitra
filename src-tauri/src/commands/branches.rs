@@ -117,7 +117,8 @@ fn validate_message(field: &str, message: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Creates a branch at a start point, checking it out when asked.
+/// Creates a branch at a start point, checking it out when asked, and tracking the start
+/// point (a remote-tracking branch) with `track`.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state))]
 pub async fn branch_create(
@@ -126,6 +127,7 @@ pub async fn branch_create(
     name: String,
     start: String,
     checkout: bool,
+    track: bool,
     op_id: String,
 ) -> Result<(), AppError> {
     validate_name("name", &name)?;
@@ -133,7 +135,7 @@ pub async fn branch_create(
     let app = state.inner().clone();
     run_unregistered(&op_id, WRITE_TIMEOUT, move |cancel| {
         app.open(&repo)?
-            .branch_create(&name, &start, checkout, &cancel)
+            .branch_create(&name, &start, checkout, track, &cancel)
     })
     .await
 }
@@ -309,7 +311,7 @@ pub async fn tag_create(
     .await
 }
 
-/// Deletes a tag.
+/// Deletes a tag; answers what it pointed at (the tag object of an annotated tag).
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state))]
 pub async fn tag_delete(
@@ -317,7 +319,7 @@ pub async fn tag_delete(
     repo: PathBuf,
     name: String,
     op_id: String,
-) -> Result<(), AppError> {
+) -> Result<Option<String>, AppError> {
     validate_name("name", &name)?;
     let app = state.inner().clone();
     run_unregistered(&op_id, DEFAULT_TIMEOUT, move |cancel| {

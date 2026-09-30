@@ -502,9 +502,10 @@ impl GitEngine for Git2Engine {
         name: &str,
         start: &str,
         checkout: bool,
+        track: bool,
         cancel: &Cancel,
     ) -> GitResult<()> {
-        branches::branch_create(self, name, start, checkout, cancel)
+        branches::branch_create(self, name, start, checkout, track, cancel)
     }
 
     fn switch(&self, target: &SwitchTarget, cancel: &Cancel) -> GitResult<()> {
@@ -549,7 +550,7 @@ impl GitEngine for Git2Engine {
         branches::tag_create(self, name, rev, message, cancel)
     }
 
-    fn tag_delete(&self, name: &str, cancel: &Cancel) -> GitResult<()> {
+    fn tag_delete(&self, name: &str, cancel: &Cancel) -> GitResult<Option<String>> {
         branches::tag_delete(self, name, cancel)
     }
 

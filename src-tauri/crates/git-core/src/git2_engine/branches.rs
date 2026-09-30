@@ -9,7 +9,7 @@
 use super::{sequencer, Git2Engine};
 use crate::cli::{run_git_env, CliExit, WRITE_ENV};
 use crate::engine::{Cancel, GitEngine};
-use crate::error::GitResult;
+use crate::error::{GitError, GitResult};
 use crate::types::{MergeMode, Outcome, OutcomeKind, ResetMode, SwitchTarget};
 
 /// Runs `git <args>` in the root with the write environment.
@@ -27,20 +27,42 @@ fn git_ok(engine: &Git2Engine, args: &[&str], cancel: &Cancel) -> GitResult<()> 
     }
 }
 
-/// See [`GitEngine::branch_create`].
-#[tracing::instrument(level = "debug", skip_all, fields(name, start, checkout))]
+/// See [`GitEngine::branch_create`]. A tracking branch from a remote-tracking ref needs the one
+/// remote that fetches it: git checks that only after `switch -c` rewrote the index and the
+/// working tree (two remotes that claim the ref, or none), and leaves them half switched, so
+/// the remote is asked of libgit2 first.
+#[tracing::instrument(level = "debug", skip_all, fields(name, start, checkout, track))]
 pub(super) fn branch_create(
     engine: &Git2Engine,
     name: &str,
     start: &str,
     checkout: bool,
+    track: bool,
     cancel: &Cancel,
 ) -> GitResult<()> {
-    if checkout {
-        git_ok(engine, &["switch", "-c", name, "--", start], cancel)
-    } else {
-        git_ok(engine, &["branch", "--", name, start], cancel)
+    if track && start.starts_with("refs/remotes/") {
+        engine.with_repo(|repo| match repo.branch_remote_name(start) {
+            Ok(_) => Ok(()),
+            Err(error) => Err(GitError::Git(format!(
+                "{start} cannot be tracked: no remote, or more than one, fetches it ({})",
+                error.message()
+            ))),
+        })?;
     }
+    let mut args = if checkout {
+        vec!["switch", "-c", name]
+    } else {
+        vec!["branch"]
+    };
+    if track {
+        args.push("--track");
+    }
+    args.push("--");
+    if !checkout {
+        args.push(name);
+    }
+    args.push(start);
+    git_ok(engine, &args, cancel)
 }
 
 /// See [`GitEngine::switch`].
@@ -96,10 +118,23 @@ pub(super) fn tag_create(
     }
 }
 
-/// See [`GitEngine::tag_delete`].
+/// See [`GitEngine::tag_delete`]: the ref's own target is read before git deletes it, unpeeled,
+/// so an annotated tag answers its tag object rather than the commit.
 #[tracing::instrument(level = "debug", skip_all, fields(name))]
-pub(super) fn tag_delete(engine: &Git2Engine, name: &str, cancel: &Cancel) -> GitResult<()> {
-    git_ok(engine, &["tag", "-d", "--", name], cancel)
+pub(super) fn tag_delete(
+    engine: &Git2Engine,
+    name: &str,
+    cancel: &Cancel,
+) -> GitResult<Option<String>> {
+    let full = format!("refs/tags/{name}");
+    // A missing tag is left to git, whose refusal names it.
+    let was = engine.with_repo(|repo| match repo.find_reference(&full) {
+        Ok(reference) => Ok(reference.target().map(|oid| oid.to_string())),
+        Err(error) if error.code() == git2::ErrorCode::NotFound => Ok(None),
+        Err(error) => Err(GitError::from(error)),
+    })?;
+    git_ok(engine, &["tag", "-d", "--", name], cancel)?;
+    Ok(was)
 }
 
 /// See [`GitEngine::set_upstream`].

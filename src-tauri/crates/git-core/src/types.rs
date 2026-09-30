@@ -975,17 +975,27 @@ pub struct PullRequest {
     pub ff_only: bool,
 }
 
-/// A push request: `git push [--set-upstream] [--force-with-lease] [remote [branch]]`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// A push request: `git push [--delete] [--set-upstream] [--force-with-lease] [remote [ref]]`,
+/// the ref named in full; a branch or a tag needs a remote.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PushRequest {
     /// Remote to push to; the upstream remote when `None`.
     pub remote: Option<String>,
-    /// Local branch to push; the current branch when `None`.
+    /// Local branch to push (the current branch when `None`), or the branch to delete on the
+    /// remote with `delete`.
     pub branch: Option<String>,
-    /// Record the remote branch as the upstream (`-u`).
+    /// A tag to push alone (`refs/tags/<tag>`), in place of a branch.
+    #[serde(default)]
+    pub tag: Option<String>,
+    /// Delete the branch or the tag on the remote (`--delete`, by its full ref name); a branch's
+    /// delete always carries a lease on its remote-tracking ref.
+    #[serde(default)]
+    pub delete: bool,
+    /// Record the remote branch as the upstream (`-u`); a branch's push only.
     pub set_upstream: bool,
-    /// Overwrite the remote branch only if it is where the tracking ref says (`--force-with-lease`).
+    /// Overwrite the remote branch only if it is where the tracking ref says
+    /// (`--force-with-lease`); a branch's push only.
     pub force_with_lease: bool,
 }
 

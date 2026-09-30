@@ -98,6 +98,8 @@ fn pushes_with_progress_and_the_remote_follows() {
             &PushRequest {
                 remote: Some("origin".to_owned()),
                 branch: Some("main".to_owned()),
+                tag: None,
+                delete: false,
                 set_upstream: false,
                 force_with_lease: false,
             },
@@ -131,6 +133,8 @@ fn a_rejected_push_and_a_lease_force() {
             &PushRequest {
                 remote: Some("origin".to_owned()),
                 branch: Some("develop".to_owned()),
+                tag: None,
+                delete: false,
                 set_upstream: false,
                 force_with_lease: false,
             },
@@ -157,6 +161,8 @@ fn a_rejected_push_and_a_lease_force() {
         &PushRequest {
             remote: Some("origin".to_owned()),
             branch: Some("develop".to_owned()),
+            tag: None,
+            delete: false,
             set_upstream: false,
             force_with_lease: true,
         },
@@ -180,6 +186,8 @@ fn push_with_set_upstream_records_the_tracking() {
         &PushRequest {
             remote: Some("origin".to_owned()),
             branch: Some("topic".to_owned()),
+            tag: None,
+            delete: false,
             set_upstream: true,
             force_with_lease: false,
         },
@@ -280,6 +288,8 @@ fn a_cancel_stops_a_push() {
             &PushRequest {
                 remote: Some("origin".to_owned()),
                 branch: Some("main".to_owned()),
+                tag: None,
+                delete: false,
                 set_upstream: false,
                 force_with_lease: false,
             },
@@ -461,6 +471,8 @@ fn nothing_may_prompt_in_a_fetch_pull_or_push_that_asks_so_and_a_local_remote_wo
     let push_main = PushRequest {
         remote: Some("origin".to_owned()),
         branch: Some("main".to_owned()),
+        tag: None,
+        delete: false,
         set_upstream: false,
         force_with_lease: false,
     };
@@ -696,6 +708,8 @@ fn a_branch_that_starts_with_a_plus_never_forces() {
             &PushRequest {
                 remote: Some("origin".to_owned()),
                 branch: Some("+develop".to_owned()),
+                tag: None,
+                delete: false,
                 set_upstream: false,
                 force_with_lease: false,
             },
@@ -721,4 +735,238 @@ fn a_branch_that_starts_with_a_plus_never_forces() {
         .expect_err("refused");
     assert!(!matches!(error, GitError::Cli { .. }), "{error:?}");
     f.tick();
+}
+
+/// The full names of the remote's refs among `names`, as `git for-each-ref` lists them.
+fn origin_refs(f: &Fixture, names: &[&str]) -> Vec<String> {
+    let origin = f.sibling("origin.git");
+    let mut args = vec!["for-each-ref", "--format=%(refname)"];
+    args.extend_from_slice(names);
+    f.git_in(&origin, &args)
+        .lines()
+        .map(str::to_owned)
+        .collect()
+}
+
+#[test]
+fn pushes_a_tag_alone_and_leaves_the_branches() {
+    let f = Fixture::basic().with_remote();
+    let e = engine(&f);
+    let remote_main = origin_rev(&f, "main");
+    let remote_develop = origin_rev(&f, "develop");
+    assert!(origin_refs(&f, &["refs/tags/v1"]).is_empty());
+    e.push(
+        &PushRequest {
+            remote: Some("origin".to_owned()),
+            tag: Some("v1".to_owned()),
+            ..PushRequest::default()
+        },
+        Prompts::Allowed,
+        &mut |_| {},
+        &never(),
+    )
+    .expect("push the tag");
+    // The same tag object, and no branch moved on the remote.
+    assert_eq!(
+        origin_rev(&f, "refs/tags/v1"),
+        f.git(&["rev-parse", "refs/tags/v1"])
+    );
+    assert_eq!(origin_rev(&f, "main"), remote_main);
+    assert_eq!(origin_rev(&f, "develop"), remote_develop);
+}
+
+#[test]
+fn deletes_a_branch_on_the_remote_by_its_full_name_and_keeps_a_tag_of_that_name() {
+    let f = Fixture::basic().with_remote();
+    let e = engine(&f);
+    f.git(&["branch", "feature", "main"]);
+    f.git(&["tag", "feature", "v1^{commit}"]);
+    f.git(&[
+        "push",
+        "-q",
+        "origin",
+        "refs/heads/feature:refs/heads/feature",
+        "refs/tags/feature:refs/tags/feature",
+    ]);
+    f.git(&["fetch", "-q", "origin"]);
+    assert_eq!(
+        origin_refs(&f, &["refs/heads/feature", "refs/tags/feature"]),
+        ["refs/heads/feature", "refs/tags/feature"]
+    );
+    e.push(
+        &PushRequest {
+            remote: Some("origin".to_owned()),
+            branch: Some("feature".to_owned()),
+            delete: true,
+            ..PushRequest::default()
+        },
+        Prompts::Allowed,
+        &mut |_| {},
+        &never(),
+    )
+    .expect("delete the branch on the remote");
+    assert_eq!(
+        origin_refs(&f, &["refs/heads/feature", "refs/tags/feature"]),
+        ["refs/tags/feature"]
+    );
+    // git drops the remote-tracking ref of what it deleted; the local branch stays.
+    assert_eq!(
+        f.git(&[
+            "for-each-ref",
+            "--format=%(refname)",
+            "refs/remotes/origin/feature"
+        ]),
+        ""
+    );
+    assert_eq!(f.rev("refs/heads/feature"), f.rev("main"));
+    // The tag goes the same way, by its own full name, and the local tag stays.
+    e.push(
+        &PushRequest {
+            remote: Some("origin".to_owned()),
+            tag: Some("feature".to_owned()),
+            delete: true,
+            ..PushRequest::default()
+        },
+        Prompts::Allowed,
+        &mut |_| {},
+        &never(),
+    )
+    .expect("delete the tag on the remote");
+    assert!(origin_refs(&f, &["refs/tags/feature"]).is_empty());
+    assert_eq!(f.rev("refs/tags/feature"), f.rev("v1^{commit}"));
+}
+
+#[test]
+fn a_tag_that_starts_with_a_plus_never_forces() {
+    let f = Fixture::basic().with_remote();
+    let e = engine(&f);
+    let error = e
+        .push(
+            &PushRequest {
+                remote: Some("origin".to_owned()),
+                tag: Some("+v1".to_owned()),
+                ..PushRequest::default()
+            },
+            Prompts::Allowed,
+            &mut |_| {},
+            &never(),
+        )
+        .expect_err("refused");
+    assert!(!matches!(error, GitError::Cli { .. }), "{error:?}");
+    assert!(origin_refs(&f, &["refs/tags/v1"]).is_empty());
+}
+
+#[test]
+fn a_branch_pushes_by_its_full_name_beside_a_tag_of_that_name() {
+    let f = Fixture::basic().with_remote();
+    let e = engine(&f);
+    f.git(&["branch", "feature", "main"]);
+    f.git(&["tag", "feature", "v1^{commit}"]);
+    e.push(
+        &PushRequest {
+            remote: Some("origin".to_owned()),
+            branch: Some("feature".to_owned()),
+            set_upstream: true,
+            ..PushRequest::default()
+        },
+        Prompts::Allowed,
+        &mut |_| {},
+        &never(),
+    )
+    .expect("push the branch though a tag shares its name");
+    assert_eq!(
+        origin_refs(&f, &["refs/heads/feature", "refs/tags/feature"]),
+        ["refs/heads/feature"]
+    );
+    assert_eq!(origin_rev(&f, "refs/heads/feature"), f.rev("main"));
+    assert_eq!(
+        f.git(&["config", "branch.feature.merge"]),
+        "refs/heads/feature"
+    );
+}
+
+#[test]
+fn a_delete_on_the_remote_is_refused_while_the_branch_moved_since_the_fetch() {
+    let f = Fixture::basic().with_remote();
+    let e = engine(&f);
+    f.git(&["branch", "feature", "main"]);
+    f.git(&[
+        "push",
+        "-q",
+        "origin",
+        "refs/heads/feature:refs/heads/feature",
+    ]);
+    let fetched = f.rev("refs/remotes/origin/feature");
+    // Someone moves the remote branch after that fetch: the tracking ref still names `fetched`.
+    f.git(&[
+        "push",
+        "-q",
+        "--force",
+        "origin",
+        "v1^{commit}:refs/heads/feature",
+    ]);
+    f.git(&["update-ref", "refs/remotes/origin/feature", &fetched]);
+    let moved = origin_rev(&f, "refs/heads/feature");
+    assert_ne!(moved, fetched);
+    let delete = PushRequest {
+        remote: Some("origin".to_owned()),
+        branch: Some("feature".to_owned()),
+        delete: true,
+        ..PushRequest::default()
+    };
+    let error = e
+        .push(&delete, Prompts::Allowed, &mut |_| {}, &never())
+        .expect_err("the lease is stale");
+    assert!(
+        matches!(&error, GitError::Cli { stderr, .. } if stderr.contains("stale info")),
+        "{error:?}"
+    );
+    assert_eq!(origin_rev(&f, "refs/heads/feature"), moved);
+    // Once fetched, the app shows what it deletes, and the delete goes through.
+    f.git(&["fetch", "-q", "origin"]);
+    e.push(&delete, Prompts::Allowed, &mut |_| {}, &never())
+        .expect("delete after the fetch");
+    assert!(origin_refs(&f, &["refs/heads/feature"]).is_empty());
+}
+
+#[test]
+fn a_tag_push_or_a_delete_on_the_remote_sends_no_other_tag_whatever_push_follow_tags_says() {
+    let f = Fixture::basic().with_remote();
+    let e = engine(&f);
+    f.git(&["tag", "-a", "v0", "-m", "version 0", "main~1"]);
+    f.git(&["config", "push.followTags", "true"]);
+    f.git(&["branch", "gone", "main"]);
+    f.git(&[
+        "push",
+        "-q",
+        "--no-follow-tags",
+        "origin",
+        "refs/heads/gone",
+    ]);
+    e.push(
+        &PushRequest {
+            remote: Some("origin".to_owned()),
+            tag: Some("v1".to_owned()),
+            ..PushRequest::default()
+        },
+        Prompts::Allowed,
+        &mut |_| {},
+        &never(),
+    )
+    .expect("push v1 alone");
+    assert_eq!(origin_refs(&f, &["refs/tags"]), ["refs/tags/v1"]);
+    e.push(
+        &PushRequest {
+            remote: Some("origin".to_owned()),
+            branch: Some("gone".to_owned()),
+            delete: true,
+            ..PushRequest::default()
+        },
+        Prompts::Allowed,
+        &mut |_| {},
+        &never(),
+    )
+    .expect("delete gone on the remote");
+    assert!(origin_refs(&f, &["refs/heads/gone"]).is_empty());
+    assert_eq!(origin_refs(&f, &["refs/tags"]), ["refs/tags/v1"]);
 }
