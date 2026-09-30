@@ -1,5 +1,21 @@
 [
   {
+    "version": "0.6.5",
+    "date": "2026-09-30",
+    "title": {
+      "en": "Branches that stay apart",
+      "es": "Ramas que no se juntan"
+    },
+    "highlight": {
+      "en": "Each branch keeps its own line down to the commit it forked from, so branches off one commit no longer read as one",
+      "es": "Cada rama mantiene su propia línea hasta el commit del que salió, así que las ramas que salen de un mismo commit ya no parecen una sola"
+    },
+    "notes": {
+      "en": "The graph keeps every branch on its own lane and colour down to the commit it leads to, where the lines bend into that commit's dot, as graphical Git clients draw it. Branches that fork from one commit no longer join each other a row early, a new branch tip no longer takes a lane another branch has just left (which made it look like that branch's next commit), and a merge's line to its other parent leaves on a lane of its own, in that lane's colour from its first row. The \"+N\" marker counts each lane it hides once. In review focus, the rail beside the diff draws its lines to its top and bottom edges and keeps the ring on the selected commit when its lane is past the three it draws.",
+      "es": "El grafo mantiene cada rama en su propio carril y color hasta el commit al que lleva, donde las líneas se curvan hacia el punto de ese commit, como lo dibujan los clientes gráficos de Git. Las ramas que salen de un mismo commit ya no se juntan una fila antes, la punta de una rama nueva ya no ocupa un carril que otra rama acaba de dejar (lo que la hacía parecer el siguiente commit de esa rama), y la línea de un merge hacia su otro padre sale por un carril propio, con el color de ese carril desde su primera fila. El marcador \"+N\" cuenta una sola vez cada carril que oculta. En el modo de revisión, el raíl junto al diff dibuja sus líneas hasta sus bordes de arriba y abajo y mantiene el anillo sobre el commit seleccionado cuando su carril queda más allá de los tres que dibuja."
+    }
+  },
+  {
     "version": "0.6.4",
     "date": "2026-09-30",
     "title": {
