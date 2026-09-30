@@ -130,7 +130,8 @@ describe("shell store", () => {
     // 1280px at 200%: its share (237) is under the floor.
     shell.setWindowWidth(640);
     expect(shell.detailWidth).toBe(280);
-    // A dragged width leaves the graph panel 320px: 823 - 48 - 320.
+    // A width dragged at normal widths leaves the graph panel 320px: 823 - 48 - 320.
+    shell.setWindowWidth(1440);
     await shell.setPaneSize("detail", 520);
     shell.setWindowWidth(823);
     expect(shell.detailWidth).toBe(455);
@@ -143,6 +144,25 @@ describe("shell store", () => {
     expect(shell.detailWidth).toBe(280);
     // 1024px and above keep the normal limits, 360 to 900.
     shell.setWindowWidth(1024);
+    expect(shell.detailWidth).toBe(360);
+    expect(shell.detailLimits).toEqual({ min: 360, max: 900 });
+  });
+
+  it("lets the detail's divider work within the narrow limits while zoomed", async () => {
+    const settings = useSettingsStore();
+    await settings.init(memoryStorage(), "windows");
+    const shell = useShellStore();
+    shell.setWindowWidth(823);
+    expect(shell.detailLimits).toEqual({ min: 280, max: 455 });
+    await shell.setPaneSize("detail", 300);
+    expect(shell.detailWidth).toBe(300);
+    await shell.setPaneSize("detail", 200);
+    expect(shell.detailWidth).toBe(280);
+    await shell.setPaneSize("detail", 999);
+    expect(shell.detailWidth).toBe(455);
+    // A width pinned while zoomed shows within the 360 to 900 limits at normal widths.
+    await shell.setPaneSize("detail", 300);
+    shell.setWindowWidth(1440);
     expect(shell.detailWidth).toBe(360);
   });
 

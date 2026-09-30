@@ -186,7 +186,7 @@ defineExpose({ focus: navigation.focus, revealSelected });
     ref="container"
     role="listbox"
     :aria-label="t('graph.commits')"
-    class="relative min-h-0 flex-1 overflow-y-auto"
+    class="commit-rows relative min-h-0 flex-1 overflow-y-auto"
     data-testid="commit-rows"
     @keydown="onKeydown"
     @scroll.passive="onScroll"
@@ -246,6 +246,11 @@ defineExpose({ focus: navigation.focus, revealSelected });
 </template>
 
 <style scoped>
+/* The rows' width decides which metadata columns fit (GraphRow's container query). */
+.commit-rows {
+  container-type: inline-size;
+}
+
 /* The 108px lane area plus the 8px gap to the first badge or
    the subject, which starts at x = 116; the row's 2px accent
    border makes up the rest. Not on the spacing scale. */

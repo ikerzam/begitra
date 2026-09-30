@@ -97,7 +97,7 @@ function onSelect(file: FileChange, trigger: SelectTrigger): void {
         <CommitSummary :commit="commit" :refs="repo.refs" @select-parent="selectParent" />
         <div
           v-if="stats && detail"
-          class="flex h-panel-header shrink-0 items-center gap-4 border-t border-b border-line px-3 text-md"
+          class="flex min-h-panel-header shrink-0 flex-wrap items-center gap-x-4 border-t border-b border-line px-3 text-md whitespace-nowrap"
           data-testid="detail-stats"
         >
           <span class="font-medium text-fg">

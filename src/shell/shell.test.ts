@@ -959,6 +959,15 @@ describe("AppShell", () => {
     expect(shell.sidebarCollapsed).toBe(true);
     expect(wrapper.find('[data-testid="sidebar"]').exists()).toBe(false);
     expect(wrapper.find('[data-testid="sidebar-rail"]').exists()).toBe(true);
+    // A rail icon shows the sidebar and hands the focus to the tab it chose.
+    const railIcon = wrapper
+      .get('[data-testid="sidebar-rail"]')
+      .findAll("button")
+      .find((button) => button.attributes("aria-label") === "Branches");
+    await railIcon!.trigger("click");
+    await settle();
+    expect(wrapper.find('[data-testid="sidebar"]').exists()).toBe(true);
+    expect(document.activeElement).toBe(wrapper.get('[data-testid="tab-branches"]').element);
     wrapper.unmount();
   });
 

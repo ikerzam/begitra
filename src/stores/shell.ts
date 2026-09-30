@@ -84,6 +84,18 @@ export const useShellStore = defineStore("shell", () => {
   const columnWidths = computed<ColumnWidths>(() => settings.values.columnWidths);
 
   /**
+   * The detail panel's limits, for its divider as for its width: 360 to 900, and
+   * under the narrow breakpoint 280 up to what leaves the graph panel 320px.
+   */
+  const detailLimits = computed(() => {
+    if (!narrow.value) return paneLimits.detail;
+    const side = sidebarCollapsed.value ? RAIL_WIDTH : paneSizes.value.sidebar;
+    const room = windowWidth.value - side - NARROW_GRAPH_MIN;
+    const max = Math.max(NARROW_DETAIL_MIN, Math.min(room, paneLimits.detail.max));
+    return { min: NARROW_DETAIL_MIN, max };
+  });
+
+  /**
    * Width of the detail panel: the pinned size after a drag, else the fraction of the window.
    * Under the narrow breakpoint it leaves the graph panel 320px, down to 280px of its own, the
    * share taken of the window less what the sidebar or its rail takes.
@@ -96,9 +108,8 @@ export const useShellStore = defineStore("shell", () => {
     }
     const side = sidebarCollapsed.value ? RAIL_WIDTH : paneSizes.value.sidebar;
     const width = pinned ?? DETAIL_FRACTION * (windowWidth.value - side);
-    const room = windowWidth.value - side - NARROW_GRAPH_MIN;
-    const capped = Math.min(width, room, paneLimits.detail.max);
-    return Math.round(Math.max(NARROW_DETAIL_MIN, capped));
+    const { min, max } = detailLimits.value;
+    return Math.round(Math.min(Math.max(width, min), max));
   });
 
   /** The review rail follows the user's toggle, else it hides below the breakpoint. */
@@ -121,10 +132,18 @@ export const useShellStore = defineStore("shell", () => {
     return settings.update("sidebarCollapsed", !settings.values.sidebarCollapsed);
   }
 
-  /** Sets a pane to `px` within its limits; for the detail panel this pins the width. */
+  /**
+   * Sets a pane to `px` within its limits; for the detail panel this pins the width, within the
+   * narrow limits while zoomed (a width under 360 shows as 360 again at normal widths).
+   */
   function setPaneSize(pane: keyof PaneSizes, px: number): Promise<void> {
     const next: PaneSizes = { ...settings.values.paneSizes };
-    next[pane] = clampPane(pane, px);
+    if (pane === "detail" && narrow.value) {
+      const { min, max } = detailLimits.value;
+      next.detail = Math.round(Math.min(Math.max(px, min), max));
+    } else {
+      next[pane] = clampPane(pane, px);
+    }
     return settings.update("paneSizes", next);
   }
 
@@ -219,6 +238,7 @@ export const useShellStore = defineStore("shell", () => {
     sidebarCollapsed,
     paneSizes,
     detailWidth,
+    detailLimits,
     reviewRailCollapsed,
     paletteOpen,
     setLayoutMode,

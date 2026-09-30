@@ -92,4 +92,14 @@ function onKeydown(event: KeyboardEvent): void {
 .graph-row-hash {
   width: var(--graph-hash-w, 56px);
 }
+
+/* A list under 480px (graph focus zoomed in) keeps the lanes, the subject and the time: the
+   author and the hash give the subject their 184px. The review rail's rows, whose list is not
+   a size container, keep their own rules. */
+@container (max-width: 480px) {
+  .graph-row-author,
+  .graph-row-hash {
+    display: none;
+  }
+}
 </style>

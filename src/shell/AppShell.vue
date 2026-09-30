@@ -138,10 +138,16 @@ const showSidebar = computed(
     !settingsMode.value,
 );
 
-/** A rail icon expands the sidebar on its tab; from review focus or the settings that means leaving them. */
+/**
+ * A rail icon expands the sidebar on its tab; from review focus or the settings that means
+ * leaving them. The rail goes with it, so the focus moves to the tab it chose. Neither setting's
+ * save holds the focus back: each applies at once and is written a moment later.
+ */
 async function selectRailTab(tab: SidebarTab): Promise<void> {
-  if (reviewMode.value || settingsMode.value) await shell.setLayoutMode("graph");
-  await shell.expandSidebar(tab);
+  if (reviewMode.value || settingsMode.value) void shell.setLayoutMode("graph");
+  void shell.expandSidebar(tab);
+  await nextTick();
+  document.querySelector<HTMLElement>(`[data-testid="tab-${tab}"]`)?.focus();
 }
 
 /** "Compare with…": the selected commit in graph focus, else the current branch, as A. */

@@ -13,7 +13,7 @@ import type { FileChange } from "@/ipc/schemas";
 import ProjectEmpty from "@/project/ProjectEmpty.vue";
 import { useProjectsStore } from "@/stores/projects";
 import { useRepoStore } from "@/stores/repo";
-import { paneLimits, useShellStore } from "@/stores/shell";
+import { useShellStore } from "@/stores/shell";
 
 import HomeEmpty from "./HomeEmpty.vue";
 import PaneResizer from "./PaneResizer.vue";
@@ -63,8 +63,8 @@ defineExpose({ focusRows: () => graph.value?.focus() });
       <PaneResizer
         :size="shell.detailWidth"
         :direction="-1"
-        :min="paneLimits.detail.min"
-        :max="paneLimits.detail.max"
+        :min="shell.detailLimits.min"
+        :max="shell.detailLimits.max"
         :label="t('detail.commit')"
         @resize="(px) => void shell.setPaneSize('detail', px)"
         @reset="() => void shell.resetPaneSize('detail')"
