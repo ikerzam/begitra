@@ -15,7 +15,10 @@ const parts = computed(() => {
 </script>
 
 <template>
-  <span class="flex min-w-0 font-mono text-mono-sm text-fg-secondary" :data-tooltip="props.path">
+  <span
+    class="flex min-w-0 font-mono text-mono-sm text-fg-secondary select-text"
+    :data-tooltip="props.path"
+  >
     <span v-if="parts.folder" class="min-w-0 truncate">{{ parts.folder }}</span>
     <span class="max-w-full shrink-0 truncate">{{ parts.name }}</span>
   </span>

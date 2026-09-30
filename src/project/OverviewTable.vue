@@ -146,7 +146,7 @@ defineExpose({ focusRows: (): void => keys.focus() });
       <div v-if="outputs.has(row.path) && statuses.get(row.path)?.output" role="row">
         <pre
           role="gridcell"
-          class="member-output overflow-x-auto rounded-md border border-line bg-raised px-3 py-2 font-mono text-mono-sm text-fg-secondary"
+          class="member-output overflow-x-auto rounded-md border border-line bg-raised px-3 py-2 font-mono text-mono-sm text-fg-secondary select-text"
           data-testid="member-output"
           >{{ statuses.get(row.path)?.output }}</pre>
       </div>

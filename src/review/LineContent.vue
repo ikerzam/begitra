@@ -44,7 +44,7 @@ function classOf(segment: Segment): string {
 
 <template>
   <span
-    class="block"
+    class="block select-text"
     :class="props.wrap ? 'break-all whitespace-pre-wrap' : 'overflow-hidden whitespace-pre'"
     data-testid="line-content"
     ><span class="block" :class="{ 'line-shift': !props.wrap }" data-testid="line-text"

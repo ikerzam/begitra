@@ -207,7 +207,7 @@ watch(
             role="option"
             :aria-selected="palette.cursor.value === section.offset + index"
             :data-index="section.offset + index"
-            class="flex h-control cursor-default items-center gap-3 rounded-sm px-2 text-md text-fg"
+            class="flex h-control items-center gap-3 rounded-sm px-2 text-md text-fg"
             :class="
               palette.cursor.value === section.offset + index ? 'bg-selected' : 'hover:bg-hover'
             "

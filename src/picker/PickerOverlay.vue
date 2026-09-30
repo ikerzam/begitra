@@ -305,7 +305,7 @@ watch(cursor, (index) => {
             role="option"
             :aria-selected="cursor === section.offset + index"
             :data-index="section.offset + index"
-            class="flex h-control cursor-default items-center gap-2 rounded-sm px-2 text-md text-fg"
+            class="flex h-control items-center gap-2 rounded-sm px-2 text-md text-fg"
             :class="cursor === section.offset + index ? 'bg-selected' : 'hover:bg-hover'"
             data-testid="picker-row"
             @mousemove="cursor = section.offset + index"

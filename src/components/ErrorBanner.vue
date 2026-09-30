@@ -90,7 +90,7 @@ const toggleLabel = computed(() => {
           v-if="expanded"
           :id="outputId"
           data-testid="error-banner-output"
-          class="overflow-x-auto font-mono text-mono-sm whitespace-pre text-fg-secondary"
+          class="overflow-x-auto font-mono text-mono-sm whitespace-pre text-fg-secondary select-text"
           >{{ props.output }}</pre>
       </div>
     </div>

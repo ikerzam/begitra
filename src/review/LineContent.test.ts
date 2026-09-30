@@ -56,6 +56,8 @@ describe("LineContent", () => {
   it("moves its text by the viewer's sideways offset without wrap, and not when wrapping", () => {
     const clipped = mountWithI18n(LineContent, { props: { line: line("x".repeat(300)) } });
     expect(clipped.get("[data-testid='line-content']").classes()).toContain("overflow-hidden");
+    // Code is text people copy: selectable in a window that selects nothing else.
+    expect(clipped.get("[data-testid='line-content']").classes()).toContain("select-text");
     expect(clipped.get("[data-testid='line-text']").classes()).toContain("line-shift");
     const wrapped = mountWithI18n(LineContent, {
       props: { line: line("x".repeat(300)), wrap: true },

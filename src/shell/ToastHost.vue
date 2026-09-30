@@ -60,7 +60,7 @@ function actionOf(toast: ToastEntry): string {
       <!-- A toast whose action does something else shows its output at once. -->
       <pre
         v-if="(expanded.has(toast.id) || toast.onAction) && toast.output"
-        class="toast-output max-w-full overflow-auto rounded-md border border-line bg-raised p-3 font-mono text-mono-sm whitespace-pre-wrap text-fg-secondary"
+        class="toast-output max-w-full overflow-auto rounded-md border border-line bg-raised p-3 font-mono text-mono-sm whitespace-pre-wrap text-fg-secondary select-text"
         data-testid="toast-output"
         >{{ toast.output }}</pre>
     </div>

@@ -25,17 +25,17 @@ const badges = computed(() => commitBadges(props.commit.refs, refsByName(props.r
 
 <template>
   <div class="flex flex-col gap-2 px-3 py-3" data-testid="commit-summary">
-    <h3 class="text-lg font-medium text-fg" data-testid="commit-subject">
+    <h3 class="text-lg font-medium text-fg select-text" data-testid="commit-subject">
       {{ props.commit.subject }}
     </h3>
     <p
       v-if="props.commit.body"
-      class="text-md whitespace-pre-wrap text-fg-secondary"
+      class="text-md whitespace-pre-wrap text-fg-secondary select-text"
       data-testid="commit-body"
     >
       {{ props.commit.body }}
     </p>
-    <p class="flex flex-wrap items-center gap-4 text-sm text-fg-secondary">
+    <p class="flex flex-wrap items-center gap-4 text-sm text-fg-secondary select-text">
       <span class="text-fg">{{ props.commit.author.name }}</span>
       <span>{{ relative }}</span>
       <span class="text-fg-muted">{{ absolute }}</span>

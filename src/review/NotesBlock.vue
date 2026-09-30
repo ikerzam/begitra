@@ -129,7 +129,7 @@ function onKeydown(event: KeyboardEvent): void {
           @click="remove(note.path)"
         />
       </div>
-      <p class="text-md whitespace-pre-wrap text-fg">{{ note.text }}</p>
+      <p class="text-md whitespace-pre-wrap text-fg select-text">{{ note.text }}</p>
     </div>
   </div>
 </template>

@@ -165,7 +165,7 @@ onBeforeUnmount(() => {
       :aria-selected="option.value === props.selected"
       :aria-disabled="option.disabled ? 'true' : undefined"
       :data-value="option.value"
-      class="flex h-control w-full shrink-0 cursor-default items-center gap-2 rounded-sm px-2 text-md whitespace-nowrap"
+      class="flex h-control w-full shrink-0 items-center gap-2 rounded-sm px-2 text-md whitespace-nowrap"
       :class="[
         option.disabled
           ? 'text-fg-disabled'
