@@ -41,3 +41,7 @@ harness = false
 [[bench]]
 name = "syntax"
 harness = false
+
+[[bench]]
+name = "projects"
+harness = false
