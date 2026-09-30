@@ -127,13 +127,23 @@ function backend(
     tip?: { index: number };
     /** A file marked reviewed for another content than the diff shows. */
     staleMark?: string;
+    /** The project is the folder project of `/`, its repositories found by its scans. */
+    folderProject?: boolean;
   } = {},
 ) {
   const tip = options.tip ?? { index: 0 };
   const calls: string[] = [];
   /** The fake index: a project write drops entries and a gone folder is flagged on refresh. */
   let listed = options.emptyIndex ? [] : indexEntries.map((entry) => ({ ...entry }));
-  let projects: Project[] = options.emptyIndex ? [] : [structuredClone(geoportal)];
+  const project: Project = options.folderProject
+    ? {
+        ...structuredClone(geoportal),
+        kind: "folder",
+        folder: "/",
+        members: geoportal.members.map((member) => ({ ...member, origin: "folder" as const })),
+      }
+    : structuredClone(geoportal);
+  let projects: Project[] = options.emptyIndex ? [] : [project];
   const handler = (cmd: string, rawArgs?: unknown) => {
     const args = (rawArgs ?? {}) as Record<string, unknown>;
     calls.push(cmd);
@@ -585,6 +595,21 @@ describe("launch and the watcher", () => {
     const flagged = wrapper.get('[data-testid="repo-list"] [data-path="/r"]');
     expect(flagged.text()).toContain("not found");
     expect(useIndexStore().find("/r")?.missing).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("offers Scan again when a folder project's own repository is gone, which scans its folder", async () => {
+    await useSettingsStore().init(memoryStorage({ activeProject: 1 }), "windows");
+    const calls = backend({ failOpen: true, folderProject: true });
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    await settle();
+    const banner = wrapper.get('[data-testid="graph-error"]');
+    // Only a scan of its folder takes one of its own repositories out of the project.
+    expect(banner.text()).not.toContain("Remove from project");
+    const scan = banner.findAll("button").find((button) => button.text() === "Scan again");
+    await scan!.trigger("click");
+    await settle();
+    expect(calls).toContain("scan_folders");
     wrapper.unmount();
   });
 

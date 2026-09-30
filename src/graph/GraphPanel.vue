@@ -14,8 +14,9 @@ import EmptyState from "@/components/EmptyState.vue";
 import ErrorBanner from "@/components/ErrorBanner.vue";
 import type { CommitNode, Ref as GitRef } from "@/ipc/schemas";
 import { errorText } from "@/shell/errorMessage";
-import { shortHash } from "@/shell/format";
+import { sameFolder, shortHash } from "@/shell/format";
 import { useGraphStore } from "@/stores/graph";
+import { useProjectsStore } from "@/stores/projects";
 import { useRepoStore } from "@/stores/repo";
 import { useShellStore } from "@/stores/shell";
 import { useToastsStore } from "@/stores/toasts";
@@ -35,6 +36,7 @@ const repo = useRepoStore();
 const shell = useShellStore();
 const graph = useGraphStore();
 const toasts = useToastsStore();
+const projects = useProjectsStore();
 const actions = useCommitActions();
 const branchActions = useBranchActions();
 const hover = useHoverCard();
@@ -142,6 +144,16 @@ const showEmpty = computed(
     repo.walkError === null,
 );
 
+/* A folder project's own repository leaves the project only when a scan of its folder no longer
+   finds it, so the error state offers the scan (projects' removal rules). */
+const scanInstead = computed(() => {
+  const state = repo.state;
+  if (state.kind !== "error") return false;
+  return projects.activeMembers.some(
+    (member) => member.origin === "folder" && sameFolder(member.path, state.path),
+  );
+});
+
 defineExpose({ focus: () => rows.value?.focus() });
 </script>
 
@@ -158,7 +170,7 @@ defineExpose({ focus: () => rows.value?.focus() });
       <ErrorBanner
         :message="errorMessage"
         :output="repo.state.error.detail"
-        :action="t('project.removeFromProject')"
+        :action="scanInstead ? t('folder.scanAgain') : t('project.removeFromProject')"
         @action="emit('removeFromProject')"
       />
     </div>
