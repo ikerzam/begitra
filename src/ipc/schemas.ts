@@ -562,6 +562,10 @@ export type PullRequest = v.InferOutput<typeof PullRequestSchema>;
 export const PushRequestSchema = v.object({
   remote: v.nullable(v.string()),
   branch: v.nullable(v.string()),
+  /** A tag pushed alone, in place of a branch. */
+  tag: v.nullable(v.string()),
+  /** Deletes the branch or the tag on the remote, by its full name. */
+  delete: v.boolean(),
   setUpstream: v.boolean(),
   forceWithLease: v.boolean(),
 });
@@ -885,6 +889,7 @@ export const commandArgs = {
     name: refName,
     start: revision,
     checkout: v.boolean(),
+    track: v.boolean(),
     opId,
   }),
   switch: v.object({
@@ -944,6 +949,8 @@ export const commandArgs = {
     request: v.object({
       remote: v.nullable(refName),
       branch: v.nullable(refName),
+      tag: v.nullable(refName),
+      delete: v.boolean(),
       setUpstream: v.boolean(),
       forceWithLease: v.boolean(),
     }),

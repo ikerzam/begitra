@@ -57,7 +57,14 @@ describe("checkArgs", () => {
       return undefined;
     };
     const create = (name: string) =>
-      checkArgs("branch_create", { repo: "/r", name, start: "main", checkout: true, opId: "op" });
+      checkArgs("branch_create", {
+        repo: "/r",
+        name,
+        start: "main",
+        checkout: true,
+        track: false,
+        opId: "op",
+      });
     expect(create("feature/tile-cache")).toBeTruthy();
     for (const bad of ["", "-x", "a b", "a..b", "a~1", "a/", "a\\b"]) {
       expect(
@@ -69,7 +76,14 @@ describe("checkArgs", () => {
       refused(() =>
         checkArgs("push", {
           repo: "/r",
-          request: { remote: "--mirror", branch: null, setUpstream: false, forceWithLease: false },
+          request: {
+            remote: "--mirror",
+            branch: null,
+            tag: null,
+            delete: false,
+            setUpstream: false,
+            forceWithLease: false,
+          },
           batch: false,
           opId: "op",
         }),

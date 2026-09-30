@@ -81,8 +81,10 @@ export function useListNavigation(options: ListNavigationOptions): ListNavigatio
   };
 
   const onKeydown = (event: KeyboardEvent): boolean => {
-    // A focused row that handled the key itself (Enter, folder arrows) has prevented it.
+    // A focused row that handled the key itself (Enter, folder arrows) has prevented it; a
+    // menu opened over the list handles its own keys (Enter runs the item, not the row).
     if (event.defaultPrevented) return false;
+    if (event.target instanceof Element && event.target.closest('[role="menu"]')) return false;
     if (isBound(event, "ArrowDown", "next-row")) {
       moveBy(1);
     } else if (isBound(event, "ArrowUp", "previous-row")) {

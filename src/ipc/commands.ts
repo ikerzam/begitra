@@ -181,9 +181,10 @@ export function branchCreate(
   name: string,
   start: string,
   checkout: boolean,
+  track = false,
   opId = newOpId("branch-create"),
 ) {
-  return call("branch_create", { repo, name, start, checkout, opId }, v.null());
+  return call("branch_create", { repo, name, start, checkout, track, opId }, v.null());
 }
 
 /** Switches to a branch or a detached revision; a dirty switch is git's refusal. */
@@ -237,8 +238,9 @@ export function tagCreate(
   return call("tag_create", { repo, name, rev, message, opId }, v.null());
 }
 
+/** Deletes a tag; answers what it pointed at (an annotated tag's object), null when unknown. */
 export function tagDelete(repo: string, name: string, opId = newOpId("tag-delete")) {
-  return call("tag_delete", { repo, name, opId }, v.null());
+  return call("tag_delete", { repo, name, opId }, v.nullable(v.string()));
 }
 
 /** Sets a branch's upstream (`remote/branch`), or unsets it with null. */

@@ -5,13 +5,16 @@
 // to the sequencer, and a failure is an error toast with git's output one click away.
 
 import { defineStore } from "pinia";
-import { ref } from "vue";
+import { computed, ref, watch } from "vue";
 
+import { remoteOf } from "@/branches/names";
 import * as ipc from "@/ipc/commands";
 import { toAppError, type AppError } from "@/ipc/errors";
 import { newOpId } from "@/ipc/invoke";
 import type { NetworkEvent, PullRequest, PushRequest, Remote } from "@/ipc/schemas";
 import type { StreamHandle } from "@/ipc/stream";
+import { arm } from "@/motion/motion";
+import { shortHash } from "@/shell/format";
 
 import { useOperationsStore } from "./operations";
 import { useRepoStore } from "./repo";
@@ -22,7 +25,11 @@ import { useToastsStore } from "./toasts";
 /** What the layout asks before a network write. */
 export type NetworkPrompt =
   | { kind: "push"; branch: string }
-  | { kind: "pull"; branch: string }
+  /** `remote` and `remoteBranch` fill the dialog in (a remote branch's "Pull into"). */
+  | { kind: "pull"; branch: string; remote?: string; remoteBranch?: string }
+  | { kind: "pushTag"; tag: string }
+  /** A remote branch's "Delete on <remote>…": `tip` restores it. */
+  | { kind: "deleteOnRemote"; remote: string; branch: string; tip: string }
   | { kind: "removeRemote"; name: string };
 
 /** The upstream of a branch split into its remote and branch (`origin/main`). */
@@ -52,6 +59,30 @@ export const useRemotesStore = defineStore("remotes", () => {
   /** The list write in flight (add, remove), as its label. */
   const busy = ref<string | null>(null);
   let serial = 0;
+
+  // Another repository's remotes are not this one's: the list goes with the repository.
+  watch(
+    () => repo.repo?.root,
+    () => {
+      serial += 1;
+      remotes.value = [];
+      loaded.value = false;
+      loading.value = false;
+      loadError.value = null;
+      if (sheetOpen.value) void load();
+    },
+  );
+
+  /** The remotes' names, the current branch's remote first: where a remote to pick starts. */
+  const preferred = computed<string[]>(() => {
+    const names = remotes.value.map((entry) => entry.name);
+    const upstream = repo.currentBranch?.upstream ?? null;
+    const first =
+      upstream === null
+        ? undefined
+        : remoteOf({ kind: "remote-branch", name: upstream }, remotes.value)?.remote;
+    return first === undefined ? names : [first, ...names.filter((name) => name !== first)];
+  });
 
   async function load(): Promise<void> {
     const root = repo.repo?.root;
@@ -173,6 +204,7 @@ export const useRemotesStore = defineStore("remotes", () => {
     label: string,
     params: Record<string, string>,
     start: (root: string, onEvent: (event: NetworkEvent) => void, opId: string) => StreamHandle,
+    explain?: (error: AppError) => { key: string; params: Record<string, string> } | null,
   ): Promise<NetworkEvent | null> {
     const root = repo.repo?.root;
     if (!root || refusedWhileBusy()) return Promise.resolve(null);
@@ -199,11 +231,15 @@ export const useRemotesStore = defineStore("remotes", () => {
       .catch((failure: unknown) => {
         const error = toAppError(failure);
         if (error.code !== "op.cancelled") {
+          const readable = explain?.(error) ?? {
+            key: "remotes.networkFailed",
+            params: { message: error.message },
+          };
           toasts.push({
             kind: "error",
             message: "",
-            key: "remotes.networkFailed",
-            params: { message: error.message },
+            key: readable.key,
+            params: readable.params,
             output: error.detail ?? error.message,
           });
         }
@@ -280,6 +316,86 @@ export const useRemotesStore = defineStore("remotes", () => {
     return true;
   }
 
+  /** Pushes a tag alone to `remote`. */
+  async function pushTag(tag: string, remote: string): Promise<boolean> {
+    if (refusedWhileBusy()) return false;
+    dismiss();
+    const result = await network("operations.pushingTag", { tag, remote }, (root, onEvent, opId) =>
+      ipc.push(
+        root,
+        { remote, branch: null, tag, delete: false, setUpstream: false, forceWithLease: false },
+        onEvent,
+        opId,
+      ),
+    );
+    if (!result) return false;
+    toasts.push({
+      kind: "success",
+      message: "",
+      key: "remotes.tagPushed",
+      params: { tag, remote },
+    });
+    return true;
+  }
+
+  /**
+   * Deletes a branch or a tag on `remote`, by its full name; the toast keeps the tip it held
+   * and the command that puts it back.
+   */
+  async function deleteOnRemote(target: {
+    remote: string;
+    branch?: string;
+    tag?: string;
+    tip: string;
+  }): Promise<boolean> {
+    if (refusedWhileBusy()) return false;
+    dismiss();
+    const name = target.branch ?? target.tag ?? "";
+    const result = await network(
+      "operations.deletingOnRemote",
+      { name, remote: target.remote },
+      (root, onEvent, opId) =>
+        ipc.push(
+          root,
+          {
+            remote: target.remote,
+            branch: target.branch ?? null,
+            tag: target.tag ?? null,
+            delete: true,
+            setUpstream: false,
+            forceWithLease: false,
+          },
+          onEvent,
+          opId,
+        ),
+      // A branch's delete leases on its remote-tracking ref: git refuses it when the branch
+      // moved or left the remote since the last fetch.
+      (error) =>
+        /stale info/.test(error.detail ?? "")
+          ? { key: "remotes.deleteStale", params: { name, remote: target.remote } }
+          : null,
+    );
+    if (!result) return false;
+    if (target.branch !== undefined) {
+      arm("branches");
+      repo.patchRefs({
+        kind: "delete",
+        fullName: `refs/remotes/${target.remote}/${target.branch}`,
+      });
+    }
+    void repo.refreshRefs();
+    const full = target.branch !== undefined ? `refs/heads/${name}` : `refs/tags/${name}`;
+    toasts.push({
+      kind: "success",
+      message: "",
+      key: target.tip ? "remotes.deletedOnRemoteWas" : "remotes.deletedOnRemote",
+      params: { name, remote: target.remote, hash: shortHash(target.tip) },
+      output: target.tip ? `git push ${target.remote} ${target.tip}:${full}` : "",
+      actionKey: target.tip ? "toast.showCommand" : undefined,
+    });
+    return true;
+  }
+
   async function push(request: PushRequest): Promise<boolean> {
     if (refusedWhileBusy()) return false;
     dismiss();
@@ -304,6 +420,7 @@ export const useRemotesStore = defineStore("remotes", () => {
 
   return {
     remotes,
+    preferred,
     loading,
     loaded,
     loadError,
@@ -322,6 +439,8 @@ export const useRemotesStore = defineStore("remotes", () => {
     fetch,
     pull,
     push,
+    pushTag,
+    deleteOnRemote,
     cancel,
   };
 });

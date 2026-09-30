@@ -5,6 +5,7 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
 
+import { useBranchActions } from "@/branches/useBranchActions";
 import { shortHash } from "@/shell/format";
 
 import { useBranchesStore } from "./branches";
@@ -109,11 +110,20 @@ export const usePickerStore = defineStore("picker", () => {
       (entry) => entry.kind === "local-branch" && (entry.name === rev || entry.fullName === rev),
     );
     switch (action) {
-      case "checkout":
-        await branches.checkout(
-          local ? { kind: "branch", name: local.name } : { kind: "detached", rev },
+      case "checkout": {
+        const remoteBranch = repo.refs.find(
+          (entry) =>
+            entry.kind === "remote-branch" && (entry.name === rev || entry.fullName === rev),
         );
+        // A remote branch checks out as the local branch that tracks it.
+        if (!local && remoteBranch) useBranchActions().run("checkout", remoteBranch);
+        else {
+          await branches.checkout(
+            local ? { kind: "branch", name: local.name } : { kind: "detached", rev },
+          );
+        }
         break;
+      }
       case "merge":
         await branches.merge(rev, "default");
         break;

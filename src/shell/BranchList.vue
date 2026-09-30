@@ -9,7 +9,7 @@ import { Tag } from "@lucide/vue";
 import { computed, onUnmounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
-import BranchContextMenu from "@/branches/BranchContextMenu.vue";
+import RefMenu from "@/branches/RefMenu.vue";
 import type { BranchAction } from "@/branches/useBranchActions";
 import ListRow from "@/components/ListRow.vue";
 import MotionRows from "@/components/MotionRows.vue";
@@ -33,7 +33,6 @@ const graph = useGraphStore();
 const settings = useSettingsStore();
 const listbox = ref<HTMLElement | null>(null);
 const menu = ref<{ ref: GitRef; x: number; y: number } | null>(null);
-const currentName = computed(() => repo.currentBranch?.name ?? null);
 
 interface BranchRow {
   ref: GitRef;
@@ -142,13 +141,6 @@ function closeMenu(): void {
   navigation.focus();
 }
 
-/** The menu's choice: closed first, then reported with its ref. */
-function choose(kind: BranchAction): void {
-  const target = menu.value?.ref;
-  menu.value = null;
-  if (target) emit("action", kind, target);
-}
-
 function rowIndex(groupIndex: number, index: number): number {
   let offset = 0;
   for (let i = 0; i < groupIndex; i += 1) offset += groups.value[i]?.rows.length ?? 0;
@@ -206,24 +198,6 @@ defineExpose({ focus: navigation.focus });
     <p v-if="countLine" class="px-3 pt-3 text-sm text-fg-muted" data-testid="branch-count">
       {{ countLine }}
     </p>
-    <BranchContextMenu
-      v-if="menu"
-      :target="menu.ref"
-      :current="currentName"
-      :x="menu.x"
-      :y="menu.y"
-      @close="closeMenu"
-      @checkout="choose('checkout')"
-      @create-here="choose('createHere')"
-      @merge="choose('merge')"
-      @rebase="choose('rebase')"
-      @compare="choose('compare')"
-      @rename="choose('rename')"
-      @set-upstream="choose('setUpstream')"
-      @push="choose('push')"
-      @delete="choose('delete')"
-      @delete-tag="choose('deleteTag')"
-    />
     <template v-if="groups.length === 0 && repo.state.kind === 'ready' && !repo.refsLoaded">
       <SkeletonRow v-for="n in 6" :key="n" :index="n" height="list" />
     </template>
@@ -231,4 +205,12 @@ defineExpose({ focus: navigation.focus });
       {{ repo.state.kind === "ready" ? t("sidebar.noBranches") : t("sidebar.noRepository") }}
     </p>
   </div>
+  <RefMenu
+    v-if="menu"
+    :target="menu.ref"
+    :x="menu.x"
+    :y="menu.y"
+    enter-checks-out
+    @close="closeMenu"
+  />
 </template>

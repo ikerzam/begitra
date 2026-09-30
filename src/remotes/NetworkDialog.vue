@@ -14,7 +14,13 @@ import type { SelectOption } from "@/components/types";
 import { splitUpstream, useRemotesStore } from "@/stores/remotes";
 import { useRepoStore } from "@/stores/repo";
 
-const props = defineProps<{ mode: "push" | "pull"; branch: string }>();
+const props = defineProps<{
+  mode: "push" | "pull";
+  branch: string;
+  /** A remote branch's "Pull into": the remote and its branch, in place of the upstream. */
+  remote?: string;
+  remoteBranch?: string;
+}>();
 
 const { t, n } = useI18n();
 const remotes = useRemotesStore();
@@ -24,8 +30,8 @@ const ref_ = computed(() =>
   repo.refs.find((entry) => entry.kind === "local-branch" && entry.name === props.branch),
 );
 const upstream = computed(() => splitUpstream(ref_.value?.upstream ?? null));
-const remote = ref(upstream.value?.remote ?? remotes.remotes[0]?.name ?? "origin");
-const remoteBranch = ref(upstream.value?.branch ?? props.branch);
+const remote = ref(props.remote ?? upstream.value?.remote ?? remotes.remotes[0]?.name ?? "origin");
+const remoteBranch = ref(props.remoteBranch ?? upstream.value?.branch ?? props.branch);
 const setUpstream = ref(upstream.value === null);
 const forceWithLease = ref(false);
 const rebase = ref(false);
@@ -50,6 +56,12 @@ const count = computed(() => (props.mode === "push" ? ref_.value?.ahead : ref_.v
 const body = computed(() => {
   const up = ref_.value?.upstream;
   const key = props.mode === "push" ? "remotes.pushDialog" : "remotes.pullDialog";
+  // A remote branch's "Pull into": the sentence names what is pulled, not the upstream.
+  const from =
+    props.remote && props.remoteBranch ? `${props.remote}/${props.remoteBranch}` : undefined;
+  if (props.mode === "pull" && from !== undefined && from !== up) {
+    return t("remotes.pullDialog.bodyInto", { from, branch: props.branch });
+  }
   return up
     ? t(`${key}.body`, { n: n(count.value), upstream: up }, count.value)
     : t(`${key}.bodyNoUpstream`);
@@ -69,6 +81,8 @@ function confirm(): void {
     void remotes.push({
       remote: remote.value,
       branch: props.branch,
+      tag: null,
+      delete: false,
       setUpstream: setUpstream.value,
       forceWithLease: forceWithLease.value,
     });

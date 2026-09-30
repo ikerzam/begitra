@@ -1,15 +1,25 @@
-// The actions of a branch, remote branch or tag, run from the sidebar rows'
-// menu and from the graph's ref badges: checkout (a local branch by name, the rest detached
-// at their commit), the dialogs of the branches store, a merge or rebase, the comparison
-// with the current branch, a push.
+// The actions of a ref, run from the sidebar rows' menu and from the graph's ref
+// badges. A local branch is checked out by name, a remote branch as the local branch that
+// tracks it, a tag detached at its commit; the rest opens the dialogs of the branches and
+// remotes stores, merges or rebases, pulls or fetches from a remote branch's remote, compares
+// with the current branch, pushes, or copies a name. The stash badge's actions run on the
+// stash the badge names, through the stash store.
+
+import { nextTick } from "vue";
 
 import type { Ref as GitRef } from "@/ipc/schemas";
-import { useBranchesStore } from "@/stores/branches";
+import { copyText } from "@/shell/clipboard";
+import { shortHash } from "@/shell/format";
+import { useBranchesStore, type RemoteDelete } from "@/stores/branches";
 import { useCompareStore } from "@/stores/compare";
 import { useRemotesStore } from "@/stores/remotes";
 import { useRepoStore } from "@/stores/repo";
+import { stashIndex, useStashStore, type StashRow } from "@/stores/stash";
+import { useToastsStore } from "@/stores/toasts";
 
-/** What the menu offers; `checkout` is Enter on a sidebar row too. */
+import { remoteOf, type RemoteBranch } from "./names";
+
+/** What the branch menu offers; `checkout` is Enter on a sidebar row too. */
 export type BranchAction =
   | "checkout"
   | "createHere"
@@ -20,19 +30,61 @@ export type BranchAction =
   | "setUpstream"
   | "push"
   | "delete"
-  | "deleteTag";
+  | "deleteTag"
+  | "pullInto"
+  | "fetchRemote"
+  | "deleteOnRemote"
+  | "pushTag"
+  | "copyName";
+
+/** What the stash badge's menu offers. */
+export type StashAction = "apply" | "pop" | "drop" | "copyName" | "copyHash";
 
 export function useBranchActions() {
   const repo = useRepoStore();
+  const remotes = useRemotesStore();
 
-  /** A local branch is checked out by name, a remote branch or a tag detached at its commit. */
+  /** The remotes a remote branch's items need; a menu asks for them as it opens. */
+  function ensureRemotes(): void {
+    if (!remotes.loaded && !remotes.loading) void remotes.load();
+  }
+
+  /** A remote branch's remote and its name there; null for another kind or an unlisted remote. */
+  function remoteOfRef(ref: GitRef): RemoteBranch | null {
+    return remoteOf(ref, remotes.remotes);
+  }
+
+  /** Whether an action reads the remotes list, so waits for it when it is not listed yet. */
+  function needsRemotes(kind: BranchAction, ref: GitRef): boolean {
+    switch (kind) {
+      case "checkout":
+        return ref.kind === "remote-branch";
+      case "delete":
+        return ref.upstream !== null;
+      case "pullInto":
+      case "fetchRemote":
+      case "deleteOnRemote":
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  /** A local branch by name, a remote branch as its local branch, the rest detached. */
   function checkout(ref: GitRef): void {
-    if (ref.isCurrent) return;
-    void useBranchesStore().checkout(
-      ref.kind === "local-branch"
-        ? { kind: "branch", name: ref.name }
-        : { kind: "detached", rev: ref.name },
+    run("checkout", ref);
+  }
+
+  /** The upstream a local branch's delete can take too, with the tip it holds. */
+  function upstreamDelete(ref: GitRef): RemoteDelete | null {
+    const upstream = ref.upstream;
+    if (!upstream) return null;
+    const tracking = repo.refs.find(
+      (entry) => entry.kind === "remote-branch" && entry.name === upstream,
     );
+    const remote = remoteOf({ kind: "remote-branch", name: upstream }, remotes.remotes);
+    if (!tracking || !remote) return null;
+    return { remote: remote.remote, name: remote.branch, tip: tracking.target };
   }
 
   function compareWith(ref: GitRef): void {
@@ -45,11 +97,22 @@ export function useBranchActions() {
     );
   }
 
-  function run(kind: BranchAction, ref: GitRef): void {
+  /** Copies `text`; the toast names it, as "Copy path" does. */
+  async function copy(text: string, key: string, params: Record<string, string>): Promise<void> {
+    const toasts = useToastsStore();
+    if (await copyText(text)) toasts.push({ kind: "success", message: "", key, params });
+    else toasts.push({ kind: "error", message: "", key: "graph.clipboardUnavailable" });
+  }
+
+  function act(kind: BranchAction, ref: GitRef): void {
     const branches = useBranchesStore();
+    const remote = remoteOfRef(ref);
     switch (kind) {
       case "checkout":
-        checkout(ref);
+        if (ref.isCurrent) break;
+        if (ref.kind === "local-branch") void branches.checkout({ kind: "branch", name: ref.name });
+        else if (remote) void branches.checkoutRemote(ref.fullName, remote);
+        else void branches.checkout({ kind: "detached", rev: ref.fullName });
         break;
       case "createHere":
         branches.ask({ kind: "create", start: ref.name, startLabel: ref.name });
@@ -70,16 +133,110 @@ export function useBranchActions() {
         branches.ask({ kind: "upstream", branch: ref.name, current: ref.upstream ?? null });
         break;
       case "push":
-        useRemotesStore().ask({ kind: "push", branch: ref.name });
+        remotes.ask({ kind: "push", branch: ref.name });
         break;
       case "delete":
-        branches.ask({ kind: "delete", name: ref.name, force: false, output: "" });
+        branches.ask({
+          kind: "delete",
+          name: ref.name,
+          force: false,
+          output: "",
+          remote: upstreamDelete(ref),
+          alsoRemote: false,
+        });
         break;
       case "deleteTag":
-        void branches.deleteTag(ref.name);
+        ensureRemotes();
+        branches.ask({ kind: "deleteTag", name: ref.name });
+        break;
+      case "pullInto": {
+        const current = repo.currentBranch?.name;
+        if (remote && current) {
+          remotes.ask({
+            kind: "pull",
+            branch: current,
+            remote: remote.remote,
+            remoteBranch: remote.branch,
+          });
+        }
+        break;
+      }
+      case "fetchRemote":
+        if (remote) void remotes.fetch(remote.remote, false);
+        break;
+      case "deleteOnRemote":
+        if (remote) {
+          remotes.ask({
+            kind: "deleteOnRemote",
+            remote: remote.remote,
+            branch: remote.branch,
+            tip: ref.target,
+          });
+        }
+        break;
+      case "pushTag":
+        remotes.ask({ kind: "pushTag", tag: ref.name });
+        break;
+      case "copyName":
+        void copy(ref.name, "branches.nameCopied", { name: ref.name });
         break;
     }
   }
 
-  return { run, checkout, compareWith };
+  /**
+   * Runs a menu's choice. One that reads the remotes waits for the list when it is not loaded
+   * yet, and is dropped when another repository opened meanwhile.
+   */
+  function run(kind: BranchAction, ref: GitRef): void {
+    if (remotes.loaded || !needsRemotes(kind, ref)) {
+      act(kind, ref);
+      return;
+    }
+    const root = repo.repo?.root;
+    void remotes.load().then(() => {
+      if (repo.repo?.root === root) act(kind, ref);
+    });
+  }
+
+  /** The stash row of the badge's commit; the ref itself when the list has not caught up. */
+  function stashRow(ref: GitRef): StashRow {
+    const listed = useStashStore().stashes.find((row) => row.hash === ref.target);
+    return (
+      listed ?? {
+        index: stashIndex(ref.name) ?? 0,
+        name: ref.name,
+        message: ref.message ?? "",
+        hash: ref.target,
+        time: null,
+      }
+    );
+  }
+
+  /** The stash badge's choice; Drop… opens the sheet on the row's own confirmation. */
+  function runStash(kind: StashAction, ref: GitRef): void {
+    const stash = useStashStore();
+    switch (kind) {
+      case "apply":
+        void stash.apply(stashRow(ref));
+        break;
+      case "pop":
+        void stash.pop(stashRow(ref));
+        break;
+      case "drop": {
+        // The sheet mounts first, so the dialog it opens takes the focus from the sheet's field.
+        const row = stashRow(ref);
+        stash.openSheet();
+        void nextTick(() => stash.askDrop(row));
+        break;
+      }
+      case "copyName":
+        void copy(ref.name, "branches.nameCopied", { name: ref.name });
+        break;
+      case "copyHash":
+        void copy(ref.target, "graph.hashCopied", { hash: shortHash(ref.target) });
+        break;
+    }
+  }
+
+  return { run, runStash, checkout, compareWith, ensureRemotes, remoteOfRef };
 }

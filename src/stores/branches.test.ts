@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { Ref } from "@/ipc/schemas";
 import {
+  FAKE_TAG_OBJECT,
   fakeBackend,
   fakeCommit,
   settled,
@@ -213,6 +214,8 @@ describe("branches store", () => {
     });
     await branches.deleteTag("v1");
     expect(of(calls, "tag_delete")[0]?.args["name"]).toBe("v1");
+    // What the tag pointed at puts it back.
+    expect(useToastsStore().toasts.at(-1)?.output).toBe(`git tag v1 ${FAKE_TAG_OBJECT}`);
     await branches.setUpstream("main", "origin/main");
     expect(of(calls, "set_upstream")[0]?.args).toMatchObject({
       branch: "main",
@@ -223,6 +226,7 @@ describe("branches store", () => {
       "branches.cherryPicked",
       "branches.reverted",
       "branches.tagged",
+      "branches.tagDeletedWas",
     ]);
   });
 

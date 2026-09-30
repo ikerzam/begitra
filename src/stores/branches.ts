@@ -9,6 +9,7 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
 
+import type { RemoteBranch } from "@/branches/names";
 import * as ipc from "@/ipc/commands";
 import { toAppError, type AppError } from "@/ipc/errors";
 import { newOpId } from "@/ipc/invoke";
@@ -17,26 +18,57 @@ import { arm } from "@/motion/motion";
 import { shortHash } from "@/shell/format";
 
 import { useOperationsStore } from "./operations";
+import { useRemotesStore } from "./remotes";
 import { useRepoStore } from "./repo";
 import { useSequencerStore } from "./sequencer";
 import { useShellStore } from "./shell";
 import { useToastsStore } from "./toasts";
 
+/** A ref a delete can take on a remote too: the remote, its name there and the tip it held. */
+export interface RemoteDelete {
+  remote: string;
+  name: string;
+  tip: string;
+}
+
 /** What the layout asks before a write that needs a name, a mode or a confirmation. */
 export type BranchPrompt =
   | { kind: "create"; start: string; startLabel: string }
   | { kind: "rename"; name: string }
-  /** `force` after git refused an unmerged branch: "Delete anyway". */
-  | { kind: "delete"; name: string; force: boolean; output: string }
+  /**
+   * `force` after git refused an unmerged branch: "Delete anyway". `remote` is the upstream
+   * the delete can take too, `alsoRemote` whether it was asked (kept for "Delete anyway").
+   */
+  | {
+      kind: "delete";
+      name: string;
+      force: boolean;
+      output: string;
+      remote?: RemoteDelete | null;
+      alsoRemote?: boolean;
+    }
+  /** A tag's delete, confirmed: tags have no reflog. */
+  | { kind: "deleteTag"; name: string }
   | { kind: "upstream"; branch: string; current: string | null }
   | { kind: "tag"; rev: string; label: string }
   | { kind: "reset"; rev: string; label: string; branch: string }
-  /** git refused the switch because of local changes: "Stash and switch". */
-  | { kind: "dirtySwitch"; target: SwitchTarget; output: string };
+  /**
+   * git refused the switch because of local changes: "Stash and switch". `tracking` is a
+   * remote branch's checkout, which makes the local branch that tracks it.
+   */
+  | { kind: "dirtySwitch"; target: SwitchTarget; output: string; tracking?: Tracking };
 
-/** The name of a switch target, for the messages. */
+/** A remote branch to check out as the local branch that tracks it. */
+export interface Tracking {
+  fullName: string;
+  remote: RemoteBranch;
+}
+
+/** The name of a switch target, for the messages: a ref by its short name, a commit's hash short. */
 export function targetName(target: SwitchTarget): string {
-  return target.kind === "branch" ? target.name : shortHash(target.rev);
+  if (target.kind === "branch") return target.name;
+  if (/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(target.rev)) return shortHash(target.rev);
+  return target.rev.replace(/^refs\/(?:heads|tags|remotes)\//, "");
 }
 
 /** git's refusal of a switch that would overwrite local changes, in its own words. */
@@ -149,28 +181,70 @@ export const useBranchesStore = defineStore("branches", () => {
       toasts.push({
         kind: "success",
         message: "",
-        key: "branches.switched",
+        key: target.kind === "detached" ? "branches.detached" : "branches.switched",
         params: { name: targetName(target) },
       });
     }
     return done === true;
   }
 
+  /**
+   * Checks out a remote branch as `git checkout <branch>` would: the local branch of its name
+   * when one exists (nothing when it is the current one), else a new one that tracks it; a
+   * refusal because of local changes prompts "Stash and switch" as a switch does.
+   */
+  async function checkoutRemote(fullName: string, remote: RemoteBranch): Promise<boolean> {
+    const local = repo.refs.find(
+      (entry) => entry.kind === "local-branch" && entry.name === remote.branch,
+    );
+    if (local?.isCurrent) return false;
+    if (local) return checkout({ kind: "branch", name: local.name });
+    dismiss();
+    const target: SwitchTarget = { kind: "branch", name: remote.branch };
+    const done = await write(
+      "operations.creatingBranch",
+      async (root, opId) => {
+        await ipc.branchCreate(root, remote.branch, fullName, true, true, opId);
+        return true;
+      },
+      (error) => {
+        if (!isDirtySwitch(error)) return false;
+        ask({
+          kind: "dirtySwitch",
+          target,
+          output: error.detail ?? error.message,
+          tracking: { fullName, remote },
+        });
+        return true;
+      },
+    );
+    if (done) {
+      headMoved(null, { arm: "branches" });
+      toasts.push({
+        kind: "success",
+        message: "",
+        key: "branches.switched",
+        params: { name: remote.branch },
+      });
+    }
+    return done === true;
+  }
+
   /** Stashes everything (untracked included), then switches; the stash stays for the user. */
-  async function stashAndSwitch(target: SwitchTarget): Promise<boolean> {
+  async function stashAndSwitch(target: SwitchTarget, tracking?: Tracking): Promise<boolean> {
     dismiss();
     const stashed = await write("operations.stashing", async (root, opId) => {
       await ipc.stashPush(root, { message: null, includeUntracked: true, paths: [] }, opId);
       return true;
     });
     if (!stashed) return false;
-    return checkout(target);
+    return tracking ? checkoutRemote(tracking.fullName, tracking.remote) : checkout(target);
   }
 
   async function create(name: string, start: string, checkoutIt: boolean): Promise<boolean> {
     dismiss();
     const done = await write("operations.creatingBranch", async (root, opId) => {
-      await ipc.branchCreate(root, name, start, checkoutIt, opId);
+      await ipc.branchCreate(root, name, start, checkoutIt, false, opId);
       return true;
     });
     if (done) {
@@ -201,8 +275,17 @@ export const useBranchesStore = defineStore("branches", () => {
     return done === true;
   }
 
-  /** Deletes; git's refusal of an unmerged branch prompts "Delete anyway" with the reflog note. */
-  async function remove(name: string, force: boolean): Promise<boolean> {
+  /**
+   * Deletes; git's refusal of an unmerged branch prompts "Delete anyway" with the reflog note,
+   * the upstream offered again as it was. `remote`, the upstream, is deleted there too once the
+   * local branch is gone, when `alsoRemote` asks.
+   */
+  async function remove(
+    name: string,
+    force: boolean,
+    remote: RemoteDelete | null = null,
+    alsoRemote = false,
+  ): Promise<boolean> {
     dismiss();
     const done = await write(
       "operations.deletingBranch",
@@ -212,7 +295,14 @@ export const useBranchesStore = defineStore("branches", () => {
       },
       (error) => {
         if (force || !isUnmergedDelete(error)) return false;
-        ask({ kind: "delete", name, force: true, output: error.detail ?? error.message });
+        ask({
+          kind: "delete",
+          name,
+          force: true,
+          output: error.detail ?? error.message,
+          remote,
+          alsoRemote,
+        });
         return true;
       },
     );
@@ -221,6 +311,13 @@ export const useBranchesStore = defineStore("branches", () => {
       repo.patchRefs({ kind: "delete", fullName: `refs/heads/${name}` });
       void repo.refreshRefs();
       toasts.push({ kind: "success", message: "", key: "branches.deleted", params: { name } });
+      if (remote !== null && alsoRemote) {
+        void useRemotesStore().deleteOnRemote({
+          remote: remote.remote,
+          branch: remote.name,
+          tip: remote.tip,
+        });
+      }
     }
     return done === true;
   }
@@ -306,18 +403,31 @@ export const useBranchesStore = defineStore("branches", () => {
     return done === true;
   }
 
-  async function deleteTag(name: string): Promise<boolean> {
+  /**
+   * Deletes a tag once confirmed, and on `remote` too when asked, after the local one. The
+   * toast keeps what the tag pointed at (an annotated tag's object) with `git tag` to put it
+   * back while the object exists.
+   */
+  async function deleteTag(name: string, remote: string | null = null): Promise<boolean> {
     dismiss();
-    const done = await write("operations.deletingTag", async (root, opId) => {
-      await ipc.tagDelete(root, name, opId);
-      return true;
+    const done = await write("operations.deletingTag", async (root, opId) => ({
+      was: await ipc.tagDelete(root, name, opId),
+    }));
+    if (!done) return false;
+    arm("branches");
+    repo.patchRefs({ kind: "delete", fullName: `refs/tags/${name}` });
+    void repo.refreshRefs();
+    const was = done.was ?? "";
+    toasts.push({
+      kind: "success",
+      message: "",
+      key: was ? "branches.tagDeletedWas" : "branches.tagDeleted",
+      params: { name, hash: shortHash(was) },
+      output: was ? `git tag ${name} ${was}` : "",
+      actionKey: was ? "toast.showCommand" : undefined,
     });
-    if (done) {
-      arm("branches");
-      repo.patchRefs({ kind: "delete", fullName: `refs/tags/${name}` });
-      void repo.refreshRefs();
-    }
-    return done === true;
+    if (remote !== null) void useRemotesStore().deleteOnRemote({ remote, tag: name, tip: was });
+    return true;
   }
 
   async function setUpstream(branch: string, upstream: string | null): Promise<boolean> {
@@ -336,6 +446,7 @@ export const useBranchesStore = defineStore("branches", () => {
     ask,
     dismiss,
     checkout,
+    checkoutRemote,
     stashAndSwitch,
     create,
     rename,

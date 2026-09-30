@@ -43,7 +43,8 @@
   },
   "toast": {
     "showGitOutput": "Show git output",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "showCommand": "Show command"
   },
   "errorBanner": {
     "showGitOutput": "Show git output",
@@ -248,7 +249,9 @@
       "create": "Creating the branch in {done} of {total} repositories"
     },
     "readingRepositories": "Reading {n} repository | Reading {n} repositories",
-    "lookingUp": "Looking up {name}"
+    "lookingUp": "Looking up {name}",
+    "pushingTag": "Pushing {tag} to {remote}",
+    "deletingOnRemote": "Deleting {name} on {remote}"
   },
   "home": {
     "title": "Projects",
@@ -835,8 +838,27 @@
       "reset": "Reset {mode}",
       "dirtySwitchTitle": "Local changes would be overwritten",
       "dirtySwitchBody": "git refused to switch to {name}: your local changes would be overwritten. Stash them (untracked files included), switch, then pop the stash when you are back.",
-      "stashAndSwitch": "Stash and switch"
-    }
+      "stashAndSwitch": "Stash and switch",
+      "deleteOnRemoteToo": "Delete {ref} too",
+      "deleteTagTitle": "Delete tag {name}?",
+      "deleteTagBody": "The tag is deleted. Tags have no reflog: the toast keeps its hash, and git tag brings it back until git gc runs.",
+      "deleteTag": "Delete tag",
+      "deleteTagOnRemoteToo": "Delete it on {remote} too",
+      "onRemoteConsequence": "{name} leaves {remote} for everyone who uses it; the toast keeps the command that puts it back."
+    },
+    "checkoutDetached": "Checkout (detached)",
+    "pullInto": "Pull into {branch}…",
+    "fetchRemote": "Fetch {remote}",
+    "deleteOnRemote": "Delete on {remote}…",
+    "pushTag": "Push tag…",
+    "copyBranchName": "Copy branch name",
+    "copyTagName": "Copy tag name",
+    "nameCopied": "Name {name} copied",
+    "detached": "HEAD detached at {name}",
+    "tagDeleted": "Deleted tag {name}",
+    "tagDeletedWas": "Deleted tag {name}; it pointed at {hash}",
+    "menuTag": "Tag actions",
+    "menuRemote": "Remote branch actions"
   },
   "sequencer": {
     "operations": {
@@ -925,8 +947,23 @@
       "body": "{n} commit behind {upstream}. A pull that stops on conflicts opens the changes screen. | {n} commits behind {upstream}. A pull that stops on conflicts opens the changes screen.",
       "bodyNoUpstream": "No upstream yet: pick the remote and the branch to pull from.",
       "rebase": "Rebase the local commits on top instead of merging",
-      "confirm": "Pull"
-    }
+      "confirm": "Pull",
+      "bodyInto": "Pulls {from} into {branch}. A pull that stops on conflicts opens the changes screen."
+    },
+    "tagPushed": "Pushed {tag} to {remote}",
+    "deletedOnRemote": "Deleted {name} on {remote}",
+    "pushTag": {
+      "title": "Push tag {tag}",
+      "body": "Pushes the tag alone, with the commits it needs; no branch moves.",
+      "confirm": "Push tag"
+    },
+    "deleteOnRemote": {
+      "title": "Delete {name} on {remote}?",
+      "body": "{name} leaves {remote} for everyone who uses it. The toast keeps the commit it pointed at and the command that puts it back while the commit exists.",
+      "confirm": "Delete on {remote}"
+    },
+    "deletedOnRemoteWas": "Deleted {name} on {remote}; it pointed at {hash}",
+    "deleteStale": "{name} moved or left {remote} since the last fetch, so nothing was deleted. Fetch and prune, then try again."
   },
   "stash": {
     "title": "Stashes",
@@ -948,7 +985,10 @@
     "nothing": "Nothing to stash",
     "applied": "Stash applied",
     "popped": "Stash popped",
-    "dropped": "Stash dropped · {hash} brings it back until git gc runs"
+    "dropped": "Stash dropped · {hash} brings it back until git gc runs",
+    "menu": "Stash actions",
+    "copyName": "Copy stash name",
+    "dropEllipsis": "Drop…"
   },
   "settings": {
     "title": "Settings",

@@ -387,6 +387,15 @@ function backend(
       case "mark_resolved":
       case "switch":
         return null;
+      case "remotes":
+        return [
+          {
+            name: "origin",
+            fetchUrl: "https://x/r.git",
+            pushUrl: "https://x/r.git",
+            fetchedAt: null,
+          },
+        ];
       case "list_worktrees":
         return [
           {
@@ -1180,7 +1189,9 @@ describe("Sidebar", () => {
     wrapper.unmount();
   });
 
-  it("opens a branch row's menu and checks the branch out from it, or with Enter", async () => {
+  it("opens a remote branch row's menu with the remote's actions, and Enter checks nothing out twice", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
     const wrapper = await openShell();
     const rows = wrapper.get('[data-testid="branch-list"]').findAll('[data-testid="list-row"]');
     await rows[1]!.trigger("contextmenu");
@@ -1193,19 +1204,28 @@ describe("Sidebar", () => {
         expect.stringContaining("Create branch here…"),
         expect.stringContaining("Merge into main"),
         expect.stringContaining("Rebase main onto this"),
+        expect.stringContaining("Pull into main"),
+        expect.stringContaining("Fetch origin"),
         expect.stringContaining("Compare with…"),
+        expect.stringContaining("Copy branch name"),
+        expect.stringContaining("Delete on origin…"),
       ]),
     );
-    // origin/main is a remote branch: no rename, upstream, push or delete.
+    // origin/main is a remote branch: no rename, upstream or push; its local branch, main, is
+    // the current one, so there is nothing to check out.
     expect(menu.find('[data-testid="menu-rename"]').exists()).toBe(false);
-    await menu.get('[data-testid="menu-checkout"]').trigger("click");
+    expect(menu.get('[data-testid="menu-checkout"]').attributes("aria-disabled")).toBe("true");
+    await menu.get('[data-testid="menu-copy-name"]').trigger("click");
     await settle();
     expect(wrapper.find('[role="menu"]').exists()).toBe(false);
-    expect(useToastsStore().toasts.at(-1)?.key).toBe("branches.switched");
-    // Enter on the current branch does nothing; the toast count stays.
-    (rows[0]?.element as HTMLElement).focus();
-    await rows[0]!.trigger("keydown", { key: "Enter" });
-    await settle();
+    expect(writeText).toHaveBeenCalledWith("origin/main");
+    expect(useToastsStore().toasts.at(-1)?.key).toBe("branches.nameCopied");
+    // Enter on the current branch, or on the remote branch it tracks, does nothing.
+    for (const row of [rows[0]!, rows[1]!]) {
+      (row.element as HTMLElement).focus();
+      await row.trigger("keydown", { key: "Enter" });
+      await settle();
+    }
     expect(useToastsStore().toasts).toHaveLength(1);
     wrapper.unmount();
   });

@@ -116,6 +116,8 @@ describe("remotes store", () => {
     const pushing = store.push({
       remote: "origin",
       branch: "main",
+      tag: null,
+      delete: false,
       setUpstream: false,
       forceWithLease: false,
     });
@@ -132,6 +134,8 @@ describe("remotes store", () => {
     expect(of(calls, "push")[0]?.args["request"]).toEqual({
       remote: "origin",
       branch: "main",
+      tag: null,
+      delete: false,
       setUpstream: false,
       forceWithLease: false,
     });
@@ -152,7 +156,14 @@ describe("remotes store", () => {
     expect(await store.fetch("origin", false)).toBe(false);
     expect(useToastsStore().toasts.at(-1)?.key).toBe("remotes.busy");
     store.ask({ kind: "push", branch: "main" });
-    const request = { remote: "origin", branch: "main", setUpstream: false, forceWithLease: false };
+    const request = {
+      remote: "origin",
+      branch: "main",
+      tag: null,
+      delete: false,
+      setUpstream: false,
+      forceWithLease: false,
+    };
     expect(await store.push(request)).toBe(false);
     expect(store.prompt).toEqual({ kind: "push", branch: "main" });
     expect(await fetching).toBe(true);
@@ -165,7 +176,14 @@ describe("remotes store", () => {
     await open({ failNetwork: true });
     const store = useRemotesStore();
     expect(
-      await store.push({ remote: null, branch: null, setUpstream: true, forceWithLease: false }),
+      await store.push({
+        remote: null,
+        branch: null,
+        tag: null,
+        delete: false,
+        setUpstream: true,
+        forceWithLease: false,
+      }),
     ).toBe(false);
     const toast = useToastsStore().toasts.at(-1);
     expect(toast?.kind).toBe("error");
@@ -217,6 +235,8 @@ describe("remotes store", () => {
     const pushing = store.push({
       remote: "origin",
       branch: "main",
+      tag: null,
+      delete: false,
       setUpstream: false,
       forceWithLease: false,
     });

@@ -221,6 +221,9 @@ export const FAKE_PROGRESS = ["Enumerating objects: 12, done.", "Writing objects
 /** The hash `commit` answers. */
 export const FAKE_COMMIT_HASH = "c0ffee".padEnd(40, "0");
 
+/** What `tag_delete` answers the deleted tag pointed at. */
+export const FAKE_TAG_OBJECT = "7a90b1".padEnd(40, "0");
+
 /** Whether every changed line of a selection is selected. */
 function selectsWhole(selection: PatchSelection): boolean {
   return selection.hunks.every((hunk) =>
@@ -954,9 +957,10 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
             return Promise.reject(options.writeErrors[args["repo"] as string]);
           }
           return null;
+        case "tag_delete":
+          return FAKE_TAG_OBJECT;
         case "branch_rename":
         case "tag_create":
-        case "tag_delete":
         case "set_upstream":
         case "reset":
         case "mark_resolved":

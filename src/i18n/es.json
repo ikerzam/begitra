@@ -43,7 +43,8 @@
   },
   "toast": {
     "showGitOutput": "Ver la salida de git",
-    "dismiss": "Cerrar"
+    "dismiss": "Cerrar",
+    "showCommand": "Ver el comando"
   },
   "errorBanner": {
     "showGitOutput": "Ver la salida de git",
@@ -248,7 +249,9 @@
       "create": "Creando la rama en {done} de {total} repositorios"
     },
     "readingRepositories": "Leyendo {n} repositorio | Leyendo {n} repositorios",
-    "lookingUp": "Buscando {name}"
+    "lookingUp": "Buscando {name}",
+    "pushingTag": "Subiendo {tag} a {remote}",
+    "deletingOnRemote": "Borrando {name} en {remote}"
   },
   "home": {
     "title": "Proyectos",
@@ -835,8 +838,27 @@
       "reset": "Reset {mode}",
       "dirtySwitchTitle": "Se sobrescribirían cambios locales",
       "dirtySwitchBody": "git se negó a cambiar a {name}: se sobrescribirían tus cambios locales. Guárdalos en el stash (ficheros sin seguimiento incluidos), cambia de rama y saca el stash al volver.",
-      "stashAndSwitch": "Guardar en el stash y cambiar"
-    }
+      "stashAndSwitch": "Guardar en el stash y cambiar",
+      "deleteOnRemoteToo": "Borrar también {ref}",
+      "deleteTagTitle": "¿Borrar la etiqueta {name}?",
+      "deleteTagBody": "La etiqueta se borra. Las etiquetas no tienen reflog: el aviso guarda su hash, y git tag la recupera hasta que pase git gc.",
+      "deleteTag": "Borrar la etiqueta",
+      "deleteTagOnRemoteToo": "Borrarla también en {remote}",
+      "onRemoteConsequence": "{name} desaparece de {remote} para todos los que lo usan; el aviso guarda el comando que la restaura."
+    },
+    "checkoutDetached": "Ir a este commit (sin rama)",
+    "pullInto": "Pull a {branch}…",
+    "fetchRemote": "Fetch de {remote}",
+    "deleteOnRemote": "Borrar en {remote}…",
+    "pushTag": "Push de la etiqueta…",
+    "copyBranchName": "Copiar el nombre de la rama",
+    "copyTagName": "Copiar el nombre de la etiqueta",
+    "nameCopied": "Nombre {name} copiado",
+    "detached": "HEAD separado en {name}",
+    "tagDeleted": "Borrada la etiqueta {name}",
+    "tagDeletedWas": "Borrada la etiqueta {name}; apuntaba a {hash}",
+    "menuTag": "Acciones de la etiqueta",
+    "menuRemote": "Acciones de la rama remota"
   },
   "sequencer": {
     "operations": {
@@ -925,8 +947,23 @@
       "body": "{n} commit por detrás de {upstream}. Un pull que se detiene en conflictos abre la pantalla de cambios. | {n} commits por detrás de {upstream}. Un pull que se detiene en conflictos abre la pantalla de cambios.",
       "bodyNoUpstream": "Aún sin upstream: elige el remoto y la rama de la que traer.",
       "rebase": "Rebasar los commits locales encima en vez de fusionar",
-      "confirm": "Pull"
-    }
+      "confirm": "Pull",
+      "bodyInto": "Trae {from} a {branch}. Un pull que se detiene en conflictos abre la pantalla de cambios."
+    },
+    "tagPushed": "Subida {tag} a {remote}",
+    "deletedOnRemote": "Borrada {name} en {remote}",
+    "pushTag": {
+      "title": "Push de la etiqueta {tag}",
+      "body": "Sube solo la etiqueta, con los commits que necesita; ninguna rama se mueve.",
+      "confirm": "Push de la etiqueta"
+    },
+    "deleteOnRemote": {
+      "title": "¿Borrar {name} en {remote}?",
+      "body": "{name} desaparece de {remote} para todos los que lo usan. El aviso guarda el commit al que apuntaba y el comando que la restaura mientras el commit exista.",
+      "confirm": "Borrar en {remote}"
+    },
+    "deletedOnRemoteWas": "Borrada {name} en {remote}; apuntaba a {hash}",
+    "deleteStale": "{name} se movió o salió de {remote} desde el último fetch, así que no se borró nada. Haz fetch con prune y vuelve a intentarlo."
   },
   "stash": {
     "title": "Stashes",
@@ -948,7 +985,10 @@
     "nothing": "Nada que guardar",
     "applied": "Stash aplicado",
     "popped": "Stash sacado",
-    "dropped": "Stash borrado · {hash} lo recupera hasta que pase git gc"
+    "dropped": "Stash borrado · {hash} lo recupera hasta que pase git gc",
+    "menu": "Acciones del stash",
+    "copyName": "Copiar el nombre del stash",
+    "dropEllipsis": "Borrar…"
   },
   "settings": {
     "title": "Ajustes",

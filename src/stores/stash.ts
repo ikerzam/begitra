@@ -200,6 +200,7 @@ export const useStashStore = defineStore("stash", () => {
         key: "stash.dropped",
         params: { hash: shortHash(hash) },
         output: hash ? `git stash apply ${hash}` : "",
+        actionKey: hash ? "toast.showCommand" : undefined,
       });
     }
     return done === true;

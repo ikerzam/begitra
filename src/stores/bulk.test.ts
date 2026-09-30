@@ -237,7 +237,14 @@ describe("a bulk operation", () => {
     bulk.confirm();
     await finished(bulk);
     expect(of(calls, "push").map((call) => call.args["request"])).toEqual([
-      { remote: "origin", branch: "main", setUpstream: false, forceWithLease: false },
+      {
+        remote: "origin",
+        branch: "main",
+        tag: null,
+        delete: false,
+        setUpstream: false,
+        forceWithLease: false,
+      },
     ]);
     expect(bulk.states.get(api.path)).toEqual({ state: "done", outcome: "pushed" });
   });

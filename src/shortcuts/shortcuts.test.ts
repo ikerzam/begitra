@@ -260,6 +260,16 @@ describe("useListNavigation", () => {
     handled.preventDefault();
     expect(nav.onKeydown(handled)).toBe(false);
     expect(selected.value).toBe(1);
+    // Enter or j on an item of a menu opened over the list is the menu's.
+    const menu = document.createElement("div");
+    menu.setAttribute("role", "menu");
+    const item = document.createElement("button");
+    menu.append(item);
+    document.body.append(menu);
+    expect(nav.onKeydown(key("Enter", {}, item))).toBe(false);
+    expect(nav.onKeydown(key("j", {}, item))).toBe(false);
+    expect(selected.value).toBe(1);
+    menu.remove();
     for (const row of rows) row.remove();
   });
 

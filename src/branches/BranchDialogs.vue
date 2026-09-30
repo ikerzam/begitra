@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // The dialogs of the branch actions, one at a time from `branches.prompt`: create (name,
-// checkout), rename, delete and "Delete anyway" with git's refusal and the reflog note, set
-// upstream, tag, reset (soft, mixed or hard, as radios) and "Stash and switch"
-// after a dirty switch was refused. Each confirms through the store.
+// checkout), rename, set upstream, tag, reset (soft, mixed or hard, as radios)
+// and "Stash and switch" after a dirty switch was refused; the deletes of a branch and of a
+// tag are DeleteDialogs'. Each confirms through the store.
 
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -21,6 +21,7 @@ import { targetName, useBranchesStore } from "@/stores/branches";
 import { useChangesStore } from "@/stores/changes";
 import { useRepoStore } from "@/stores/repo";
 
+import DeleteDialogs from "./DeleteDialogs.vue";
 import { validName } from "./names";
 
 const { t } = useI18n();
@@ -97,9 +98,6 @@ function confirm(): void {
     case "rename":
       if (validName(name.value)) void branches.rename(prompt.name, name.value.trim());
       break;
-    case "delete":
-      void branches.remove(prompt.name, prompt.force);
-      break;
     case "upstream":
       void branches.setUpstream(prompt.branch, upstream.value === "" ? null : upstream.value);
       break;
@@ -116,7 +114,7 @@ function confirm(): void {
       void branches.reset(prompt.rev, mode.value);
       break;
     case "dirtySwitch":
-      void branches.stashAndSwitch(prompt.target);
+      void branches.stashAndSwitch(prompt.target, prompt.tracking);
       break;
   }
 }
@@ -170,33 +168,9 @@ function confirm(): void {
       </form>
     </Dialog>
 
-    <Dialog
-      v-else-if="branches.prompt.kind === 'delete'"
-      :title="
-        branches.prompt.force
-          ? t('branches.dialogs.deleteAnywayTitle', { name: branches.prompt.name })
-          : t('branches.dialogs.deleteTitle', { name: branches.prompt.name })
-      "
-      :body="
-        branches.prompt.force
-          ? t('branches.dialogs.deleteAnywayBody')
-          : t('branches.dialogs.deleteBody')
-      "
-      :confirm-label="
-        branches.prompt.force ? t('branches.dialogs.deleteAnyway') : t('branches.dialogs.delete')
-      "
-      variant="destructive"
-      data-testid="branch-delete-dialog"
-      @confirm="confirm"
-      @cancel="branches.dismiss()"
-    >
-      <ErrorBanner
-        v-if="branches.prompt.output"
-        :message="t('branches.failed', { message: '' }).trim()"
-        :output="branches.prompt.output"
-        open
-      />
-    </Dialog>
+    <DeleteDialogs
+      v-else-if="branches.prompt.kind === 'delete' || branches.prompt.kind === 'deleteTag'"
+    />
 
     <Dialog
       v-else-if="branches.prompt.kind === 'upstream'"

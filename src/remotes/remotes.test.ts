@@ -180,6 +180,8 @@ describe("NetworkDialog", () => {
     expect(of(calls, "push")[0]?.args["request"]).toEqual({
       remote: "origin",
       branch: "main",
+      tag: null,
+      delete: false,
       setUpstream: false,
       forceWithLease: true,
     });

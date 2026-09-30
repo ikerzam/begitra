@@ -12,6 +12,7 @@ import BranchDialogs from "@/branches/BranchDialogs.vue";
 import OperationBanner from "@/branches/OperationBanner.vue";
 import ChangesLayout from "@/changes/ChangesLayout.vue";
 import NetworkDialog from "@/remotes/NetworkDialog.vue";
+import RemoteRefDialog from "@/remotes/RemoteRefDialog.vue";
 import RemotesSheet from "@/remotes/RemotesSheet.vue";
 import StashSheet from "@/stash/StashSheet.vue";
 import DropTarget from "@/discovery/DropTarget.vue";
@@ -375,9 +376,17 @@ function removeFromProject(): void {
     />
     <BranchDialogs v-if="repo.state.kind === 'ready'" />
     <NetworkDialog
-      v-if="remotes.prompt && remotes.prompt.kind !== 'removeRemote'"
+      v-if="remotes.prompt && (remotes.prompt.kind === 'push' || remotes.prompt.kind === 'pull')"
       :mode="remotes.prompt.kind"
       :branch="remotes.prompt.branch"
+      :remote="remotes.prompt.kind === 'pull' ? remotes.prompt.remote : undefined"
+      :remote-branch="remotes.prompt.kind === 'pull' ? remotes.prompt.remoteBranch : undefined"
+    />
+    <RemoteRefDialog
+      v-if="
+        remotes.prompt &&
+        (remotes.prompt.kind === 'pushTag' || remotes.prompt.kind === 'deleteOnRemote')
+      "
     />
     <RemotesSheet v-if="remotes.sheetOpen" />
     <NewProjectDialog v-if="projectDialogs.creating" />

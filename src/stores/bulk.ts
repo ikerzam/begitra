@@ -301,6 +301,8 @@ export const useBulkStore = defineStore("bulk", () => {
             {
               remote: row?.upstream?.remote ?? null,
               branch: row?.branch ?? null,
+              tag: null,
+              delete: false,
               setUpstream: false,
               forceWithLease: false,
             },
@@ -320,7 +322,7 @@ export const useBulkStore = defineStore("bulk", () => {
           await ipc.switchTo(job.path, { kind: "branch", name: branch.value ?? "" }, id);
           return done("switched", branch.value ?? "");
         case "create":
-          await ipc.branchCreate(job.path, branch.value ?? "", "HEAD", true, id);
+          await ipc.branchCreate(job.path, branch.value ?? "", "HEAD", true, false, id);
           return done("created", branch.value ?? "");
         default:
           return { state: "stopped" };
