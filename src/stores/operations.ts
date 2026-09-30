@@ -1,5 +1,7 @@
 // Operations in flight, for the status bar: a label key, optional progress and the op id so
-// the user can cancel. The first started operation is the one shown.
+// the user can cancel. The operation shown is the newest one the user started; a background
+// read (the working tree's lists, a scan, the Overview's and the dashboard's reads) shows only
+// while nothing else runs, so it never hides the label of an action started after it.
 
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
@@ -18,18 +20,28 @@ export interface Operation {
   done?: number;
   /** Units expected, when known. */
   total?: number;
+  /** A read nobody waits on: shown only while no other operation runs. */
+  background?: boolean;
   startedAt: number;
 }
 
 export interface OperationExtra {
   params?: Record<string, string>;
   cancellable?: boolean;
+  background?: boolean;
 }
 
 export const useOperationsStore = defineStore("operations", () => {
   const operations = ref<Operation[]>([]);
 
-  const current = computed(() => operations.value[0]);
+  /** The newest operation the user started, else the oldest background read. */
+  const current = computed(() => {
+    const ops = operations.value;
+    for (let at = ops.length - 1; at >= 0; at -= 1) {
+      if (ops[at]?.background !== true) return ops[at];
+    }
+    return ops[0];
+  });
   const isBusy = computed(() => operations.value.length > 0);
 
   /** Fraction done of the current operation, or undefined for an indeterminate one. */
@@ -48,6 +60,7 @@ export const useOperationsStore = defineStore("operations", () => {
         label,
         params: extra.params,
         cancellable: extra.cancellable,
+        background: extra.background,
         total,
         done: total === undefined ? undefined : 0,
         startedAt: Date.now(),

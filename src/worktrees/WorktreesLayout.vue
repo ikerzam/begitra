@@ -161,6 +161,7 @@ defineExpose({
         :lanes="lanes"
         :selected-path="worktrees.selectedPath"
         :loading="worktrees.loading"
+        :removing="worktrees.removing"
         @select="worktrees.select"
         @activate="(path) => void worktrees.openAsContext(path)"
         @compare="(path) => void worktrees.compareWithMain(path)"

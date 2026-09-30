@@ -59,6 +59,8 @@ export const useWorktreesStore = defineStore("worktrees", () => {
 
   const selectedPath = ref<string | null>(null);
   const loading = ref(false);
+  /** The worktrees whose removal runs: their rows are busy and a second removal is refused. */
+  const removing = ref<string[]>([]);
   /** The last failed write, shown in the banner until the next action. */
   const error = ref<AppError | null>(null);
   /** The path the failed write concerned, for the missing-folder banner. */
@@ -146,7 +148,7 @@ export const useWorktreesStore = defineStore("worktrees", () => {
     const mine = serial;
     loading.value = true;
     const opId = newOpId("worktrees");
-    operations.start(opId, "operations.readingWorktrees");
+    operations.start(opId, "operations.readingWorktrees", undefined, { background: true });
     try {
       await repo.loadWorktrees();
       if (mine !== serial) return;
@@ -157,24 +159,42 @@ export const useWorktreesStore = defineStore("worktrees", () => {
     await refreshRows(root, mine);
   }
 
-  /** Refreshes the rows' index entries and counts each against main. */
+  /**
+   * Refreshes the rows' index entries and counts each against main. The entries' reads (a
+   * status each, seconds on a large tree) are counted in the status bar as a background read,
+   * since the dirty dots show only once they end.
+   */
   async function refreshRows(root: string, mine: number): Promise<void> {
     const main = mainBranch.value;
     const counts = new Map<string, { ahead: number; behind: number }>();
+    const linkedTrees = repo.worktrees.filter((worktree) => !worktree.isMain);
+    const readOp = newOpId("worktree-states");
+    let read = 0;
+    if (linkedTrees.length > 0) {
+      operations.start(readOp, "operations.checkingWorktrees", linkedTrees.length, {
+        params: { n: String(linkedTrees.length) },
+        background: true,
+      });
+    }
+    const states = linkedTrees.map((worktree) =>
+      index.refresh(worktree.path).finally(() => {
+        read += 1;
+        operations.progress(readOp, read);
+        if (read === linkedTrees.length) operations.finish(readOp);
+      }),
+    );
+    void Promise.allSettled(states);
     await Promise.all(
-      repo.worktrees
-        .filter((worktree) => !worktree.isMain)
-        .map(async (worktree) => {
-          void index.refresh(worktree.path);
-          const rev = worktree.branch ?? worktree.head;
-          if (!main || !rev) return;
-          try {
-            const result = await ipc.compare(root, main, rev, newOpId("compare"));
-            counts.set(worktree.path, { ahead: result.onlyInB, behind: result.onlyInA });
-          } catch {
-            // The row shows no counts.
-          }
-        }),
+      linkedTrees.map(async (worktree) => {
+        const rev = worktree.branch ?? worktree.head;
+        if (!main || !rev) return;
+        try {
+          const result = await ipc.compare(root, main, rev, newOpId("compare"));
+          counts.set(worktree.path, { ahead: result.onlyInB, behind: result.onlyInA });
+        } catch {
+          // The row shows no counts.
+        }
+      }),
     );
     if (mine === serial) aheadBehind.value = counts;
   }
@@ -273,11 +293,17 @@ export const useWorktreesStore = defineStore("worktrees", () => {
    */
   async function remove(path: string, force: boolean): Promise<boolean> {
     const root = repo.repo?.root;
-    if (!root) return false;
+    // A removal already running deletes the same folder: a second one would only fail.
+    if (!root || removing.value.includes(path)) return false;
     prompt.value = null;
     clearError();
+    const opId = newOpId("worktree-remove");
+    removing.value = [...removing.value, path];
+    operations.start(opId, "operations.removingWorktree", undefined, {
+      params: { name: baseName(path) },
+    });
     try {
-      await ipc.worktreeRemove(root, path, force, newOpId("worktree-remove"));
+      await ipc.worktreeRemove(root, path, force, opId);
     } catch (failed) {
       const appError = toAppError(failed);
       if (appError.code === "worktree.dirty" && !force) {
@@ -287,6 +313,9 @@ export const useWorktreesStore = defineStore("worktrees", () => {
       error.value = appError;
       errorPath.value = path;
       return false;
+    } finally {
+      removing.value = removing.value.filter((known) => known !== path);
+      operations.finish(opId);
     }
     if (selectedPath.value === path) selectedPath.value = null;
     await load();
@@ -321,7 +350,9 @@ export const useWorktreesStore = defineStore("worktrees", () => {
     });
   }
 
+  /** Asks before a removal; nothing while that worktree's removal already runs. */
   function askRemove(path: string): void {
+    if (removing.value.includes(path)) return;
     prompt.value = { kind: "remove", path, force: false };
   }
 
@@ -402,6 +433,7 @@ export const useWorktreesStore = defineStore("worktrees", () => {
     selected,
     selectedPath,
     loading,
+    removing,
     error,
     errorPath,
     errorIsMissingFolder,

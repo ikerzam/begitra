@@ -59,6 +59,17 @@ describe("branches store", () => {
     expect(useOperationsStore().current).toBeUndefined();
   });
 
+  it("refuses a write while another runs, with a toast that says so", async () => {
+    const calls = await open();
+    const branches = useBranchesStore();
+    const first = branches.checkout({ kind: "branch", name: "develop" });
+    expect(await branches.checkout({ kind: "branch", name: "main" })).toBe(false);
+    expect(useToastsStore().toasts.at(-1)?.key).toBe("branches.busy");
+    expect(await first).toBe(true);
+    await settled();
+    expect(of(calls, "switch")).toHaveLength(1);
+  });
+
   it("offers Stash and switch when git refuses a dirty switch, then stashes and switches", async () => {
     await open({ dirtySwitch: true });
     const branches = useBranchesStore();

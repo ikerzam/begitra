@@ -144,6 +144,23 @@ describe("remotes store", () => {
     expect(of(calls, "list_refs").length).toBeGreaterThanOrEqual(2);
   });
 
+  it("refuses a command while another runs, with a toast, and keeps the push dialog open", async () => {
+    // The fetch answers after 50ms, so it is still running when the others are asked.
+    const calls = await open({ networkDelayMs: 50 });
+    const store = useRemotesStore();
+    const fetching = store.fetch(null, false);
+    expect(await store.fetch("origin", false)).toBe(false);
+    expect(useToastsStore().toasts.at(-1)?.key).toBe("remotes.busy");
+    store.ask({ kind: "push", branch: "main" });
+    const request = { remote: "origin", branch: "main", setUpstream: false, forceWithLease: false };
+    expect(await store.push(request)).toBe(false);
+    expect(store.prompt).toEqual({ kind: "push", branch: "main" });
+    expect(await fetching).toBe(true);
+    await settled();
+    expect(of(calls, "fetch")).toHaveLength(1);
+    expect(of(calls, "push")).toHaveLength(0);
+  });
+
   it("shows a rejected push as an error toast with git's output", async () => {
     await open({ failNetwork: true });
     const store = useRemotesStore();

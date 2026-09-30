@@ -263,7 +263,7 @@ export function createChangesModel(options: ChangesModelOptions) {
     const target = listOf(list);
     target.value = { ...target.value, loading: true, error: undefined };
     const opId = newOpId(`changes-${list}`);
-    operations.start(opId, "operations.readingChanges");
+    operations.start(opId, "operations.readingChanges", undefined, { background: true });
     // Whitespace is never ignored here: a patch built from a diff that hid whitespace changes
     // would not apply.
     const handle = ipc.diff(

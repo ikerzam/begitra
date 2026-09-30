@@ -98,6 +98,25 @@ describe("Dialog", () => {
     expect(document.activeElement).toBe(wrapper.get("input").element);
   });
 
+  it("keeps a busy dialog open: its buttons, Escape and a press outside do nothing", async () => {
+    wrapper = mountWithI18n(Dialog, {
+      props: { ...removeProps, busy: true },
+      attachTo: document.body,
+    });
+    const dialog = wrapper.get("[role='dialog']");
+    expect(dialog.attributes("aria-busy")).toBe("true");
+    expect(wrapper.find("[data-testid='dialog-busy']").exists()).toBe(true);
+    expect(wrapper.get("[data-testid='dialog-confirm']").attributes("disabled")).toBeDefined();
+    expect(wrapper.get("[data-testid='dialog-cancel']").attributes("disabled")).toBeDefined();
+    await dialog.trigger("keydown", { key: "Escape" });
+    await wrapper.get("[data-testid='dialog-scrim']").trigger("pointerdown");
+    expect(wrapper.emitted("cancel")).toBeUndefined();
+    await wrapper.setProps({ busy: false });
+    expect(wrapper.find("[data-testid='dialog-busy']").exists()).toBe(false);
+    await dialog.trigger("keydown", { key: "Escape" });
+    expect(wrapper.emitted("cancel")).toHaveLength(1);
+  });
+
   it("emits cancel on Escape, on the scrim and on Cancel; confirm on Confirm", async () => {
     wrapper = mountWithI18n(Dialog, { props: removeProps, attachTo: document.body });
     await wrapper.get("[role='dialog']").trigger("keydown", { key: "Escape" });

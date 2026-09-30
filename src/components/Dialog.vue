@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, useId, useTemplateRef, type Component } fro
 import { useI18n } from "vue-i18n";
 
 import Button from "./Button.vue";
+import Progress from "./Progress.vue";
 import Scrim from "./Scrim.vue";
 import { useFocusTrap } from "./useFocusTrap";
 
@@ -20,6 +21,9 @@ const props = withDefaults(
     /** 440px by default; the project dialogs' lists take 560 (a form) and 600 (a bulk
      * confirmation). */
     size?: "md" | "lg" | "xl";
+    /** The confirmed action runs and cannot be stopped: the buttons, Escape and a press
+     * outside do nothing, and a sweeping bar shows at the footer's start. */
+    busy?: boolean;
   }>(),
   {
     body: "",
@@ -29,6 +33,7 @@ const props = withDefaults(
     confirmDisabled: false,
     confirmIcon: undefined,
     size: "md",
+    busy: false,
   },
 );
 
@@ -51,7 +56,7 @@ function onKeydown(event: KeyboardEvent): void {
   if (event.key === "Escape") {
     event.preventDefault();
     event.stopPropagation();
-    emit("cancel");
+    if (!props.busy) emit("cancel");
     return;
   }
   if (trap.onKeydown(event)) event.stopPropagation();
@@ -68,7 +73,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <Scrim class="z-20" data-testid="dialog-scrim" @dismiss="emit('cancel')">
+  <Scrim class="z-20" data-testid="dialog-scrim" @dismiss="() => !props.busy && emit('cancel')">
     <div
       ref="panel"
       role="dialog"
@@ -78,6 +83,7 @@ onBeforeUnmount(() => {
       :aria-describedby="props.body ? bodyId : undefined"
       :data-variant="props.variant"
       :data-size="props.size"
+      :aria-busy="props.busy ? 'true' : undefined"
       class="dialog flex flex-col gap-4 rounded-lg border border-line-strong bg-raised p-5 shadow-overlay"
       @keydown="onKeydown"
     >
@@ -99,13 +105,26 @@ onBeforeUnmount(() => {
         <div v-if="$slots['footer-start']" class="mr-auto flex items-center">
           <slot name="footer-start" />
         </div>
-        <Button size="lg" variant="secondary" data-testid="dialog-cancel" @click="emit('cancel')">
+        <Progress
+          v-else-if="props.busy"
+          class="dialog-busy mr-auto"
+          indeterminate
+          :label="props.confirmLabel"
+          data-testid="dialog-busy"
+        />
+        <Button
+          size="lg"
+          variant="secondary"
+          :disabled="props.busy"
+          data-testid="dialog-cancel"
+          @click="emit('cancel')"
+        >
           {{ props.cancelLabel || t("dialog.cancel") }}
         </Button>
         <Button
           size="lg"
           :variant="props.variant === 'destructive' ? 'destructive' : 'primary'"
-          :disabled="props.confirmDisabled"
+          :disabled="props.confirmDisabled || props.busy"
           :icon="props.confirmIcon"
           data-testid="dialog-confirm"
           @click="emit('confirm')"
@@ -130,5 +149,9 @@ onBeforeUnmount(() => {
 }
 .dialog[data-size="xl"] {
   width: 600px;
+}
+/* The busy bar is 48px, as a member row's during a bulk run. */
+.dialog-busy {
+  width: 48px;
 }
 </style>

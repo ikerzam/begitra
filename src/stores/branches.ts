@@ -68,14 +68,21 @@ export const useBranchesStore = defineStore("branches", () => {
     prompt.value = null;
   }
 
-  /** Runs a write with its label; a failure becomes an error toast unless `onError` took it. */
+  /**
+   * Runs a write with its label; a failure becomes an error toast unless `onError` took it. A
+   * write asked while another runs is refused with a toast that says so, not dropped unseen.
+   */
   async function write<T>(
     label: string,
     run: (root: string, opId: string) => Promise<T>,
     onError?: (error: AppError) => boolean,
   ): Promise<T | null> {
     const root = repo.repo?.root;
-    if (!root || busy.value !== null) return null;
+    if (!root) return null;
+    if (busy.value !== null) {
+      toasts.push({ kind: "info", message: "", key: "branches.busy" });
+      return null;
+    }
     busy.value = label;
     const opId = newOpId("branches");
     operations.start(opId, label);

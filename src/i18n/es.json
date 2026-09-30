@@ -84,6 +84,7 @@
     "main": "worktree principal",
     "locked": "Bloqueado",
     "missing": "Falta la carpeta",
+    "removing": "Quitando",
     "prune": "Limpia los worktrees para quitar esta entrada",
     "compare": "Comparar con main",
     "terminal": "Abrir en la terminal",
@@ -204,6 +205,8 @@
     "comparing": "Comparando {a} y {b}",
     "readingWorktrees": "Leyendo los worktrees",
     "addingWorktree": "Añadiendo el worktree",
+    "removingWorktree": "Quitando el worktree {name}",
+    "checkingWorktrees": "Comprobando los cambios de {n} worktree | Comprobando los cambios de {n} worktrees",
     "readingChanges": "Leyendo el árbol de trabajo",
     "staging": "Preparando",
     "unstaging": "Quitando de preparados",
@@ -669,6 +672,7 @@
       "title": "Añadir worktree",
       "body": "Crea una carpeta con su propio checkout. La rama se queda en este repositorio y aparece en el grafo con el icono de árbol.",
       "confirm": "Añadir worktree",
+      "adding": "Añadiendo…",
       "branch": "Rama",
       "newBranch": "Rama nueva",
       "namePlaceholder": "nombre de la rama",
@@ -765,6 +769,7 @@
     "commitTo": "Commit en"
   },
   "branches": {
+    "busy": "Otro cambio del repositorio sigue en marcha. Vuelve a intentarlo cuando acabe.",
     "menu": "Acciones de la rama",
     "checkout": "Cambiar a esta rama",
     "createHere": "Crear rama aquí…",
@@ -874,6 +879,7 @@
     }
   },
   "remotes": {
+    "busy": "Un fetch, pull o push sigue en marcha. Vuelve a intentarlo cuando acabe.",
     "title": "Remotos",
     "fetchAll": "Traer de todos",
     "addRemote": "Añadir remoto",

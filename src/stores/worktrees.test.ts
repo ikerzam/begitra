@@ -1,6 +1,6 @@
 import { clearMocks } from "@tauri-apps/api/mocks";
 import { createPinia, setActivePinia } from "pinia";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { worktreeLock } from "@/ipc/commands";
 import { fakeBackend, fakeCommit, fakeWorktrees, settled, type Call } from "@/test/backend";
@@ -8,6 +8,7 @@ import { fakeBackend, fakeCommit, fakeWorktrees, settled, type Call } from "@/te
 import { projectOf } from "@/test/entries";
 
 import { useCompareStore } from "./compare";
+import { useOperationsStore } from "./operations";
 import { useProjectsStore } from "./projects";
 import { useRepoStore } from "./repo";
 import { memoryStorage, useSettingsStore } from "./settings";
@@ -187,6 +188,46 @@ describe("worktrees store", () => {
     expect(worktrees.rows.map((row) => row.name)).toEqual(["r", "gone"]);
     const removes = calls.filter((call) => call.cmd === "worktree_remove");
     expect(removes.map((call) => call.args["force"])).toEqual([false, true]);
+  });
+
+  it("shows a removal while it runs and refuses a second one of the same worktree", async () => {
+    const { worktrees, calls } = await openDashboard();
+    const operations = useOperationsStore();
+    const first = worktrees.remove("/wt/claude-auth", false);
+    // Until git answers: the row is busy and the status bar names the worktree.
+    expect(worktrees.removing).toEqual(["/wt/claude-auth"]);
+    expect(operations.current?.label).toBe("operations.removingWorktree");
+    expect(operations.current?.params).toEqual({ name: "claude-auth" });
+    expect(await worktrees.remove("/wt/claude-auth", false)).toBe(false);
+    worktrees.askRemove("/wt/claude-auth");
+    expect(worktrees.prompt).toBeNull();
+    expect(await first).toBe(true);
+    await settled();
+    expect(worktrees.removing).toEqual([]);
+    expect(operations.operations.some((op) => op.label === "operations.removingWorktree")).toBe(
+      false,
+    );
+    expect(calls.filter((call) => call.cmd === "worktree_remove")).toHaveLength(1);
+  });
+
+  it("counts the worktrees' state reads as a background read in the status bar", async () => {
+    fakeBackend({ worktrees: fakeWorktrees(), summaries });
+    await useRepoStore().open("/r");
+    await settled();
+    const worktrees = useWorktreesStore();
+    const operations = useOperationsStore();
+    const started = vi.spyOn(operations, "start");
+    const finished = vi.spyOn(operations, "finish");
+    await worktrees.show();
+    await settled();
+    const reads = started.mock.calls.find(([, label]) => label === "operations.checkingWorktrees");
+    // Two linked worktrees, a status each; the operation leaves once both answer.
+    expect(reads?.[2]).toBe(2);
+    expect(reads?.[3]).toMatchObject({ background: true, params: { n: "2" } });
+    expect(finished).toHaveBeenCalledWith(reads?.[0]);
+    expect(operations.operations.some((op) => op.label === "operations.checkingWorktrees")).toBe(
+      false,
+    );
   });
 
   it("prunes the entries whose folders are gone, locks and unlocks", async () => {

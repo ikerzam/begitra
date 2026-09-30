@@ -84,6 +84,7 @@
     "main": "main worktree",
     "locked": "Locked",
     "missing": "Folder missing",
+    "removing": "Removing",
     "prune": "Prune to remove this entry",
     "compare": "Compare with main",
     "terminal": "Open in terminal",
@@ -204,6 +205,8 @@
     "comparing": "Comparing {a} and {b}",
     "readingWorktrees": "Reading worktrees",
     "addingWorktree": "Adding worktree",
+    "removingWorktree": "Removing worktree {name}",
+    "checkingWorktrees": "Checking {n} worktree for changes | Checking {n} worktrees for changes",
     "readingChanges": "Reading the working tree",
     "staging": "Staging",
     "unstaging": "Unstaging",
@@ -669,6 +672,7 @@
       "title": "Add worktree",
       "body": "Creates a folder with its own checkout. The branch stays in this repository and shows up in the graph with a tree icon.",
       "confirm": "Add worktree",
+      "adding": "Adding…",
       "branch": "Branch",
       "newBranch": "New branch",
       "namePlaceholder": "branch name",
@@ -765,6 +769,7 @@
     "commitTo": "Commit to"
   },
   "branches": {
+    "busy": "Another change to the repository is still running. Try again when it ends.",
     "menu": "Branch actions",
     "checkout": "Checkout",
     "createHere": "Create branch here…",
@@ -874,6 +879,7 @@
     }
   },
   "remotes": {
+    "busy": "A fetch, pull or push is still running. Try again when it ends.",
     "title": "Remotes",
     "fetchAll": "Fetch all",
     "addRemote": "Add remote",

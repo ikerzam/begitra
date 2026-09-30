@@ -1,6 +1,8 @@
 <script setup lang="ts">
 // One row of the worktrees table: a grid row of six cells, path, branch
 // with its lane dot and dirty dot, state, ahead/behind, last commit and the icon actions.
+// While its removal runs the state reads "Removing" over a sweeping bar and the remove action
+// is off.
 // The table owns the selection and the roving tab stop; a right click or the menu key asks
 // the table for the context menu.
 
@@ -11,6 +13,7 @@ import AheadBehind from "./AheadBehind.vue";
 import DirtyDot from "./DirtyDot.vue";
 import IconButton from "./IconButton.vue";
 import LaneDot from "./LaneDot.vue";
+import Progress from "./Progress.vue";
 
 const props = withDefaults(
   defineProps<{
@@ -35,6 +38,8 @@ const props = withDefaults(
     selected?: boolean;
     /** Roving tab stop; defaults to the selected row. */
     tabStop?: boolean;
+    /** Its removal runs. */
+    removing?: boolean;
   }>(),
   {
     branch: "",
@@ -50,6 +55,7 @@ const props = withDefaults(
     lastCommitDate: "",
     selected: false,
     tabStop: undefined,
+    removing: false,
   },
 );
 
@@ -90,6 +96,7 @@ function onContextMenu(event: MouseEvent): void {
   <div
     role="row"
     :aria-selected="props.selected"
+    :aria-busy="props.removing ? 'true' : undefined"
     :tabindex="(props.tabStop ?? props.selected) ? 0 : -1"
     data-testid="worktree-row"
     class="worktree-row grid h-row-list items-center gap-4 border-l-2 px-3 text-md whitespace-nowrap"
@@ -126,7 +133,16 @@ function onContextMenu(event: MouseEvent): void {
       :aria-description="props.locked && props.lockReason ? props.lockReason : undefined"
       data-testid="worktree-row-state"
     >
-      <template v-if="props.missing">
+      <template v-if="props.removing">
+        <Progress
+          class="removing-bar shrink-0"
+          indeterminate
+          :label="t('worktreeRow.removing')"
+          data-testid="worktree-row-removing"
+        />
+        {{ t("worktreeRow.removing") }}
+      </template>
+      <template v-else-if="props.missing">
         <CircleAlert :size="16" :stroke-width="1.5" aria-hidden="true" class="shrink-0" />
         {{ t("worktreeRow.missing") }}
       </template>
@@ -178,6 +194,7 @@ function onContextMenu(event: MouseEvent): void {
         v-if="!props.main"
         :label="t('worktreeRow.remove')"
         :icon="Trash2"
+        :disabled="props.removing"
         tabindex="-1"
         @click.stop="emit('remove')"
       />
@@ -186,6 +203,10 @@ function onContextMenu(event: MouseEvent): void {
 </template>
 
 <style scoped>
+/* The removal's bar is 24px, what the 96px state column holds beside its word. */
+.removing-bar {
+  width: 24px;
+}
 /* Default column widths; a table overrides them through the variables. */
 .worktree-row {
   grid-template-columns:

@@ -78,6 +78,9 @@ export function tipsSignature(refs: GitRef[]): string {
     .join("|");
 }
 
+/** A commit's change set that takes longer than this names itself in the status bar. */
+export const SLOW_DIFF_MS = 150;
+
 export const useRepoStore = defineStore("repo", () => {
   const operations = useOperationsStore();
 
@@ -379,7 +382,11 @@ export const useRepoStore = defineStore("repo", () => {
     select(index);
   }
 
-  /** Selects a row and loads its change set. */
+  /**
+   * Selects a row and loads its change set. A change set that takes longer than
+   * `SLOW_DIFF_MS` (a commit of a thousand files) names itself in the status bar until its
+   * last page; a quick one, the usual case while j and k walk the history, shows nothing.
+   */
   function select(index: number): void {
     if (index < 0 || index >= commits.value.length) return;
     selectedIndex.value = index;
@@ -406,6 +413,10 @@ export const useRepoStore = defineStore("repo", () => {
       };
     });
     diffHandle = handle;
+    const opId = newOpId("commit-diff");
+    const slow = setTimeout(() => {
+      if (current()) operations.start(opId, "operations.loadingDiff");
+    }, SLOW_DIFF_MS);
     void handle.done
       .then(() => {
         if (current() && detail.value) detail.value = { ...detail.value, loading: false };
@@ -414,6 +425,10 @@ export const useRepoStore = defineStore("repo", () => {
         if (current() && detail.value) {
           detail.value = { ...detail.value, loading: false, error: toAppError(error) };
         }
+      })
+      .finally(() => {
+        clearTimeout(slow);
+        operations.finish(opId);
       });
   }
 

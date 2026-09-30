@@ -49,8 +49,9 @@ async function submit(): Promise<void> {
   <Dialog
     :title="t('worktrees.add.title')"
     :body="t('worktrees.add.body')"
-    :confirm-label="t('worktrees.add.confirm')"
+    :confirm-label="form.submitting.value ? t('worktrees.add.adding') : t('worktrees.add.confirm')"
     :confirm-disabled="!form.canSubmit.value"
+    :busy="form.submitting.value"
     @confirm="() => void submit()"
     @cancel="emit('close')"
   >

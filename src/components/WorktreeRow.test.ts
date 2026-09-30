@@ -89,6 +89,18 @@ describe("WorktreeRow", () => {
     expect(wrapper.emitted("select")).toHaveLength(1);
   });
 
+  it("shows its removal running: busy, a sweeping bar in its state and no remove action", () => {
+    const wrapper = mountWithI18n(WorktreeRow, { props: { ...worktree, removing: true } });
+    expect(wrapper.attributes("aria-busy")).toBe("true");
+    const state = wrapper.get("[data-testid='worktree-row-state']");
+    expect(state.text()).toBe("Removing");
+    expect(state.find("[data-testid='worktree-row-removing']").exists()).toBe(true);
+    const remove = wrapper
+      .findAll("button")
+      .find((button) => button.attributes("aria-label") === "Remove worktree");
+    expect(remove?.attributes("disabled")).toBeDefined();
+  });
+
   it("lists the main worktree without diff and remove actions", () => {
     const wrapper = mountWithI18n(WorktreeRow, {
       props: { path: "~/code/geoportal", branch: "main", lane: 1, main: true },

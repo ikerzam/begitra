@@ -244,7 +244,7 @@ export const useIndexStore = defineStore("index", () => {
     scan.value = { kind: "scanning", folders: states, scanned: 0, found: 0, current: null };
     scanError.value = null;
     const opId = newOpId("scan");
-    operations.start(opId, "operations.scanning");
+    operations.start(opId, "operations.scanning", undefined, { background: true });
     const handle = ipc.scanFolders(
       which,
       apply,

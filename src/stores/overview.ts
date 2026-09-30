@@ -163,6 +163,7 @@ export const useOverviewStore = defineStore("overview", () => {
       readTotal += added;
       operations.start(readOp, "operations.readingRepositories", readTotal, {
         params: { n: String(readTotal) },
+        background: true,
       });
     } else {
       readTotal += added;

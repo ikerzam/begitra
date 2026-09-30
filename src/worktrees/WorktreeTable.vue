@@ -25,8 +25,10 @@ const props = withDefaults(
     selectedPath: string | null;
     loading?: boolean;
     skeletonRows?: number;
+    /** The rows whose removal runs. */
+    removing?: string[];
   }>(),
-  { loading: false, skeletonRows: 4 },
+  { loading: false, skeletonRows: 4, removing: () => [] },
 );
 const emit = defineEmits<{
   select: [path: string];
@@ -174,6 +176,7 @@ defineExpose({ focus, keyboardOnTabs });
           :last-commit-date="date(row.lastCommitAt)"
           :selected="index === selectedIndex"
           :tab-stop="index === tabStop"
+          :removing="props.removing.includes(row.path)"
           @select="navigation.select(index)"
           @activate="emit('activate', row.path)"
           @compare="emit('compare', row.path)"

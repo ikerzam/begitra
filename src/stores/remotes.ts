@@ -119,6 +119,13 @@ export const useRemotesStore = defineStore("remotes", () => {
     prompt.value = null;
   }
 
+  /** One network command at a time: another one asked meanwhile is refused with a toast. */
+  function refusedWhileBusy(): boolean {
+    if (!inFlight.value) return false;
+    toasts.push({ kind: "info", message: "", key: "remotes.busy" });
+    return true;
+  }
+
   async function write(label: string, run: (root: string, opId: string) => Promise<unknown>) {
     const root = repo.repo?.root;
     if (!root || busy.value !== null) return false;
@@ -168,7 +175,7 @@ export const useRemotesStore = defineStore("remotes", () => {
     start: (root: string, onEvent: (event: NetworkEvent) => void, opId: string) => StreamHandle,
   ): Promise<NetworkEvent | null> {
     const root = repo.repo?.root;
-    if (!root || inFlight.value) return Promise.resolve(null);
+    if (!root || refusedWhileBusy()) return Promise.resolve(null);
     const opId = newOpId("network");
     operations.start(opId, label, undefined, { params, cancellable: true });
     let last: NetworkEvent | null = null;
@@ -235,6 +242,8 @@ export const useRemotesStore = defineStore("remotes", () => {
   }
 
   async function pull(request: PullRequest): Promise<boolean> {
+    // Refused while another command runs, the dialog stays open for a second try.
+    if (refusedWhileBusy()) return false;
     dismiss();
     const branch = repo.currentBranch?.name ?? "HEAD";
     const result = await network(
@@ -272,6 +281,7 @@ export const useRemotesStore = defineStore("remotes", () => {
   }
 
   async function push(request: PushRequest): Promise<boolean> {
+    if (refusedWhileBusy()) return false;
     dismiss();
     const branch = request.branch ?? repo.currentBranch?.name ?? "HEAD";
     const remote =
