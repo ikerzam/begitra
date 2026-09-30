@@ -1,5 +1,18 @@
 [
   {
+    "version": "0.6.2",
+    "date": "2026-09-30",
+    "title": { "en": "Long lines, zoom and feedback", "es": "Líneas largas, zoom y avisos" },
+    "highlight": {
+      "en": "Long diff lines scroll sideways, the window holds at high zoom, and slow actions say they are running",
+      "es": "Las líneas largas del diff se desplazan de lado, la ventana aguanta el zoom alto y las acciones lentas avisan de que están en marcha"
+    },
+    "notes": {
+      "en": "Without word wrap, a diff line wider than the viewer now scrolls sideways, with the trackpad, Shift and the wheel, the scrollbar under the rows or the arrow keys (Shift and the arrows for a screen at a time), while the line numbers stay, and side by side both sides move together. Zoomed in past the window's width (175% on a 1440 screen), the sidebar folds to its rail and the detail panel narrows so the graph keeps its room; a rail icon or Ctrl+B brings the sidebar back. Slow actions say they are running: removing a worktree marks its row, the worktrees dashboard counts the worktrees it checks for changes, adding a worktree keeps its dialog until git ends, a large commit's diff names itself in the status bar, and the status bar shows the action you started rather than a read in the background; a second branch change, or a fetch, pull or push, asked while another runs is refused with a message instead of being dropped. The pointer reads the interface: the hand over what takes a click, the arrow elsewhere, and text selectable only where you copy it (diffs, commit messages, git's output). Switching repositories shows the Branches tab at once.",
+      "es": "Sin ajuste de línea, una línea del diff más ancha que el visor ahora se desplaza de lado, con el trackpad, Mayús y la rueda, la barra bajo las filas o las flechas (Mayús y las flechas, una pantalla cada vez), mientras los números de línea se quedan quietos, y en paralelo los dos lados se mueven a la vez. Con el zoom por encima del ancho de la ventana (175% en una pantalla de 1440), la barra lateral se pliega a su raíl y el panel de detalle se estrecha para que el grafo conserve su sitio; un icono del raíl o Ctrl+B devuelven la barra lateral. Las acciones lentas avisan de que están en marcha: quitar un worktree marca su fila, el panel de worktrees cuenta los que está comprobando, añadir un worktree mantiene su diálogo hasta que git termina, el diff de un commit grande se nombra en la barra de estado, y la barra de estado muestra la acción que empezaste en vez de una lectura de fondo; un segundo cambio de ramas, o un fetch, pull o push, pedido mientras otro está en marcha se rechaza con un aviso en vez de perderse. El puntero distingue la interfaz: la mano sobre lo que se pulsa, la flecha en el resto, y texto seleccionable solo donde se copia (diffs, mensajes de commit, salida de git). Al cambiar de repositorio, la pestaña Branches aparece al momento."
+    }
+  },
+  {
     "version": "0.6.1",
     "date": "2026-09-30",
     "title": { "en": "Filters open again", "es": "Los filtros vuelven a abrirse" },
