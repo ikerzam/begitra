@@ -314,18 +314,49 @@ function noteTopLine(): void {
   topLine = row ? newLineOfRow(row, props.hunks) : null;
 }
 
-// Whole file inserts or folds the lines around the hunks: the line on top stays on top.
+// The line on top is known before any scroll, from the rows as first drawn.
+watch(
+  rows,
+  () => {
+    if (topLine === null) noteTopLine();
+  },
+  { flush: "post" },
+);
+
+// Turning Whole file on or off is not opening a file: it never lands on the first change,
+// whichever of the watchers below runs first.
+watch(
+  () => review.wholeFile,
+  () => {
+    landOnChange = false;
+  },
+  { flush: "sync" },
+);
+
+// Whole file inserts or folds the lines around the hunks: the line on top stays on top, or
+// the folded lines that hold it.
 watch(
   () => review.wholeFile,
   async () => {
-    landOnChange = false;
     const line = topLine;
     if (line === null) return;
     await nextTick();
-    const index = rows.value.findIndex((row) => (newLineOfRow(row, props.hunks) ?? 0) >= line);
+    const index = rowHolding(line);
     if (index >= 0) scrollTo(virtual.rowTop(index));
   },
 );
+
+/** The first row of the new side's `line`, else the folded lines that hold it. */
+function rowHolding(line: number): number {
+  const lines = rows.value.map((row) => newLineOfRow(row, props.hunks));
+  const exact = lines.indexOf(line);
+  if (exact >= 0) return exact;
+  let before = -1;
+  lines.forEach((at, index) => {
+    if (at !== null && at < line) before = index;
+  });
+  return before >= 0 ? before : lines.findIndex((at) => at !== null && at >= line);
+}
 
 /**
  * A file opened with Whole file on lands on its first change once its lines are in, rather
@@ -358,6 +389,8 @@ function revealGapAt(index: number, which: RevealWhich, event: MouseEvent): void
 }
 
 async function revealGap(gap: GapRowModel, which: RevealWhich, event: MouseEvent): Promise<void> {
+  // The reviewer is reading here: the view no longer lands on the first change by itself.
+  landOnChange = false;
   unchangedLines.reveal(gap, which);
   await nextTick();
   const element = body.value;

@@ -424,6 +424,54 @@ describe("DiffView", () => {
       wrapper.unmount();
     });
 
+    it("folds the lines opened by hand again when Whole file turns off", async () => {
+      const wrapper = await mountWorktreeFile(
+        [
+          [line(1), line(2, "added"), line(3)],
+          [line(11), line(12)],
+        ],
+        30,
+        [1, 11],
+      );
+      await mouseClick(wrapper, "gap-all");
+      expect(gaps(wrapper)).toEqual(["18 unchanged lines"]);
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "e", bubbles: true }));
+      await flushPromises();
+      expect(gaps(wrapper)).toEqual([]);
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "e", bubbles: true }));
+      await flushPromises();
+      await nextTick();
+      // Every unchanged line folds again, the ones opened by hand too.
+      expect(gaps(wrapper)).toEqual(["7 unchanged lines", "18 unchanged lines"]);
+      wrapper.unmount();
+    });
+
+    it("keeps the top in place when Whole file turns on before any scroll", async () => {
+      const wrapper = await mountWorktreeFile([[line(101), line(102, "added")]], 102, [101]);
+      const body = wrapper.get('[data-testid="diff-body"]');
+      expect(gaps(wrapper)).toEqual(["100 unchanged lines"]);
+      // The folded lines 1 to 100 are the top of the view: line 1 stays there, the view does
+      // not land on the change as when a file opens.
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "e", bubbles: true }));
+      await flushPromises();
+      await nextTick();
+      expect(gaps(wrapper)).toEqual([]);
+      expect(body.element.scrollTop).toBe(0);
+      wrapper.unmount();
+    });
+
+    it("stays on the lines opened above the first change when Whole file turns on", async () => {
+      const wrapper = await mountWorktreeFile([[line(101), line(102, "added")]], 102, [101]);
+      const body = wrapper.get('[data-testid="diff-body"]');
+      await mouseClick(wrapper, "gap-previous");
+      expect(gaps(wrapper)).toEqual(["80 unchanged lines"]);
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "e", bubbles: true }));
+      await flushPromises();
+      await nextTick();
+      expect(body.element.scrollTop).toBe(0);
+      wrapper.unmount();
+    });
+
     it("opens a file with Whole file on at its first change once its lines are in", async () => {
       const wrapper = await mountWorktreeFile(
         [[line(101), line(102, "added")]],

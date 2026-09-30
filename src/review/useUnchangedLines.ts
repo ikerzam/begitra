@@ -1,12 +1,12 @@
 // The unchanged lines of the open file around its hunks: the new side read whole
-// (`useNewSide`), the ranges the gap rows revealed (forgotten when another file opens) and the
-// Whole file setting; what the rows show of them, and which new-side lines the highlighter
-// should colour besides the hunks'.
+// (`useNewSide`), the ranges the gap rows revealed (folded again when another file or another
+// side of it opens, and when Whole file turns off) and the Whole file setting; what the rows
+// show of them, and which new-side lines the highlighter should colour besides the hunks'.
 
 import { computed, ref, watch, type Ref } from "vue";
 
 import type { FileChange, Hunk, LineRange } from "@/ipc/schemas";
-import { useReviewStore, type ReviewTarget } from "@/stores/review";
+import { targetKey, useReviewStore, type ReviewTarget } from "@/stores/review";
 
 import { EXPAND_STEP, type GapRowModel, type Unchanged } from "./diffRows";
 import { useNewSide } from "./useNewSide";
@@ -37,10 +37,18 @@ export function useUnchangedLines(
   const side = useNewSide(root, target, file, hunks, enabled);
   const revealed = ref<LineRange[]>([]);
 
+  // The lines opened by hand belong to one file on one side, and Whole file turned off folds
+  // every unchanged line, those included.
   watch(
-    () => file.value?.path,
+    () => [file.value?.path, target.value ? targetKey(target.value) : null] as const,
     () => {
       revealed.value = [];
+    },
+  );
+  watch(
+    () => review.wholeFile,
+    (whole) => {
+      if (!whole) revealed.value = [];
     },
   );
 
