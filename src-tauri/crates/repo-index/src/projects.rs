@@ -95,6 +95,17 @@ impl Index {
         project.ok_or_else(|| rusqlite::Error::QueryReturnedNoRows.into())
     }
 
+    /// The folder project of `folder` as stored, making none: a folder spelled another way is
+    /// another folder here, so the app looks up the spelling it was given before its canonical
+    /// one (an index of version 4 kept its scan folders as the user spelled them).
+    pub fn folder_project(&self, folder: &Path) -> IndexResult<Option<Project>> {
+        let connection = self.connection();
+        let Some(id) = folder_project_id(connection, &path_text(folder))? else {
+            return Ok(None);
+        };
+        Ok(read_project(connection, id)?)
+    }
+
     /// Renames a project; `None` when there is no such project.
     pub fn rename_project(&self, id: i64, name: &str, now: i64) -> IndexResult<Option<Project>> {
         let changed = self.connection().execute(
@@ -229,7 +240,9 @@ impl Index {
     /// names is not stored when it is only described (the "Add repository…" probe).
     pub fn is_member(&self, path: &Path) -> IndexResult<bool> {
         Ok(self.connection().query_row(
-            "SELECT EXISTS (SELECT 1 FROM project_members WHERE path = ?1)",
+            "SELECT EXISTS (
+               SELECT 1 FROM project_members m JOIN projects p ON p.id = m.project_id
+               WHERE m.path = ?1)",
             params![path_text(path)],
             |row| row.get(0),
         )?)
@@ -803,6 +816,29 @@ mod tests {
         store(&index, &found("/code/tiles", "/code"), 3);
         assert!(index.is_member(Path::new("/code/tiles")).expect("member"));
         assert!(!index.is_member(Path::new("/code/other")).expect("member"));
+    }
+
+    #[test]
+    fn a_folder_project_is_found_by_its_folder_without_making_one() {
+        let index = Index::in_memory().expect("index");
+        assert!(index
+            .folder_project(Path::new("/code"))
+            .expect("lookup")
+            .is_none());
+        assert!(index.projects().expect("projects").is_empty());
+        let made = index
+            .create_folder_project(Path::new("/code"), 1)
+            .expect("folder project");
+        let found = index
+            .folder_project(Path::new("/code"))
+            .expect("lookup")
+            .expect("found");
+        assert_eq!(found.id, made.id);
+        // Spelled otherwise, it is another folder to the index.
+        assert!(index
+            .folder_project(Path::new("/Code"))
+            .expect("lookup")
+            .is_none());
     }
 
     #[test]

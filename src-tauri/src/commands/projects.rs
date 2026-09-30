@@ -3,15 +3,15 @@
 //! belongs to one, and making, renaming, editing, pinning or deleting a project writes to no
 //! repository.
 
-use std::path::{Component, Path, PathBuf, Prefix};
+use std::path::{Path, PathBuf};
 
 use git_core::engine::Cancel;
-use git_core::summary::{describe_head, repository_root};
-use repo_index::{Project, ProjectEdit, Upserted};
+use git_core::summary::repository_place;
+use repo_index::{Found, Project, ProjectEdit, RepoKind, Upserted};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use crate::commands::index::{found_from_summary, index_summary, normalise, now};
+use crate::commands::index::{canonical, file_name_of, normalise, now};
 use crate::error::{codes, AppError};
 use crate::ops::{run_blocking, DEFAULT_TIMEOUT};
 use crate::state::AppState;
@@ -72,7 +72,7 @@ fn validate_members(paths: &[PathBuf]) -> Result<Vec<PathBuf>, AppError> {
 }
 
 /// One absolute, bounded path on one line, rebuilt from its components.
-fn validate_path(field: &str, path: &Path) -> Result<PathBuf, AppError> {
+pub(crate) fn validate_path(field: &str, path: &Path) -> Result<PathBuf, AppError> {
     if !path.is_absolute() {
         return Err(AppError::invalid_argument(field, "not an absolute path"));
     }
@@ -89,79 +89,81 @@ fn validate_path(field: &str, path: &Path) -> Result<PathBuf, AppError> {
     Ok(normalise(path))
 }
 
-/// `path` without Windows' verbatim prefix (`\\?\C:\…`, `\\?\UNC\server\share\…`), which
-/// `canonicalize` adds and nothing else in the app writes; any other path as it is.
-fn without_verbatim(path: &Path) -> PathBuf {
-    let mut components = path.components();
-    let Some(Component::Prefix(prefix)) = components.next() else {
-        return path.to_path_buf();
-    };
-    let mut plain = match prefix.kind() {
-        Prefix::VerbatimDisk(letter) => PathBuf::from(format!("{}:", char::from(letter))),
-        Prefix::VerbatimUNC(server, share) => {
-            let mut unc = std::ffi::OsString::from(r"\\");
-            unc.push(server);
-            unc.push(r"\");
-            unc.push(share);
-            PathBuf::from(unc)
-        }
-        _ => return path.to_path_buf(),
-    };
-    for component in components {
-        plain.push(component.as_os_str());
-    }
-    plain
-}
-
-/// A folder as the file system spells it (its case, links and `..` resolved) without the
-/// verbatim prefix: the one spelling the index stores for a folder project and the scan walks,
-/// so the same folder picked twice finds its project. `index.folder` when it is not a folder
-/// on disk.
+/// A folder of the disk in its [`canonical`] spelling, the one the index stores for a folder
+/// project and the scan walks, so the same folder picked twice finds its project; a folder
+/// `canonicalize` cannot resolve (some virtual drives refuse it) keeps the spelling it was
+/// given. `index.folder` when it is not a folder on disk.
 fn canonical_folder(folder: &Path) -> Result<PathBuf, AppError> {
-    let folder = validate_path("folder", folder)?;
     let unreadable = |reason: String| {
         AppError::new(codes::INDEX_FOLDER, "The folder is not on disk")
             .with_detail(format!("{}: {reason}", folder.display()))
     };
-    let canonical =
-        std::fs::canonicalize(&folder).map_err(|error| unreadable(error.to_string()))?;
-    if !canonical.is_dir() {
+    let metadata = std::fs::metadata(folder).map_err(|error| unreadable(error.to_string()))?;
+    if !metadata.is_dir() {
         return Err(unreadable("not a folder".to_owned()));
     }
-    Ok(normalise(&without_verbatim(&canonical)))
+    Ok(canonical(folder))
 }
 
-/// The folder project of `folder`, made when there is none.
-fn create_folder_project(state: &AppState, folder: &Path) -> Result<Project, AppError> {
-    let folder = canonical_folder(folder)?;
+/// The folder project of `folder`: the one stored under the spelling given (an index of
+/// version 4 kept its scan folders as the user spelled them), else the one of its canonical
+/// spelling, made when there is none.
+pub(crate) fn create_folder_project(state: &AppState, folder: &Path) -> Result<Project, AppError> {
+    let given = validate_path("folder", folder)?;
+    if let Some(project) = state.with_index(|index| Ok(index.folder_project(&given)?))? {
+        return Ok(project);
+    }
+    let folder = canonical_folder(&given)?;
     state.with_index(|index| Ok(index.create_folder_project(&folder, now())?))
 }
 
 /// The project to open for `path` and the repository to show: the repository or worktree
-/// `path` is the root of, or lies inside, is described from HEAD (no status) and stored,
-/// joining a list project of one when no project holds it, so it is never loose between two
-/// calls; `repo.not_found` when `path` is in no repository.
-fn open_path(state: &AppState, path: &Path, cancel: &Cancel) -> Result<ProjectOpen, AppError> {
-    let root = repository_root(path).map_err(AppError::from)?;
-    let summary = describe_head(&root, cancel).map_err(AppError::from)?;
-    let found = found_from_summary(&summary);
+/// `path` is the root of, or lies inside, found without reading HEAD (the open that follows
+/// describes it), is stored under the spelling the index holds it by (canonical, else the
+/// one libgit2 gives, which an index of version 4 stored) or in its canonical spelling when
+/// new, joining a list project of one when no project holds it, so it is never loose between
+/// two calls; `repo.not_found` when `path` is in no repository.
+pub(crate) fn open_path(
+    state: &AppState,
+    path: &Path,
+    cancel: &Cancel,
+) -> Result<ProjectOpen, AppError> {
+    let place = repository_place(path).map_err(AppError::from)?;
+    // The disk is read before the index's lock is taken.
+    let spelled = canonical(&place.root);
+    let given = normalise(&place.root);
+    let parent_path = place.main_root.as_deref().map(canonical);
+    // A timed-out or cancelled open stores nothing.
+    cancel.check().map_err(AppError::from)?;
     let stamp = now();
     state.with_index(|index| {
-        // Opened by path, so it cannot miss a folder project.
-        let upserted = index.upsert_found(&found, stamp)?;
-        debug_assert_eq!(upserted, Upserted::Stored);
-        let mut stored = index_summary(&summary);
-        // Without a status the stored flag stays what it was.
-        stored.dirty = index
-            .get(&found.path)?
-            .and_then(|entry| entry.summary.dirty);
-        index.update_summary(&found.path, &stored, stamp)?;
+        let root = if index.get(&spelled)?.is_none() && index.get(&given)?.is_some() {
+            given.clone()
+        } else {
+            spelled.clone()
+        };
+        let found = Found {
+            path: root.clone(),
+            name: file_name_of(&root).unwrap_or_else(|| place.name.clone()),
+            kind: if place.is_linked_worktree {
+                RepoKind::Worktree
+            } else {
+                RepoKind::Main
+            },
+            parent_path: parent_path.clone(),
+            scan_root: PathBuf::new(),
+        };
+        let Upserted::Stored = index.upsert_found(&found, stamp)? else {
+            return Err(AppError::internal(
+                "a repository opened by path was not stored",
+            ));
+        };
         let project = index
-            .project_for_entry(&found.path, stamp)?
+            .project_for_entry(&root, stamp)?
             .ok_or_else(|| AppError::internal("the opened entry vanished"))?;
         Ok(ProjectOpen {
             project,
-            repository: found.path.clone(),
+            repository: root,
         })
     })
 }
@@ -201,7 +203,8 @@ pub async fn project_create(
 }
 
 /// The folder project of `folder` (found, or made and named after the folder); the frontend
-/// scans it next. `index.folder` when `folder` is not a folder on disk.
+/// scans it next. `index.folder` when `folder` is not a folder on disk; `op.timeout` when the
+/// disk does not answer (an unreachable share can hold `canonicalize` for long).
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state))]
 pub async fn project_create_folder(
@@ -209,8 +212,10 @@ pub async fn project_create_folder(
     folder: PathBuf,
 ) -> Result<Project, AppError> {
     let app = state.inner().clone();
-    tokio::task::spawn_blocking(move || create_folder_project(&app, &folder))
+    let task = tokio::task::spawn_blocking(move || create_folder_project(&app, &folder));
+    tokio::time::timeout(DEFAULT_TIMEOUT, task)
         .await
+        .map_err(|_| AppError::timeout("project_create_folder", DEFAULT_TIMEOUT))?
         .map_err(|join| AppError::internal(format!("index task failed: {join}")))?
 }
 
@@ -373,23 +378,6 @@ mod tests {
         assert!(validate_members(&[absolute(&"x".repeat(MAX_PATH_CHARS))]).is_err());
     }
 
-    #[cfg(windows)]
-    #[test]
-    fn the_verbatim_prefix_goes_and_the_rest_stays() {
-        assert_eq!(
-            without_verbatim(Path::new(r"\\?\C:\Code\geo portal")),
-            PathBuf::from(r"C:\Code\geo portal")
-        );
-        assert_eq!(
-            without_verbatim(Path::new(r"\\?\UNC\nas\share\code")),
-            PathBuf::from(r"\\nas\share\code")
-        );
-        assert_eq!(
-            without_verbatim(Path::new(r"C:\Code")),
-            PathBuf::from(r"C:\Code")
-        );
-    }
-
     #[test]
     fn a_path_opens_its_repository_in_a_project_of_one_then_in_the_one_opened_last() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -461,6 +449,25 @@ mod tests {
         let found = create_folder_project(&state, &respelled).expect("found");
         assert_eq!(found.id, made.id);
         assert_eq!(found.folder, made.folder);
+        let projects = state
+            .with_index(|index| Ok(index.projects()?))
+            .expect("projects");
+        assert_eq!(projects.len(), 1);
+    }
+
+    #[test]
+    fn a_folder_project_stored_as_the_user_spelled_it_is_found_so() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let code = dir.path().join("code");
+        std::fs::create_dir_all(code.join("geo")).expect("mkdir");
+        let state = AppState::default();
+        // An index of version 4 kept its scan folder as spelled, `..` and all.
+        let spelled = code.join("geo").join("..");
+        let migrated = state
+            .with_index(|index| Ok(index.create_folder_project(&normalise(&spelled), 1)?))
+            .expect("migrated");
+        let found = create_folder_project(&state, &spelled).expect("found as given");
+        assert_eq!(found.id, migrated.id);
         let projects = state
             .with_index(|index| Ok(index.projects()?))
             .expect("projects");

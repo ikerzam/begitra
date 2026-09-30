@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use git_core::engine::Cancel;
 use git_core::error::GitError;
-use git_core::summary::{describe, describe_head, repository_root, Upstream};
+use git_core::summary::{describe, describe_head, repository_place, Upstream};
 use git_core::types::OperationState;
 use support::Fixture;
 
@@ -64,18 +64,22 @@ fn an_unborn_repository_has_no_tip() {
 }
 
 #[test]
-fn a_folder_inside_a_repository_has_the_repository_s_root_and_one_outside_has_none() {
+fn a_folder_inside_a_repository_is_placed_in_it_and_one_outside_is_in_none() {
     let f = Fixture::basic();
     let inside = f.root.join("src").join("deep");
     fs::create_dir_all(&inside).expect("mkdir");
-    let root = repository_root(&inside).expect("root from inside");
+    let place = repository_place(&inside).expect("place from inside");
     assert_eq!(
-        fs::canonicalize(&root).expect("canonical"),
+        fs::canonicalize(&place.root).expect("canonical"),
         fs::canonicalize(&f.root).expect("canonical")
     );
-    assert_eq!(repository_root(&f.root).expect("root of the root"), root);
-    let summary = describe_head(&root, &Cancel::never()).expect("summary");
-    assert_eq!(summary.name, "repo");
+    assert_eq!(place.name, "repo");
+    assert!(!place.is_linked_worktree);
+    assert_eq!(place.main_root, None);
+    assert_eq!(repository_place(&f.root).expect("place of the root"), place);
+    // It says what describe_head says of the root, without reading HEAD.
+    let summary = describe_head(&place.root, &Cancel::never()).expect("summary");
+    assert_eq!(summary.root, place.root);
     // describe_head itself opens the root only: from inside it finds nothing.
     assert!(matches!(
         describe_head(&inside, &Cancel::never()),
@@ -83,8 +87,51 @@ fn a_folder_inside_a_repository_has_the_repository_s_root_and_one_outside_has_no
     ));
     let outside = tempfile::tempdir().expect("tempdir");
     assert!(matches!(
-        repository_root(outside.path()),
+        repository_place(outside.path()),
         Err(GitError::NotFound(_))
+    ));
+}
+
+#[test]
+fn a_linked_worktree_is_placed_with_its_repository() {
+    let f = Fixture::basic().with_linked_worktree();
+    let wt = f.worktree_path();
+    let place = repository_place(&wt).expect("place");
+    assert!(place.is_linked_worktree);
+    assert_eq!(
+        Some(place.name.as_str()),
+        wt.file_name().and_then(|name| name.to_str())
+    );
+    assert_eq!(
+        place.main_root.as_deref().map(support::canonical),
+        Some(support::canonical(&f.root))
+    );
+}
+
+#[test]
+fn a_git_directory_opened_by_its_own_path_is_refused_as_the_engine_refuses_it() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let tree = dir.path().join("tree");
+    let gitdir = dir.path().join("elsewhere.git");
+    fs::create_dir_all(&tree).expect("mkdir");
+    let output = git_core::cli::command(
+        &tree,
+        &[
+            "init",
+            "-q",
+            "--separate-git-dir",
+            gitdir.to_str().expect("utf-8"),
+        ],
+    )
+    .output()
+    .expect("git runs");
+    assert!(output.status.success(), "git init --separate-git-dir");
+    // The working tree places itself; its git directory, opened by its own path, is refused
+    // instead of placing its parent folder as the working tree.
+    assert!(repository_place(&tree).is_ok());
+    assert!(matches!(
+        repository_place(&gitdir),
+        Err(GitError::Invalid { .. })
     ));
 }
 

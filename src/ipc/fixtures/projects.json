@@ -25,6 +25,18 @@
     "updatedAt": 1704050000
   },
   {
+    "id": 3,
+    "name": "empty",
+    "kind": "list",
+    "folder": null,
+    "members": [],
+    "pinned": false,
+    "openedAt": null,
+    "lastRepository": null,
+    "createdAt": 1704080000,
+    "updatedAt": 1704080000
+  },
+  {
     "id": 2,
     "name": "Geoportal",
     "kind": "list",
@@ -48,17 +60,5 @@
     "lastRepository": "/home/iker/code/claude-auth",
     "createdAt": 1704060000,
     "updatedAt": 1704070000
-  },
-  {
-    "id": 3,
-    "name": "empty",
-    "kind": "list",
-    "folder": null,
-    "members": [],
-    "pinned": false,
-    "openedAt": null,
-    "lastRepository": null,
-    "createdAt": 1704080000,
-    "updatedAt": 1704080000
   }
 ]

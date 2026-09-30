@@ -464,7 +464,8 @@ fn member(path: &str, origin: MemberOrigin) -> Member {
     }
 }
 
-/// A folder project, a list project with a pin and a last repository, and an empty one.
+/// A folder project, an empty list project and a list project with a pin and a last
+/// repository, in the order `projects()` answers them (by name, whatever the case).
 fn projects() -> Vec<Project> {
     vec![
         Project {
@@ -484,6 +485,18 @@ fn projects() -> Vec<Project> {
             updated_at: 1_704_050_000,
         },
         Project {
+            id: 3,
+            name: "empty".to_owned(),
+            kind: ProjectKind::List,
+            folder: None,
+            members: Vec::new(),
+            pinned: false,
+            opened_at: None,
+            last_repository: None,
+            created_at: 1_704_080_000,
+            updated_at: 1_704_080_000,
+        },
+        Project {
             id: 2,
             name: "Geoportal".to_owned(),
             kind: ProjectKind::List,
@@ -498,18 +511,6 @@ fn projects() -> Vec<Project> {
             last_repository: Some(PathBuf::from("/home/iker/code/claude-auth")),
             created_at: 1_704_060_000,
             updated_at: 1_704_070_000,
-        },
-        Project {
-            id: 3,
-            name: "empty".to_owned(),
-            kind: ProjectKind::List,
-            folder: None,
-            members: Vec::new(),
-            pinned: false,
-            opened_at: None,
-            last_repository: None,
-            created_at: 1_704_080_000,
-            updated_at: 1_704_080_000,
         },
     ]
 }
@@ -792,11 +793,11 @@ fn write_fixtures() {
         "project-edits",
         &[
             ProjectEdit {
-                project: listed[1].clone(),
+                project: listed[2].clone(),
                 removed: vec![PathBuf::from("/home/iker/wt/tiles-old")],
             },
             ProjectEdit {
-                project: listed[2].clone(),
+                project: listed[1].clone(),
                 removed: Vec::new(),
             },
         ],
@@ -804,7 +805,7 @@ fn write_fixtures() {
     write(
         "project-opens",
         &[ProjectOpen {
-            project: listed[1].clone(),
+            project: listed[2].clone(),
             repository: PathBuf::from("/home/iker/code/claude-auth"),
         }],
     );

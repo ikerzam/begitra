@@ -19,13 +19,17 @@ use tauri::ipc::Channel;
 use tauri::State;
 
 use crate::channels::{Sink, Stream, StreamMessage};
-use crate::commands::index::{index_summary, normalise, now};
+use crate::commands::index::{canonical, index_summary, normalise, now};
+use crate::commands::projects::validate_path;
 use crate::error::AppError;
 use crate::ops::run_stream;
 use crate::state::AppState;
 
 /// Summaries computed at once; each one opens the repository on its own thread.
 const SUMMARY_WORKERS: usize = 4;
+
+/// Most folders one scan walks: the index's own scale.
+const MAX_FOLDERS: usize = 500;
 
 /// How often the drain of in-flight summaries looks at the cancel flag.
 const DRAIN_POLL: Duration = Duration::from_millis(100);
@@ -65,11 +69,13 @@ pub enum ScanMessage {
     FolderDone {
         /// The folder.
         folder: PathBuf,
-        /// Repositories and worktrees found under it.
+        /// Repositories and worktrees found under it, stored or not (a folder whose project
+        /// went while the scan ran stores none).
         found: u64,
         /// The folder's own members that were not found again and whose `.git` is gone: they
         /// left the folder project (and the index when no other project holds them), or stay
         /// flagged missing when none of the folder's members was found (an unmounted drive).
+        /// Projects and entries can change either way: the frontend reads both again.
         missing: Vec<PathBuf>,
     },
     /// A scan folder could not be read; the scan went on with the others.
@@ -92,6 +98,16 @@ pub async fn scan_folders(
     op_id: String,
     on_page: Channel<StreamMessage<ScanMessage>>,
 ) -> Result<(), AppError> {
+    if folders.len() > MAX_FOLDERS {
+        return Err(AppError::invalid_argument(
+            "folders",
+            format!("more than {MAX_FOLDERS} folders"),
+        ));
+    }
+    let folders = folders
+        .iter()
+        .map(|folder| validate_path("folders", folder))
+        .collect::<Result<Vec<_>, _>>()?;
     let app = state.inner().clone();
     let worker = app.clone();
     run_stream(
@@ -268,6 +284,11 @@ fn complete_folder(
     seen: &HashSet<PathBuf>,
     stamp: i64,
 ) -> Result<Vec<PathBuf>, AppError> {
+    // A folder lost during its walk (a share or a drive gone: its subfolders then read as
+    // missing) is no complete walk, and its members stay.
+    if std::fs::metadata(folder).is_err() {
+        return Ok(Vec::new());
+    }
     let members = state.with_index(|index| Ok(index.folder_members(folder)?))?;
     let (mut gone, mut present) = (Vec::new(), Vec::new());
     for path in members.into_iter().filter(|path| !seen.contains(path)) {
@@ -277,6 +298,9 @@ fn complete_folder(
             {
                 gone.push(path);
             }
+            // The same folder found under another spelling (a rename of its case on a disk
+            // that ignores case, a link): the found spelling replaced it.
+            Ok(_) if seen.contains(&canonical(&path)) => gone.push(path),
             // On disk, or unreadable, which is not gone.
             _ => present.push(path),
         }
@@ -334,9 +358,30 @@ mod tests {
 
     /// The folder project of `folder`, as `project_create_folder` makes it.
     fn folder_project(state: &AppState, folder: &Path) -> repo_index::Project {
-        state
-            .with_index(|index| Ok(index.create_folder_project(&normalise(folder), 1)?))
-            .expect("folder project")
+        crate::commands::projects::create_folder_project(state, folder).expect("folder project")
+    }
+
+    /// The folder a folder project's scan walks.
+    fn folder_of(project: &repo_index::Project) -> PathBuf {
+        project.folder.clone().expect("a folder project")
+    }
+
+    /// A link at `link` to the folder `target`: a junction on Windows (no privilege needed), a
+    /// symbolic link elsewhere.
+    fn link_folder(target: &Path, link: &Path) {
+        #[cfg(windows)]
+        {
+            let status = std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(link)
+                .arg(target)
+                .stdout(std::process::Stdio::null())
+                .status()
+                .expect("mklink runs");
+            assert!(status.success(), "mklink /J");
+        }
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(target, link).expect("symlink");
     }
 
     /// Scans `folders` to the end and answers the stream's messages.
@@ -384,7 +429,7 @@ mod tests {
         let ops = Operations::default();
         let collector = Collector::<ScanMessage>::default();
         let worker = state.clone();
-        let folders = vec![root.clone()];
+        let folders = vec![folder_of(&project)];
         let options = ScanOptions::default();
         run_stream(
             &ops,
@@ -462,7 +507,8 @@ mod tests {
         init_repo(&root.join("gamma"));
         let state = AppState::default();
         let project = folder_project(&state, &root);
-        scan(&state, vec![root.clone()]).await;
+        let folder = folder_of(&project);
+        scan(&state, vec![folder.clone()]).await;
         assert_eq!(members(&state, project.id).len(), 3);
 
         // Gamma's folder goes: a stopped scan changes no membership.
@@ -476,7 +522,7 @@ mod tests {
         let mut stream = Stream::new(sink);
         let error = run_scan(
             &state,
-            std::slice::from_ref(&root),
+            std::slice::from_ref(&folder),
             &ScanOptions::default(),
             &cancel,
             &mut stream,
@@ -486,7 +532,7 @@ mod tests {
         assert_eq!(members(&state, project.id).len(), 3);
 
         // A complete scan lets gamma go, from the project and the index, and says so.
-        let messages = scan(&state, vec![root.clone()]).await;
+        let messages = scan(&state, vec![folder.clone()]).await;
         let missing: Vec<PathBuf> = messages
             .iter()
             .find_map(|m| match m {
@@ -504,6 +550,102 @@ mod tests {
         assert!(!left.iter().any(|path| path.ends_with("gamma")));
         let stored = state.with_index(|index| Ok(index.list()?)).expect("list");
         assert_eq!(stored.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_folder_that_went_or_a_member_the_walk_skipped_changes_no_membership() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path().join("code");
+        init_repo(&root.join("alpha"));
+        init_repo(&root.join("vendor"));
+        let state = AppState::default();
+        let project = folder_project(&state, &root);
+        let folder = folder_of(&project);
+        scan(&state, vec![folder.clone()]).await;
+        assert_eq!(members(&state, project.id).len(), 2);
+        // A new skip name hides vendor, whose .git is still on disk: it stays.
+        let skipping = ScanOptions {
+            skip: vec!["vendor".to_owned()],
+            ..ScanOptions::default()
+        };
+        let ops = Operations::default();
+        let collector = Collector::<ScanMessage>::default();
+        let worker = state.clone();
+        let folders = vec![folder.clone()];
+        run_stream(
+            &ops,
+            "scan",
+            SCAN_TIMEOUT,
+            collector.clone(),
+            move |cancel, stream| run_scan(&worker, &folders, &skipping, &cancel, stream),
+        )
+        .await
+        .expect("scan ok");
+        assert_eq!(members(&state, project.id).len(), 2);
+        // The folder renamed away reads as an error, not as an empty folder: nothing leaves.
+        std::fs::rename(&root, dir.path().join("renamed")).expect("rename");
+        let messages = scan(&state, vec![folder.clone()]).await;
+        assert!(messages.iter().any(|m| matches!(
+            m,
+            StreamMessage::Page {
+                data: ScanMessage::FolderError { .. },
+                ..
+            }
+        )));
+        assert_eq!(members(&state, project.id).len(), 2);
+        let stored = state.with_index(|index| Ok(index.list()?)).expect("list");
+        assert_eq!(stored.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_repository_reached_through_a_link_is_one_entry_in_its_folder_project() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let real = dir.path().join("real");
+        init_repo(&real.join("geo"));
+        init_repo(&dir.path().join("elsewhere").join("tiles"));
+        let link = dir.path().join("link");
+        link_folder(&real, &link);
+        let state = AppState::default();
+        // The folder picked through the link is stored as the disk spells it.
+        let project = folder_project(&state, &link);
+        assert_eq!(folder_of(&project), canonical(&real));
+        scan(&state, vec![folder_of(&project)]).await;
+        // Opened through the link, the scanned repository opens in its folder project.
+        let opened =
+            crate::commands::projects::open_path(&state, &link.join("geo"), &GitCancel::never())
+                .expect("open");
+        assert_eq!(opened.project.id, project.id);
+        assert_eq!(opened.repository, canonical(&real.join("geo")));
+        // A refresh through the link finds the same entry.
+        crate::commands::index::refresh_entry(
+            &state,
+            &link.join("geo"),
+            false,
+            &GitCancel::never(),
+        )
+        .expect("refresh");
+        let stored = state.with_index(|index| Ok(index.list()?)).expect("list");
+        assert_eq!(stored.len(), 1);
+        let projects = state
+            .with_index(|index| Ok(index.projects()?))
+            .expect("projects");
+        assert_eq!(projects.len(), 1);
+        // A repository no project names is described under the disk's spelling too.
+        let other = dir.path().join("other");
+        link_folder(&dir.path().join("elsewhere"), &other);
+        let probe = crate::commands::index::refresh_entry(
+            &state,
+            &other.join("tiles"),
+            false,
+            &GitCancel::never(),
+        )
+        .expect("probe");
+        assert_eq!(
+            probe.path,
+            canonical(&dir.path().join("elsewhere").join("tiles"))
+        );
+        let stored = state.with_index(|index| Ok(index.list()?)).expect("list");
+        assert_eq!(stored.len(), 1);
     }
 
     #[tokio::test]
@@ -537,7 +679,7 @@ mod tests {
         for i in 0..30 {
             init_repo(&root.join(format!("r{i}")));
         }
-        folder_project(&state, &root);
+        let project = folder_project(&state, &root);
         let collector = Collector::<ScanMessage>::default();
         let cancel = GitCancel::new();
         let sink = CancellingSink {
@@ -547,7 +689,7 @@ mod tests {
         let mut stream = Stream::new(sink);
         let error = run_scan(
             &state,
-            &[root],
+            &[folder_of(&project)],
             &ScanOptions::default(),
             &cancel,
             &mut stream,

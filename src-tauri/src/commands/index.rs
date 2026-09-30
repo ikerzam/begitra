@@ -1,7 +1,7 @@
 //! The repository index: listing, recents and one-off refreshes. Pins, forgetting and scan
 //! folders belong to projects (`commands::projects`): every entry lives in one.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf, Prefix};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use git_core::engine::Cancel;
@@ -27,6 +27,74 @@ pub fn normalise(path: &Path) -> PathBuf {
     path.components().collect()
 }
 
+/// Windows' device names: a component named so, with or without an extension, reaches a file
+/// only through the verbatim prefix.
+const RESERVED_NAMES: [&str; 22] = [
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+];
+
+/// Whether a path without the verbatim prefix still names what the prefix named: shorter than
+/// `MAX_PATH`, with no component ending in a dot or a space and none a device name.
+fn plain_spelling_holds(plain: &Path) -> bool {
+    if plain.to_string_lossy().encode_utf16().count() >= 260 {
+        return false;
+    }
+    plain.components().all(|component| match component {
+        Component::Normal(name) => {
+            let name = name.to_string_lossy();
+            let stem = name.split('.').next().unwrap_or_default();
+            !name.ends_with('.')
+                && !name.ends_with(' ')
+                && !RESERVED_NAMES
+                    .iter()
+                    .any(|reserved| stem.eq_ignore_ascii_case(reserved))
+        }
+        _ => true,
+    })
+}
+
+/// `path` without Windows' verbatim prefix (`\\?\C:\…`, `\\?\UNC\server\share\…`),
+/// which `canonicalize` adds and nothing else in the app writes, unless the plain spelling
+/// would name something else ([`plain_spelling_holds`]); any other path as it is.
+pub fn without_verbatim(path: &Path) -> PathBuf {
+    let mut components = path.components();
+    let Some(Component::Prefix(prefix)) = components.next() else {
+        return path.to_path_buf();
+    };
+    let mut plain = match prefix.kind() {
+        Prefix::VerbatimDisk(letter) => PathBuf::from(format!("{}:", char::from(letter))),
+        Prefix::VerbatimUNC(server, share) => {
+            let mut unc = std::ffi::OsString::from(r"\\");
+            unc.push(server);
+            unc.push(r"\");
+            unc.push(share);
+            PathBuf::from(unc)
+        }
+        _ => return path.to_path_buf(),
+    };
+    for component in components {
+        plain.push(component.as_os_str());
+    }
+    if plain_spelling_holds(&plain) {
+        plain
+    } else {
+        path.to_path_buf()
+    }
+}
+
+/// `path` as the file system spells it: its case, links, junctions, mapped and substituted
+/// drives and `..` resolved, without the verbatim prefix, rebuilt from its components. The
+/// app stores every folder project's folder and every repository it opens by path in this
+/// spelling, so a folder or repository reached two ways is one entry; a path that cannot be
+/// resolved (gone, or a drive that refuses) stays as given. It reads the disk: call it outside
+/// the index's lock.
+pub fn canonical(path: &Path) -> PathBuf {
+    match std::fs::canonicalize(path) {
+        Ok(resolved) => normalise(&without_verbatim(&resolved)),
+        Err(_) => normalise(path),
+    }
+}
 /// The index entry a summary describes, with no scan folder (opened by path).
 pub fn found_from_summary(summary: &RepoSummary) -> Found {
     Found {
@@ -98,10 +166,12 @@ fn described_entry(found: &Found, summary: &RepoSummary, dirty: bool) -> IndexEn
     }
 }
 
-/// Describes `path` and stores the result: the summary of a known entry, and an unknown one
-/// when some project names its path (it joins no project of one). A repository no project
-/// names is described without being stored, so the "Add repository…" probe of a dialog that
-/// is then cancelled leaves nothing behind. Returns the entry.
+/// Describes `path` and stores the result: the summary of a known entry, under the spelling
+/// the index holds (as given, else [`canonical`]), and an unknown one when some project names
+/// its path (it joins no project of one). A repository no project names is described without
+/// being stored, under its canonical spelling, so the "Add repository…" probe of a dialog that
+/// is then cancelled leaves nothing behind and the member it adds is spelled as scans and
+/// opens spell it. Returns the entry.
 pub fn refresh_entry(
     state: &AppState,
     path: &Path,
@@ -124,28 +194,57 @@ pub fn refresh_entry(
         }
     };
     let found = found_from_summary(&summary);
+    let spelled = canonical(&found.path);
     let stamp = now();
     state.with_index(|index| {
-        if index.get(&found.path)?.is_none() {
-            if !index.is_member(&found.path)? {
-                return Ok(described_entry(&found, &summary, dirty));
-            }
+        let path = if index.get(&found.path)?.is_some() {
+            found.path.clone()
+        } else if index.get(&spelled)?.is_some() {
+            spelled.clone()
+        } else {
+            let named = if index.is_member(&spelled)? {
+                Some(spelled.clone())
+            } else if index.is_member(&found.path)? {
+                Some(found.path.clone())
+            } else {
+                None
+            };
+            let Some(path) = named else {
+                let probe = Found {
+                    name: file_name_of(&spelled).unwrap_or_else(|| found.name.clone()),
+                    path: spelled.clone(),
+                    ..found.clone()
+                };
+                return Ok(described_entry(&probe, &summary, dirty));
+            };
             // Opened by path, so it cannot miss a folder project: stored in its project.
-            let upserted = index.upsert_found(&found, stamp)?;
-            debug_assert_eq!(upserted, Upserted::Stored);
-        }
+            let stored = Found {
+                path: path.clone(),
+                ..found.clone()
+            };
+            let Upserted::Stored = index.upsert_found(&stored, stamp)? else {
+                return Err(AppError::internal(
+                    "a repository opened by path was not stored",
+                ));
+            };
+            path
+        };
         let mut stored = index_summary(&summary);
         if !dirty {
             // Without a status the stored flag stays what it was.
-            stored.dirty = index
-                .get(&found.path)?
-                .and_then(|entry| entry.summary.dirty);
+            stored.dirty = index.get(&path)?.and_then(|entry| entry.summary.dirty);
         }
-        index.update_summary(&found.path, &stored, stamp)?;
+        index.update_summary(&path, &stored, stamp)?;
         index
-            .get(&found.path)?
+            .get(&path)?
             .ok_or_else(|| AppError::internal("the refreshed entry vanished"))
     })
+}
+
+/// The last component of `path`, as a repository's name.
+pub fn file_name_of(path: &Path) -> Option<String> {
+    path.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
 }
 
 /// Every indexed repository and worktree.
@@ -216,6 +315,34 @@ mod tests {
     fn described_root(root: &Path) -> PathBuf {
         let summary = describe_head(root, &Cancel::never()).expect("describe");
         normalise(&summary.root)
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_verbatim_prefix_goes_unless_the_plain_spelling_names_something_else() {
+        assert_eq!(
+            without_verbatim(Path::new(r"\\?\C:\Code\geo portal")),
+            PathBuf::from(r"C:\Code\geo portal")
+        );
+        assert_eq!(
+            without_verbatim(Path::new(r"\\?\UNC\nas\share\code")),
+            PathBuf::from(r"\\nas\share\code")
+        );
+        assert_eq!(
+            without_verbatim(Path::new(r"C:\Code")),
+            PathBuf::from(r"C:\Code")
+        );
+        // Only the prefix reaches these: a device name, a trailing dot or space, a long path.
+        for kept in [
+            r"\\?\C:\Code\con",
+            r"\\?\C:\Code\aux.txt",
+            r"\\?\C:\Code\dots.",
+            r"\\?\C:\Code\space ",
+        ] {
+            assert_eq!(without_verbatim(Path::new(kept)), PathBuf::from(kept));
+        }
+        let long = format!(r"\\?\C:\{}", "x".repeat(300));
+        assert_eq!(without_verbatim(Path::new(&long)), PathBuf::from(&long));
     }
 
     #[test]

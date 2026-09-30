@@ -91,12 +91,28 @@ pub fn describe_head(path: &Path, cancel: &Cancel) -> GitResult<RepoSummary> {
     read(path, false, cancel)
 }
 
-/// The working tree root of the repository or worktree that contains `path` (its root or any
-/// folder inside it), found as [`crate::git2_engine::Git2Engine::open`] finds it:
-/// [`GitError::NotFound`] when none does, [`GitError::Invalid`] for a bare repository. For
+/// Where a folder's repository or worktree is: what the index records of it without reading
+/// HEAD.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RepositoryPlace {
+    /// Working tree root, as libgit2 spells it.
+    pub root: PathBuf,
+    /// The root's folder name.
+    pub name: String,
+    /// A linked worktree (`git worktree add`), not a main working tree.
+    pub is_linked_worktree: bool,
+    /// For a linked worktree, the main repository's root.
+    pub main_root: Option<PathBuf>,
+}
+
+/// The repository or worktree that contains `path` (its root or any folder inside it), found
+/// and checked as [`crate::git2_engine::Git2Engine::open`] finds and checks it, with no read
+/// of HEAD: [`GitError::NotFound`] when none does, [`GitError::Invalid`] for a bare repository
+/// and for a git directory opened by its own path whose working tree lives elsewhere. For
 /// opening a folder the user picks; [`describe`] and [`describe_head`] open `path` itself
 /// only, so an entry whose repository is gone is never described as a repository around it.
-pub fn repository_root(path: &Path) -> GitResult<PathBuf> {
+#[tracing::instrument(level = "debug", skip_all, fields(path = %path.display()))]
+pub fn repository_place(path: &Path) -> GitResult<RepositoryPlace> {
     let repo = Repository::open_ext(
         path,
         RepositoryOpenFlags::CROSS_FS,
@@ -113,7 +129,20 @@ pub fn repository_root(path: &Path) -> GitResult<PathBuf> {
         path: path.to_path_buf(),
         reason: "bare repositories are not supported".to_owned(),
     })?;
-    Ok(workdir.components().collect())
+    crate::git2_engine::check_working_tree(&repo, path)?;
+    let root: PathBuf = workdir.components().collect();
+    let name = root
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| root.to_string_lossy().into_owned());
+    let is_linked_worktree = repo.is_worktree();
+    let main_root = is_linked_worktree.then(|| crate::git2_engine::main_path(repo.commondir()));
+    Ok(RepositoryPlace {
+        root,
+        name,
+        is_linked_worktree,
+        main_root,
+    })
 }
 
 fn read(path: &Path, with_dirty: bool, cancel: &Cancel) -> GitResult<RepoSummary> {
@@ -263,9 +292,11 @@ fn upstream_counts(
     Ok((Some(ahead), Some(behind)))
 }
 
-/// Commits reachable from `from` and not from `hide`, counted at most up to
-/// [`COUNT_CAP`] (a stale fork diverged by a million commits is not worth walking for a
-/// list), checking the cancel flag every thousand commits.
+/// Commits reachable from `from` and not from `hide`, counted at most up to [`COUNT_CAP`],
+/// checking the cancel flag every thousand counted commits. The cap bounds the count, not the
+/// cost: a hidden commit makes libgit2 mark the whole divergence before it yields the first
+/// commit, so a branch a million commits away from its upstream is read in full, with no
+/// cancel check in between.
 fn bounded_count(
     repo: &Repository,
     from: git2::Oid,

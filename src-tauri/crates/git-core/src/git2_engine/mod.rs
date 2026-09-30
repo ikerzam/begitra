@@ -335,7 +335,7 @@ impl Location {
 /// every tracked file as deleted and the directory's own files as untracked, and git refuses
 /// to run ("must be run in a work tree"). A linked worktree's directory names its working
 /// tree, and so does `core.worktree`.
-fn check_working_tree(repo: &Repository, opened: &Path) -> GitResult<()> {
+pub(crate) fn check_working_tree(repo: &Repository, opened: &Path) -> GitResult<()> {
     let gitdir = repo.path();
     if repo.workdir().is_none()
         || repo.is_worktree()

@@ -174,7 +174,7 @@ fn overview_of_the_synthetic_worktrees() {
     let median = each[each.len() / 2];
 
     println!(
-        "project_overview_first_rows: {:.2} ms (the index's 20 entries and the project)",
+        "project_overview_first_rows: {:.2} ms (the index's 20 entries and its two projects)",
         first_rows.as_secs_f64() * 1000.0
     );
     println!(
