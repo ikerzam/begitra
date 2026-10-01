@@ -43,6 +43,16 @@ function isBound(event: KeyboardEvent, arrow: string, id: string): boolean {
   return keys !== undefined && matchesKeys(keys, event, registry.platform);
 }
 
+/**
+ * Whether a keydown is the list's to handle: a focused row that handled the key itself (Enter,
+ * folder arrows) has prevented it, and a menu opened over the list handles its own keys (Enter
+ * runs the item, not the row; an arrow moves between its items, not into the next list).
+ */
+export function isListKeydown(event: KeyboardEvent): boolean {
+  if (event.defaultPrevented) return false;
+  return !(event.target instanceof Element && event.target.closest('[role="menu"]'));
+}
+
 /** 1 for the key that moves to the next row, -1 for the previous one's, 0 for any other. */
 export function rowStep(event: KeyboardEvent): 1 | -1 | 0 {
   if (isBound(event, "ArrowDown", "next-row")) return 1;
@@ -81,10 +91,7 @@ export function useListNavigation(options: ListNavigationOptions): ListNavigatio
   };
 
   const onKeydown = (event: KeyboardEvent): boolean => {
-    // A focused row that handled the key itself (Enter, folder arrows) has prevented it; a
-    // menu opened over the list handles its own keys (Enter runs the item, not the row).
-    if (event.defaultPrevented) return false;
-    if (event.target instanceof Element && event.target.closest('[role="menu"]')) return false;
+    if (!isListKeydown(event)) return false;
     if (isBound(event, "ArrowDown", "next-row")) {
       moveBy(1);
     } else if (isBound(event, "ArrowUp", "previous-row")) {

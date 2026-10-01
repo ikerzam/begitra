@@ -173,6 +173,23 @@ describe("the folder view's Changes", () => {
     wrapper.unmount();
   });
 
+  it("leaves the keys of a row's menu to the menu at a section's last row", async () => {
+    const { wrapper } = await mountFolder();
+    const last = row(wrapper, "/code/api", "src/b.ts");
+    await last.trigger("click");
+    await last.trigger("contextmenu");
+    await flushPromises();
+    const menu = wrapper.get('[role="menu"]');
+    const item = menu.get('[role="menuitem"]');
+    (item.element as HTMLElement).focus();
+    for (const key of ["j", "ArrowDown"]) await item.trigger("keydown", { key });
+    await flushPromises();
+    await nextTick();
+    expect(menu.element.contains(document.activeElement)).toBe(true);
+    expect(row(wrapper, "/code/web", "tiles.ts").attributes("aria-selected")).toBe("false");
+    wrapper.unmount();
+  });
+
   it("stages in the section's repository", async () => {
     const { wrapper, calls } = await mountFolder();
     const file = row(wrapper, "/code/web", "tiles.ts");

@@ -28,7 +28,7 @@ import { statusOf } from "@/detail/groupFiles";
 import type { Conflict, FileChange } from "@/ipc/schemas";
 import { errorText } from "@/shell/errorMessage";
 import { useShortcutHint } from "@/shortcuts/useShortcut";
-import { rowStep, useListNavigation } from "@/shortcuts/useListNavigation";
+import { isListKeydown, rowStep, useListNavigation } from "@/shortcuts/useListNavigation";
 import { useFileOpener } from "@/review/useFileOpener";
 import { copyText } from "@/shell/clipboard";
 import { nameAndFolder } from "@/shell/format";
@@ -229,6 +229,8 @@ function onContextMenu(row: Row, event: MouseEvent): void {
 }
 
 function onKeydown(event: KeyboardEvent): void {
+  // The row menu handles its own keys: an arrow in it moves between its items, not on.
+  if (!isListKeydown(event)) return;
   if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
     const row = rows.value[selectedIndex.value];
     if (!row) return;
