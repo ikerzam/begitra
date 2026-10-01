@@ -390,7 +390,13 @@ describe("RefMenu", () => {
 
   it("runs a sidebar menu's item on Enter, never the row's checkout", async () => {
     await open();
-    const list = mountWithI18n(BranchList, { props: { filter: "" }, attachTo: document.body });
+    const rows = useRepoStore()
+      .refs.filter((ref) => ref.kind === "local-branch")
+      .map((ref) => ({ ref, lane: 0 }));
+    const list = mountWithI18n(BranchList, {
+      props: { rows, kind: "local", label: "Branches" },
+      attachTo: document.body,
+    });
     await settled();
     const row = list
       .findAll('[data-testid="list-row"]')

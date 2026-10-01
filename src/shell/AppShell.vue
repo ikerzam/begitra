@@ -42,12 +42,11 @@ import { useFolderStore } from "@/stores/folder";
 import { useProjectsStore } from "@/stores/projects";
 import { useBulkStore } from "@/stores/bulk";
 import { useProjectDialogsStore } from "@/stores/projectDialogs";
-import { useSettingsStore } from "@/stores/settings";
+import { useSettingsStore, type SidebarSectionId } from "@/stores/settings";
 import { paneLimits, useShellStore } from "@/stores/shell";
 import { useWorktreesStore } from "@/stores/worktrees";
 import { useSettingsScreenStore } from "@/stores/settingsScreen";
 import SettingsLayout from "@/settings/SettingsLayout.vue";
-import type { SidebarTab } from "@/stores/shell";
 import AddWorktreeDialog from "@/worktrees/AddWorktreeDialog.vue";
 import WorktreesLayout from "@/worktrees/WorktreesLayout.vue";
 
@@ -126,29 +125,26 @@ const changedCount = computed(() => {
   );
   return Math.max(read, changes.counts?.changed ?? 0);
 });
+/** Home has no sidebar: it shows with a repository or a project open. */
+const sidebarAvailable = computed(() => repo.state.kind !== "empty" || projects.active !== null);
 /**
  * One sidebar for every layout but review focus and the settings (which show the rail), so
- * switching layouts keeps its filter, its lists and the focus of a tab that switched to the
- * dashboard.
+ * switching layouts keeps its filter, its folds and its lists.
  */
 const showSidebar = computed(
   () =>
-    (repo.state.kind !== "empty" || projects.active !== null) &&
-    !shell.sidebarCollapsed &&
-    !reviewMode.value &&
-    !settingsMode.value,
+    sidebarAvailable.value && !shell.sidebarCollapsed && !reviewMode.value && !settingsMode.value,
 );
 
 /**
- * A rail icon expands the sidebar on its tab; from review focus or the settings that means
- * leaving them. The rail goes with it, so the focus moves to the tab it chose. Neither setting's
- * save holds the focus back: each applies at once and is written a moment later.
+ * A rail icon expands the sidebar on its section; from review focus or the settings that means
+ * leaving them. The sidebar reveals the section and focuses its list. At Home the icons are
+ * disabled: a request there would wait for the next project and take its focus.
  */
-async function selectRailTab(tab: SidebarTab): Promise<void> {
+function selectRailSection(id: SidebarSectionId): void {
+  if (!sidebarAvailable.value) return;
   if (reviewMode.value || settingsMode.value) void shell.setLayoutMode("graph");
-  void shell.expandSidebar(tab);
-  await nextTick();
-  document.querySelector<HTMLElement>(`[data-testid="tab-${tab}"]`)?.focus();
+  void shell.expandSidebar(id);
 }
 
 /** "Compare with…": the selected commit in graph focus, else the current branch, as A. */
@@ -248,17 +244,10 @@ watch(
   },
 );
 
-// The sidebar follows the repository: the Repos tab on failure and at home, the branches as
-// soon as another repository starts opening (a large one takes a moment, and the tab should
-// not wait for it), unless the dashboard is being restored (its tab keeps it up).
+// An operation stopped before the app opened the repository shows its banner at once.
 watch(
   () => repo.state.kind,
   (kind) => {
-    if (kind === "error" || kind === "empty") shell.setSidebarTab("repos");
-    if (kind === "opening" || kind === "ready") {
-      shell.setSidebarTab(shell.layoutMode === "worktrees" ? "worktrees" : "branches");
-    }
-    // An operation stopped before the app opened the repository shows its banner at once.
     if (kind === "ready") void sequencer.load();
   },
 );
@@ -346,11 +335,7 @@ function removeFromProject(): void {
         @resize="(px) => void shell.setPaneSize('sidebar', px)"
         @reset="() => void shell.resetPaneSize('sidebar')"
       />
-      <SidebarRail
-        v-else
-        :active="settingsMode ? null : shell.sidebarTab"
-        @select="(tab) => void selectRailTab(tab)"
-      />
+      <SidebarRail v-else :disabled="!sidebarAvailable" @select="selectRailSection" />
       <ReviewFocusLayout v-if="reviewMode" ref="reviewLayout" />
       <CompareLayout v-else-if="compareMode" ref="compareLayout" />
       <WorktreesLayout v-else-if="worktreesMode" ref="worktreesLayout" />

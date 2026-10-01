@@ -127,26 +127,24 @@
     "overview": "Project overview"
   },
   "sidebar": {
-    "repos": "Repos",
     "branches": "Branches",
     "worktrees": "Worktrees",
-    "filterRepos": "Filter repositories",
     "sortByName": "Sort by name",
     "sortByRecent": "Sort by last commit",
-    "filterBranches": "Filter branches",
-    "filterWorktrees": "Filter worktrees",
-    "local": "Local",
-    "remote": "Remote",
     "tags": "Tags",
     "noRepository": "No repository open",
     "noBranches": "No branches yet",
     "noWorktrees": "No linked worktrees",
+    "noMatches": "Nothing matches the filter.",
+    "worktreesFailed": "Couldn't list the worktrees. {message}",
+    "worktreesUnlisted": "Couldn't list the worktrees",
     "notFound": "not found",
     "mainWorktree": "main worktree",
     "expand": "Expand the sidebar",
-    "noRepositories": "No repositories yet",
-    "noRepoMatches": "No repositories match the filter",
-    "branchCount": "{n} of {m} branches"
+    "filter": "Filter",
+    "repositories": "Repositories",
+    "remoteBranches": "Remote branches",
+    "countOf": "{n} of {m}"
   },
   "statusBar": {
     "noRepositories": "No repositories",

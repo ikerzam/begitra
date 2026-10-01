@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // The context menu of a worktree row: the row's actions plus Lock or Unlock. Opened at the
-// pointer, or under the focused row from the menu key. The sidebar's Worktrees tab opens it
+// pointer, or under the focused row from the menu key. The sidebar's Worktrees section opens it
 // without the actions that ask in a dialog (lock, unlock, remove), which the dashboard holds,
 // and with Terminal and Editor disabled for a folder that is gone: the dashboard's banner
 // explains that one and offers the prune, the sidebar has no place to.

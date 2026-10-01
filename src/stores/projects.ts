@@ -28,7 +28,7 @@ import { useSettingsStore, type LegacySettings } from "./settings";
 import { useShellStore } from "./shell";
 import { useToastsStore } from "./toasts";
 
-/** A project's member as the Overview, the Repos tab, the selector and the dialogs show it. */
+/** A project's member as the Overview, the sidebar, the selector and the dialogs show it. */
 export interface ProjectMember {
   path: string;
   /** Its index entry; null when the index does not list the path. */
@@ -393,8 +393,8 @@ export const useProjectsStore = defineStore("projects", () => {
 
   /**
    * Shows `path`, a repository of the open project, and makes it the one the project shows
-   * (the graph's selector, the Repos tab, the palette, Alt ↓, the Overview's ↵). The Overview
-   * gives way to the graph; the other layouts stay.
+   * (the graph's selector, the sidebar's Repositories section, the palette, Alt ↓, the
+   * Overview's ↵). The Overview gives way to the graph; the other layouts stay.
    */
   async function show(path: string): Promise<void> {
     const project = active.value;

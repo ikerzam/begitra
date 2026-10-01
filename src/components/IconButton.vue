@@ -7,7 +7,7 @@ const props = withDefaults(
     /** Accessible name, also shown as the app's tooltip. */
     label: string;
     icon?: Component;
-    /** For toggle buttons (layout modes, rail tabs): renders `aria-pressed` and the selected fill. */
+    /** For toggle buttons (layout modes, the dashboard): renders `aria-pressed` and the selected fill. */
     pressed?: boolean;
     disabled?: boolean;
     /** 24px square by default; `lg` is the 32px hit area of the sidebar rail. */

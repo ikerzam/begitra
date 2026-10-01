@@ -26,7 +26,7 @@ const { t, n } = useI18n();
 const repo = useRepoStore();
 const worktrees = useWorktreesStore();
 const external = useExternal();
-const table = ref<{ focus(): Promise<void>; keyboardOnTabs(): boolean } | null>(null);
+const table = ref<{ focus(): Promise<void>; sidebarRowFocused(): boolean } | null>(null);
 const menu = ref<{ path: string; x: number; y: number } | null>(null);
 
 const lanes = computed<Record<string, number>>(() => {
@@ -95,9 +95,9 @@ function withMenuRow(action: (path: string) => void): void {
 }
 
 defineExpose({
-  /** Focuses the rows, unless a sidebar tab reached by keyboard holds the focus. */
+  /** Focuses the rows, unless a row of the sidebar's lists holds the focus. */
   focusRows: () => {
-    if (!table.value?.keyboardOnTabs()) void table.value?.focus();
+    if (!table.value?.sidebarRowFocused()) void table.value?.focus();
   },
 });
 </script>

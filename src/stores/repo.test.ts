@@ -59,12 +59,17 @@ interface BackendOptions {
   refsGate?: Promise<void>;
   /** What `list_refs` answers instead of the one `main`. */
   refs?: GitRef[];
+  /** `list_worktrees` rejects. */
+  worktreesFail?: boolean;
+  /** Per `list_worktrees` call, in order: it waits for `gate`, then answers, or fails. */
+  worktreeCalls?: { gate?: Promise<void>; fail?: boolean }[];
 }
 
 function mockBackend(options: BackendOptions = {}): Call[] {
   const calls: Call[] = [];
   const total = 1_200;
   let walks = 0;
+  let worktreeListings = 0;
   const send = (channel: Channel<unknown>, messages: unknown[], gate?: Promise<void>) => {
     const deliver = () => {
       for (const message of messages) channel.onmessage(message);
@@ -204,6 +209,29 @@ function mockBackend(options: BackendOptions = {}): Call[] {
           options.diffGate,
         );
         return null;
+      }
+      case "list_worktrees": {
+        const call = options.worktreeCalls?.[worktreeListings] ?? {};
+        worktreeListings += 1;
+        if (options.worktreesFail || call.fail) {
+          const failure = { code: "git.cli_failed", message: "worktree list failed" };
+          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+          return (call.gate ?? Promise.resolve()).then(() => Promise.reject(failure));
+        }
+        const listed = [
+          {
+            path: "/r",
+            name: null,
+            head: commit(0).hash,
+            branch: "main",
+            detached: false,
+            isMain: true,
+            locked: false,
+            lockReason: null,
+            prunable: false,
+          },
+        ];
+        return call.gate ? call.gate.then(() => listed) : listed;
       }
       case "close_repository":
         return true;
@@ -769,5 +797,63 @@ describe("repo store, after the review", () => {
     expect(store.refsLoaded).toBe(false);
     await opening;
     expect(store.refsLoaded).toBe(true);
+  });
+
+  it("marks the worktrees as read once a listing answers, and again for the next repository", async () => {
+    mockBackend();
+    const store = useRepoStore();
+    await store.open("/r");
+    expect(store.worktreesLoaded).toBe(false);
+    await store.loadWorktrees();
+    expect(store.worktreesLoaded).toBe(true);
+    expect(store.worktrees.map((worktree) => worktree.path)).toEqual(["/r"]);
+    await store.open("/r");
+    expect(store.worktreesLoaded).toBe(false);
+  });
+
+  it("lets a listing that a later one overtook wait for it, so its caller reads the newest list", async () => {
+    let release = () => {};
+    mockBackend({
+      worktreeCalls: [{}, { gate: new Promise<void>((resolve) => (release = resolve)) }],
+    });
+    const store = useRepoStore();
+    await store.open("/r");
+    let firstDone = false;
+    const first = store.loadWorktrees().then(() => {
+      firstDone = true;
+    });
+    const second = store.loadWorktrees();
+    await settled();
+    // The first listing answered, but the second, started later, decides the list.
+    expect(firstDone).toBe(false);
+    expect(store.worktreesLoaded).toBe(false);
+    release();
+    await Promise.all([first, second]);
+    expect(store.worktreesLoaded).toBe(true);
+    expect(store.worktrees.map((worktree) => worktree.path)).toEqual(["/r"]);
+  });
+
+  it("keeps a newer listing's answer over an older one's failure", async () => {
+    let release = () => {};
+    mockBackend({
+      worktreeCalls: [{ gate: new Promise<void>((resolve) => (release = resolve)), fail: true }],
+    });
+    const store = useRepoStore();
+    await store.open("/r");
+    const first = store.loadWorktrees();
+    await store.loadWorktrees();
+    expect(store.worktreesLoaded).toBe(true);
+    release();
+    await first;
+    expect(store.worktreesError).toBeNull();
+  });
+
+  it("marks the worktrees as read when the listing fails, with its error", async () => {
+    mockBackend({ worktreesFail: true });
+    const store = useRepoStore();
+    await store.open("/r");
+    await store.loadWorktrees();
+    expect(store.worktreesLoaded).toBe(true);
+    expect(store.worktreesError?.code).toBe("git.cli_failed");
   });
 });

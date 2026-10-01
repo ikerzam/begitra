@@ -97,9 +97,9 @@ describe("shell store", () => {
     // 1440px at 175% zoom.
     shell.setWindowWidth(823);
     expect(shell.sidebarCollapsed).toBe(true);
-    await shell.expandSidebar("branches");
+    await shell.expandSidebar("local");
     expect(shell.sidebarCollapsed).toBe(false);
-    expect(shell.sidebarTab).toBe("branches");
+    expect(shell.sidebarReveal?.id).toBe("local");
     await shell.toggleSidebar();
     expect(shell.sidebarCollapsed).toBe(true);
     await shell.toggleSidebar();

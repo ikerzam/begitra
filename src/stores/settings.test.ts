@@ -99,6 +99,17 @@ describe("settings store", () => {
     expect(invalid.values.fileIcons).toBe(true);
   });
 
+  it("folds the remote branches and the tags by default, and keeps the sidebar's folds", async () => {
+    expect(defaultSettings("windows").sidebarFolded).toEqual(["remote", "tags"]);
+    const store = useSettingsStore();
+    await store.init(memoryStorage({ sidebarFolded: ["local", "worktrees"] }), "windows");
+    expect(store.values.sidebarFolded).toEqual(["local", "worktrees"]);
+    setActivePinia(createPinia());
+    const invalid = useSettingsStore();
+    await invalid.init(memoryStorage({ sidebarFolded: ["branches"] }), "windows");
+    expect(invalid.values.sidebarFolded).toEqual(["remote", "tags"]);
+  });
+
   it("keeps stored discovery keys that are valid and drops the rest", async () => {
     const store = useSettingsStore();
     await store.init(

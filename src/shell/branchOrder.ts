@@ -1,4 +1,4 @@
-// The order of the Branches tab: by the committer time of each ref's
+// The order of the sidebar's ref sections: by the committer time of each ref's
 // commit, most recent first, or by name, which is the order the engine lists (the full names'
 // byte order, as git for-each-ref sorts). The sort is stable, so equal times keep the name
 // order, and refs without a time come after the dated ones.

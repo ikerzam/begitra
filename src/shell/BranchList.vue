@@ -1,12 +1,12 @@
 <script setup lang="ts">
-// The Branches tab: local branches, remote branches and tags, filtered, with roving focus and
-// j/k navigation. Selecting a branch scopes the graph to it (the selection lives in the graph
-// store, so the scope control and the list agree); nothing is selected until the user picks a
-// row, and the first row is the tab stop until then. Lane colours come from the shared map, so
-// they survive filtering. While a filter is typed, the count line reads "N of M branches".
+// The refs of one section of the sidebar (the local branches, the remote branches or the tags),
+// filtered by the sidebar, with roving focus and j/k navigation; at its first or last row the
+// move goes on to the next section (`edge`). Selecting a branch scopes the graph to it (the
+// selection lives in the graph store, so the scope control and the lists agree); nothing is
+// selected until the user picks a row, and the first row is the tab stop until then.
 
 import { Tag } from "@lucide/vue";
-import { computed, onUnmounted, ref } from "vue";
+import { computed, inject, onUnmounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import RefMenu from "@/branches/RefMenu.vue";
@@ -15,92 +15,47 @@ import ListRow from "@/components/ListRow.vue";
 import MotionRows from "@/components/MotionRows.vue";
 import SkeletonRow from "@/components/SkeletonRow.vue";
 import type { Ref as GitRef } from "@/ipc/schemas";
-import { matchesQuery } from "@/palette/usePalette";
-import { useListNavigation } from "@/shortcuts/useListNavigation";
-import { useGraphStore } from "@/stores/graph";
+import { isListKeydown, rowStep, useListNavigation } from "@/shortcuts/useListNavigation";
 import { useRepoStore } from "@/stores/repo";
-import { useSettingsStore } from "@/stores/settings";
 
-import { branchLanes } from "./branchLanes";
-import { sortRefs } from "./branchOrder";
+import { branchSelectionKey, useBranchSelection } from "./useBranchSelection";
+import type { BranchRow } from "./useSidebarSections";
 
-const props = defineProps<{ filter: string }>();
-const emit = defineEmits<{ action: [kind: BranchAction, ref: GitRef] }>();
+const props = defineProps<{
+  rows: BranchRow[];
+  /** Which refs: the list's id and the tag icon. */
+  kind: "local" | "remote" | "tags";
+  /** The accessible name of the list. */
+  label: string;
+}>();
+const emit = defineEmits<{
+  action: [kind: BranchAction, ref: GitRef];
+  /** A move past the first (-1) or the last (1) row, for the next section. */
+  edge: [direction: 1 | -1];
+}>();
 
 const { t } = useI18n();
 const repo = useRepoStore();
-const graph = useGraphStore();
-const settings = useSettingsStore();
 const listbox = ref<HTMLElement | null>(null);
 const menu = ref<{ ref: GitRef; x: number; y: number } | null>(null);
 
-interface BranchRow {
-  ref: GitRef;
-  lane: number;
-}
-
-interface BranchGroup {
-  id: "local" | "remote" | "tags";
-  label: string;
-  rows: BranchRow[];
-}
-
-const groups = computed<BranchGroup[]>(() => {
-  const lanes = branchLanes(repo.refs);
-  const matching = repo.refs.filter((r) => matchesQuery(r.name, props.filter));
-  const pick = (kind: GitRef["kind"]) =>
-    sortRefs(
-      matching.filter((r) => r.kind === kind),
-      settings.values.branchSort,
-    ).map((r) => ({ ref: r, lane: lanes.get(r.fullName) ?? 0 }));
-  const all: BranchGroup[] = [
-    { id: "local", label: t("sidebar.local"), rows: pick("local-branch") },
-    { id: "remote", label: t("sidebar.remote"), rows: pick("remote-branch") },
-    { id: "tags", label: t("sidebar.tags"), rows: pick("tag") },
-  ];
-  return all.filter((group) => group.rows.length > 0);
-});
-
-const flatRows = computed(() => groups.value.flatMap((group) => group.rows));
-const rowCount = computed(() => flatRows.value.length);
+const rowCount = computed(() => props.rows.length);
 
 /* The selection is the graph's scope ref, so filtering keeps it; none until the user picks a row.
-   A move waits a moment before scoping the graph, so that j/k held over the list restarts the
-   walk once, on the row the user stops at; the row itself is marked at once. */
-const SCOPE_DELAY_MS = 120;
-const pendingName = ref<string | null>(null);
-let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+   The sidebar's ref lists share it, so a move into the next list leaves one pending scope; a list
+   on its own keeps its own. */
+const shared = inject(branchSelectionKey, null);
+const selection = shared ?? useBranchSelection();
+if (!shared) onUnmounted(selection.dispose);
 
-const selectedName = computed(() => {
-  if (pendingName.value !== null) return pendingName.value;
-  const scope = graph.filters.scope;
-  return scope.kind === "ref" ? scope.fullName : null;
-});
 const selectedRow = computed({
-  get: () => flatRows.value.findIndex((row) => row.ref.fullName === selectedName.value),
+  get: () => props.rows.findIndex((row) => row.ref.fullName === selection.selectedName.value),
   set: (index: number) => {
-    const ref = flatRows.value[index]?.ref;
-    if (!ref) return;
-    pendingName.value = ref.fullName;
-    if (pendingTimer !== null) clearTimeout(pendingTimer);
-    pendingTimer = setTimeout(() => {
-      pendingTimer = null;
-      pendingName.value = null;
-      graph.setScope({ kind: "ref", name: ref.name, fullName: ref.fullName });
-    }, SCOPE_DELAY_MS);
+    const ref = props.rows[index]?.ref;
+    if (ref) selection.select(ref);
   },
 });
 
-onUnmounted(() => {
-  if (pendingTimer !== null) clearTimeout(pendingTimer);
-});
-
-/** "N of M branches" while a filter narrows the list. */
-const countLine = computed(() => {
-  if (props.filter.trim() === "") return "";
-  const total = repo.refs.filter((r) => r.kind !== "stash").length;
-  return t("sidebar.branchCount", { n: rowCount.value, m: total });
-});
 const tabStopRow = computed(() => Math.max(0, selectedRow.value));
 
 const rowElement = (index: number) => listbox.value?.querySelector(`[data-index="${index}"]`);
@@ -109,21 +64,34 @@ const navigation = useListNavigation({
   selected: selectedRow,
   rowElement,
   onActivate: (index) => {
-    const ref = flatRows.value[index]?.ref;
+    const ref = props.rows[index]?.ref;
     if (ref && !ref.isCurrent) emit("action", "checkout", ref);
   },
 });
+
+/** Whether moving by `step` would leave the rows: the sidebar hands it on then. */
+function atEdge(step: 1 | -1): boolean {
+  const index = selectedRow.value;
+  return step === 1 ? index === rowCount.value - 1 : index <= 0;
+}
 
 /** The menu opens under the row, past the lane dot, where the graph opens its own. */
 const MENU_OFFSET_X = 116;
 
 function onKeydown(event: KeyboardEvent): void {
+  if (!isListKeydown(event)) return;
   if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
-    const ref = flatRows.value[selectedRow.value]?.ref;
+    const ref = props.rows[selectedRow.value]?.ref;
     if (!ref) return;
     event.preventDefault();
     const rect = rowElement(selectedRow.value)?.getBoundingClientRect();
     menu.value = { ref, x: rect ? rect.left + MENU_OFFSET_X : 0, y: rect ? rect.bottom : 0 };
+    return;
+  }
+  const step = rowStep(event);
+  if (step !== 0 && atEdge(step)) {
+    event.preventDefault();
+    emit("edge", step);
     return;
   }
   navigation.onKeydown(event);
@@ -132,7 +100,7 @@ function onKeydown(event: KeyboardEvent): void {
 function onContextMenu(index: number, event: MouseEvent): void {
   event.preventDefault();
   navigation.select(index);
-  const ref = flatRows.value[index]?.ref;
+  const ref = props.rows[index]?.ref;
   if (ref) menu.value = { ref, x: event.clientX, y: event.clientY };
 }
 
@@ -141,67 +109,59 @@ function closeMenu(): void {
   navigation.focus();
 }
 
-function rowIndex(groupIndex: number, index: number): number {
-  let offset = 0;
-  for (let i = 0; i < groupIndex; i += 1) offset += groups.value[i]?.rows.length ?? 0;
-  return offset + index;
+/** Selects and focuses the first or the last row (the sidebar entering the list); false when empty. */
+function selectEdge(edge: "first" | "last"): boolean {
+  if (rowCount.value === 0) return false;
+  navigation.select(edge === "first" ? 0 : rowCount.value - 1);
+  return true;
 }
 
-defineExpose({ focus: navigation.focus });
+defineExpose({ focus: navigation.focus, selectEdge });
 </script>
 
 <template>
   <div
-    id="sidebar-branches"
+    :id="`sidebar-${props.kind}`"
     ref="listbox"
     role="listbox"
-    :aria-label="t('sidebar.branches')"
-    class="min-h-0 flex-1 overflow-y-auto pb-2"
-    data-testid="branch-list"
+    :aria-label="props.label"
+    :data-testid="`branch-list-${props.kind}`"
     @keydown="onKeydown"
   >
-    <div
-      v-for="(group, groupIndex) in groups"
-      :key="group.id"
-      role="group"
-      :aria-labelledby="`branch-group-${group.id}`"
+    <MotionRows
+      list="branches"
+      :count="props.rows.length"
+      role="none"
+      @focus-lost="navigation.focus()"
     >
-      <p
-        :id="`branch-group-${group.id}`"
-        role="presentation"
-        class="px-3 pt-3 pb-1 text-sm text-fg-muted"
-      >
-        {{ group.label }}
-      </p>
-      <MotionRows
-        list="branches"
-        :count="flatRows.length"
-        role="none"
-        @focus-lost="navigation.focus()"
-      >
-        <ListRow
-          v-for="(row, index) in group.rows"
-          :key="row.ref.fullName"
-          :data-index="rowIndex(groupIndex, index)"
-          :name="row.ref.name"
-          :lane="row.lane"
-          :icon="group.id === 'tags' ? Tag : undefined"
-          :ahead="row.ref.upstream ? (row.ref.ahead ?? undefined) : undefined"
-          :behind="row.ref.upstream ? (row.ref.behind ?? undefined) : undefined"
-          :selected="rowIndex(groupIndex, index) === selectedRow"
-          :tab-stop="rowIndex(groupIndex, index) === tabStopRow"
-          @select="navigation.select(rowIndex(groupIndex, index))"
-          @contextmenu="(event: MouseEvent) => onContextMenu(rowIndex(groupIndex, index), event)"
-        />
-      </MotionRows>
-    </div>
-    <p v-if="countLine" class="px-3 pt-3 text-sm text-fg-muted" data-testid="branch-count">
-      {{ countLine }}
-    </p>
-    <template v-if="groups.length === 0 && repo.state.kind === 'ready' && !repo.refsLoaded">
+      <ListRow
+        v-for="(row, index) in props.rows"
+        :key="row.ref.fullName"
+        :data-index="index"
+        :name="row.ref.name"
+        :lane="row.lane"
+        :icon="props.kind === 'tags' ? Tag : undefined"
+        :ahead="row.ref.upstream ? (row.ref.ahead ?? undefined) : undefined"
+        :behind="row.ref.upstream ? (row.ref.behind ?? undefined) : undefined"
+        :selected="index === selectedRow"
+        :tab-stop="index === tabStopRow"
+        @select="navigation.select(index)"
+        @contextmenu="(event: MouseEvent) => onContextMenu(index, event)"
+      />
+    </MotionRows>
+    <template
+      v-if="
+        props.kind === 'local' &&
+        props.rows.length === 0 &&
+        (repo.state.kind === 'opening' || (repo.state.kind === 'ready' && !repo.refsLoaded))
+      "
+    >
       <SkeletonRow v-for="n in 6" :key="n" :index="n" height="list" />
     </template>
-    <p v-else-if="groups.length === 0" class="px-3 py-4 text-md text-fg-secondary">
+    <p
+      v-else-if="props.kind === 'local' && props.rows.length === 0"
+      class="px-3 py-2 text-md text-fg-secondary"
+    >
       {{ repo.state.kind === "ready" ? t("sidebar.noBranches") : t("sidebar.noRepository") }}
     </p>
   </div>

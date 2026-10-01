@@ -127,26 +127,24 @@
     "overview": "Resumen del proyecto"
   },
   "sidebar": {
-    "repos": "Repos",
     "branches": "Ramas",
     "worktrees": "Worktrees",
-    "filterRepos": "Filtrar repositorios",
     "sortByName": "Ordenar por nombre",
     "sortByRecent": "Ordenar por el último commit",
-    "filterBranches": "Filtrar ramas",
-    "filterWorktrees": "Filtrar worktrees",
-    "local": "Locales",
-    "remote": "Remotas",
     "tags": "Etiquetas",
     "noRepository": "Ningún repositorio abierto",
     "noBranches": "Todavía no hay ramas",
     "noWorktrees": "No hay worktrees enlazados",
+    "noMatches": "Nada coincide con el filtro.",
+    "worktreesFailed": "No se pudieron listar los worktrees. {message}",
+    "worktreesUnlisted": "No se pudieron listar los worktrees",
     "notFound": "no encontrado",
     "mainWorktree": "worktree principal",
     "expand": "Expandir la barra lateral",
-    "noRepositories": "Todavía no hay repositorios",
-    "noRepoMatches": "Ningún repositorio coincide con el filtro",
-    "branchCount": "{n} de {m} ramas"
+    "filter": "Filtrar",
+    "repositories": "Repositorios",
+    "remoteBranches": "Ramas remotas",
+    "countOf": "{n} de {m}"
   },
   "statusBar": {
     "noRepositories": "Sin repositorios",

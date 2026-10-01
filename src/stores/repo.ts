@@ -116,6 +116,8 @@ export const useRepoStore = defineStore("repo", () => {
   const selectedIndex = ref(-1);
   const detail = ref<Detail | null>(null);
   const worktrees = ref<Worktree[]>([]);
+  /** Whether a listing of this repository's worktrees answered, listed or failed. */
+  const worktreesLoaded = ref(false);
   const worktreesError = ref<AppError | null>(null);
 
   let walkHandle: StreamHandle | null = null;
@@ -153,6 +155,8 @@ export const useRepoStore = defineStore("repo", () => {
   let refsSerial = 0;
   /** The same for the listings of the worktrees. */
   let worktreesSerial = 0;
+  /** The listing of the worktrees started last, which the ones it overtook wait for. */
+  let worktreesListing: Promise<void> = Promise.resolve();
 
   const selectedCommit = computed<CommitNode | undefined>(() => commits.value[selectedIndex.value]);
   const canLoadMore = computed(
@@ -187,6 +191,7 @@ export const useRepoStore = defineStore("repo", () => {
     selectedIndex.value = -1;
     detail.value = null;
     worktrees.value = [];
+    worktreesLoaded.value = false;
     worktreesError.value = null;
   }
 
@@ -199,21 +204,36 @@ export const useRepoStore = defineStore("repo", () => {
     walkRecovered = false;
   }
 
-  /** Lists the worktrees of the open repository (the sidebar tab asks for it). */
+  /**
+   * Lists the worktrees of the open repository (the sidebar asks for it once it is ready). A
+   * listing started later holds newer worktrees (a write's answer shown meanwhile): only it stores
+   * what it read, and the listings it overtook resolve once it has, so their callers read the
+   * newest list.
+   */
   async function loadWorktrees(): Promise<void> {
     const root = repo.value?.root;
     if (!root) return;
     const myGeneration = generation;
     const mine = ++worktreesSerial;
-    try {
-      const list = await ipc.listWorktrees(root);
-      // A listing started later holds newer worktrees (a write's answer shown meanwhile).
-      if (myGeneration !== generation || mine !== worktreesSerial) return;
-      worktrees.value = list;
-      worktreesError.value = null;
-    } catch (error) {
-      if (myGeneration !== generation) return;
-      worktreesError.value = toAppError(error);
+    const listing = (async () => {
+      try {
+        const list = await ipc.listWorktrees(root);
+        if (myGeneration !== generation || mine !== worktreesSerial) return;
+        worktrees.value = list;
+        worktreesLoaded.value = true;
+        worktreesError.value = null;
+      } catch (error) {
+        if (myGeneration !== generation || mine !== worktreesSerial) return;
+        worktreesLoaded.value = true;
+        worktreesError.value = toAppError(error);
+      }
+    })();
+    worktreesListing = listing;
+    let waited = listing;
+    await waited;
+    while (myGeneration === generation && worktreesListing !== waited) {
+      waited = worktreesListing;
+      await waited;
     }
   }
 
@@ -682,6 +702,7 @@ export const useRepoStore = defineStore("repo", () => {
     selectedCommit,
     detail,
     worktrees,
+    worktreesLoaded,
     worktreesError,
     canLoadMore,
     currentBranch,

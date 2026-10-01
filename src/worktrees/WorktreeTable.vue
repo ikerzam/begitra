@@ -98,29 +98,26 @@ async function focus(): Promise<void> {
 }
 
 /**
- * Whether the focus is on a sidebar tab reached by keyboard (the arrows move on from it):
- * such a tab keeps its focus. A tab that was clicked hands it to the rows.
+ * Whether a row of the sidebar's lists holds the focus: the user is moving through them, and a
+ * repository shown from there brings the dashboard back for it. The rows leave that focus where
+ * it is; the dashboard's toggle, a button, hands it to them.
  */
-function keyboardOnTabs(): boolean {
+function sidebarRowFocused(): boolean {
   const active = document.activeElement;
-  if (!(active instanceof HTMLElement) || !active.closest('[role="tablist"]')) return false;
-  try {
-    return active.matches(":focus-visible");
-  } catch {
-    return true;
-  }
+  return (
+    active instanceof Element && active.closest('[data-testid="sidebar"] [role="option"]') !== null
+  );
 }
 
 // A selected row that disappeared (removed, pruned) hands the focus to the first row; the
-// first rows take the focus when nothing else holds it (the dashboard opened before its list
-// arrived, or a tab was clicked), never from a sidebar tab the user is moving through by
-// keyboard.
+// first rows take the focus when they arrive after the dashboard opened, unless a row of the
+// sidebar's lists holds it.
 watch(rowCount, (count, previous) => {
   if (count < previous && selectedIndex.value < 0 && count > 0) void focus();
-  if (previous === 0 && count > 0 && !keyboardOnTabs()) void focus();
+  if (previous === 0 && count > 0 && !sidebarRowFocused()) void focus();
 });
 
-defineExpose({ focus, keyboardOnTabs });
+defineExpose({ focus, sidebarRowFocused });
 </script>
 
 <template>

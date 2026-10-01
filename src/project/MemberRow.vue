@@ -193,7 +193,7 @@ const hasCounts = computed(() => props.row.ahead !== null && props.row.behind !=
 .member-wide {
   grid-column: span 2;
 }
-/* A worktree under its repository: one step in, as the Repos tab nests it. */
+/* A worktree under its repository: one step in, as the sidebar's Repositories section nests it. */
 .member-nested {
   padding-left: var(--space-4);
 }

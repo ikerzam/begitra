@@ -12,6 +12,7 @@ import {
   type ColumnWidths,
   type LayoutMode,
   type PaneSizes,
+  type SidebarSectionId,
 } from "./settings";
 
 /** Pane limits in px, from the design: detail never under 360, sidebar 240 by default. */
@@ -55,8 +56,6 @@ export function defaultDetailWidth(windowWidth: number, sidebarWidth: number): n
   return clampPane("detail", DETAIL_FRACTION * (windowWidth - sidebarWidth));
 }
 
-export type SidebarTab = "repos" | "branches" | "worktrees";
-
 /** The user's say on the review rail; "auto" follows the window width. */
 export type ReviewRailPreference = "auto" | "shown" | "hidden";
 
@@ -71,8 +70,12 @@ export const useShellStore = defineStore("shell", () => {
    * the next unzoomed launch. */
   const narrowSidebar = ref<NarrowSidebar>("auto");
   const paletteOpen = ref(false);
-  /** Repos while nothing is open (the home screen); the shell switches to Branches on open. */
-  const sidebarTab = ref<SidebarTab>("repos");
+  /**
+   * A section of the sidebar to reveal (a rail icon asked for it): the sidebar takes the request,
+   * opens the section, scrolls it to the top and focuses its list. Each request is a new object,
+   * so asking for the same section again is a new request.
+   */
+  const sidebarReveal = ref<{ id: SidebarSectionId } | null>(null);
 
   const layoutMode = computed<LayoutMode>(() => settings.values.layoutMode);
   const narrow = computed(() => windowWidth.value < NARROW_BREAKPOINT);
@@ -209,30 +212,21 @@ export const useShellStore = defineStore("shell", () => {
     paletteOpen.value = !paletteOpen.value;
   }
 
-  /**
-   * The Worktrees tab shows the dashboard in the main area; the other tabs return to graph
-   * focus when the dashboard is up (the review and compare layouts keep their tab).
-   */
-  function setSidebarTab(tab: SidebarTab): void {
-    sidebarTab.value = tab;
-    if (tab === "worktrees" && layoutMode.value !== "worktrees") {
-      void setLayoutMode("worktrees");
-    } else if (tab !== "worktrees" && layoutMode.value === "worktrees") {
-      void setLayoutMode("graph");
-    }
+  function revealSidebarSection(id: SidebarSectionId): void {
+    sidebarReveal.value = { id };
   }
 
-  /** Expands the sidebar on `tab` (the rail icons do this); for the session when narrow. */
-  async function expandSidebar(tab: SidebarTab): Promise<void> {
-    setSidebarTab(tab);
+  /** Expands the sidebar on a section (the rail icons do this); for the session when narrow. */
+  async function expandSidebar(id: SidebarSectionId): Promise<void> {
+    revealSidebarSection(id);
     if (narrow.value) narrowSidebar.value = "shown";
     else if (settings.values.sidebarCollapsed) await settings.update("sidebarCollapsed", false);
   }
 
   return {
     windowWidth,
-    sidebarTab,
-    setSidebarTab,
+    sidebarReveal,
+    revealSidebarSection,
     expandSidebar,
     layoutMode,
     sidebarCollapsed,
