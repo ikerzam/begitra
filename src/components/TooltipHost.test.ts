@@ -154,6 +154,7 @@ describe("TooltipHost", () => {
     const host = mountHost();
     const divider = hinted("Resize the sidebar");
     const switcher = hinted("Switch repository");
+    switcher.setAttribute("aria-haspopup", "menu");
     switcher.setAttribute("aria-expanded", "true");
     const row = hinted("apps/web/src/map/tile-cache.ts");
     row.setAttribute("role", "treeitem");
@@ -171,6 +172,16 @@ describe("TooltipHost", () => {
     move(switcher, row);
     await wait(500);
     expect(bubble()?.textContent).toContain("tile-cache.ts");
+    host.unmount();
+  });
+
+  it("shows the hint of an open disclosure, whose content opens in place", async () => {
+    const host = mountHost();
+    const toggle = hinted("Hide git's output");
+    toggle.setAttribute("aria-expanded", "true");
+    toggle.dispatchEvent(new MouseEvent("pointerover", { bubbles: true }));
+    await wait(600);
+    expect(bubble()?.textContent).toContain("Hide git's output");
     host.unmount();
   });
 

@@ -40,13 +40,17 @@ let keyboard = false;
 /** The rows of the lists the keys walk: their focus shows no bubble. */
 const LIST_ROWS = '[role="treeitem"], [role="option"], [role="row"]';
 
-/** The element with a hint that `target` is in, unless its own popup is open. */
+/**
+ * The element with a hint that `target` is in, unless the popup it opens is open (a menu, a
+ * list): the bubble would cover it. A disclosure, expanded without `aria-haspopup`, opens its
+ * content in place and keeps its bubble.
+ */
 function hintOf(target: EventTarget | null): HTMLElement | null {
   if (!(target instanceof Element)) return null;
   const element = target.closest<HTMLElement>("[data-tooltip]");
-  if (!element?.dataset.tooltip || element.getAttribute("aria-expanded") === "true") {
-    return null;
-  }
+  const popupOpen =
+    element?.getAttribute("aria-expanded") === "true" && element.hasAttribute("aria-haspopup");
+  if (!element?.dataset.tooltip || popupOpen) return null;
   return element;
 }
 
