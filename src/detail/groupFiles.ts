@@ -1,6 +1,7 @@
 // Groups a change set by folder for the file list of the detail panel and the files panel of
 // review focus. Pure, so it is unit-tested on data.
 
+import { isLockfile } from "@/components/lockfiles";
 import type { FileStatus } from "@/components/types";
 import type { ChangeKind, FileChange } from "@/ipc/schemas";
 
@@ -177,24 +178,6 @@ export interface FileFilters {
   hideGenerated: boolean;
   hideLockfiles: boolean;
   hideTests: boolean;
-}
-
-const lockfiles = new Set([
-  "package-lock.json",
-  "pnpm-lock.yaml",
-  "yarn.lock",
-  "Cargo.lock",
-  "go.sum",
-  "poetry.lock",
-  "Pipfile.lock",
-  "Gemfile.lock",
-  "composer.lock",
-  "bun.lock",
-  "bun.lockb",
-]);
-
-export function isLockfile(path: string): boolean {
-  return lockfiles.has(splitPath(path).name);
 }
 
 export function applyFilters(files: FileChange[], filters: FileFilters): FileChange[] {

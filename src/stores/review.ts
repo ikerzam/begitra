@@ -7,7 +7,8 @@
 import { defineStore } from "pinia";
 import { computed, ref, shallowRef, watch } from "vue";
 
-import { isLockfile, type FileFilters } from "@/detail/groupFiles";
+import { isLockfile } from "@/components/lockfiles";
+import type { FileFilters } from "@/detail/groupFiles";
 import * as ipc from "@/ipc/commands";
 import { toAppError, type AppError } from "@/ipc/errors";
 import { newOpId } from "@/ipc/invoke";
