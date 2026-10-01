@@ -866,9 +866,11 @@ describe("AppShell", () => {
     expect(shell.layoutMode).toBe("changes");
     const conflicts = wrapper.get('[data-testid="conflicts-list"]');
     const row = conflicts.get('[data-testid="tree-row"]');
-    expect(row.text()).toContain("src/app.ts");
+    expect(row.get('[data-testid="tree-row-name"]').text()).toBe("app.ts");
+    expect(row.get('[data-testid="tree-row-folder"]').text()).toBe("src");
     expect(row.text()).toContain("both modified");
     expect(row.find('[data-status="unmerged"]').text()).toBe("U");
+    expect(row.get('[data-testid="tree-row-icon"]').classes()).toContain("lucide-file-code");
     expect(wrapper.get('[data-testid="status-stopped"]').text()).toBe(
       "Merge in progress · 1 conflict",
     );

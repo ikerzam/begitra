@@ -391,6 +391,15 @@ describe("SettingsLayout", () => {
     await nextTick();
     expect(settings.values.uiWeight).toBe("medium");
     expect(settings.values.codeWeight).toBe("semibold");
+
+    // File icons, on by default, with its hint.
+    const icons = wrapper.get('[data-testid="file-icons"]');
+    expect(icons.element.closest('[data-testid="settings-field"]')?.textContent).toContain(
+      "An icon by file type before each file in the file lists.",
+    );
+    expect(settings.values.fileIcons).toBe(true);
+    await icons.trigger("click");
+    expect(settings.values.fileIcons).toBe(false);
   });
 
   it("sets the zoom from its select and names the keys that change it anywhere", async () => {

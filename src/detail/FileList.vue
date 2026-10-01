@@ -1,14 +1,16 @@
 <script setup lang="ts">
-// The change set as a tree grouped by folder, with status letters and stats per file. For the
-// keyboard the files form one list: j/k and the arrows move the selection, Enter activates,
-// and the selected row (or the first) is the tab stop. Folders keep their own chevron and
-// Left/Right keys. A right click or the menu key on a file asks for its menu; the panel owns it.
+// The change set as a tree grouped by folder, with the status letter, the kind's icon
+// (Appearance) and the stats per file. For the keyboard the files form one list: j/k and the
+// arrows move the selection, Enter activates, and the selected row (or the first) is the tab
+// stop. Folders keep their own chevron and Left/Right keys. A right click or the menu key on a
+// file asks for its menu; the panel owns it.
 
 import { computed, ref } from "vue";
 
 import TreeRow from "@/components/TreeRow.vue";
 import type { FileChange } from "@/ipc/schemas";
 import { useListNavigation } from "@/shortcuts/useListNavigation";
+import { useSettingsStore } from "@/stores/settings";
 
 import { groupFiles } from "./groupFiles";
 
@@ -40,6 +42,7 @@ const emit = defineEmits<{
   /** The file's menu at a viewport point (a right click, or the menu key at the row). */
   menu: [file: FileChange, x: number, y: number];
 }>();
+const settings = useSettingsStore();
 
 const tree = ref<HTMLElement | null>(null);
 const collapsed = ref(new Set<string>());
@@ -135,6 +138,7 @@ defineExpose({ focus: navigation.focus, collapseAll });
           :name="entry.name"
           :depth="1"
           :status="entry.status"
+          :kind-icon="settings.values.fileIcons"
           :added="entry.file.isBinary ? undefined : entry.file.additions"
           :removed="entry.file.isBinary ? undefined : entry.file.deletions"
           :generated="entry.file.isGenerated"

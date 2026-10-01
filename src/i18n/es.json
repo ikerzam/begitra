@@ -1009,6 +1009,8 @@
       "codeFont": "Fuente del código",
       "codeFontHint": "Para el código, las rutas y los hashes. Vacío para Geist Mono.",
       "codeWeight": "Grosor del código",
+      "fileIcons": "Iconos de fichero",
+      "fileIconsHint": "Un icono según el tipo delante de cada fichero en las listas de ficheros.",
       "zoom": "Zoom",
       "zoomHint": "Escala toda la ventana. {in} y {out} lo cambian desde cualquier sitio.",
       "weights": {

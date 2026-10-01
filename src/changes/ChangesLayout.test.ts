@@ -90,12 +90,16 @@ describe("ChangesLayout", () => {
       "1",
     ]);
     const rows = wrapper.findAll('[data-testid="tree-row"]');
-    expect(rows.map((row) => row.get('[data-testid="tree-row-name"]').text())).toEqual([
+    expect(rows.map((row) => row.attributes("data-path"))).toEqual([
       "src/a.ts",
       "src/b.ts",
       "src/new.md",
       "src/c.ts",
     ]);
+    // Each row names its file, then its folder, muted: two files of a folder read apart.
+    expect(rows[0]?.get('[data-testid="tree-row-name"]').text()).toBe("a.ts");
+    expect(rows[0]?.get('[data-testid="tree-row-folder"]').text()).toBe("src");
+    expect(rows[0]?.get('[data-testid="tree-row-folder"]').classes()).toContain("text-fg-muted");
     expect(rows[2]?.find('[data-status="untracked"]').text()).toBe("?");
     expect(rows[3]?.find('[data-status="modified"]').exists()).toBe(true);
     expect(rows[0]?.attributes("aria-selected")).toBe("true");
@@ -144,8 +148,10 @@ describe("ChangesLayout", () => {
       false,
     ]);
     // The file is in both lists now and the picked lines are gone with the reload.
-    const names = wrapper.findAll('[data-testid="tree-row-name"]').map((name) => name.text());
-    expect(names).toEqual(["src/a.ts", "src/b.ts", "src/new.md", "src/a.ts", "src/c.ts"]);
+    const paths = wrapper
+      .findAll('[data-testid="tree-row"]')
+      .map((row) => row.attributes("data-path"));
+    expect(paths).toEqual(["src/a.ts", "src/b.ts", "src/new.md", "src/a.ts", "src/c.ts"]);
     expect(wrapper.findAll('[data-selected="true"]')).toHaveLength(0);
     wrapper.unmount();
   });
@@ -438,6 +444,17 @@ describe("ChangesLayout", () => {
       amend: false,
       signoff: true,
     });
+    wrapper.unmount();
+  });
+
+  it("draws each file's kind in the lists, until Appearance turns the icons off", async () => {
+    const { wrapper } = await mountScreen();
+    const rows = wrapper.findAll('[data-list="unstaged"]');
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) expect(row.find('[data-testid="tree-row-icon"]').exists()).toBe(true);
+    await useSettingsStore().update("fileIcons", false);
+    await nextTick();
+    expect(wrapper.find('[data-testid="tree-row-icon"]').exists()).toBe(false);
     wrapper.unmount();
   });
 

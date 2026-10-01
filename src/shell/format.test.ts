@@ -5,6 +5,7 @@ import {
   absoluteDate,
   baseName,
   formatCount,
+  nameAndFolder,
   relativeDate,
   sameFolder,
   shortHash,
@@ -34,6 +35,18 @@ describe("other helpers", () => {
     expect(baseName("/home/iker/code/begitra/")).toBe("begitra");
     expect(baseName("begitra")).toBe("begitra");
     expect(formatCount(48210, "en")).toBe("48,210");
+  });
+
+  it("splits a repository path into the file's name and its folder", () => {
+    expect(nameAndFolder("apps/web/src/map/tile-cache.ts")).toEqual({
+      name: "tile-cache.ts",
+      folder: "apps/web/src/map",
+    });
+    expect(nameAndFolder("pnpm-lock.yaml")).toEqual({ name: "pnpm-lock.yaml", folder: "" });
+    expect(nameAndFolder("vendor/nested-repo/")).toEqual({
+      name: "nested-repo/",
+      folder: "vendor",
+    });
   });
 });
 

@@ -44,6 +44,17 @@ export function baseName(path: string): string {
   return at >= 0 ? trimmed.slice(at + 1) : trimmed;
 }
 
+/**
+ * A repository path as a flat list shows it: the file's name, then the folder it is in (empty at
+ * the root). A path ending in `/` (a nested repository) keeps the slash on its name.
+ */
+export function nameAndFolder(path: string): { name: string; folder: string } {
+  const slash = path.endsWith("/") ? "/" : "";
+  const trimmed = slash ? path.slice(0, -1) : path;
+  const at = trimmed.lastIndexOf("/");
+  return { name: trimmed.slice(at + 1) + slash, folder: at < 0 ? "" : trimmed.slice(0, at) };
+}
+
 /** Thousands separators in the viewer's locale. */
 export function formatCount(n: number, locale: string): string {
   return new Intl.NumberFormat(locale).format(n);

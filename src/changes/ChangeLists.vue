@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // The two lists of the changes screen: Unstaged with "Stage all" and
 // "Discard all…" in its header, Staged with "Unstage all", flat rows with the status letter
-// (the "?" of an untracked file), the path and the stats. For the keyboard the two lists are
+// (the "?" of an untracked file), the file's kind as an icon (Appearance), the file's name with
+// its folder after it, muted (two files of one folder read apart at once), and the stats. For the keyboard the two lists are
 // one: j/k and the arrows move through both, Enter opens the row's menu, s, u and Backspace
 // act on the selected row (the layout binds them), and the selected row is the tab stop.
 // Skeleton rows while the diffs stream, the empty sentence on a clean tree. Embedded in the
@@ -30,9 +31,11 @@ import { useShortcutHint } from "@/shortcuts/useShortcut";
 import { rowStep, useListNavigation } from "@/shortcuts/useListNavigation";
 import { useFileOpener } from "@/review/useFileOpener";
 import { copyText } from "@/shell/clipboard";
+import { nameAndFolder } from "@/shell/format";
 import { useExternal } from "@/shell/useExternal";
 import type { ChangeList } from "@/stores/changes";
 import { useSequencerStore } from "@/stores/sequencer";
+import { useSettingsStore } from "@/stores/settings";
 import { useToastsStore } from "@/stores/toasts";
 
 import { useChanges, useOpenRepositoryChanges } from "./useChanges";
@@ -57,6 +60,7 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const changes = useChanges();
 const sequencer = useSequencerStore();
+const settings = useSettingsStore();
 /** The operation's conflicts, which belong to the open repository alone. */
 const openRepository = useOpenRepositoryChanges();
 const conflicts = computed(() => (openRepository ? sequencer.conflicts : []));
@@ -365,8 +369,10 @@ defineExpose({ focus: navigation.focus, moveFile, selectEdge });
           <TreeRow
             v-for="(conflict, index) in conflicts"
             :key="conflict.path"
-            :name="conflict.path"
+            :name="nameAndFolder(conflict.path).name"
+            :folder="nameAndFolder(conflict.path).folder"
             status="unmerged"
+            :kind-icon="settings.values.fileIcons"
             :meta="t(`sequencer.kinds.${conflict.kind}`)"
             :selected="isSelected('conflicts', conflict.path)"
             :tab-stop="tabStop === index"
@@ -423,7 +429,9 @@ defineExpose({ focus: navigation.focus, moveFile, selectEdge });
         <TreeRow
           v-for="(file, index) in changes.unstaged.files"
           :key="file.path"
-          :name="file.path"
+          :name="nameAndFolder(file.path).name"
+          :folder="nameAndFolder(file.path).folder"
+          :kind-icon="settings.values.fileIcons"
           :status="statusLetter('unstaged', file)"
           :added="file.isBinary ? undefined : file.additions"
           :removed="file.isBinary ? undefined : file.deletions"
@@ -475,7 +483,9 @@ defineExpose({ focus: navigation.focus, moveFile, selectEdge });
         <TreeRow
           v-for="(file, index) in changes.staged.files"
           :key="file.path"
-          :name="file.path"
+          :name="nameAndFolder(file.path).name"
+          :folder="nameAndFolder(file.path).folder"
+          :kind-icon="settings.values.fileIcons"
           :status="statusLetter('staged', file)"
           :added="file.isBinary ? undefined : file.additions"
           :removed="file.isBinary ? undefined : file.deletions"

@@ -88,6 +88,17 @@ describe("settings store", () => {
     expect(again.values.zoom).toBe(125);
   });
 
+  it("shows file icons by default, and keeps them off once turned off", async () => {
+    expect(defaultSettings("windows").fileIcons).toBe(true);
+    const store = useSettingsStore();
+    await store.init(memoryStorage({ fileIcons: false }), "windows");
+    expect(store.values.fileIcons).toBe(false);
+    setActivePinia(createPinia());
+    const invalid = useSettingsStore();
+    await invalid.init(memoryStorage({ fileIcons: "yes" }), "windows");
+    expect(invalid.values.fileIcons).toBe(true);
+  });
+
   it("keeps stored discovery keys that are valid and drops the rest", async () => {
     const store = useSettingsStore();
     await store.init(

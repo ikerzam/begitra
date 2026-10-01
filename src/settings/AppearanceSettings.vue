@@ -1,14 +1,16 @@
 <script setup lang="ts">
 // The settings' Appearance section: the theme and the code theme as selects (Begitra's own
 // dark and light, then the palettes by name), the zoom as a select, then the interface and
-// code fonts, each a typed family with the app's suggestion list (FontField), and their
-// weights as four radios; all applied at once (useTheme, useZoom, useFonts).
+// code fonts, each a typed family with the app's suggestion list (FontField), their weights as
+// four radios, and the file icons as a toggle; all applied at once (useTheme, useZoom, useFonts,
+// the file lists).
 
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
 import RadioGroup from "@/components/RadioGroup.vue";
 import Select from "@/components/Select.vue";
+import Toggle from "@/components/Toggle.vue";
 import type { RadioOption, SelectOption } from "@/components/types";
 import { useShortcutHint } from "@/shortcuts/useShortcut";
 import {
@@ -186,6 +188,17 @@ const codeWeight = computed({
         :label="t('settings.appearance.codeWeight')"
         inline
         data-testid="code-weight"
+      />
+    </SettingsField>
+    <SettingsField
+      :label="t('settings.appearance.fileIcons')"
+      :hint="t('settings.appearance.fileIconsHint')"
+    >
+      <Toggle
+        :model-value="settings.values.fileIcons"
+        :label="t('settings.appearance.fileIcons')"
+        data-testid="file-icons"
+        @update:model-value="(on) => void settings.update('fileIcons', on)"
       />
     </SettingsField>
   </SettingsSection>

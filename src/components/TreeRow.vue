@@ -4,6 +4,7 @@ import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
 import DiffStat from "./DiffStat.vue";
+import { fileIconOf } from "./fileIcon";
 import StatusLetter from "./StatusLetter.vue";
 import type { FileStatus } from "./types";
 
@@ -32,6 +33,13 @@ const props = withDefaults(
     selected?: boolean;
     /** Roving tab stop; defaults to the selected row. Lists without a selection pass it to the first row. */
     tabStop?: boolean;
+    /** A file's kind as an icon before its name (the lists pass the Appearance setting). */
+    kindIcon?: boolean;
+    /**
+     * The folder of a file a flat list names by its name, muted after it; it gives way before the
+     * name when the row is narrow.
+     */
+    folder?: string;
   }>(),
   {
     kind: "file",
@@ -49,6 +57,8 @@ const props = withDefaults(
     changed: false,
     selected: false,
     tabStop: undefined,
+    kindIcon: false,
+    folder: "",
   },
 );
 
@@ -58,6 +68,11 @@ const emit = defineEmits<{ select: []; activate: []; toggle: [] }>();
 const { t, n } = useI18n();
 
 const isFolder = computed(() => props.kind === "folder");
+
+/** The icon of a file's kind, when the list asks for it; a folder has none. */
+const fileIcon = computed(() =>
+  props.kindIcon && !isFolder.value ? fileIconOf(props.name) : null,
+);
 
 const hasStats = computed(
   () =>
@@ -131,8 +146,26 @@ const checkLabel = computed(() =>
       />
     </button>
     <StatusLetter v-else-if="props.status" :status="props.status" />
-    <span class="flex-1 truncate" :class="nameClass" data-testid="tree-row-name">
-      {{ props.name }}
+    <component
+      :is="fileIcon"
+      v-if="fileIcon"
+      :size="16"
+      :stroke-width="1.5"
+      class="shrink-0 text-fg-muted"
+      aria-hidden="true"
+      data-testid="tree-row-icon"
+    />
+    <span class="flex min-w-0 flex-1 items-baseline gap-2">
+      <span class="tree-row-name truncate" :class="nameClass" data-testid="tree-row-name">
+        {{ props.name }}
+      </span>
+      <span
+        v-if="props.folder"
+        class="tree-row-folder truncate text-sm text-fg-muted"
+        data-testid="tree-row-folder"
+      >
+        {{ props.folder }}
+      </span>
     </span>
     <span v-if="props.meta" class="shrink-0 text-sm text-fg-muted" data-testid="tree-row-meta">
       {{ props.meta }}
@@ -188,3 +221,17 @@ const checkLabel = computed(() =>
     </span>
   </div>
 </template>
+
+<style scoped>
+/* The name keeps its whole width, up to the row's room, and the folder takes what is left. Not
+   shrink weights: the name would still give up a fraction of a pixel, which is enough for its
+   ellipsis. */
+.tree-row-name {
+  flex-shrink: 0;
+  max-width: 100%;
+}
+.tree-row-folder {
+  min-width: 0;
+  flex-shrink: 1;
+}
+</style>

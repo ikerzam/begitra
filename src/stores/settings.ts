@@ -132,6 +132,8 @@ export interface Settings {
   zoom: ZoomLevel;
   /** The order of the Branches tab. */
   branchSort: BranchSort;
+  /** An icon of each file's kind in the file lists. */
+  fileIcons: boolean;
 }
 
 export type DiffLayout = "unified" | "side-by-side";
@@ -189,6 +191,7 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   codeWeight: v.picklist(fontWeights),
   zoom: v.picklist(zoomLevels),
   branchSort: v.picklist(["recent", "name"]),
+  fileIcons: v.boolean(),
 };
 
 export const settingsKeys = Object.keys(schemas) as (keyof Settings)[];
@@ -277,6 +280,7 @@ export function defaultSettings(platform: Platform): Settings {
     codeWeight: "regular",
     zoom: 100,
     branchSort: "recent",
+    fileIcons: true,
   };
 }
 

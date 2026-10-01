@@ -1009,6 +1009,8 @@
       "codeFont": "Code font",
       "codeFontHint": "For code, paths and hashes. Empty for Geist Mono.",
       "codeWeight": "Code weight",
+      "fileIcons": "File icons",
+      "fileIconsHint": "An icon by file type before each file in the file lists.",
       "zoom": "Zoom",
       "zoomHint": "Scales the whole window. {in} and {out} change it anywhere.",
       "weights": {

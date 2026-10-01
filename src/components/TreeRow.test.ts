@@ -25,6 +25,42 @@ describe("TreeRow", () => {
     expect(wrapper.find("[data-testid='tree-row-generated']").exists()).toBe(false);
   });
 
+  it("shows a file's kind as an icon between its status letter and its name, when asked", () => {
+    const wrapper = mountWithI18n(TreeRow, {
+      props: { name: "pnpm-lock.yaml", status: "modified", kindIcon: true },
+    });
+    const icon = wrapper.get("[data-testid='tree-row-icon']");
+    expect(icon.classes()).toContain("lucide-file-lock");
+    expect(icon.classes()).toContain("text-fg-muted");
+    expect(icon.attributes("aria-hidden")).toBe("true");
+    // The status letter, then the icon, then the name.
+    const children = [...wrapper.element.children];
+    const at = children.indexOf(icon.element);
+    expect(at).toBeGreaterThan(0);
+    expect(children[at + 1]?.querySelector("[data-testid='tree-row-name']")).not.toBeNull();
+  });
+
+  it("names a file of a flat list first and its folder after it, muted", () => {
+    const wrapper = mountWithI18n(TreeRow, {
+      props: { name: "tile-cache.ts", folder: "apps/web/src/map", status: "modified" },
+    });
+    expect(wrapper.get("[data-testid='tree-row-name']").text()).toBe("tile-cache.ts");
+    const folder = wrapper.get("[data-testid='tree-row-folder']");
+    expect(folder.text()).toBe("apps/web/src/map");
+    expect(folder.classes()).toEqual(expect.arrayContaining(["text-sm", "text-fg-muted"]));
+    const root = mountWithI18n(TreeRow, { props: { name: "README.md", status: "modified" } });
+    expect(root.find("[data-testid='tree-row-folder']").exists()).toBe(false);
+  });
+
+  it("draws no icon on a folder, nor on a file the list does not ask one for", () => {
+    const folder = mountWithI18n(TreeRow, {
+      props: { name: "src", kind: "folder", kindIcon: true },
+    });
+    expect(folder.find("[data-testid='tree-row-icon']").exists()).toBe(false);
+    const file = mountWithI18n(TreeRow, { props: { name: "tile-cache.ts", status: "added" } });
+    expect(file.find("[data-testid='tree-row-icon']").exists()).toBe(false);
+  });
+
   it("renders a folder with a chevron, a muted count and aria-expanded", async () => {
     const wrapper = mountWithI18n(TreeRow, {
       props: { name: "packages/map-core/src/layers/vector", kind: "folder", count: 3 },
