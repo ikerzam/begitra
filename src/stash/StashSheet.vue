@@ -92,7 +92,6 @@ function confirmDrop(): void {
     :title="t('stash.title')"
     :count="repo.refsLoaded ? stash.stashes.length : undefined"
     :footer="t('stash.footer')"
-    close-as="icon"
     data-testid="stash-sheet"
     @close="stash.closeSheet()"
   >

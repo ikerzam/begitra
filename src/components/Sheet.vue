@@ -1,13 +1,12 @@
 <script setup lang="ts">
 // A wide dialog for a list with its own actions (the remotes and the stash sheets): a title
-// with a count and the header's actions, the body, a footer sentence and "Close". Same scrim
-// and focus rules as `Dialog`; both sheets are 640px wide.
+// with a count, the header's actions and its "Close" icon, the body, and a footer sentence.
+// Same scrim and focus rules as `Dialog`; both sheets are 640px wide.
 
 import { X } from "@lucide/vue";
 import { onBeforeUnmount, onMounted, useId, useTemplateRef } from "vue";
 import { useI18n } from "vue-i18n";
 
-import Button from "./Button.vue";
 import IconButton from "./IconButton.vue";
 import Scrim from "./Scrim.vue";
 import { useFocusTrap } from "./useFocusTrap";
@@ -18,10 +17,8 @@ const props = withDefaults(
     count?: number;
     /** The sentence under the list. */
     footer?: string;
-    /** "Close" as a button in the footer (the remotes sheet) or as the header's icon (the stash sheet). */
-    closeAs?: "button" | "icon";
   }>(),
-  { count: undefined, footer: "", closeAs: "button" },
+  { count: undefined, footer: "" },
 );
 
 const emit = defineEmits<{ close: [] }>();
@@ -77,7 +74,6 @@ onBeforeUnmount(() => {
         <div class="ml-auto flex items-center gap-2">
           <slot name="actions" />
           <IconButton
-            v-if="props.closeAs === 'icon'"
             :label="t('sheet.close')"
             :icon="X"
             data-testid="sheet-close"
@@ -88,20 +84,8 @@ onBeforeUnmount(() => {
       <div class="sheet-body min-h-0 overflow-y-auto">
         <slot />
       </div>
-      <footer
-        v-if="props.footer || props.closeAs === 'button'"
-        class="flex items-center gap-3 border-t border-line px-5 py-3"
-      >
-        <p v-if="props.footer" class="min-w-0 flex-1 text-sm text-fg-muted">{{ props.footer }}</p>
-        <Button
-          v-if="props.closeAs === 'button'"
-          variant="secondary"
-          class="ml-auto"
-          data-testid="sheet-close"
-          @click="emit('close')"
-        >
-          {{ t("sheet.close") }}
-        </Button>
+      <footer v-if="props.footer" class="flex items-center gap-3 border-t border-line px-5 py-3">
+        <p class="min-w-0 flex-1 text-sm text-fg-muted">{{ props.footer }}</p>
       </footer>
     </div>
   </Scrim>

@@ -152,6 +152,10 @@ describe("RemotesSheet", () => {
     const wrapper = mountWithI18n(RemotesSheet, { attachTo: document.body });
     await flushPromises();
     expect(wrapper.get('[data-testid="remotes-empty"]').text()).toContain("No remotes.");
+    // Close is the header's icon, as in the stash sheet; the footer keeps its sentence only.
+    const close = wrapper.get('[data-testid="sheet-close"]');
+    expect(close.attributes("aria-label")).toBe("Close");
+    expect(close.text()).toBe("");
     await wrapper.get('[role="dialog"]').trigger("keydown", { key: "Escape" });
     expect(store.sheetOpen).toBe(false);
     wrapper.unmount();

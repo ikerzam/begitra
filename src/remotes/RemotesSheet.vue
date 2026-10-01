@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // The remotes sheet: every remote with its URL, "Fetch" and "Fetch and prune"
 // per row and the remove control, "Fetch all" and "Add remote" (an inline name and URL form)
-// in the header, the footer sentence and "Close". Removing confirms once. The rows are a
+// and the "Close" icon in the header, then the footer sentence. Removing confirms once. The rows are a
 // grid with one roving tab stop: j/k and the arrows move, ↵ fetches, → reaches the row's
 // buttons.
 
