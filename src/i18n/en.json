@@ -1121,7 +1121,7 @@
       "installed": "Version {version} is installed. Restart to run it.",
       "restart": "Restart",
       "failed": "The update could not be completed.",
-      "endpointHint": "Releases are checked on begitra.ikerzam.tech only when you press this button.",
+      "endpointHint": "Releases are checked on GitHub only when you press this button.",
       "showDetails": "Show details",
       "versionUnavailable": "Version unavailable"
     }
