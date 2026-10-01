@@ -1,48 +1,72 @@
 name: Release
 
-# Started by hand only: runs the repository's checks, then builds the packages of the three
-# platforms without the updater's artifacts and keeps them as artifacts of the run. A release is
-# signed and cut on Windows by scripts/release.mjs and served from the VPS, so no key lives in
-# GitHub and a tag starts nothing.
+# A pushed tag `v<version>` publishes the release on GitHub: the Windows installers, their updater
+# and minisign signatures, latest.json (what the updater reads) and site-facts.json (what the
+# site's pages read). Started by hand on `main`, the same run stops before publishing and keeps the
+# files as an artifact of the run: the way to try a new key, a new runner image or a change to
+# this file without spending a version, since a pushed tag can neither move nor be deleted.
+#
+# The updater's key is the secret TAURI_SIGNING_PRIVATE_KEY of the environment `release`, which
+# only `main` and the `v*` tags may use. Only the `sign` job receives it, and that job builds
+# nothing: every crate's build script runs in `build`, which never sees the key. Only `publish`
+# may write to the repository, and it runs nothing but `gh`.
 
 on:
+  push:
+    tags: ["v*"]
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
+  # The release notes are the version's entry in the site repository's releases.json.
+  SITE_REPOSITORY: ikerzam/begitra-site
 
 jobs:
-  checks:
-    uses: ./.github/workflows/ci.yml
-
-  build:
-    name: ${{ matrix.label }}
-    needs: checks
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            label: linux
-            args: ""
-          - os: windows-latest
-            label: windows
-            args: ""
-          - os: macos-latest
-            label: macos-arm64
-            args: "--target aarch64-apple-darwin"
-          - os: macos-latest
-            label: macos-x64
-            args: "--target x86_64-apple-darwin"
+  # A minute, before anything is built: the tag names the version the three manifests agree on,
+  # and the notes describe it. When the notes were missing, push them and re-run the failed jobs.
+  preflight:
+    name: preflight
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Install the Linux packages Tauri needs (webkit2gtk and friends)
-        if: runner.os == 'Linux'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+
+      # Through the contents API: raw.githubusercontent.com may serve a copy minutes old, without
+      # the entry pushed just before the tag.
+      - name: Fetch the release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+          gh api "repos/$SITE_REPOSITORY/contents/releases.json" \
+            -H "Accept: application/vnd.github.raw" > "$RUNNER_TEMP/releases.json"
+
+      - name: Check the tag, the manifests and the notes
+        env:
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: node scripts/release.mjs check --releases "$RUNNER_TEMP/releases.json" ${TAG:+--tag "$TAG"}
+
+  # The checks on Windows, the platform a release ships.
+  checks:
+    uses: ./.github/workflows/ci.yml
+    with:
+      platforms: '["windows-latest"]'
+
+  build:
+    name: build (windows-latest)
+    needs: [preflight, checks]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 
@@ -54,7 +78,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable, 2026-09
         with:
           toolchain: stable
-          targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
@@ -63,19 +86,103 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      # Without the updater's artifacts: the key that signs them stays on the machine that cuts
-      # a release.
-      - name: Build the bundles
-        run: pnpm tauri build ${{ matrix.args }} --config src-tauri/tauri.unsigned.conf.json
+      # Without the updater's artifacts: the `sign` job signs the installers.
+      - name: Build the installers
+        run: pnpm tauri build --bundles nsis msi --config src-tauri/tauri.unsigned.conf.json
 
-      # The bundle folder of both layouts: `target/release/bundle` without a target triple,
-      # `target/<triple>/release/bundle` with one (the two macOS builds).
-      - name: Keep the bundles
+      # The bundle's `nsis/` and `msi/` folders, as the release script looks for them.
+      - name: Keep the installers
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
-          name: bundles-${{ matrix.label }}
+          name: installers
           path: |
-            src-tauri/target/release/bundle/**/*
-            src-tauri/target/*/release/bundle/**/*
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+            src-tauri/target/release/bundle/msi/*.msi
           if-no-files-found: error
           retention-days: 7
+
+  sign:
+    name: sign
+    needs: build
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # The locked packages without their install scripts: the Tauri CLI's signer is the only
+      # code from outside the repository this job runs.
+      - name: Install the Tauri CLI
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: installers
+          path: installers
+
+      - name: Fetch the release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$SITE_REPOSITORY/contents/releases.json" \
+            -H "Accept: application/vnd.github.raw" > "$RUNNER_TEMP/releases.json"
+
+      - name: Sign the installers
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: node scripts/release.mjs sign --installers installers
+
+      # Each signature is verified against the public key in tauri.conf.json, which every
+      # installed copy checks: a wrong secret stops the release here.
+      - name: Verify and stage the release
+        run: node scripts/release.mjs stage --releases "$RUNNER_TEMP/releases.json" --installers installers --out release
+
+      - name: Keep the release
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: release
+          path: release
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: publish
+    needs: sign
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release
+          path: release
+
+      # A draft first, published once every file is attached: the latest release is the one the
+      # updater asks, and its latest.json must be there. A draft left by a run that failed half way
+      # gets the files again; a release already published is never touched.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if draft=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [ "$draft" != "true" ]; then
+              echo "::error::$TAG is already published"
+              exit 1
+            fi
+            gh release upload "$TAG" release/assets/* --clobber
+            gh release edit "$TAG" --notes-file release/notes.md
+          else
+            gh release create "$TAG" release/assets/* --draft --verify-tag \
+              --title "Begitra ${TAG#v}" --notes-file release/notes.md
+          fi
+          gh release edit "$TAG" --draft=false --latest

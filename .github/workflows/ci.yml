@@ -4,8 +4,8 @@ name: CI
 #
 # On a push it would repeat the lefthook pre-push hook, which runs the same suites on Windows.
 # What CI adds is the other two platforms, which is worth having before a release and when a
-# change touches paths, processes or the filesystem: Actions -> CI -> "Run workflow", and
-# `release.yml` calls it.
+# change touches paths, processes or the filesystem: Actions -> CI -> "Run workflow".
+# `release.yml` calls it with Windows alone, the platform a release ships, before it builds.
 # `dependabot.yml` calls it on each Dependabot pull request with Ubuntu alone and the job the
 # update can break: `web` for npm (about 5 minutes), `rust` for Cargo (about 11).
 

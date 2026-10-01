@@ -1,0 +1,80 @@
+name: Packages
+
+# Started by hand only: runs the repository's checks, then builds the packages of the three
+# platforms without the updater's artifacts and keeps them as artifacts of the run, to see a
+# packaging change work on macOS and Linux. Nothing is signed or published: a release is the tag's
+# workflow, release.yml, and carries Windows alone.
+
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    name: ${{ matrix.label }}
+    needs: checks
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: linux
+            args: ""
+          - os: windows-latest
+            label: windows
+            args: ""
+          - os: macos-latest
+            label: macos-arm64
+            args: "--target aarch64-apple-darwin"
+          - os: macos-latest
+            label: macos-x64
+            args: "--target x86_64-apple-darwin"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install the Linux packages Tauri needs (webkit2gtk and friends)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable, 2026-09
+        with:
+          toolchain: stable
+          targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Without the updater's artifacts: only the release workflow's sign job holds the key.
+      - name: Build the bundles
+        run: pnpm tauri build ${{ matrix.args }} --config src-tauri/tauri.unsigned.conf.json
+
+      # The bundle folder of both layouts: `target/release/bundle` without a target triple,
+      # `target/<triple>/release/bundle` with one (the two macOS builds).
+      - name: Keep the bundles
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: bundles-${{ matrix.label }}
+          path: |
+            src-tauri/target/release/bundle/**/*
+            src-tauri/target/*/release/bundle/**/*
+          if-no-files-found: error
+          retention-days: 7
