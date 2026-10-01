@@ -1,14 +1,16 @@
 <script setup lang="ts">
 // The filter bar of the graph: the repository selector while the open project holds more than
 // one repository, then search, scope, author, date range and path, each filled when active; the
-// pinned-commit chips; the count line and "Clear" once something narrows the history, at the end
-// of the bar outside the controls' row, so a narrow panel scrolls the controls and never "Clear".
+// pinned-commit chips; the count line and "Clear filters" (an icon) once something narrows the
+// history, at the end of the bar outside the controls' row, so a narrow panel scrolls the controls
+// and never "Clear filters".
 
-import { Folder, Search, X } from "@lucide/vue";
+import { Folder, FunnelX, Search, X } from "@lucide/vue";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Button from "@/components/Button.vue";
+import IconButton from "@/components/IconButton.vue";
 import Input from "@/components/Input.vue";
 import Select from "@/components/Select.vue";
 import type { SelectOption } from "@/components/types";
@@ -164,6 +166,7 @@ const countLine = computed(() => {
             variant="ghost"
             :icon="Folder"
             :class="{ 'bg-selected text-fg': graph.filters.path !== '' }"
+            aria-haspopup="dialog"
             :aria-expanded="pathOpen"
             data-testid="filter-path"
             @click="pathOpen = !pathOpen"
@@ -221,15 +224,14 @@ const countLine = computed(() => {
     >
       {{ countLine }}
     </span>
-    <Button
+    <IconButton
       v-if="graph.isActive"
-      variant="ghost"
-      class="mr-3 shrink-0"
+      :label="t('graph.clearFilters')"
+      :icon="FunnelX"
+      class="mr-3"
       data-testid="filter-clear"
       @click="graph.clear()"
-    >
-      {{ t("graph.clear") }}
-    </Button>
+    />
   </div>
 </template>
 
@@ -239,7 +241,7 @@ const countLine = computed(() => {
    selector in front, a narrow window, a high zoom) takes its room, in this order, from the count
    line, down to nothing; from the search and the repository selector, down to 112 and 96; and
    from the selects, down to 88, where a label is cut with an ellipsis (the open list shows it
-   whole). Past those widths the controls scroll sideways, "Clear" staying at the end: the
+   whole). Past those widths the controls scroll sideways, "Clear filters" staying at the end: the
    weights below set the order, since a flex item gives up room in proportion to its weight
    times its width. */
 .filter-count {

@@ -1,16 +1,17 @@
 <script setup lang="ts">
-// The commit box under the lists: the subject with its count
-// past 72 characters, the description, "Amend last commit" (HEAD's message borrowed into an
-// empty box, off on an unborn branch) and "Sign off", the author line git will use (or the
-// commit being amended), and "Commit" with ⌘↵, enabled only with a subject and something to
-// commit. The draft lives in the store, so leaving the screen keeps it. In the folder view a
-// line above the fields reads "Commit to" with the repository and its branch.
+// The commit box under the lists: the subject with its count past 72 characters, the
+// description, "Amend last commit" (HEAD's message borrowed into an empty box, off on an unborn
+// branch) and "Sign off" as icon toggles beside the author line git will use (or the commit
+// being amended), and "Commit" with ⌘↵, enabled only with a subject and something to commit.
+// The draft lives in the store, so leaving the screen keeps it. In the folder view a line above
+// the fields reads "Commit to" with the repository and its branch.
 
+import { PencilLine, Signature } from "@lucide/vue";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Button from "@/components/Button.vue";
-import Checkbox from "@/components/Checkbox.vue";
+import IconButton from "@/components/IconButton.vue";
 import Input from "@/components/Input.vue";
 import Kbd from "@/components/Kbd.vue";
 import LaneDot from "@/components/LaneDot.vue";
@@ -50,14 +51,6 @@ const subject = computed({
 const body = computed({
   get: () => changes.draft.body,
   set: (value: string) => changes.setDraft({ body: value }),
-});
-const amend = computed({
-  get: () => changes.draft.amend,
-  set: (value: boolean) => changes.setDraft({ amend: value }),
-});
-const signoff = computed({
-  get: () => changes.draft.signoff,
-  set: (value: boolean) => changes.setDraft({ signoff: value }),
 });
 const unborn = computed(() => changes.context?.unborn ?? false);
 /** The box is inert while a write runs and on a clean tree. */
@@ -138,21 +131,28 @@ function onSubjectKeydown(event: KeyboardEvent): void {
         data-testid="commit-body"
       />
     </div>
-    <div class="flex items-center gap-4">
-      <Checkbox
-        v-model="amend"
-        :label="t('changes.amend')"
-        :disabled="unborn || inert"
-        data-testid="commit-amend"
-      />
-      <Checkbox
-        v-model="signoff"
-        :label="t('changes.signOff')"
-        :disabled="inert"
-        data-testid="commit-signoff"
-      />
-    </div>
+    <!-- The toggles beside the author line they change (the commit amended, the sign-off); their
+         pressed fill is their state, since they carry no words. Commit has the last row, so the
+         author line keeps its width in the 280px column. -->
     <div class="flex items-center gap-3">
+      <div class="flex shrink-0 items-center gap-1">
+        <IconButton
+          :label="t('changes.amend')"
+          :icon="PencilLine"
+          :pressed="changes.draft.amend"
+          :disabled="unborn || inert"
+          data-testid="commit-amend"
+          @click="changes.setDraft({ amend: !changes.draft.amend })"
+        />
+        <IconButton
+          :label="t('changes.signOff')"
+          :icon="Signature"
+          :pressed="changes.draft.signoff"
+          :disabled="inert"
+          data-testid="commit-signoff"
+          @click="changes.setDraft({ signoff: !changes.draft.signoff })"
+        />
+      </div>
       <span
         class="min-w-0 flex-1 truncate text-sm"
         :class="inert ? 'text-fg-disabled' : 'text-fg-muted'"
@@ -161,6 +161,8 @@ function onSubjectKeydown(event: KeyboardEvent): void {
       >
         {{ authorLine }}
       </span>
+    </div>
+    <div class="flex items-center justify-end gap-3">
       <Kbd :keys="commitHint" />
       <Button
         type="submit"

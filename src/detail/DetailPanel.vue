@@ -5,7 +5,6 @@ import { Copy, FileDiff } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
-import Button from "@/components/Button.vue";
 import DiffStat from "@/components/DiffStat.vue";
 import EmptyState from "@/components/EmptyState.vue";
 import { refocusAfterMenu } from "@/components/menuFocus";
@@ -114,9 +113,13 @@ function onSelect(file: FileChange, trigger: SelectTrigger): void {
               stats.tests === 1 ? t("detail.test", { n: 1 }) : t("detail.tests", { n: stats.tests })
             }}
           </span>
-          <Button variant="ghost" :icon="FileDiff" class="ml-auto" @click="emit('review')">
-            {{ t("detail.review") }}
-          </Button>
+          <IconButton
+            :label="t('detail.review')"
+            :icon="FileDiff"
+            class="ml-auto"
+            data-testid="stats-review"
+            @click="emit('review')"
+          />
         </div>
         <template v-if="detail?.loading && detail.files.length === 0">
           <SkeletonRow v-for="n in 6" :key="n" :index="n" height="tree" />

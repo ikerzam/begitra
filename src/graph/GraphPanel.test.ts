@@ -70,7 +70,10 @@ describe("GraphPanel filters", () => {
     await flushPromises();
     expect(wrapper.get('[data-testid="filter-count"]').text()).toBe("6 of 30 commits");
     expect(wrapper.findAll('[data-testid="graph-row"]')).toHaveLength(6);
-    await wrapper.get('[data-testid="filter-clear"]').trigger("click");
+    const clear = wrapper.get('[data-testid="filter-clear"]');
+    expect(clear.attributes("aria-label")).toBe("Clear filters");
+    expect(clear.find("svg").classes()).toContain("lucide-funnel-x");
+    await clear.trigger("click");
     await settled();
     expect((search.element as HTMLInputElement).value).toBe("");
     expect(wrapper.findAll('[data-testid="graph-row"]')).toHaveLength(20);

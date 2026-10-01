@@ -34,7 +34,7 @@ export function onRowActionsKeydown(event: KeyboardEvent): boolean {
 
 /**
  * Whether a click or a double click happened on one of the row's own controls (a button, a
- * link, a checkbox): two quick clicks on "Show output" are the button's, never the row's
+ * link, a checkbox): two quick clicks on the output toggle are the button's, never the row's
  * double click that opens it.
  */
 export function onRowControl(event: Event): boolean {

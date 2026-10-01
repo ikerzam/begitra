@@ -5,7 +5,7 @@ import { mountWithI18n } from "@/test/mount";
 import HunkRow from "./HunkRow.vue";
 
 describe("HunkRow", () => {
-  it("shows the range in mono, the symbol, and the Mark reviewed control", () => {
+  it("shows the range in mono, the symbol, and the Mark reviewed icon", () => {
     // Inside the code body, the row is interface text in the interface's font and weight.
     const wrapper = mountWithI18n(HunkRow, {
       props: { range: "@@ -12,7 +12,9 @@", symbol: "class TileCache" },
@@ -23,7 +23,9 @@ describe("HunkRow", () => {
     expect(symbol.text()).toBe("class TileCache");
     expect(symbol.classes()).toContain("text-fg-secondary");
     const control = wrapper.get("[data-testid='hunk-row-reviewed']");
-    expect(control.text()).toBe("Mark reviewed");
+    expect(control.text()).toBe("");
+    expect(control.attributes("aria-label")).toBe("Mark reviewed");
+    expect(control.attributes("data-tooltip")).toBe("Mark reviewed");
     expect(control.attributes("aria-pressed")).toBe("false");
     expect(control.classes()).toContain("text-fg-secondary");
     expect(control.get("svg").classes()).toContain("lucide-check");
@@ -34,9 +36,11 @@ describe("HunkRow", () => {
       props: { range: "@@ -40,3 +42,5 @@", symbol: "get(key)", reviewed: true },
     });
     const control = wrapper.get("[data-testid='hunk-row-reviewed']");
-    expect(control.text()).toBe("Reviewed");
+    expect(control.attributes("aria-label")).toBe("Reviewed");
     expect(control.attributes("aria-pressed")).toBe("true");
     expect(control.classes()).toContain("text-reviewed");
+    // The shape changes too, so the state does not rest on the colour.
+    expect(control.get("svg").classes()).toContain("lucide-circle-check");
     await control.trigger("click");
     expect(wrapper.emitted("toggleReviewed")).toHaveLength(1);
   });
@@ -48,6 +52,8 @@ describe("HunkRow", () => {
       { locale: "es" },
     );
     expect(wrapper.find("[data-testid='hunk-row-symbol']").exists()).toBe(false);
-    expect(wrapper.get("[data-testid='hunk-row-reviewed']").text()).toBe("Marcar como revisado");
+    expect(wrapper.get("[data-testid='hunk-row-reviewed']").attributes("aria-label")).toBe(
+      "Marcar como revisado",
+    );
   });
 });

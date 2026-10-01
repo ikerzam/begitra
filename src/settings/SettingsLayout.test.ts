@@ -74,6 +74,11 @@ describe("SettingsLayout", () => {
     const rows = wrapper.findAll('[data-testid="shortcut-rows"] li');
     expect(rows).toHaveLength(24);
     expect(rows[0]?.text()).toContain("Command palette");
+    // Change is a pencil: its name starts with its tooltip's words and says which shortcut.
+    const change = rows[0]?.get('[data-testid="shortcut-change"]');
+    expect(change?.attributes("aria-label")).toBe("Change shortcut for Command palette");
+    expect(change?.attributes("data-tooltip")).toBe("Change shortcut");
+    expect(change?.text()).toBe("");
     expect(wrapper.get('[data-testid="shortcut-openFileEditor"]').find("kbd").text()).toBe(
       "Ctrl Shift E",
     );

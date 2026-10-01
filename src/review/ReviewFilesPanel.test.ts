@@ -98,7 +98,10 @@ describe("NotesBlock", () => {
     review.select("src/00.rs");
     const wrapper = mountWithI18n(NotesBlock, { attachTo: document.body });
     expect(wrapper.text()).toContain("No notes on this change set yet.");
-    await wrapper.get('[data-testid="add-note"]').trigger("click");
+    const add = wrapper.get('[data-testid="add-note"]');
+    expect(add.attributes("aria-label")).toBe("Add note");
+    expect(add.text()).toBe("");
+    await add.trigger("click");
     await nextTick();
     const editor = wrapper.get('[data-testid="note-editor"] textarea');
     expect(document.activeElement).toBe(editor.element);

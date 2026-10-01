@@ -11,7 +11,6 @@ import { Pencil, RefreshCw } from "@lucide/vue";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
-import Button from "@/components/Button.vue";
 import IconButton from "@/components/IconButton.vue";
 import { useDiscoveryFormat } from "@/discovery/useDiscoveryFormat";
 import FolderLayout from "@/folder/FolderLayout.vue";
@@ -136,15 +135,13 @@ onBeforeUnmount(() => {
           data-testid="project-refresh"
           @click="refresh"
         />
-        <Button
+        <IconButton
           v-if="view === 'overview'"
-          variant="ghost"
+          :label="t('project.edit')"
           :icon="Pencil"
           data-testid="edit-project"
           @click="edit"
-        >
-          {{ t("project.edit") }}
-        </Button>
+        />
       </div>
     </header>
     <ProjectOverview

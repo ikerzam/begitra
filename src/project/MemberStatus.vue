@@ -3,9 +3,11 @@
 // folder, a summary that could not be read, or a bulk operation's state, with its icon, the
 // 48px progress bar while it runs and the toggle of git's output.
 
-import { CircleAlert, CircleCheck, CircleMinus } from "@lucide/vue";
+import { ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleMinus } from "@lucide/vue";
+import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
+import IconButton from "@/components/IconButton.vue";
 import Progress from "@/components/Progress.vue";
 
 import type { RowStatus } from "./status";
@@ -18,6 +20,11 @@ const props = defineProps<{
 const emit = defineEmits<{ output: [] }>();
 
 const { t } = useI18n();
+
+/** The output toggle's name and tooltip, which its chevron shows without words. */
+const outputLabel = computed(() =>
+  props.outputOpen ? t("project.hideOutputLabel") : t("project.showOutputLabel"),
+);
 
 const icons = { check: CircleCheck, minus: CircleMinus, alert: CircleAlert } as const;
 const tones = {
@@ -51,19 +58,16 @@ const iconTones = {
     :value="props.status.progress ?? 0"
     :indeterminate="props.status.progress === null"
   />
-  <button
+  <IconButton
     v-if="props.status.output"
-    type="button"
+    :label="outputLabel"
+    :icon="props.outputOpen ? ChevronDown : ChevronRight"
     tabindex="-1"
     data-row-action
-    class="shrink-0 text-link hover:underline"
     :aria-expanded="props.outputOpen"
-    :aria-label="props.outputOpen ? t('project.hideOutputLabel') : t('project.showOutputLabel')"
     data-testid="member-output-toggle"
     @click.stop="emit('output')"
-  >
-    {{ props.outputOpen ? t("project.hideOutput") : t("project.showOutput") }}
-  </button>
+  />
 </template>
 
 <style scoped>

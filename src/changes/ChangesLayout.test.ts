@@ -407,11 +407,37 @@ describe("ChangesLayout", () => {
     expect((subject.element as HTMLInputElement).value).toBe("");
     expect(wrapper.findAll('[data-list="staged"]')).toHaveLength(0);
     // Amend borrows HEAD's message and renames the button.
-    await wrapper.get('[data-testid="commit-amend"] input').setValue(true);
+    const amend = wrapper.get('[data-testid="commit-amend"]');
+    expect(amend.attributes("aria-label")).toBe("Amend last commit");
+    expect(amend.attributes("aria-pressed")).toBe("false");
+    await amend.trigger("click");
     await nextTick();
+    expect(amend.attributes("aria-pressed")).toBe("true");
     expect((subject.element as HTMLInputElement).value).toBe("fix(auth): commit 0");
     expect(wrapper.get('[data-testid="commit-button"]').text()).toBe("Amend");
     expect(wrapper.get('[data-testid="commit-author"]').text()).toBe("Amends 0000000 · Iker Z.");
+    wrapper.unmount();
+  });
+
+  it("signs off through its icon toggle, and offers no amend on an unborn branch", async () => {
+    const { wrapper, calls } = await mountScreen({ commitContext: { unborn: true } });
+    const signoff = wrapper.get('[data-testid="commit-signoff"]');
+    expect(signoff.attributes("aria-label")).toBe("Sign off");
+    expect(signoff.attributes("data-tooltip")).toBe("Sign off");
+    expect(signoff.attributes("aria-pressed")).toBe("false");
+    expect(wrapper.get('[data-testid="commit-amend"]').attributes("disabled")).toBeDefined();
+    await signoff.trigger("click");
+    await nextTick();
+    expect(signoff.attributes("aria-pressed")).toBe("true");
+    const subject = wrapper.get('[data-testid="commit-subject"]');
+    await subject.setValue("feat: first");
+    await subject.trigger("keydown", { key: "Enter", ctrlKey: true });
+    await settled();
+    expect(of(calls, "commit")[0]?.args["request"]).toEqual({
+      message: "feat: first",
+      amend: false,
+      signoff: true,
+    });
     wrapper.unmount();
   });
 

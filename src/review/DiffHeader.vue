@@ -68,7 +68,6 @@ const binaryStatus = computed(() =>
 <template>
   <header
     class="diff-header flex h-panel-header shrink-0 items-center gap-3 border-b border-line px-3 whitespace-nowrap"
-    :class="{ 'diff-header-comparison': props.inComparison }"
   >
     <template v-if="props.file">
       <span class="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
@@ -133,26 +132,15 @@ const binaryStatus = computed(() =>
         data-testid="open-in-editor"
         @click="() => props.file && void opener.openFile(props.file)"
       />
-      <!-- A narrow panel gives the labelled actions' room to the file's name: they become
-           icons with their name as the tooltip (the style below). -->
-      <template v-if="props.inComparison">
-        <Button
-          variant="ghost"
-          :icon="FileDiff"
-          class="header-wide"
-          data-testid="open-in-review"
-          @click="emit('openInReview')"
-        >
-          {{ t("compare.openInReview") }}
-        </Button>
-        <IconButton
-          :label="t('compare.openInReview')"
-          :icon="FileDiff"
-          class="header-narrow"
-          data-testid="open-in-review-icon"
-          @click="emit('openInReview')"
-        />
-      </template>
+      <IconButton
+        v-if="props.inComparison"
+        :label="t('compare.openInReview')"
+        :icon="FileDiff"
+        data-testid="open-in-review"
+        @click="emit('openInReview')"
+      />
+      <!-- A narrow panel gives "Mark reviewed"'s room to the file's name: it becomes an icon
+           with its name as the tooltip (the style below). -->
       <Button
         variant="ghost"
         :icon="Check"
@@ -184,9 +172,8 @@ const binaryStatus = computed(() =>
 </template>
 
 <style scoped>
-/* The header measures itself: below 600px (720px in the comparison, which adds "Open in
-   review") the labelled actions show as icons, so the file's name keeps its room at the
-   window's narrowest panes. Off the spacing scale. */
+/* The header measures itself: below 600px "Mark reviewed" shows as an icon, so the file's
+   name keeps its room at the window's narrowest panes. Off the spacing scale. */
 .diff-header {
   container-type: inline-size;
 }
@@ -198,14 +185,6 @@ const binaryStatus = computed(() =>
     display: none;
   }
   .header-narrow {
-    display: inline-flex;
-  }
-}
-@container (max-width: 719px) {
-  .diff-header-comparison .header-wide {
-    display: none;
-  }
-  .diff-header-comparison .header-narrow {
     display: inline-flex;
   }
 }

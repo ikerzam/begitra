@@ -220,7 +220,9 @@ describe("the project view", () => {
   it("moves between the Overview and the Changes keeping the watchers and the reads", async () => {
     const { calls, wrapper } = await mountProject();
     const watches = of(calls, "watch_folder").length;
-    expect(wrapper.find('[data-testid="edit-project"]').exists()).toBe(true);
+    expect(wrapper.get('[data-testid="edit-project"]').attributes("aria-label")).toBe(
+      "Edit project…",
+    );
     void useShellStore().setLayoutMode("changes");
     await flush();
     expect(wrapper.find('[data-testid="folder-view"]').exists()).toBe(true);

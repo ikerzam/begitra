@@ -128,8 +128,14 @@ describe("the bulk actions", () => {
     await finished();
     expect(status(wrapper, "web")).toContain("Network unreachable");
     expect(wrapper.get('[data-testid="bulk-summary"]').text()).toBe("2 fetched · 1 failed");
-    await wrapper.get('[data-testid="member-output-toggle"]').trigger("click");
+    const toggle = wrapper.get('[data-testid="member-output-toggle"]');
+    expect(toggle.attributes("aria-label")).toBe("Show git's output");
+    expect(toggle.attributes("data-tooltip")).toBe("Show git's output");
+    expect(toggle.find("svg").classes()).toContain("lucide-chevron-right");
+    await toggle.trigger("click");
     expect(wrapper.get('[data-testid="member-output"]').text()).toContain("Could not resolve host");
+    expect(toggle.attributes("aria-label")).toBe("Hide git's output");
+    expect(toggle.find("svg").classes()).toContain("lucide-chevron-down");
     await wrapper.get('[data-testid="bulk-retry"]').trigger("click");
     await finished();
     expect(

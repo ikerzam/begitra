@@ -1,13 +1,15 @@
 <script setup lang="ts">
 // The settings' Shortcuts section: every listed binding as a row with its action, its `kbd`s
-// (a next/previous row carries two) and "Change"; while a row captures, it reads "Press
+// (a next/previous row carries two) and "Change" (a pencil); while a row captures, it reads "Press
 // the keys…" and any refusal; an overridden row offers "Reset". The platform note closes
 // the list.
 
+import { Pencil } from "@lucide/vue";
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Button from "@/components/Button.vue";
+import IconButton from "@/components/IconButton.vue";
 import Kbd from "@/components/Kbd.vue";
 import { formatShortcut } from "@/shortcuts/platform";
 import { shortcutRegistry } from "@/shortcuts/registry";
@@ -129,9 +131,17 @@ const refusalText = computed(() => {
           >
             {{ t("settings.shortcuts.reset") }}
           </Button>
-          <Button variant="ghost" data-testid="shortcut-change" @click="screen.startCapture(row)">
-            {{ t("settings.shortcuts.change") }}
-          </Button>
+          <IconButton
+            :label="
+              t('settings.shortcuts.changeOf', {
+                action: t(`settings.shortcuts.rows.${row.key}`),
+              })
+            "
+            :tooltip="t('settings.shortcuts.changeShortcut')"
+            :icon="Pencil"
+            data-testid="shortcut-change"
+            @click="screen.startCapture(row)"
+          />
         </template>
       </li>
     </ul>

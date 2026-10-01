@@ -39,7 +39,8 @@ export function useOverviewKeys(options: OverviewKeysOptions) {
   });
 
   function onKeydown(event: KeyboardEvent): void {
-    // A row's own button or checkbox keeps Enter and Space ("Show", "Remove from project").
+    // A row's own button or checkbox keeps Enter and Space: the output toggle, "Remove from
+    // project".
     const target = event.target;
     const own = target instanceof HTMLElement && target.closest("button, input") !== null;
     if (own && (event.key === "Enter" || event.key === " ")) return;

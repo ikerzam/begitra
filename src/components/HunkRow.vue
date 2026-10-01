@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { Check } from "@lucide/vue";
+import { Check, CircleCheck } from "@lucide/vue";
+import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
 const props = withDefaults(
@@ -16,6 +17,11 @@ const props = withDefaults(
 const emit = defineEmits<{ toggleReviewed: [] }>();
 
 const { t } = useI18n();
+
+/** The control's name and tooltip: the action before the mark, the state after. */
+const reviewedLabel = computed(() =>
+  props.reviewed ? t("hunkRow.reviewed") : t("hunkRow.markReviewed"),
+);
 </script>
 
 <template>
@@ -36,17 +42,25 @@ const { t } = useI18n();
     <!-- The actions: the reviewed control by default; the changes screen puts its own here. -->
     <div class="ml-auto flex shrink-0 items-center gap-2" data-testid="hunk-row-actions">
       <slot>
-        <!-- A ghost button whose label turns --reviewed once the hunk is marked; Button cannot recolour. -->
+        <!-- An icon toggle: a check before the mark, a circled check in --reviewed after it. The
+             shape says the state without the colour, and IconButton's pressed fill cannot
+             recolour the icon. -->
         <button
           type="button"
           :aria-pressed="props.reviewed"
+          :aria-label="reviewedLabel"
+          :data-tooltip="reviewedLabel"
           data-testid="hunk-row-reviewed"
-          class="inline-flex h-control shrink-0 items-center gap-2 rounded-md px-3 text-md font-medium hover:bg-hover active:bg-active"
+          class="inline-flex size-5 shrink-0 items-center justify-center rounded-sm hover:bg-hover active:bg-active"
           :class="props.reviewed ? 'text-reviewed' : 'text-fg-secondary hover:text-fg'"
           @click="emit('toggleReviewed')"
         >
-          <Check :size="16" :stroke-width="1.5" aria-hidden="true" />
-          {{ props.reviewed ? t("hunkRow.reviewed") : t("hunkRow.markReviewed") }}
+          <component
+            :is="props.reviewed ? CircleCheck : Check"
+            :size="16"
+            :stroke-width="1.5"
+            aria-hidden="true"
+          />
         </button>
       </slot>
     </div>

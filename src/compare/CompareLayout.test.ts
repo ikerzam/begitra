@@ -90,7 +90,10 @@ describe("CompareLayout", () => {
     await wrapper.get('[data-testid="compare-endpoint-b"]').trigger("click");
     expect(picker.mode).toEqual({ kind: "compare", side: "b", other: main });
     picker.close();
-    await wrapper.get('[data-testid="open-in-review"]').trigger("click");
+    const openInReview = wrapper.get('[data-testid="open-in-review"]');
+    expect(openInReview.attributes("aria-label")).toBe("Open in review");
+    expect(openInReview.text()).toBe("");
+    await openInReview.trigger("click");
     await flushPromises();
     expect(shell.layoutMode).toBe("review");
     wrapper.unmount();
@@ -98,8 +101,12 @@ describe("CompareLayout", () => {
 
   it("opens the repository in the editor from the header", async () => {
     const wrapper = await mountComparison(main, feature);
+    const terminal = wrapper.get('[data-testid="compare-terminal"]');
+    expect(terminal.attributes("aria-label")).toBe("Open in terminal");
+    expect(terminal.attributes("data-tooltip-keys")).toBe("Ctrl T");
     const button = wrapper.get('[data-testid="compare-editor"]');
-    expect(button.text()).toBe("Open in editor");
+    expect(button.attributes("aria-label")).toBe("Open in editor");
+    expect(button.attributes("data-tooltip-keys")).toBe("Ctrl E");
     await button.trigger("click");
     await flushPromises();
     // The open went through: no failure toast.

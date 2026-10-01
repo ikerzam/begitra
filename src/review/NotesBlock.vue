@@ -78,15 +78,13 @@ function onKeydown(event: KeyboardEvent): void {
           data-testid="copy-notes"
           @click="copyNotes()"
         />
-        <Button
-          variant="ghost"
+        <IconButton
+          :label="t('review.addNote')"
           :icon="Plus"
           :disabled="!canAdd"
           data-testid="add-note"
           @click="openPath && edit(openPath)"
-        >
-          {{ t("review.addNote") }}
-        </Button>
+        />
       </div>
     </div>
     <div v-if="editing !== null" class="flex flex-col gap-2" data-testid="note-editor">
