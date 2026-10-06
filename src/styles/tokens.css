@@ -42,6 +42,9 @@
   --diff-del-bg: #f851492e;
   --diff-del-fg: #f85149;
   --diff-del-emphasis: #f8514966;
+  /* The find's highlights: a match, and the current one (which also takes a --warn outline). */
+  --find-match: #d2992240;
+  --find-current: #d2992299;
   --syntax-keyword: #d2a8ff;
   --syntax-function: #79c0ff;
   --syntax-type: #56d4dd;
@@ -148,6 +151,8 @@
 
   --diff-add-fg: #1a7f37;
   --diff-del-fg: #cf222e;
+  --find-match: #ffd33d59;
+  --find-current: #ffd33dcc;
   --syntax-keyword: #6639ba;
   --syntax-function: #0550ae;
   --syntax-type: #0a5a69;

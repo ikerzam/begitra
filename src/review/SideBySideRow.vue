@@ -6,6 +6,7 @@ import { computed } from "vue";
 
 import type { DiffLine, Token } from "@/ipc/schemas";
 
+import type { LineMark } from "./diffRows";
 import LineContent from "./LineContent.vue";
 
 const props = withDefaults(
@@ -20,6 +21,9 @@ const props = withDefaults(
     rightSelected?: boolean;
     /** The selection cursor rests on this row. */
     cursor?: boolean;
+    /** The find's matches on each side's line. */
+    leftMarks?: LineMark[];
+    rightMarks?: LineMark[];
   }>(),
   {
     leftTokens: () => [],
@@ -28,6 +32,8 @@ const props = withDefaults(
     leftSelected: false,
     rightSelected: false,
     cursor: false,
+    leftMarks: () => [],
+    rightMarks: () => [],
   },
 );
 
@@ -80,6 +86,7 @@ const rightNumber = computed(() => props.right?.newNumber ?? props.right?.oldNum
         :line="props.left"
         :tokens="props.leftTokens"
         :wrap="props.wrap"
+        :marks="props.leftMarks"
       />
     </div>
     <div
@@ -99,6 +106,7 @@ const rightNumber = computed(() => props.right?.newNumber ?? props.right?.oldNum
         :line="props.right"
         :tokens="props.rightTokens"
         :wrap="props.wrap"
+        :marks="props.rightMarks"
       />
     </div>
   </div>

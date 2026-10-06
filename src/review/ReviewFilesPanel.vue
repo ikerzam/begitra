@@ -1,10 +1,11 @@
 <script setup lang="ts">
 // The files panel of review focus: the count and the target line, the filter and collapse
 // actions of the header, the path filter, the three hide toggles and the file tree, with the
-// loading, empty and error states of the change set.
+// loading, empty and error states of the change set. Its files, in its order, are what the
+// find in the diff searches (⌘F, F3 and ⇧F3 while it shows).
 
 import { ArrowDownWideNarrow, ChevronsDownUp, ListFilter, Search } from "@lucide/vue";
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Checkbox from "@/components/Checkbox.vue";
@@ -19,7 +20,12 @@ import FileMenu from "@/detail/FileMenu.vue";
 import { applyFilters, pathMatcher, sortBySize } from "@/detail/groupFiles";
 import { historySide } from "@/graph/fileHistory";
 import type { FileChange } from "@/ipc/schemas";
+import { useShortcut } from "@/shortcuts/useShortcut";
+import { useFindStore } from "@/stores/find";
 import { targetLabel, useReviewStore } from "@/stores/review";
+
+import type { FindFile } from "./find";
+import { selectedQuery } from "./selectedQuery";
 
 const props = withDefaults(
   defineProps<{
@@ -55,6 +61,32 @@ const files = computed<FileChange[]>(() => {
   const listed = applyFilters(review.files, review.filters).filter((file) => matches(file.path));
   return sortBySizeOn.value ? sortBySize(listed) : listed;
 });
+
+const find = useFindStore();
+/** The files the find searches, in this panel's order, with the hunks the diff shows. */
+const findFiles = computed<FindFile[]>(() =>
+  files.value.map((file) => {
+    const shown = review.shownHunk(file.path);
+    return { key: file.path, path: file.path, hunks: shown ? [shown] : file.hunks };
+  }),
+);
+let releaseFind: (() => void) | null = null;
+onMounted(() => {
+  releaseFind = find.attach({
+    files: () => findFiles.value,
+    // A match in a file behind its card shows its lines, as "Show anyway" does.
+    open: (entry) => {
+      const file = files.value.find((listed) => listed.path === entry.path);
+      if (file && (file.isLarge || file.isGenerated)) review.reveal(entry.path);
+      review.select(entry.path);
+    },
+    shownKey: () => review.selectedPath,
+  });
+});
+onBeforeUnmount(() => releaseFind?.());
+useShortcut("find", () => find.show(selectedQuery()));
+useShortcut("find-next", () => find.next());
+useShortcut("find-previous", () => find.previous());
 const count = computed(() => files.value.length);
 const changeSet = computed(() => review.changeSet);
 const targetLine = computed(() => {

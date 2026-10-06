@@ -7,6 +7,7 @@ import { nextTick } from "vue";
 import type { DiffLine, FileChange } from "@/ipc/schemas";
 import { ShortcutRegistry, setShortcutRegistry, shortcutRegistry } from "@/shortcuts/registry";
 import { installShortcuts } from "@/shortcuts/useShortcut";
+import { useFindStore } from "@/stores/find";
 import { useGraphStore } from "@/stores/graph";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
@@ -133,6 +134,46 @@ describe("DiffView", () => {
     expect(lineMenu()?.querySelector('[data-testid="line-menu-editor"]')).toBeNull();
     expect(lineMenu()?.textContent).toContain("Copy path");
     deleted.unmount();
+  });
+
+  it("draws the find's matches and brings the current one into view under the cursor", async () => {
+    fakeBackend();
+    await useSettingsStore().init(memoryStorage(), "windows");
+    await useRepoStore().open("/r");
+    await settled();
+    const lines = Array.from({ length: 300 }, (_, i) =>
+      i === 249
+        ? line(i + 1, "added", [], "  return decodeTile(bytes) ?? decodeTile(empty);")
+        : line(i + 1),
+    );
+    const open = file([lines]);
+    const wrapper = await mountView({ file: open });
+    const find = useFindStore();
+    find.attach({
+      files: () => [{ key: open.path, path: open.path, hunks: open.hunks }],
+      open: () => undefined,
+      shownKey: () => open.path,
+    });
+    find.show("DECODETILE");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await flushPromises();
+    await nextTick();
+    expect(find.count).toBe(2);
+    const body = wrapper.get('[data-testid="diff-body"]').element;
+    // Line 250 sits 28 + 249 × 20 px down: it is scrolled to the middle of the 200px body.
+    expect(body.scrollTop).toBe(28 + 249 * 20 - (200 - 20) / 2);
+    // Row 0 is the hunk's header; line 250 is row 250.
+    const row = wrapper.get('[data-row="250"]');
+    expect(row.find(".diff-row-cursor").exists()).toBe(true);
+    const current = row.get(".bg-find-current");
+    expect(current.text()).toBe("decodeTile");
+    expect(row.findAll(".bg-find-match").map((match) => match.text())).toEqual(["decodeTile"]);
+    // Closing the bar clears the highlights.
+    find.close();
+    await nextTick();
+    expect(wrapper.find(".bg-find-current").exists()).toBe(false);
+    expect(wrapper.find(".bg-find-match").exists()).toBe(false);
+    wrapper.unmount();
   });
 
   it("shows the file's history in the graph from a line's menu", async () => {

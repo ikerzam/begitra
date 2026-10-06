@@ -72,8 +72,13 @@ describe("SettingsLayout", () => {
     expect(input(wrapper, "skip-folders").element.value).toBe(defaultSkipFolders.join(", "));
     expect(input(wrapper, "max-depth").element.value).toBe("2");
     const rows = wrapper.findAll('[data-testid="shortcut-rows"] li');
-    expect(rows).toHaveLength(25);
+    expect(rows).toHaveLength(27);
     expect(rows[0]?.text()).toContain("Command palette");
+    const findRow = wrapper.get('[data-testid="shortcut-find"]');
+    expect(findRow.text()).toContain("Find in the change");
+    expect(findRow.find("kbd").text()).toBe("Ctrl F");
+    const findPair = wrapper.get('[data-testid="shortcut-findNextPrevious"]');
+    expect(findPair.findAll("kbd").map((k) => k.text())).toEqual(["F3", "Shift F3"]);
     // Change is a pencil: its name starts with its tooltip's words and says which shortcut.
     const change = rows[0]?.get('[data-testid="shortcut-change"]');
     expect(change?.attributes("aria-label")).toBe("Change shortcut for Command palette");

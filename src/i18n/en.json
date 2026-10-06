@@ -63,6 +63,16 @@
     "label": "Text actions",
     "copy": "Copy"
   },
+  "find": {
+    "label": "Find in the change",
+    "placeholder": "Find",
+    "matchCase": "Match case",
+    "previous": "Previous match",
+    "next": "Next match",
+    "close": "Close",
+    "count": "{current} of {count}",
+    "noResults": "No results"
+  },
   "lineMenu": {
     "label": "Line actions",
     "openAtLine": "Open in editor at line {line}"
@@ -1155,6 +1165,8 @@
         "nextPreviousHunk": "Next / previous hunk",
         "markReviewed": "Mark reviewed",
         "wholeFile": "Toggle whole file",
+        "find": "Find in the change",
+        "findNextPrevious": "Next / previous match",
         "openTerminal": "Open in terminal",
         "openEditor": "Open in editor",
         "openFileEditor": "Open file in editor",

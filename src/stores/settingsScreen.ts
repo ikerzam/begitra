@@ -57,6 +57,8 @@ export const shortcutRows: readonly ShortcutRow[] = [
   { key: "nextPreviousHunk", groups: [["next-hunk"], ["previous-hunk"]] },
   { key: "markReviewed", groups: [["mark-reviewed"]] },
   { key: "wholeFile", groups: [["toggle-whole-file"]] },
+  { key: "find", groups: [["find"]] },
+  { key: "findNextPrevious", groups: [["find-next"], ["find-previous"]] },
   { key: "stageUnstageFile", groups: [["stage-file"], ["unstage-file"]] },
   { key: "discardFile", groups: [["discard-file"]] },
   { key: "commit", groups: [["commit"]] },

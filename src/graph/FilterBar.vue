@@ -109,6 +109,17 @@ function closePath(): void {
   pathButton.value?.$el.focus();
 }
 
+const search = ref<{ $el: HTMLElement } | null>(null);
+
+/** ⌘F in graph focus: the search's field, its text selected. */
+function focusSearch(): void {
+  const input = search.value?.$el.querySelector("input");
+  input?.focus();
+  input?.select();
+}
+
+defineExpose({ focusSearch });
+
 const countLine = computed(() => {
   if (!graph.isFiltered) return "";
   const matches = formatCount(graph.matches, locale.value);
@@ -131,7 +142,12 @@ const countLine = computed(() => {
       >
         <RepoSelect v-if="projects.multi" />
         <div class="graph-search">
-          <Input v-model="text" :placeholder="t('graph.searchCommits')" :icon="Search" />
+          <Input
+            ref="search"
+            v-model="text"
+            :placeholder="t('graph.searchCommits')"
+            :icon="Search"
+          />
         </div>
         <div class="graph-scope">
           <Select

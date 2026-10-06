@@ -855,6 +855,40 @@ describe("AppShell", () => {
     wrapper.unmount();
   });
 
+  it("takes Ctrl F from the webview everywhere: the graph's search in graph focus, the find in review", async () => {
+    backend();
+    const shell = useShellStore();
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    shell.setWindowWidth(1440);
+    await useRepoStore().open("/r");
+    await settle();
+    const ctrlF = () => {
+      const event = new KeyboardEvent("keydown", { key: "f", ctrlKey: true, cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    expect(ctrlF()).toBe(true);
+    await settle();
+    const search = wrapper.get('[data-testid="graph-filters"] input').element;
+    expect(document.activeElement).toBe(search);
+    // Review focus opens the find bar on its field.
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "2", ctrlKey: true }));
+    await settle();
+    expect(ctrlF()).toBe(true);
+    await settle();
+    const bar = wrapper.get('[data-testid="find-bar"]');
+    expect(document.activeElement).toBe(bar.get("input").element);
+    // The settings have no find: the key still never reaches the webview.
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: ",", ctrlKey: true }));
+    await settle();
+    expect(shell.layoutMode).toBe("settings");
+    expect(ctrlF()).toBe(true);
+    const f3 = new KeyboardEvent("keydown", { key: "F3", cancelable: true });
+    window.dispatchEvent(f3);
+    expect(f3.defaultPrevented).toBe(true);
+    wrapper.unmount();
+  });
+
   it("gives the graph's rows the focus when it comes back from another screen", async () => {
     backend();
     const shell = useShellStore();

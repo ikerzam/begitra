@@ -8,6 +8,7 @@ import type { PatchSelection, Ref as GitRef, Remote } from "@/ipc/schemas";
 import { ShortcutRegistry, setShortcutRegistry } from "@/shortcuts/registry";
 import { installShortcuts } from "@/shortcuts/useShortcut";
 import { useChangesStore } from "@/stores/changes";
+import { useFindStore } from "@/stores/find";
 import { useGraphStore } from "@/stores/graph";
 import { useRemotesStore } from "@/stores/remotes";
 import { useRepoStore } from "@/stores/repo";
@@ -296,6 +297,32 @@ describe("ChangesLayout", () => {
     expect((walk?.args["options"] as { filter?: unknown }).filter).toEqual({
       paths: ["src/old.ts"],
     });
+    wrapper.unmount();
+  });
+
+  it("finds over the Unstaged list and then the Staged one, opening the other list's file", async () => {
+    const { wrapper } = await mountScreen({
+      changes: { unstaged: [changedFile("src/a.ts")], staged: [changedFile("src/c.ts")] },
+    });
+    const changes = useChangesStore();
+    const find = useFindStore();
+    expect(changes.selected).toEqual({ list: "unstaged", path: "src/a.ts" });
+    // Ctrl F on the screen opens the bar with its field focused.
+    press("f", { ctrlKey: true });
+    await settled();
+    const bar = wrapper.get('[data-testid="find-bar"]');
+    expect(document.activeElement).toBe(bar.get("input").element);
+    find.setQuery("new()");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await settled();
+    expect(bar.get('[data-testid="find-count"]').text()).toBe("1 of 2");
+    press("F3");
+    await settled();
+    await nextTick();
+    expect(changes.selected).toEqual({ list: "staged", path: "src/c.ts" });
+    expect(bar.get('[data-testid="find-count"]').text()).toBe("2 of 2");
+    const current = wrapper.findAll(".bg-find-current").map((span) => span.text());
+    expect(current.join("")).toBe("new()");
     wrapper.unmount();
   });
 

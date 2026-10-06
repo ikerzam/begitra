@@ -27,7 +27,7 @@ import ProjectLayout from "@/project/ProjectLayout.vue";
 import RemoveMemberDialog from "@/project/RemoveMemberDialog.vue";
 import PickerOverlay from "@/picker/PickerOverlay.vue";
 import { shortHash } from "@/shell/format";
-import { isOverlayTarget } from "@/shortcuts/registry";
+import { isOverlayTarget, shortcutRegistry } from "@/shortcuts/registry";
 import { installShortcuts, useShortcut } from "@/shortcuts/useShortcut";
 import { useChangesStore } from "@/stores/changes";
 import { useIndexStore } from "@/stores/index";
@@ -165,6 +165,15 @@ useZoom();
 const textMenu = ref<TextMenuRequest | null>(null);
 useNativeMenu((request) => (textMenu.value = request));
 useShortcut("palette", () => shell.togglePalette());
+// ⌘F and F3 never reach the webview, whose own find sees only the rows drawn: the layouts with
+// a find (the diff's bar, the graph's search) take them over; elsewhere they do nothing. These
+// register in setup, under the layouts' handlers, which mount before the shell does.
+const findKeys = ["find", "find-next", "find-previous"].map((id) =>
+  shortcutRegistry().register(id, () => undefined),
+);
+onBeforeUnmount(() => {
+  for (const release of findKeys) release();
+});
 useShortcut("graph-focus", () => void shell.setLayoutMode("graph"));
 useShortcut("review-focus", () => void shell.setLayoutMode("review"));
 useShortcut("toggle-sidebar", () => void shell.toggleSidebar());

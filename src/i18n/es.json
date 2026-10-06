@@ -63,6 +63,16 @@
     "label": "Acciones del texto",
     "copy": "Copiar"
   },
+  "find": {
+    "label": "Buscar en el cambio",
+    "placeholder": "Buscar",
+    "matchCase": "Distinguir mayúsculas",
+    "previous": "Coincidencia anterior",
+    "next": "Coincidencia siguiente",
+    "close": "Cerrar",
+    "count": "{current} de {count}",
+    "noResults": "Sin resultados"
+  },
   "lineMenu": {
     "label": "Acciones de la línea",
     "openAtLine": "Abrir en el editor por la línea {line}"
@@ -1155,6 +1165,8 @@
         "nextPreviousHunk": "Hunk siguiente / anterior",
         "markReviewed": "Marcar como revisado",
         "wholeFile": "Alternar fichero entero",
+        "find": "Buscar en el cambio",
+        "findNextPrevious": "Coincidencia siguiente / anterior",
         "openTerminal": "Abrir en la terminal",
         "openEditor": "Abrir en el editor",
         "openFileEditor": "Abrir el fichero en el editor",

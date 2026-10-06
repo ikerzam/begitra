@@ -35,6 +35,7 @@ export interface Lift {
 export const ON_FILL_FLOOR: number;
 export const TINT_FLOORS: { text: number; code: number; marker: number };
 export const LANE_DISTANCE: number;
+export const FIND_DISTANCE: number;
 export function parseHex(hex: string): { r: number; g: number; b: number; a: number };
 export function toHex(color: { r: number; g: number; b: number; a?: number }): string;
 export function composite(hex: string, under: string): string;

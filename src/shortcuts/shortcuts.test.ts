@@ -127,6 +127,21 @@ describe("ShortcutRegistry", () => {
     expect(next).toHaveBeenCalledTimes(1);
   });
 
+  it("takes a function key in a text field, which types nothing there", () => {
+    const registry = new ShortcutRegistry("windows");
+    const next = vi.fn();
+    const previous = vi.fn();
+    registry.register("find-next", next);
+    registry.register("find-previous", previous);
+    const input = document.createElement("input");
+    expect(registry.dispatch(key("F3", {}, input))).toBe(true);
+    expect(registry.dispatch(key("F3", { shift: true }, input))).toBe(true);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(previous).toHaveBeenCalledTimes(1);
+    expect(registry.hint("find")).toBe("Ctrl F");
+    expect(registry.hint("find-previous")).toBe("Shift F3");
+  });
+
   it("rebinds and reports activity", () => {
     const registry = new ShortcutRegistry("linux");
     expect(registry.isActive("palette")).toBe(false);

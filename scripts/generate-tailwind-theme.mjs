@@ -44,6 +44,8 @@ const colorNames = {
   "--diff-del-bg": "del-bg",
   "--diff-del-fg": "del",
   "--diff-del-emphasis": "del-emphasis",
+  "--find-match": "find-match",
+  "--find-current": "find-current",
   "--syntax-keyword": "syntax-keyword",
   "--syntax-function": "syntax-function",
   "--syntax-type": "syntax-type",

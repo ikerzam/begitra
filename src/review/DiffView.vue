@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// The diff panel of review focus: the file header and the body, which is the rows of the
-// open file or one of its states: the card of a large, generated, binary or unmerged file, the
-// image view, and the empty, loading and error states.
+// The diff panel of review focus: the file header, the find bar while the find is open, and the
+// body, which is the rows of the open file or one of its states: the card of a large,
+// generated, binary or unmerged file, the image view, and the empty, loading and error states.
 
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
@@ -19,6 +19,7 @@ import { useReviewStore } from "@/stores/review";
 import DiffGuard from "./DiffGuard.vue";
 import DiffHeader from "./DiffHeader.vue";
 import DiffRows from "./DiffRows.vue";
+import FindBar from "./FindBar.vue";
 import ImageDiff from "./ImageDiff.vue";
 import { imageType } from "./sides";
 import { useOpenFileShortcut } from "./useFileOpener";
@@ -78,7 +79,7 @@ useShortcut("mark-reviewed", () => {
 });
 
 /** The rows' own line at the top, read by ⇧⌘E. */
-const rows = ref<{ lineAtTop: () => number | null } | null>(null);
+const rows = ref<{ lineAtTop: () => number | null; focus: () => void } | null>(null);
 useOpenFileShortcut(
   root,
   computed(() => props.file),
@@ -97,6 +98,7 @@ useOpenFileShortcut(
       @show-overview="emit('showOverview')"
       @open-in-review="emit('openInReview')"
     />
+    <FindBar @close="rows?.focus()" />
 
     <!-- The banner sits 24px from the header and the panel edges. -->
     <div v-if="failed" class="p-5" data-testid="diff-failed">
@@ -137,6 +139,7 @@ useOpenFileShortcut(
       :file="props.file"
       :hunks="hunks"
       :highlighted="true"
+      :find-key="props.file.path"
     />
   </section>
 </template>

@@ -292,6 +292,26 @@ describe("segments", () => {
       { text: " x", emphasis: false, class: "plain" },
     ]);
   });
+
+  it("cuts at the find's marks, given in the text's own offsets, the current one apart", () => {
+    const text = "añade decodeTile(x) y decodeTile(y)";
+    const first = text.indexOf("decodeTile");
+    const second = text.indexOf("decodeTile", first + 1);
+    const marks = [
+      { start: first, end: first + 10, current: true },
+      { start: second, end: second + 10, current: false },
+    ];
+    // An emphasis span over the second match: the mark takes its place there.
+    const spans = [{ start: 20, end: 36 }];
+    expect(segments({ ...line(1), text, spans }, [], marks)).toEqual([
+      { text: "añade ", emphasis: false, class: "plain" },
+      { text: "decodeTile", emphasis: false, class: "plain", find: "current" },
+      { text: "(x)", emphasis: false, class: "plain" },
+      { text: " y ", emphasis: true, class: "plain" },
+      { text: "decodeTile", emphasis: true, class: "plain", find: "match" },
+      { text: "(y)", emphasis: true, class: "plain" },
+    ]);
+  });
 });
 
 /** Old and new numbers as git writes them: `removed` has only the old, `added` only the new. */

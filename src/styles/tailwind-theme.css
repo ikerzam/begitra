@@ -28,6 +28,8 @@
   --color-del-bg: var(--diff-del-bg);
   --color-del: var(--diff-del-fg);
   --color-del-emphasis: var(--diff-del-emphasis);
+  --color-find-match: var(--find-match);
+  --color-find-current: var(--find-current);
   --color-syntax-keyword: var(--syntax-keyword);
   --color-syntax-function: var(--syntax-function);
   --color-syntax-type: var(--syntax-type);

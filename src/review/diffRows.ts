@@ -332,28 +332,40 @@ export interface Segment {
   emphasis: boolean;
   /** Token class from the highlighter; `plain` without one. */
   class: TokenClass;
+  /** A match of the find on the segment, the current one or another; drawn over the emphasis. */
+  find?: "match" | "current";
+}
+
+/** A match of the find on a line: UTF-16 offsets of its text, `end` excluded. */
+export interface LineMark {
+  start: number;
+  end: number;
+  current: boolean;
 }
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
 /**
- * Splits a line into segments at every intra-line span boundary (UTF-8 byte offsets) and
- * every token boundary, so each segment has one emphasis and one class.
+ * Splits a line into segments at every intra-line span boundary (UTF-8 byte offsets), every
+ * token boundary and every mark of the find (offsets of the text), so each segment has one
+ * emphasis, one class and one mark.
  */
-export function segments(line: DiffLine, tokens: Token[] = []): Segment[] {
-  if (line.spans.length === 0 && tokens.length === 0) {
+export function segments(line: DiffLine, tokens: Token[] = [], marks: LineMark[] = []): Segment[] {
+  if (line.spans.length === 0 && tokens.length === 0 && marks.length === 0) {
     return [{ text: line.text, emphasis: false, class: "plain" }];
   }
   const bytes = encoder.encode(line.text);
+  const byteAt = (offset: number) => encoder.encode(line.text.slice(0, offset)).length;
+  const byteMarks = marks.map((mark) => ({
+    start: byteAt(mark.start),
+    end: byteAt(mark.end),
+    current: mark.current,
+  }));
   const cuts = new Set<number>([0, bytes.length]);
-  for (const span of line.spans) {
-    cuts.add(Math.min(span.start, bytes.length));
-    cuts.add(Math.min(span.end, bytes.length));
-  }
-  for (const token of tokens) {
-    cuts.add(Math.min(token.start, bytes.length));
-    cuts.add(Math.min(token.end, bytes.length));
+  for (const range of [...line.spans, ...tokens, ...byteMarks]) {
+    cuts.add(Math.min(range.start, bytes.length));
+    cuts.add(Math.min(range.end, bytes.length));
   }
   const points = [...cuts].sort((a, b) => a - b);
   const result: Segment[] = [];
@@ -363,11 +375,16 @@ export function segments(line: DiffLine, tokens: Token[] = []): Segment[] {
     if (end <= start) continue;
     const emphasis = line.spans.some((span) => span.start <= start && span.end >= end);
     const token = tokens.find((t) => t.start <= start && t.end >= end);
+    const mark = byteMarks.find((m) => m.start <= start && m.end >= end);
+    const find = mark ? (mark.current ? "current" : "match") : undefined;
     const text = decoder.decode(bytes.subarray(start, end));
     const cls = token?.class ?? "plain";
     const last = result.at(-1);
-    if (last && last.emphasis === emphasis && last.class === cls) last.text += text;
-    else result.push({ text, emphasis, class: cls });
+    if (last && last.emphasis === emphasis && last.class === cls && last.find === find) {
+      last.text += text;
+    } else {
+      result.push(find ? { text, emphasis, class: cls, find } : { text, emphasis, class: cls });
+    }
   }
   return result;
 }

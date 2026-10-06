@@ -9,6 +9,7 @@ import {
   contrast,
   deltaE,
   deriveTokens,
+  FIND_DISTANCE,
   LANE_DISTANCE,
   lift,
   liftBorder,
@@ -199,6 +200,21 @@ describe("themes.css", () => {
       expect(contrast(token(tokens, "--diff-del-fg"), delRow)).toBeGreaterThanOrEqual(
         TINT_FLOORS.marker,
       );
+      // The find's highlights keep the text readable on the plain and the changed rows (they
+      // take a span's place), and still show.
+      for (const name of ["--find-match", "--find-current"]) {
+        for (const surface of [bg, addRow, delRow]) {
+          const lit = composite(token(tokens, name), surface);
+          expect(
+            contrast(token(tokens, "--text"), lit),
+            `${id} text on ${name}`,
+          ).toBeGreaterThanOrEqual(TINT_FLOORS.text);
+        }
+        expect(
+          deltaE(composite(token(tokens, name), bg), bg),
+          `${id} ${name} shows`,
+        ).toBeGreaterThanOrEqual(FIND_DISTANCE);
+      }
       // The accent shows as a bar, on a selected row too.
       const accent = token(tokens, "--accent");
       for (const surface of [bg, raised, composite(token(tokens, "--bg-selected"), bg)]) {

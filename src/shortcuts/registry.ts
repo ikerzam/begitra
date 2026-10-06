@@ -16,6 +16,9 @@ export interface ShortcutBinding {
 /** The default bindings. */
 export const defaultBindings: readonly ShortcutBinding[] = [
   { id: "palette", keys: "mod+k", scope: "global" },
+  { id: "find", keys: "mod+f", scope: "global" },
+  { id: "find-next", keys: "f3", scope: "global" },
+  { id: "find-previous", keys: "shift+f3", scope: "global" },
   { id: "graph-focus", keys: "mod+1", scope: "global" },
   { id: "review-focus", keys: "mod+2", scope: "global" },
   { id: "changes-focus", keys: "mod+3", scope: "global" },
@@ -69,6 +72,11 @@ const NON_TEXT_INPUTS = new Set([
   "reset",
   "submit",
 ]);
+
+/** Whether a binding is a key a text field types: a plain key, not a chord nor a function key. */
+function typesText(keys: string): boolean {
+  return !keys.includes("+") && !/^f\d{1,2}$/.test(keys);
+}
 
 /** Whether a key event comes from a text field, where plain-key shortcuts must not fire. */
 export function isEditableTarget(target: TargetLike): boolean {
@@ -170,7 +178,7 @@ export class ShortcutRegistry {
       const handler = stack?.[stack.length - 1];
       if (!handler) continue;
       if (!matchesKeys(binding.keys, event, this.platform)) continue;
-      if (editable && !binding.keys.includes("+")) continue;
+      if (editable && typesText(binding.keys)) continue;
       if (overlay && binding.scope !== "global") continue;
       event.preventDefault();
       handler(event);

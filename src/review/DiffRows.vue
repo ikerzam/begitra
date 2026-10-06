@@ -9,7 +9,7 @@
 // mode the changed lines can be picked for a partial stage: a click toggles a line,
 // shift-click extends from the last click, and the arrows move a cursor that Space toggles.
 
-import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
+import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from "vue";
 
 import DiffRow from "@/components/DiffRow.vue";
 import HunkRow from "@/components/HunkRow.vue";
@@ -20,6 +20,7 @@ import type { FileChange, Hunk } from "@/ipc/schemas";
 import { useShortcut } from "@/shortcuts/useShortcut";
 import { useExternal } from "@/shell/useExternal";
 import { useCodeTheme } from "@/shell/useTheme";
+import { useFindStore } from "@/stores/find";
 import { useGraphStore } from "@/stores/graph";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore, type ReviewTarget } from "@/stores/review";
@@ -38,6 +39,7 @@ import {
   widestColumns,
   type DiffRowModel,
   type GapRowModel,
+  type LineMark,
 } from "./diffRows";
 import GapRow from "./GapRow.vue";
 import LineContent from "./LineContent.vue";
@@ -66,8 +68,16 @@ const props = withDefaults(
     selected?: Set<string>;
     /** The repository the file is in; the open one when not given. */
     root?: string | null;
+    /** The file's key in the find's source, whose matches the rows draw; none when not given. */
+    findKey?: string | null;
   }>(),
-  { target: undefined, selectable: false, selected: () => new Set<string>(), root: undefined },
+  {
+    target: undefined,
+    selectable: false,
+    selected: () => new Set<string>(),
+    root: undefined,
+    findKey: null,
+  },
 );
 
 /** `select`: the keys of the lines a click or Space named; `extend` unions them, else toggles. */
@@ -76,6 +86,7 @@ const emit = defineEmits<{ select: [keys: string[], extend: boolean] }>();
 const repo = useRepoStore();
 const review = useReviewStore();
 const graph = useGraphStore();
+const find = useFindStore();
 const codeTheme = useCodeTheme();
 const external = useExternal();
 const staged = useStagedFiles();
@@ -308,7 +319,76 @@ function onScroll(): void {
   review.currentSymbol = null;
   noteTopLine();
   if ((body.value?.scrollTop ?? 0) > 0) landOnChange = false;
+  if (followMatch && Math.abs((body.value?.scrollTop ?? 0) - matchTop) > 1) followMatch = false;
 }
+
+// --- The find's matches -----------------------------------------------------------------
+
+/** The find's matches in this file by `hunk:line`, while its bar is open. */
+const findMarks = computed(() => {
+  const marks = new Map<string, LineMark[]>();
+  const key = props.findKey;
+  if (!find.open || key === null) return marks;
+  const current = find.currentMatch;
+  for (const match of find.byKey.get(key) ?? []) {
+    const at = `${match.hunk}:${match.line}`;
+    const mark = { start: match.start, end: match.end, current: match === current };
+    const list = marks.get(at);
+    if (list) list.push(mark);
+    else marks.set(at, [mark]);
+  }
+  return marks;
+});
+const NO_MARKS: LineMark[] = [];
+
+function marksAt(hunkIndex: number, lineIndex: number | null): LineMark[] {
+  if (lineIndex === null) return NO_MARKS;
+  return findMarks.value.get(`${hunkIndex}:${lineIndex}`) ?? NO_MARKS;
+}
+
+/**
+ * The current match is followed until the reviewer scrolls: the lines Whole file reads in
+ * arrive above it after it was revealed.
+ */
+let followMatch = false;
+let matchTop = -1;
+
+/** Brings the current match's line to the middle of the view, with the cursor on it. */
+function revealMatch(): void {
+  const match = find.currentMatch;
+  if (!match || props.findKey === null || match.key !== props.findKey) return;
+  const index = rows.value.findIndex(
+    (row) =>
+      (row.kind === "line" && row.hunkIndex === match.hunk && row.lineIndex === match.line) ||
+      (row.kind === "pair" &&
+        row.hunkIndex === match.hunk &&
+        (row.leftIndex === match.line || row.rightIndex === match.line)),
+  );
+  const element = body.value;
+  if (index < 0 || !element) return;
+  landOnChange = false;
+  cursorKey.value = keyAt(index);
+  const top = virtual.rowTop(index);
+  const height = heights.value[index] ?? 0;
+  if (top < element.scrollTop || top + height > element.scrollTop + element.clientHeight) {
+    scrollTo(Math.max(0, top - (element.clientHeight - height) / 2));
+  }
+  followMatch = true;
+  matchTop = element.scrollTop;
+}
+
+watch(
+  () => [find.revealRequest, props.findKey] as const,
+  () => void nextTick(revealMatch),
+);
+watch(
+  rows,
+  () => {
+    if (followMatch) void nextTick(revealMatch);
+  },
+  { flush: "post" },
+);
+onMounted(() => void nextTick(revealMatch));
 
 // --- Unchanged lines --------------------------------------------------------------------
 
@@ -601,6 +681,7 @@ defineExpose({
                   :line="rows[index].line"
                   :tokens="highlight.tokensOf(rows[index].line)"
                   :wrap="review.wrap"
+                  :marks="marksAt(rows[index].hunkIndex, rows[index].lineIndex)"
                 />
               </DiffRow>
             </template>
@@ -650,6 +731,8 @@ defineExpose({
                 :left-selected="isSelected(rows[index], 'left')"
                 :right-selected="isSelected(rows[index], 'right')"
                 :cursor="cursorRow === index"
+                :left-marks="marksAt(rows[index].hunkIndex, rows[index].leftIndex)"
+                :right-marks="marksAt(rows[index].hunkIndex, rows[index].rightIndex)"
                 @select-side="(side, event) => onSideClick(index, side, event)"
               />
             </template>

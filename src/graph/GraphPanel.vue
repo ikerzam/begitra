@@ -14,6 +14,7 @@ import ErrorBanner from "@/components/ErrorBanner.vue";
 import type { CommitNode, Ref as GitRef } from "@/ipc/schemas";
 import { errorText } from "@/shell/errorMessage";
 import { sameFolder, shortHash } from "@/shell/format";
+import { useShortcut } from "@/shortcuts/useShortcut";
 import { useGraphStore } from "@/stores/graph";
 import { useProjectsStore } from "@/stores/projects";
 import { headTarget, useRepoStore } from "@/stores/repo";
@@ -39,6 +40,9 @@ const projects = useProjectsStore();
 const actions = useCommitActions();
 const hover = useHoverCard();
 const rows = ref<{ focus(): void } | null>(null);
+const filterBar = ref<{ focusSearch(): void } | null>(null);
+// ⌘F here is the history's search: graph focus has no diff to find in.
+useShortcut("find", () => filterBar.value?.focusSearch());
 /** "Clear filters" of the empty state, which takes the focus where the rows would. */
 const clearButton = ref<{ $el: HTMLElement } | null>(null);
 
@@ -190,7 +194,7 @@ defineExpose({ focus });
     @keydown.escape="hover.hide()"
   >
     <!-- A failed open has no filter bar: the banner takes the whole area. -->
-    <FilterBar v-if="repo.state.kind !== 'error'" />
+    <FilterBar v-if="repo.state.kind !== 'error'" ref="filterBar" />
 
     <div v-if="repo.state.kind === 'error'" class="p-5" data-testid="graph-error">
       <ErrorBanner

@@ -4,7 +4,8 @@
 // file, "Unstage file" on a staged one), the banner of a failed write with git's output, and
 // the review rows with "Stage hunk" / "Unstage hunk" / "Discard hunk…" on every hunk header,
 // which turn into "… lines" once lines are picked. The picked lines live here, keyed
-// `hunk:line`, and clear when the file changes or a write starts.
+// `hunk:line`, and clear when the file changes or a write starts. The find bar shows under the
+// header while the find is open, over the two lists (`useChangesFind`).
 
 import {
   Check,
@@ -30,6 +31,7 @@ import type { FileChange } from "@/ipc/schemas";
 import DiffGuard from "@/review/DiffGuard.vue";
 import DiffPath from "@/review/DiffPath.vue";
 import DiffRows from "@/review/DiffRows.vue";
+import FindBar from "@/review/FindBar.vue";
 import ImageDiff from "@/review/ImageDiff.vue";
 import { imageType } from "@/review/sides";
 import { headerLine, useFileOpener, useOpenFileShortcut } from "@/review/useFileOpener";
@@ -42,6 +44,7 @@ import { useSequencerStore } from "@/stores/sequencer";
 
 import type { DiscardRequest } from "./discard";
 import { useChanges, useOpenRepositoryChanges } from "./useChanges";
+import { findKeyOf, useChangesFind } from "./useChangesFind";
 
 const emit = defineEmits<{ discard: [request: DiscardRequest] }>();
 
@@ -63,6 +66,9 @@ const target = computed<ReviewTarget | null>(() =>
 );
 const isImage = computed(() => file.value !== null && imageType(file.value.path) !== null);
 const revealed = ref(new Set<string>());
+useChangesFind(changes, (path) => {
+  revealed.value = new Set(revealed.value).add(path);
+});
 const selected = ref(new Set<string>());
 
 /** Why the file sits behind the card, if it does. */
@@ -108,7 +114,7 @@ const editorLabel = computed(() => {
   return line === null ? t("fileMenu.openInEditor") : t("lineMenu.openAtLine", { line });
 });
 /** The rows' own line at the top, read by ⇧⌘E. */
-const rows = ref<{ lineAtTop: () => number | null } | null>(null);
+const rows = ref<{ lineAtTop: () => number | null; focus: () => void } | null>(null);
 useOpenFileShortcut(root, file, () => rows.value?.lineAtTop());
 
 /** The keys of every changed line of a hunk. */
@@ -300,6 +306,7 @@ defineExpose({ actOnSelection, selectedCount });
       </template>
       <span v-else class="flex-1"></span>
     </header>
+    <FindBar @close="rows?.focus()" />
 
     <!-- The banner sits 12px from the header and the panel edges. -->
     <div v-if="changes.actionError" class="p-3" data-testid="changes-failed">
@@ -348,6 +355,7 @@ defineExpose({ actOnSelection, selectedCount });
       :selectable="selectable && !writing"
       :selected="selected"
       :root="root"
+      :find-key="list === null ? null : findKeyOf(list, file.path)"
       @select="onSelect"
     >
       <template #hunkActions="{ hunkIndex }">

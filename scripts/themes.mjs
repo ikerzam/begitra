@@ -257,6 +257,10 @@ function alphaByte(alpha) {
 export const TINT_FLOORS = { text: 4.5, code: 3, marker: 4.5 };
 /** How far apart a lane must stay from the accent and from every other lane (CIEDE2000). */
 export const LANE_DISTANCE = 11;
+/** How far a find highlight must stand from the background it lies on (CIEDE2000). */
+export const FIND_DISTANCE = 5;
+/** The least alpha, in percent, a find highlight goes down to for the text's floor. */
+const FIND_LEAST = 8;
 
 /**
  * The colour tokens of one palette, the colours the floors lifted (`{ token, from, to }`) and
@@ -402,6 +406,23 @@ export function deriveTokens(palette, names) {
     });
     tokens.set("--text-secondary", secondaryOnTints);
   }
+
+  // The find's highlights: the palette's yellow for a match and its orange for the current one,
+  // at the largest alphas up to Begitra's own (25% and 60%) that keep the text 4.5:1 on the
+  // plain background and the changed rows; a highlight takes the place of a span's emphasis.
+  const findSurfaces = [bg, addRow, delRow];
+  const highlight = (hue, most) => {
+    for (let percent = most; percent > FIND_LEAST; percent -= 1) {
+      const fill = withAlpha(hue, alphaByte(percent / 100));
+      const readable = findSurfaces.every(
+        (surface) => contrast(text, composite(fill, surface)) >= TINT_FLOORS.text,
+      );
+      if (readable) return fill;
+    }
+    return withAlpha(hue, alphaByte(FIND_LEAST / 100));
+  };
+  put("--find-match", highlight(palette.yellow, 25));
+  put("--find-current", highlight(palette.orange, 60));
 
   put("--warn", liftOn(palette.yellow, surfaces, 4.5), palette.yellow);
   put("--ok", liftOn(palette.green, surfaces, 4.5), palette.green);
