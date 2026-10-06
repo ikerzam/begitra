@@ -716,6 +716,12 @@ describe("ChangesLayout, commit and push around other work", () => {
     expect(of(calls, "push")).toHaveLength(0);
     expect(useToastsStore().toasts.some((toast) => toast.key === "remotes.pushWaits")).toBe(true);
     await vi.waitFor(() => expect(of(calls, "push")).toHaveLength(1), { timeout: 3000 });
+    // The push ends inside the test: its toast would land in the next test's store otherwise.
+    await vi.waitFor(
+      () =>
+        expect(useToastsStore().toasts.some((toast) => toast.key === "remotes.pushed")).toBe(true),
+      { timeout: 3000 },
+    );
     wrapper.unmount();
   });
 
