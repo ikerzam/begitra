@@ -183,6 +183,21 @@ export function templateBody(template: string): string {
     .trim();
 }
 
+/** A whole message as the box holds it: the first line the subject, the rest the body. */
+export function splitMessage(message: string): Pick<CommitDraft, "subject" | "body"> {
+  const [subject = "", ...rest] = message.replace(/\r\n/g, "\n").split("\n");
+  return { subject, body: rest.join("\n").trim() };
+}
+
+/** Whether the box holds nothing the user wrote: empty, or the template it prefills untouched. */
+export function draftIsBlank(
+  draft: Pick<CommitDraft, "subject" | "body">,
+  template: string | null,
+): boolean {
+  const message = messageOf(draft);
+  return message === "" || message === messageOf(splitMessage(templateBody(template ?? "")));
+}
+
 const emptyList = (): ChangeSetState => ({
   files: [],
   additions: 0,
@@ -802,10 +817,13 @@ export function createChangesModel(options: ChangesModelOptions) {
     return discard(unstaged.value.files);
   }
 
-  /** The author, the template and HEAD's message; prefills an empty draft with the template. */
-  async function loadContext(): Promise<void> {
+  /**
+   * The author, the template and HEAD's commit; prefills an empty draft with the template.
+   * Answers what it read, or null when the read failed.
+   */
+  async function loadContext(): Promise<CommitContext | null> {
     const root = options.root();
-    if (!root) return;
+    if (!root) return null;
     try {
       const loaded = await ipc.commitContext(root);
       context.value = loaded;
@@ -813,15 +831,16 @@ export function createChangesModel(options: ChangesModelOptions) {
         const prefilled = loaded.preparedMessage ?? templateBody(loaded.template ?? "");
         if (prefilled !== "") setMessage(prefilled);
       }
+      return loaded;
     } catch (failure) {
       actionError.value = toAppError(failure);
+      return null;
     }
   }
 
-  /** Splits a whole message into the draft's subject and body. */
+  /** Puts a whole message in the draft's subject and body. */
   function setMessage(message: string): void {
-    const [subject = "", ...rest] = message.split("\n");
-    draft.value = { ...draft.value, subject, body: rest.join("\n").trim() };
+    draft.value = { ...draft.value, ...splitMessage(message) };
   }
 
   function setDraft(patch: Partial<CommitDraft>): void {
@@ -834,7 +853,8 @@ export function createChangesModel(options: ChangesModelOptions) {
         return;
       }
     } else if (patch.amend === false && draft.value.amend && context.value?.headMessage) {
-      if (messageOf(next) === context.value.headMessage.trim()) {
+      // Compared as the box holds it: a body right under the subject gains its blank line there.
+      if (messageOf(next) === messageOf(splitMessage(context.value.headMessage))) {
         next.subject = "";
         next.body = "";
       }

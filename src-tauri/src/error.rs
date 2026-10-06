@@ -23,6 +23,10 @@ pub mod codes {
     pub const REFS_NOT_FOUND: &str = "refs.not_found";
     /// Two revisions share no history.
     pub const REFS_UNRELATED_HISTORIES: &str = "refs.unrelated_histories";
+    /// HEAD moved since a write was planned on it; nothing changed.
+    pub const REFS_HEAD_MOVED: &str = "refs.head_moved";
+    /// An operation in progress or conflicts hold HEAD where it is; nothing changed.
+    pub const REFS_HEAD_HELD: &str = "refs.head_held";
     /// A blob referenced by a diff is missing.
     pub const DIFF_BLOB_MISSING: &str = "diff.blob_missing";
     /// A file is larger than what the app reads whole.
@@ -68,12 +72,14 @@ pub mod codes {
 
     /// Every code, in the order of the frontend's `errorCodes` (`src/ipc/schemas.ts`); the
     /// contract test compares the two lists through the `app-errors` fixture.
-    pub const ALL: [&str; 25] = [
+    pub const ALL: [&str; 27] = [
         REPO_NOT_FOUND,
         REPO_INVALID,
         REPO_CORRUPT_OBJECT,
         REFS_NOT_FOUND,
         REFS_UNRELATED_HISTORIES,
+        REFS_HEAD_MOVED,
+        REFS_HEAD_HELD,
         DIFF_BLOB_MISSING,
         BLOB_TOO_LARGE,
         BLOB_UNREADABLE,

@@ -12,6 +12,7 @@ import { useNotesExport } from "@/review/useNotesExport";
 import { folderKey } from "@/shell/format";
 import { useExternal } from "@/shell/useExternal";
 import { useOpenFolder } from "@/shell/useOpenFolder";
+import { useBranchesStore } from "@/stores/branches";
 import { useIndexStore } from "@/stores/index";
 import { useChangesStore } from "@/stores/changes";
 import { useRemotesStore } from "@/stores/remotes";
@@ -47,6 +48,7 @@ export function usePaletteActions(): PaletteActions {
   const worktrees = useWorktreesStore();
   const changes = useChangesStore();
   const remotes = useRemotesStore();
+  const branches = useBranchesStore();
   const sequencer = useSequencerStore();
   const stash = useStashStore();
   const projects = useProjectsStore();
@@ -116,6 +118,9 @@ export function usePaletteActions(): PaletteActions {
     showWorktrees: () => worktrees.show(),
     showChanges: () => shell.setLayoutMode("changes"),
     branchAction: (action) => picker.open({ kind: "branch-action", action }),
+    undoLastCommit: () => void branches.undoLastCommit(),
+    canRedoUndone: () => branches.canRedo,
+    redoUndoneCommit: () => void branches.redoUndone(),
     network: (action) => {
       const branch = repo.currentBranch?.name;
       if (branch) remotes.ask({ kind: action, branch });

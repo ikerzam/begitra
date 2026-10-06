@@ -532,6 +532,16 @@ impl GitEngine for Git2Engine {
         branches::reset(self, rev, mode, cancel)
     }
 
+    fn move_head(
+        &self,
+        from: &str,
+        to: &str,
+        branch: Option<&str>,
+        cancel: &Cancel,
+    ) -> GitResult<()> {
+        branches::move_head(self, from, to, branch, cancel)
+    }
+
     fn cherry_pick(&self, revs: &[String], cancel: &Cancel) -> GitResult<Outcome> {
         branches::cherry_pick(self, revs, cancel)
     }

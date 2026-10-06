@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // The context menu of a commit row: copy hash and message, diff from
-// here, compare with…, select as range end, open in terminal and in
-// editor. Opened at the pointer, or under the focused row from the keyboard.
+// here, compare with…, select as range end, the branch actions on the commit (HEAD's row
+// adds "Undo commit"), open in terminal and in editor. Opened at the pointer, or under the
+// focused row from the keyboard.
 
 import {
   Code,
@@ -14,6 +15,7 @@ import {
   Tag,
   Terminal,
   Undo2,
+  UndoDot,
   Waypoints,
 } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
@@ -29,6 +31,8 @@ const props = defineProps<{
   y: number;
   /** The current branch, named in "Reset <branch> to here"; null when detached. */
   branch?: string | null;
+  /** The row is HEAD's commit, which "Undo commit" moves back from. */
+  head?: boolean;
 }>();
 const emit = defineEmits<{
   copyHash: [];
@@ -40,6 +44,7 @@ const emit = defineEmits<{
   tag: [];
   cherryPick: [];
   revert: [];
+  undo: [];
   reset: [];
   openTerminal: [];
   openEditor: [];
@@ -104,6 +109,13 @@ const copyHint = formatShortcut("mod+c", shortcutRegistry().platform);
       :icon="Undo2"
       data-testid="menu-revert"
       @select="emit('revert')"
+    />
+    <ContextMenuItem
+      v-if="props.head"
+      :label="t('branches.undoCommit')"
+      :icon="UndoDot"
+      data-testid="menu-undo-commit"
+      @select="emit('undo')"
     />
     <ContextMenuItem
       :label="t('branches.resetHere', { branch: props.branch ?? 'HEAD' })"

@@ -227,6 +227,61 @@ describe("GraphPanel hover card and context menu", () => {
     wrapper.unmount();
   });
 
+  it("offers Undo commit on HEAD's row only, and undoes from it", async () => {
+    const head = {
+      name: "HEAD",
+      fullName: "HEAD",
+      kind: "head" as const,
+      target: fakeCommit(0).hash,
+      isCurrent: true,
+      upstream: null,
+      ahead: null,
+      behind: null,
+      worktree: null,
+      message: null,
+      committedAt: fakeCommit(0).committer.time,
+    };
+    const main = {
+      ...head,
+      name: "main",
+      fullName: "refs/heads/main",
+      kind: "local-branch" as const,
+    };
+    fakeBackend({ refs: [head, main] });
+    await openRepository();
+    const wrapper = await mountPanel();
+    const rows = wrapper.findAll('[data-testid="graph-row"]');
+    await rows[1]!.trigger("contextmenu", { clientX: 300, clientY: 120 });
+    expect(wrapper.find('[data-testid="menu-undo-commit"]').exists()).toBe(false);
+    await rows[0]!.trigger("contextmenu", { clientX: 300, clientY: 120 });
+    const undo = wrapper.get('[data-testid="menu-undo-commit"]');
+    expect(undo.text()).toBe("Undo commit");
+    const spy = vi.spyOn(useBranchesStore(), "undoLastCommit").mockResolvedValue(true);
+    await undo.trigger("click");
+    // Bound to the row's commit: an undo of another commit is refused.
+    expect(spy).toHaveBeenCalledExactlyOnceWith({ expected: fakeCommit(0).hash });
+    expect(wrapper.find('[role="menu"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("keeps the menu on its commit, and closes it once the history no longer lists it", async () => {
+    fakeBackend();
+    const repo = await openRepository();
+    const wrapper = await mountPanel();
+    const rows = wrapper.findAll('[data-testid="graph-row"]');
+    await rows[1]!.trigger("contextmenu", { clientX: 300, clientY: 120 });
+    expect(wrapper.find('[role="menu"]').exists()).toBe(true);
+    // A commit lands above: the menu's commit moves down a row and the menu stays on it.
+    repo.commits = [fakeCommit(99), ...repo.commits];
+    await nextTick();
+    expect(wrapper.find('[role="menu"]').exists()).toBe(true);
+    // The history listed again without it: the menu goes.
+    repo.commits = repo.commits.filter((commit) => commit.hash !== fakeCommit(1).hash);
+    await nextTick();
+    expect(wrapper.find('[role="menu"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
   it("opens the branch menu from a ref badge instead of the commit's", async () => {
     fakeBackend();
     const repo = await openRepository();

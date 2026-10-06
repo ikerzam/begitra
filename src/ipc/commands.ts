@@ -219,6 +219,21 @@ export function reset(repo: string, rev: string, mode: ResetMode, opId = newOpId
   return call("reset", { repo, rev, mode, opId }, v.null());
 }
 
+/**
+ * Moves HEAD from `from` to `to` as a soft reset does, only while HEAD is still `from` on
+ * `branch` (its full ref name; null when detached), `refs.head_moved` otherwise: the undo of
+ * HEAD's commit and its redo.
+ */
+export function moveHead(
+  repo: string,
+  from: string,
+  to: string,
+  branch: string | null,
+  opId = newOpId("move-head"),
+) {
+  return call("move_head", { repo, from, to, branch, opId }, v.null());
+}
+
 export function cherryPick(repo: string, revs: string[], opId = newOpId("cherry-pick")) {
   return call("cherry_pick", { repo, revs, opId }, OutcomeSchema);
 }

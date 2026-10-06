@@ -26,6 +26,10 @@ export function errorText(
       return { key: "errors.corruptObject", params };
     case "refs.not_found":
       return { key: "errors.refNotFound", params };
+    case "refs.head_moved":
+      return { key: "errors.headMoved", params };
+    case "refs.head_held":
+      return { key: "errors.headHeld", params };
     case "op.cancelled":
       return { key: "errors.cancelled", params };
     case "op.timeout":

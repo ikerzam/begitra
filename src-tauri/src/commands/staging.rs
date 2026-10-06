@@ -236,7 +236,8 @@ pub async fn commit(
     .await
 }
 
-/// The author, the template, HEAD's message and whether HEAD is unborn.
+/// The author, the template, whether HEAD is unborn, HEAD's commit with its parents and its
+/// message, and the operations in progress.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state))]
 pub async fn commit_context(

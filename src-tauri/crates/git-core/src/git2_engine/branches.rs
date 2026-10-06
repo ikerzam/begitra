@@ -6,6 +6,8 @@
 //! command runs). A merge, rebase, pick or revert that stops on conflicts is an [`Outcome`],
 //! not an error (see [`super::sequencer`]).
 
+use git2::RepositoryState;
+
 use super::{sequencer, Git2Engine};
 use crate::cli::{run_git_env, CliExit, WRITE_ENV};
 use crate::engine::{Cancel, GitEngine};
@@ -224,6 +226,125 @@ pub(super) fn reset(
     // The hash, then `--`: `git reset <path>` would unstage the path and move nothing.
     let hash = engine.with_repo(|repo| Ok(super::resolve_commit(repo, rev)?.to_string()))?;
     git_ok(engine, &["reset", "-q", flag, hash.as_str(), "--"], cancel)
+}
+
+/// See [`GitEngine::move_head`]: `git update-ref` on the branch's own name with the old
+/// value, which git compares under the ref's lock; `HEAD` itself when detached.
+#[tracing::instrument(level = "debug", skip_all, fields(from = %from, to = %to, branch))]
+pub(super) fn move_head(
+    engine: &Git2Engine,
+    from: &str,
+    to: &str,
+    branch: Option<&str>,
+    cancel: &Cancel,
+) -> GitResult<()> {
+    engine.with_repo(|repo| {
+        // Full hashes, and a commit to go to: a zero new value would make `update-ref` delete
+        // the branch.
+        full_oid(from)?;
+        let target = full_oid(to)?;
+        if repo.find_commit(target).is_err() {
+            return Err(GitError::RefNotFound(to.to_owned()));
+        }
+        if let Some(held) = held_by(repo)? {
+            return Err(GitError::HeadHeld(held));
+        }
+        // HEAD on another branch (or detached, or unborn) is not where the move was planned.
+        let head = repo.find_reference("HEAD")?;
+        let on = head.symbolic_target()?.map(str::to_owned);
+        if on.as_deref() != branch {
+            let actual = repo
+                .head()
+                .ok()
+                .and_then(|head| head.target())
+                .map(|oid| oid.to_string());
+            return Err(GitError::HeadMoved {
+                expected: from.to_owned(),
+                actual: actual.unwrap_or_default(),
+            });
+        }
+        Ok(())
+    })?;
+    let reason = format!("reset: moving to {to}");
+    let name = branch.unwrap_or("HEAD");
+    let args = ["update-ref", "-m", reason.as_str(), "--", name, to, from];
+    if let Err(error) = git_ok(engine, &args, cancel) {
+        // Only a git that answered can have refused the old value, and its words do not say
+        // which refusal it was: HEAD read again tells.
+        if matches!(
+            error,
+            GitError::Cli {
+                status: Some(_),
+                ..
+            }
+        ) {
+            if let Ok(actual) = sequencer::head_hash(engine) {
+                if actual.as_deref() != Some(from) {
+                    return Err(GitError::HeadMoved {
+                        expected: from.to_owned(),
+                        actual: actual.unwrap_or_default(),
+                    });
+                }
+            }
+        }
+        return Err(error);
+    }
+    // As after `git reset`, with its reflog message; the move stands when ORIG_HEAD cannot be
+    // written.
+    let orig = [
+        "update-ref",
+        "-m",
+        "reset: updating ORIG_HEAD",
+        "--",
+        "ORIG_HEAD",
+        from,
+    ];
+    if let Err(error) = git_ok(engine, &orig, cancel) {
+        tracing::warn!(%error, "ORIG_HEAD was not written");
+    }
+    Ok(())
+}
+
+/// A full, non-zero object id spelled in hexadecimal; anything else names no commit here.
+fn full_oid(hash: &str) -> GitResult<git2::Oid> {
+    let hex = hash.bytes().all(|byte| byte.is_ascii_hexdigit());
+    let oid = if hex && matches!(hash.len(), 40 | 64) {
+        git2::Oid::from_str(hash).ok()
+    } else {
+        None
+    };
+    oid.filter(|oid| !oid.is_zero())
+        .ok_or_else(|| GitError::RefNotFound(hash.to_owned()))
+}
+
+/// What holds HEAD where it is: an operation in progress (a paused sequence of picks or
+/// reverts included), or conflicts in the index (read again from disk); None when nothing
+/// does.
+fn held_by(repo: &git2::Repository) -> GitResult<Option<String>> {
+    let operation = match repo.state() {
+        RepositoryState::Clean => None,
+        RepositoryState::Merge => Some("a merge"),
+        RepositoryState::Revert | RepositoryState::RevertSequence => Some("a revert"),
+        RepositoryState::CherryPick | RepositoryState::CherryPickSequence => Some("a cherry-pick"),
+        RepositoryState::Bisect => Some("a bisect"),
+        RepositoryState::Rebase
+        | RepositoryState::RebaseInteractive
+        | RepositoryState::RebaseMerge => Some("a rebase"),
+        RepositoryState::ApplyMailbox | RepositoryState::ApplyMailboxOrRebase => Some("a git am"),
+    };
+    if let Some(operation) = operation {
+        return Ok(Some(format!("{operation} is in progress")));
+    }
+    if super::staging::sequence_paused(repo) {
+        return Ok(Some(
+            "a cherry-pick or revert sequence is in progress".to_owned(),
+        ));
+    }
+    let mut index = repo.index()?;
+    index.read(false)?;
+    Ok(index
+        .has_conflicts()
+        .then(|| "the index holds conflicts".to_owned()))
 }
 
 /// See [`GitEngine::cherry_pick`].

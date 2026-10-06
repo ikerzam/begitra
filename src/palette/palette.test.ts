@@ -64,6 +64,8 @@ interface ActionOptions {
   hasReviewNotes?: boolean;
   /** The open project holds more than one repository. */
   several?: boolean;
+  /** The last undo of a commit can be redone. */
+  canRedo?: boolean;
 }
 
 function actions(options: ActionOptions | boolean = {}): PaletteActions & { calls: string[] } {
@@ -73,6 +75,7 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
     hasFolderProjects = true,
     hasReviewNotes = false,
     several = false,
+    canRedo = false,
   } = typeof options === "boolean" ? { hasRepository: options } : options;
   const calls: string[] = [];
   const record = (name: string) => () => {
@@ -178,6 +181,13 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
     },
     network: (action) => {
       calls.push(`network:${action}`);
+    },
+    undoLastCommit: () => {
+      calls.push("undoLastCommit");
+    },
+    canRedoUndone: () => canRedo,
+    redoUndoneCommit: () => {
+      calls.push("redoUndoneCommit");
     },
     fetchAll: () => {
       calls.push("fetchAll");
@@ -294,6 +304,7 @@ describe("usePalette", () => {
       "create-branch",
       "merge-into",
       "rebase-onto",
+      "undo-last-commit",
       "push",
       "pull",
       "fetch-all",
@@ -336,6 +347,15 @@ describe("usePalette", () => {
     await next?.command.run();
     await overview?.command.run();
     expect(acts.calls).toEqual(["fetchProject", "projectNeighbour:1", "showOverview"]);
+  });
+
+  it("offers Redo undone commit only while an undo can be redone, and runs it", async () => {
+    expect(setup().palette.rows.value.map((r) => r.command.id)).not.toContain("redo-undone-commit");
+    const { palette, acts } = setup({ canRedo: true });
+    const ids = palette.rows.value.map((r) => r.command.id);
+    expect(ids.indexOf("redo-undone-commit")).toBe(ids.indexOf("undo-last-commit") + 1);
+    await palette.rows.value.find((r) => r.command.id === "redo-undone-commit")?.command.run();
+    expect(acts.calls).toEqual(["redoUndoneCommit"]);
   });
 
   it("offers to copy the review notes only when the target has some, and runs it", async () => {

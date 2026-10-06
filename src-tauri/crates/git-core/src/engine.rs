@@ -281,6 +281,26 @@ pub trait GitEngine: Send + Sync {
     /// Resets HEAD (`--soft`, `--mixed`, `--hard`); the reflog keeps the previous HEAD.
     fn reset(&self, rev: &str, mode: ResetMode, cancel: &Cancel) -> GitResult<()>;
 
+    /// Moves HEAD from `from` to `to` (full commit hashes) with the index and the working tree
+    /// kept, as `git reset --soft <to>` keeps them, only while HEAD is still `from` on
+    /// `branch` (a full ref name; `None` for a detached HEAD): a commit made or a branch
+    /// checked out since the caller planned the move is never dropped or moved
+    /// ([`GitError::HeadMoved`], and nothing moves). The branch moves by its own name, so a
+    /// switch in the last moment moves nothing else; the reflogs read "reset: moving to <to>"
+    /// and `ORIG_HEAD` names `from`, as after a reset. Unlike `git reset`, the messages git
+    /// prepared (`MERGE_MSG`, `SQUASH_MSG`) stay. While an operation is in progress (a merge,
+    /// a rebase, a cherry-pick or a revert, a paused sequence of them, a bisect, a stopped
+    /// `git am`) or the index holds conflicts, it is [`GitError::HeadHeld`], where git's soft
+    /// reset refuses a merge and unmerged entries only; a `to` that is not a full hash of a
+    /// commit is [`GitError::RefNotFound`].
+    fn move_head(
+        &self,
+        from: &str,
+        to: &str,
+        branch: Option<&str>,
+        cancel: &Cancel,
+    ) -> GitResult<()>;
+
     /// Cherry-picks revisions onto HEAD.
     fn cherry_pick(&self, revs: &[String], cancel: &Cancel) -> GitResult<Outcome>;
 

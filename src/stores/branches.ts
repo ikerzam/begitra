@@ -1,25 +1,28 @@
-// The branch, tag and history writes as the menus and the palette reach them:
-// checkout, create, rename, delete, merge, rebase, reset, cherry-pick, revert, tag and the
-// upstream, each through the bridge with its status bar label; the prompts the layout shows
+// The branch, tag and history writes as the menus and the palette reach them: checkout,
+// create, rename, delete, merge, rebase, reset, the undo of HEAD's commit and its redo,
+// cherry-pick, revert, tag and the upstream, each through the bridge with its status bar
+// label; the prompts the layout shows
 // before the ones that ask something (a name, a mode, a confirmation); the outcomes: a stop on
 // conflicts hands over to the sequencer and the changes screen, a success refreshes the refs
 // and lists the history again on the new HEAD, git's refusal becomes an error toast with its
 // output, and a dirty switch offers "Stash and switch".
 
 import { defineStore } from "pinia";
-import { ref } from "vue";
+import { computed, ref, shallowRef } from "vue";
 
 import type { RemoteBranch } from "@/branches/names";
+import { heldBy, undoPlan, type UndoPlan } from "@/branches/undoPlan";
 import * as ipc from "@/ipc/commands";
 import { toAppError, type AppError } from "@/ipc/errors";
 import { newOpId } from "@/ipc/invoke";
-import type { MergeMode, Outcome, ResetMode, SwitchTarget } from "@/ipc/schemas";
+import type { CommitContext, MergeMode, Outcome, ResetMode, SwitchTarget } from "@/ipc/schemas";
 import { arm } from "@/motion/motion";
-import { shortHash } from "@/shell/format";
+import { baseName, shortHash } from "@/shell/format";
 
+import { draftIsBlank, messageOf, useChangesStore } from "./changes";
 import { useOperationsStore } from "./operations";
 import { useRemotesStore } from "./remotes";
-import { useRepoStore } from "./repo";
+import { headTarget, useRepoStore } from "./repo";
 import { useSequencerStore } from "./sequencer";
 import { useShellStore } from "./shell";
 import { useToastsStore } from "./toasts";
@@ -52,11 +55,32 @@ export type BranchPrompt =
   | { kind: "upstream"; branch: string; current: string | null }
   | { kind: "tag"; rev: string; label: string }
   | { kind: "reset"; rev: string; label: string; branch: string }
+  /** The last commit is on `remote` already: its undo asks first. */
+  | { kind: "undoCommit"; hash: string; label: string; remote: string }
   /**
    * git refused the switch because of local changes: "Stash and switch". `tracking` is a
    * remote branch's checkout, which makes the local branch that tracks it.
    */
   | { kind: "dirtySwitch"; target: SwitchTarget; output: string; tracking?: Tracking };
+
+/**
+ * The last undo of HEAD's commit, for "Redo": the repository, the branch it moved (its full
+ * name; null when detached), the commit undone, its parent where HEAD went, and the message the
+ * undo put in the box as the box holds it (null when the box kept a draft).
+ */
+export interface UndoneCommit {
+  root: string;
+  branch: string | null;
+  hash: string;
+  parent: string;
+  restored: string | null;
+}
+
+/** The commit an undo is bound to: the one chosen (`expected`) or confirmed (`confirmed`). */
+export interface UndoPin {
+  expected?: string;
+  confirmed?: string;
+}
 
 /** A remote branch to check out as the local branch that tracks it. */
 export interface Tracking {
@@ -92,6 +116,22 @@ export const useBranchesStore = defineStore("branches", () => {
   const prompt = ref<BranchPrompt | null>(null);
   /** The write in flight, as its status bar label; null between writes. */
   const busy = ref<string | null>(null);
+  /** The last undo while its redo stands; shallow, so a toast's record is the same object. */
+  const undone = shallowRef<UndoneCommit | null>(null);
+  /** The confirmation of an undo is planning it again. */
+  const planningUndo = ref(false);
+  /** The toast of the last undo, the one with "Redo". */
+  let undoToast: number | null = null;
+  /** The last undo can be redone: the same repository and branch, HEAD where it left it. */
+  const canRedo = computed(() => {
+    const last = undone.value;
+    return (
+      last !== null &&
+      repo.repo?.root === last.root &&
+      (repo.currentBranch?.fullName ?? null) === last.branch &&
+      headTarget(repo.refs) === last.parent
+    );
+  });
 
   function ask(next: BranchPrompt): void {
     prompt.value = next;
@@ -378,6 +418,212 @@ export const useBranchesStore = defineStore("branches", () => {
     return done === true;
   }
 
+  /**
+   * Undoes HEAD's commit (`undoPlan`), planned on what is there now: the commit context and the
+   * refs read again, with the remotes and the conflicts. HEAD moves to the commit's parent only
+   * while it is still that commit (`move_head`), so its changes stay staged and a commit made
+   * meanwhile is never dropped. Amend goes off, and the message goes back in a box that holds
+   * nothing the user wrote. `pin.expected` is the commit the user chose (the menu's row) and
+   * `pin.confirmed` the one the confirmation of a pushed commit was about: the undo goes ahead
+   * only while HEAD is still that commit. "Redo" in the toast and the palette moves HEAD back.
+   */
+  async function undoLastCommit(pin: UndoPin = {}): Promise<boolean> {
+    const root = repo.repo?.root;
+    if (!root) return false;
+    const confirming = pin.confirmed !== undefined;
+    // The confirmation plans again before it closes: its dialog is busy, and a second press
+    // neither plans nor runs.
+    if (confirming && planningUndo.value) return false;
+    if (confirming) planningUndo.value = true;
+    let ready: { plan: Extract<UndoPlan, { kind: "undo" }>; context: CommitContext } | null;
+    try {
+      ready = await planUndo(root, pin);
+    } finally {
+      if (confirming) planningUndo.value = false;
+    }
+    if (ready === null) return false;
+    const { plan, context } = ready;
+    const changes = useChangesStore();
+    const branch = repo.currentBranch ?? null;
+    dismiss();
+    const moved = await write(
+      "operations.undoingCommit",
+      async (at, opId) => {
+        await ipc.moveHead(at, plan.hash, plan.parent, branch?.fullName ?? null, opId);
+        return true;
+      },
+      (error) => refusedAsMoved(error, "branches.undoMoved"),
+    );
+    if (!moved) return false;
+    // Amend goes off with the commit it would amend; its borrowed message leaves untouched.
+    if (changes.draft.amend) changes.setDraft({ amend: false });
+    // The box takes the message when it holds nothing the user wrote: what the last undo put
+    // there, untouched, counts as nothing.
+    const previous = undone.value?.restored ?? null;
+    const blank =
+      draftIsBlank(changes.draft, context.template) ||
+      (previous !== null && messageOf(changes.draft) === previous);
+    const message = context.headMessage ?? "";
+    const restored = message !== "" && blank ? message : null;
+    if (restored !== null) changes.setMessage(restored);
+    const record: UndoneCommit = {
+      root,
+      branch: branch?.fullName ?? null,
+      hash: plan.hash,
+      parent: plan.parent,
+      restored: restored !== null ? messageOf(changes.draft) : null,
+    };
+    undone.value = record;
+    headMoved(plan.parent);
+    void changes.loadContext();
+    // One "Redo" stands at a time: the last undo's.
+    if (undoToast !== null) toasts.dismiss(undoToast);
+    undoToast = toasts.push({
+      kind: "success",
+      message: "",
+      key: restored !== null ? "branches.undone" : "branches.undoneKeptDraft",
+      params: { hash: shortHash(plan.hash) },
+      actionKey: "branches.redo",
+      onAction: () => void redoUndone(record),
+    });
+    return true;
+  }
+
+  /**
+   * The plan of an undo, on the commit context and the refs read again; a refusal says why
+   * and answers null, as does a commit that needs the confirmation (asked here).
+   */
+  async function planUndo(
+    root: string,
+    pin: UndoPin,
+  ): Promise<{ plan: Extract<UndoPlan, { kind: "undo" }>; context: CommitContext } | null> {
+    const changes = useChangesStore();
+    const remotes = useRemotesStore();
+    const [context] = await Promise.all([
+      changes.loadContext(),
+      repo.refreshRefs(),
+      remotes.loaded ? Promise.resolve() : remotes.load(),
+      sequencer.load(),
+    ]);
+    if (repo.repo?.root !== root) return null;
+    const branch = repo.currentBranch ?? null;
+    const plan = undoPlan({
+      context,
+      shownHead: headTarget(repo.refs),
+      conflicts: sequencer.conflicts.length > 0,
+      branch: branch ? { upstream: branch.upstream, ahead: branch.ahead } : null,
+      remotes: remotes.loaded ? remotes.remotes : null,
+    });
+    if (plan.kind === "refused" || context === null) {
+      if (pin.confirmed !== undefined) dismiss();
+      const failure = changes.actionError;
+      // A context that could not be read is an error, git's output one click away.
+      const unreadable = plan.kind === "refused" && plan.reason === "unknown" && failure !== null;
+      toasts.push({
+        kind: unreadable ? "error" : "info",
+        message: "",
+        key: `branches.undoRefused.${plan.kind === "refused" ? plan.reason : "unknown"}`,
+        params: { branch: branch?.name ?? "HEAD" },
+        ...(unreadable ? { output: failure.detail ?? failure.message } : {}),
+      });
+      return null;
+    }
+    const wanted = pin.confirmed ?? pin.expected;
+    if (wanted !== undefined && wanted !== plan.hash) {
+      dismiss();
+      toasts.push({ kind: "info", message: "", key: "branches.undoMoved" });
+      return null;
+    }
+    if (plan.pushed && plan.remote !== null && pin.confirmed === undefined) {
+      ask({
+        kind: "undoCommit",
+        hash: plan.hash,
+        label: shortHash(plan.hash),
+        remote: plan.remote,
+      });
+      return null;
+    }
+    return { plan, context };
+  }
+
+  /**
+   * Moves HEAD back to the commit an undo took it from (`record`, the last undo's when not
+   * given), read again as the undo reads: in the same repository and on the same branch, while
+   * nothing holds HEAD and HEAD is still where the undo left it; otherwise says so, since
+   * moving it would drop what was committed since. The message the undo put in the box leaves
+   * it, unless it was edited meanwhile.
+   */
+  async function redoUndone(record: UndoneCommit | null = undone.value): Promise<boolean> {
+    // A toast's "Redo" redoes its own undo only: a later undo or a redo made since replaced it.
+    if (record === null || undone.value !== record) {
+      toasts.push({ kind: "info", message: "", key: "branches.redoStale" });
+      return false;
+    }
+    if (repo.repo?.root !== record.root) {
+      toasts.push({
+        kind: "info",
+        message: "",
+        key: "remotes.repositoryChanged",
+        params: { name: baseName(record.root) },
+      });
+      return false;
+    }
+    const changes = useChangesStore();
+    const [context] = await Promise.all([
+      changes.loadContext(),
+      repo.refreshRefs(),
+      sequencer.load(),
+    ]);
+    if (repo.repo?.root !== record.root || undone.value !== record) return false;
+    const held = context ? heldBy(context, sequencer.conflicts.length > 0) : "unknown";
+    if (held !== null) {
+      toasts.push({ kind: "info", message: "", key: `branches.undoRefused.${held}` });
+      return false;
+    }
+    if (
+      (repo.currentBranch?.fullName ?? null) !== record.branch ||
+      context?.head !== record.parent
+    ) {
+      toasts.push({ kind: "info", message: "", key: "branches.redoStale" });
+      return false;
+    }
+    const moved = await write(
+      "operations.redoingCommit",
+      async (root, opId) => {
+        await ipc.moveHead(root, record.parent, record.hash, record.branch, opId);
+        return true;
+      },
+      (error) => {
+        if (!refusedAsMoved(error, "branches.redoStale")) return false;
+        undone.value = null;
+        return true;
+      },
+    );
+    if (!moved) return false;
+    undone.value = null;
+    if (undoToast !== null) toasts.dismiss(undoToast);
+    undoToast = null;
+    if (record.restored !== null && messageOf(changes.draft) === record.restored) {
+      changes.setMessage("");
+    }
+    headMoved(record.hash);
+    void changes.loadContext();
+    toasts.push({
+      kind: "success",
+      message: "",
+      key: "branches.redone",
+      params: { hash: shortHash(record.hash) },
+    });
+    return true;
+  }
+
+  /** git refused a move of HEAD because HEAD moved since the plan: says so with `key`. */
+  function refusedAsMoved(error: AppError, key: string): boolean {
+    if (error.code !== "refs.head_moved") return false;
+    toasts.push({ kind: "info", message: "", key });
+    return true;
+  }
+
   async function cherryPick(revs: string[]): Promise<Outcome | null> {
     const outcome = await history("operations.cherryPicking", (root, opId) =>
       ipc.cherryPick(root, revs, opId),
@@ -458,6 +704,11 @@ export const useBranchesStore = defineStore("branches", () => {
     merge,
     rebase,
     reset,
+    undone,
+    planningUndo,
+    canRedo,
+    undoLastCommit,
+    redoUndone,
     cherryPick,
     revert,
     tag,

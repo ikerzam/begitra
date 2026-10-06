@@ -52,6 +52,8 @@ export function useCommitActions() {
       branches.ask({ kind: "tag", rev: commit.hash, label: shortHash(commit.hash) }),
     cherryPick: (commit: CommitNode) => branches.cherryPick([commit.hash]),
     revert: (commit: CommitNode) => branches.revert([commit.hash]),
+    /** The undo of the commit the menu opened on: refused when HEAD moved off it meanwhile. */
+    undoLastCommit: (commit: CommitNode) => branches.undoLastCommit({ expected: commit.hash }),
     reset: (commit: CommitNode, branch: string | null) =>
       branches.ask({
         kind: "reset",

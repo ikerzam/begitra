@@ -174,6 +174,7 @@ pub fn run() {
             commands::branches::merge,
             commands::branches::rebase,
             commands::branches::reset,
+            commands::branches::move_head,
             commands::branches::cherry_pick,
             commands::branches::revert,
             commands::branches::tag_create,

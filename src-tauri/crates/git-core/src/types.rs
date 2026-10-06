@@ -785,7 +785,7 @@ pub struct CommitRequest {
     pub signoff: bool,
 }
 
-/// What the commit box needs before a commit.
+/// What the commit box needs before a commit, and what the undo of HEAD's commit plans on.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommitContext {
@@ -793,15 +793,39 @@ pub struct CommitContext {
     pub author: String,
     /// The text of the `commit.template` file, when one is configured and readable.
     pub template: Option<String>,
+    /// HEAD's commit; `None` on an unborn branch. Read in one `git log` with its parents and
+    /// its message, so the three describe the same commit.
+    pub head: Option<String>,
     /// The full message of HEAD, for an amend; `None` on an unborn branch.
     pub head_message: Option<String>,
     /// HEAD names no commit yet.
     pub unborn: bool,
+    /// HEAD's parents as git reads them, replace refs and a shallow clone's boundary honoured:
+    /// none on an unborn branch, for a repository's first commit and where a shallow history
+    /// stops, two or more for a merge.
+    pub head_parents: Vec<String>,
     /// The operation the commit would conclude (a merge, a cherry-pick, a revert); `none`
     /// otherwise.
     pub operation: OperationState,
+    /// An operation in progress that holds HEAD and that the sequencer neither continues nor
+    /// aborts.
+    pub other_operation: Option<OtherOperation>,
     /// The message git prepared for that operation (`MERGE_MSG`, `SQUASH_MSG`), when any.
     pub prepared_message: Option<String>,
+}
+
+/// An operation in progress outside the sequencer's ([`CommitContext::other_operation`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum OtherOperation {
+    /// `git bisect` (libgit2's `Bisect`).
+    Bisect,
+    /// A `git am` that stopped on a patch (libgit2's `ApplyMailbox`, and
+    /// `ApplyMailboxOrRebase` for a `rebase-apply` folder that names neither).
+    Am,
+    /// A cherry-pick or revert sequence whose stop was committed by hand: `sequencer/todo`
+    /// remains, `git status` says the operation is in progress, and libgit2 reads a clean state.
+    Sequence,
 }
 
 /// What `switch` checks out.

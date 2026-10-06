@@ -7,13 +7,15 @@
 
 use std::path::Path;
 
-use git2::ErrorCode;
+use git2::{ErrorCode, RepositoryState};
 
 use super::{patch, Git2Engine};
 use crate::cli::{run_git_cancellable, run_git_with_input, CliExit};
 use crate::engine::{Cancel, GitEngine};
 use crate::error::{GitError, GitResult};
-use crate::types::{ChangeKind, CommitContext, CommitRequest, PatchSelection, SelectionTarget};
+use crate::types::{
+    ChangeKind, CommitContext, CommitRequest, OtherOperation, PatchSelection, SelectionTarget,
+};
 
 /// Global options and the pathspec options every path command shares.
 const LITERAL: &str = "--literal-pathspecs";
@@ -100,6 +102,69 @@ fn unborn(engine: &Git2Engine) -> GitResult<bool> {
         Err(error) if error.code() == ErrorCode::UnbornBranch => Ok(true),
         Err(error) => Err(GitError::from(error)),
     })
+}
+
+/// HEAD's commit as git reads it ([`head_commit`]).
+#[derive(Default)]
+struct HeadCommit {
+    hash: Option<String>,
+    parents: Vec<String>,
+    message: Option<String>,
+}
+
+/// HEAD's hash, parents and message in one `git log`, so the three describe one commit even
+/// while HEAD moves; read as git reads them (replace refs, a shallow clone's boundary) and
+/// fresh after a fetch that deepened the history, which libgit2's object cache may not see.
+fn head_commit(cwd: &Path, cancel: &Cancel) -> GitResult<HeadCommit> {
+    // In UTF-8 whatever `i18n.logOutputEncoding` says: the message goes back to a box that
+    // commits it as UTF-8.
+    const ARGS: [&str; 5] = [
+        "log",
+        "-1",
+        "--no-show-signature",
+        "--encoding=UTF-8",
+        "--format=%H%x00%P%x00%B",
+    ];
+    let log = judged(&ARGS, run_git_cancellable(cwd, &ARGS, cancel)?)?;
+    let text = String::from_utf8_lossy(&log.stdout);
+    let mut fields = text.splitn(3, '\0');
+    let hash = fields
+        .next()
+        .map(str::trim)
+        .filter(|hash| !hash.is_empty())
+        .map(str::to_owned);
+    let parents = fields
+        .next()
+        .unwrap_or_default()
+        .split_whitespace()
+        .map(str::to_owned)
+        .collect();
+    let message = fields.next().map(|message| message.trim_end().to_owned());
+    Ok(HeadCommit {
+        hash,
+        parents,
+        message,
+    })
+}
+
+/// The operation in progress that holds HEAD outside the sequencer's: what libgit2's state
+/// names, and in a state it reads as clean, a paused sequence of picks or reverts.
+fn other_operation_of(state: RepositoryState, paused: bool) -> Option<OtherOperation> {
+    match state {
+        RepositoryState::Bisect => Some(OtherOperation::Bisect),
+        RepositoryState::ApplyMailbox | RepositoryState::ApplyMailboxOrRebase => {
+            Some(OtherOperation::Am)
+        }
+        RepositoryState::Clean if paused => Some(OtherOperation::Sequence),
+        _ => None,
+    }
+}
+
+/// A sequence of cherry-picks or reverts whose stop was committed by hand: `CHERRY_PICK_HEAD`
+/// or `REVERT_HEAD` is gone and this worktree's `sequencer/todo` remains, which `git status`
+/// reads as the operation in progress.
+pub(super) fn sequence_paused(repo: &git2::Repository) -> bool {
+    repo.path().join("sequencer").join("todo").is_file()
 }
 
 /// See [`GitEngine::discard_paths`]. `git clean` takes no pathspec file, so its paths go
@@ -240,24 +305,25 @@ pub(super) fn commit_context(engine: &Git2Engine, cancel: &Cancel) -> GitResult<
         |end| ident[..=end].trim().to_owned(),
     );
     let unborn = unborn(engine)?;
-    let head_message = if unborn {
-        None
+    let head = if unborn {
+        HeadCommit::default()
     } else {
-        let log = judged(
-            &["log", "-1", "--format=%B"],
-            run_git_cancellable(cwd, &["log", "-1", "--format=%B"], cancel)?,
-        )?;
-        Some(String::from_utf8_lossy(&log.stdout).trim_end().to_owned())
+        head_commit(cwd, cancel)?
     };
     let template = template_text(cwd, cancel)?;
-    let operation = super::sequencer::operation_state(engine)?;
+    let (state, paused) = engine.with_repo(|repo| Ok((repo.state(), sequence_paused(repo))))?;
+    let operation = super::sequencer::operation_of(state);
+    let other_operation = other_operation_of(state, paused);
     let prepared_message = prepared_message(engine);
     Ok(CommitContext {
         author,
         template,
-        head_message,
+        head: head.hash,
+        head_message: head.message,
         unborn,
+        head_parents: head.parents,
         operation,
+        other_operation,
         prepared_message,
     })
 }

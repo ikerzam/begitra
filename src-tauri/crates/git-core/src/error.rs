@@ -36,6 +36,19 @@ pub enum GitError {
         /// Second ref.
         b: String,
     },
+    /// HEAD is no longer the commit an operation was planned on (a commit, a checkout or a
+    /// reset moved it since), and the operation changed nothing.
+    #[error("HEAD moved: {}, not at {expected}", where_head_is(.actual))]
+    HeadMoved {
+        /// The commit the operation expected HEAD at.
+        expected: String,
+        /// Where HEAD is; empty when it names no commit.
+        actual: String,
+    },
+    /// An operation in progress or conflicts in the index hold HEAD where it is, as git's soft
+    /// reset reads them (and a bisect or a stopped `git am` too); nothing moved.
+    #[error("HEAD is held: {0}")]
+    HeadHeld(String),
     /// A blob referenced by a diff is missing from the object store.
     #[error("blob {0} is missing")]
     BlobMissing(String),
@@ -101,6 +114,8 @@ impl GitError {
             GitError::CorruptObject { .. } => "repo.corrupt_object",
             GitError::RefNotFound(_) => "refs.not_found",
             GitError::UnrelatedHistories { .. } => "refs.unrelated_histories",
+            GitError::HeadMoved { .. } => "refs.head_moved",
+            GitError::HeadHeld(_) => "refs.head_held",
             GitError::BlobMissing(_) => "diff.blob_missing",
             GitError::BlobTooLarge { .. } => "blob.too_large",
             GitError::BlobUnreadable { .. } => "blob.unreadable",
@@ -129,12 +144,14 @@ impl GitError {
     }
 
     /// Every code an engine error can carry, for the tests that keep the IPC list in sync.
-    pub const CODES: [&'static str; 15] = [
+    pub const CODES: [&'static str; 17] = [
         "repo.not_found",
         "repo.invalid",
         "repo.corrupt_object",
         "refs.not_found",
         "refs.unrelated_histories",
+        "refs.head_moved",
+        "refs.head_held",
         "diff.blob_missing",
         "blob.too_large",
         "blob.unreadable",
@@ -193,6 +210,15 @@ impl From<git2::Error> for GitError {
     }
 }
 
+/// Where HEAD is, for [`GitError::HeadMoved`]'s sentence.
+fn where_head_is(actual: &str) -> String {
+    if actual.is_empty() {
+        "it names no commit".to_owned()
+    } else {
+        format!("it is at {actual}")
+    }
+}
+
 /// Result alias for engine operations.
 pub type GitResult<T> = Result<T, GitError>;
 
@@ -217,6 +243,11 @@ mod tests {
                 a: String::new(),
                 b: String::new(),
             },
+            GitError::HeadMoved {
+                expected: String::new(),
+                actual: String::new(),
+            },
+            GitError::HeadHeld(String::new()),
             GitError::BlobMissing(String::new()),
             GitError::BlobTooLarge { size: 0, limit: 0 },
             GitError::BlobUnreadable {

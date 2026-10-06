@@ -10,9 +10,11 @@ import { headTarget, useRepoStore } from "./repo";
 
 export {
   diffTargetOfList,
+  draftIsBlank,
   lineKey,
   messageOf,
   selectionOf,
+  splitMessage,
   templateBody,
   wholeSelection,
   type ChangeList,

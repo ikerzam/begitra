@@ -56,6 +56,20 @@ pub(crate) fn validate_rev(field: &str, value: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+/// A commit named by its full hash, lowercase, as the refs listing and the commit context
+/// give it: what a write compares HEAD or the stash list with, never a revision to resolve.
+pub(crate) fn validate_hash(field: &str, value: &str) -> Result<(), AppError> {
+    let hex = value
+        .bytes()
+        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
+    // The zero id names no commit: `update-ref` reads it as "delete the ref".
+    if hex && matches!(value.len(), 40 | 64) && value.bytes().any(|byte| byte != b'0') {
+        Ok(())
+    } else {
+        Err(AppError::invalid_argument(field, "not a full commit hash"))
+    }
+}
+
 /// A branch, tag or remote name in the shape git accepts for a new ref (the rules of
 /// `git check-ref-format --branch`): no space, no `..`, `@{`, `~`, `^`, `:`, `?`, `*`, `[`
 /// or backslash, no component starting with a dot or ending in `.lock`, no trailing slash
@@ -252,6 +266,39 @@ pub async fn reset(
     .await
 }
 
+/// Moves HEAD from `from` to `to` as a soft reset does, only while HEAD is still `from` on
+/// `branch` (a full ref name, null when detached; `refs.head_moved` otherwise): the undo of
+/// HEAD's commit and its redo.
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip(state))]
+pub async fn move_head(
+    state: State<'_, AppState>,
+    repo: PathBuf,
+    from: String,
+    to: String,
+    branch: Option<String>,
+    op_id: String,
+) -> Result<(), AppError> {
+    validate_hash("from", &from)?;
+    validate_hash("to", &to)?;
+    if let Some(branch) = &branch {
+        validate_rev("branch", branch)?;
+        if !branch.starts_with("refs/heads/") {
+            return Err(AppError::invalid_argument(
+                "branch",
+                "not a local branch's ref",
+            ));
+        }
+    }
+    let app = state.inner().clone();
+    // A ref's move, as a rename or a delete: no tree to check out, the default timeout.
+    run_unregistered(&op_id, DEFAULT_TIMEOUT, move |cancel| {
+        app.open(&repo)?
+            .move_head(&from, &to, branch.as_deref(), &cancel)
+    })
+    .await
+}
+
 /// Cherry-picks revisions onto HEAD.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state, revs), fields(revs = revs.len()))]
@@ -436,6 +483,29 @@ mod tests {
 
     fn code(result: Result<(), AppError>) -> String {
         result.expect_err("refused").code
+    }
+
+    #[test]
+    fn a_move_of_head_takes_full_hashes_only() {
+        for good in ["a".repeat(40), "0123456789abcdef".repeat(4)] {
+            assert!(validate_hash("from", &good).is_ok(), "{good}");
+        }
+        for bad in [
+            "HEAD~1".to_owned(),
+            "0".repeat(40),
+            "0".repeat(64),
+            "A".repeat(40),
+            "a".repeat(39),
+            "a".repeat(41),
+            format!("-{}", "a".repeat(39)),
+            String::new(),
+        ] {
+            assert_eq!(
+                code(validate_hash("from", &bad)),
+                "ipc.invalid_argument",
+                "{bad:?}"
+            );
+        }
     }
 
     #[test]

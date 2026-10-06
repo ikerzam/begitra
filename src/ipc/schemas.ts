@@ -26,6 +26,8 @@ export const errorCodes = [
   "repo.corrupt_object",
   "refs.not_found",
   "refs.unrelated_histories",
+  "refs.head_moved",
+  "refs.head_held",
   "diff.blob_missing",
   "blob.too_large",
   "blob.unreadable",
@@ -491,9 +493,18 @@ export type OperationState = v.InferOutput<typeof OperationStateSchema>;
 export const CommitContextSchema = v.object({
   author: v.string(),
   template: v.nullable(v.string()),
+  /** HEAD's commit; null when unborn. Read with its parents and its message in one `git log`. */
+  head: v.nullable(v.string()),
   headMessage: v.nullable(v.string()),
   unborn: v.boolean(),
+  /**
+   * HEAD's parents as git reads them: none when unborn, for a first commit and where a shallow
+   * history stops; two or more for a merge.
+   */
+  headParents: v.array(v.string()),
   operation: OperationStateSchema,
+  /** An operation outside the sequencer's that holds HEAD: a bisect, a stopped `git am`. */
+  otherOperation: v.nullable(v.picklist(["bisect", "am", "sequence"])),
   preparedMessage: v.nullable(v.string()),
 });
 export type CommitContext = v.InferOutput<typeof CommitContextSchema>;
@@ -816,10 +827,20 @@ const projectId = v.pipe(v.number(), v.integer());
 const memberPaths = v.pipe(v.array(path), v.maxLength(500));
 /** One to 100 revisions for a cherry-pick or a revert. */
 const revisions = v.pipe(v.array(revision), v.minLength(1), v.maxLength(100));
-/** A stash is named by its full commit hash, lowercase, as the refs listing gives it. */
-const stashCommit = v.pipe(
+/**
+ * A commit named by its full hash, lowercase, as the refs listing and the commit context give
+ * it: a stash, the two ends of a move of HEAD.
+ */
+const fullHash = v.pipe(
   v.string(),
-  v.regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/, "not a full commit hash"),
+  // The zero id names no commit: `update-ref` reads it as "delete the ref".
+  v.regex(/^(?!0+$)(?:[0-9a-f]{40}|[0-9a-f]{64})$/, "not a full commit hash"),
+);
+/** A local branch by its full ref name, as the refs listing gives it (`refs/heads/main`). */
+const localBranchRef = v.pipe(
+  v.string(),
+  v.maxLength(200),
+  v.regex(/^refs\/heads\/[^\x00-\x1f\x7f]+$/, "not a local branch's ref"),
 );
 /** A tag message with a line, at most 10,000 characters. */
 const tagMessage = v.pipe(
@@ -909,6 +930,13 @@ export const commandArgs = {
   merge: v.object({ repo: path, rev: revision, mode: MergeModeSchema, opId }),
   rebase: v.object({ repo: path, onto: revision, opId }),
   reset: v.object({ repo: path, rev: revision, mode: ResetModeSchema, opId }),
+  move_head: v.object({
+    repo: path,
+    from: fullHash,
+    to: fullHash,
+    branch: v.nullable(localBranchRef),
+    opId,
+  }),
   cherry_pick: v.object({ repo: path, revs: revisions, opId }),
   revert: v.object({ repo: path, revs: revisions, opId }),
   tag_create: v.object({
@@ -970,9 +998,9 @@ export const commandArgs = {
     }),
     opId,
   }),
-  stash_apply: v.object({ repo: path, stash: stashCommit, opId }),
-  stash_pop: v.object({ repo: path, stash: stashCommit, opId }),
-  stash_drop: v.object({ repo: path, stash: stashCommit, opId }),
+  stash_apply: v.object({ repo: path, stash: fullHash, opId }),
+  stash_pop: v.object({ repo: path, stash: fullHash, opId }),
+  stash_drop: v.object({ repo: path, stash: fullHash, opId }),
   detect_git: v.object({ opId }),
   set_git_executable: v.object({
     path: v.pipe(

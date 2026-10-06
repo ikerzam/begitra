@@ -48,17 +48,7 @@ fn validate_push(request: &StashPush) -> Result<(), AppError> {
 /// or SHA-256): not a revision, so neither a position like `stash@{1}` nor anything
 /// option-shaped reaches git.
 fn validate_stash(stash: &str) -> Result<(), AppError> {
-    let hex = stash
-        .bytes()
-        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
-    if hex && matches!(stash.len(), 40 | 64) {
-        Ok(())
-    } else {
-        Err(AppError::invalid_argument(
-            "stash",
-            "not a full commit hash",
-        ))
-    }
+    super::branches::validate_hash("stash", stash)
 }
 
 /// Stashes the working tree (or the given paths); `false` when there was nothing to save.

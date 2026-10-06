@@ -16,7 +16,7 @@ import { errorText } from "@/shell/errorMessage";
 import { sameFolder, shortHash } from "@/shell/format";
 import { useGraphStore } from "@/stores/graph";
 import { useProjectsStore } from "@/stores/projects";
-import { useRepoStore } from "@/stores/repo";
+import { headTarget, useRepoStore } from "@/stores/repo";
 import { useShellStore } from "@/stores/shell";
 import { useToastsStore } from "@/stores/toasts";
 
@@ -40,10 +40,23 @@ const actions = useCommitActions();
 const hover = useHoverCard();
 const rows = ref<{ focus(): void } | null>(null);
 
-const menu = ref<{ index: number; x: number; y: number } | null>(null);
+/** The commit menu, on the commit it opened on: `index` finds it fast, `hash` names it. */
+const menu = ref<{ index: number; hash: string; x: number; y: number } | null>(null);
 /** The menu of a ref badge: the ref actions of the sidebar's rows, from the graph. */
 const refMenu = ref<{ ref: GitRef; x: number; y: number } | null>(null);
-const menuCommit = computed(() => (menu.value ? repo.commits[menu.value.index] : undefined));
+const menuCommit = computed(() => {
+  const open = menu.value;
+  if (!open) return undefined;
+  const at = repo.commits[open.index];
+  return at?.hash === open.hash ? at : repo.commits.find((commit) => commit.hash === open.hash);
+});
+// A history listed again without the menu's commit closes the menu: its actions name a commit.
+watch(menuCommit, (commit) => {
+  if (menu.value && !commit) closeMenu();
+});
+const menuOnHead = computed(
+  () => menuCommit.value !== undefined && menuCommit.value.hash === headTarget(repo.refs),
+);
 const hoverCommit = computed(() =>
   hover.target.value ? repo.commits[hover.target.value.index] : undefined,
 );
@@ -54,7 +67,8 @@ function commitAt(index: number): CommitNode | undefined {
 
 function openMenu(index: number, x: number, y: number): void {
   hover.hide();
-  menu.value = { index, x, y };
+  const commit = repo.commits[index];
+  if (commit) menu.value = { index, hash: commit.hash, x, y };
 }
 
 function closeMenu(): void {
@@ -245,6 +259,7 @@ defineExpose({ focus: () => rows.value?.focus() });
       :x="menu.x"
       :y="menu.y"
       :branch="repo.currentBranch?.name ?? null"
+      :head="menuOnHead"
       @close="closeMenu"
       @copy-hash="withMenuCommit(actions.copyHash)"
       @copy-message="withMenuCommit(actions.copyMessage)"
@@ -255,6 +270,7 @@ defineExpose({ focus: () => rows.value?.focus() });
       @tag="withMenuCommit(actions.tag)"
       @cherry-pick="withMenuCommit(actions.cherryPick)"
       @revert="withMenuCommit(actions.revert)"
+      @undo="withMenuCommit(actions.undoLastCommit)"
       @reset="withMenuCommit((commit) => actions.reset(commit, repo.currentBranch?.name ?? null))"
       @open-terminal="() => void actions.openTerminal()"
       @open-editor="() => void actions.openEditor()"

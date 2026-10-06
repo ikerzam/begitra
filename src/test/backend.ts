@@ -158,8 +158,18 @@ export interface FakeBackendOptions {
    * as things were when it was asked; set it after the open to hold the listings that follow.
    */
   listingGate?: WriteGate;
-  /** What `commit_context` answers, over the defaults (a born branch, no template). */
+  /**
+   * What `commit_context` answers, over the defaults (a born branch on HEAD's commit, one
+   * parent, no template); `head` gives HEAD's commit until `move_head` moves it.
+   */
   commitContext?: Partial<CommitContext>;
+  /**
+   * `move_head` finds HEAD moved to this commit first (a commit made outside the app) and
+   * refuses with `refs.head_moved`.
+   */
+  headMovesTo?: string;
+  /** `commit_context` rejects with this error. */
+  commitContextError?: { code: string; message: string; detail?: string };
   /** Every diff answers after this many milliseconds (the loading states, by eye). */
   diffDelayMs?: number;
   /**
@@ -508,8 +518,25 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
     if (filter.paths) listed = listed.filter((_c, i) => i % 2 === 0);
     return listed;
   };
-  /** The refs `list_refs` answers: the test's, or the two local branches. */
+  /** HEAD's commit once `move_head` moved it; the listing and the context follow. */
+  let movedHead: string | null = null;
+  /** The refs `list_refs` answers, HEAD and its branch where `move_head` left them. */
   const listRefs = (): Ref[] =>
+    listedRefs().map((entry) =>
+      movedHead !== null &&
+      (entry.kind === "head" || (entry.kind === "local-branch" && entry.isCurrent))
+        ? { ...entry, target: movedHead }
+        : entry,
+    );
+  /** HEAD's commit as the context reads it. */
+  const currentHead = (): string =>
+    movedHead ??
+    options.commitContext?.head ??
+    listedRefs().find((entry) => entry.kind === "head")?.target ??
+    listedRefs().find((entry) => entry.kind === "local-branch" && entry.isCurrent)?.target ??
+    fakeCommit(0).hash;
+  /** The refs as the test gives them: the test's, or the two local branches. */
+  const listedRefs = (): Ref[] =>
     options.refs
       ? options.refs.map((entry) => ({ ...entry }))
       : [
@@ -1085,16 +1112,42 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
         case "stash_drop":
           if (options.stashGone) return stashGone(args);
           return null;
-        case "commit_context":
+        case "commit_context": {
+          if (options.commitContextError) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject(options.commitContextError);
+          }
+          const unborn = options.commitContext?.unborn ?? false;
+          const head = unborn ? null : currentHead();
           return {
             author: "Iker Z. <iker@x>",
             template: null,
             headMessage: "fix(auth): commit 0",
-            unborn: false,
+            unborn,
             operation: "none",
+            otherOperation: null,
             preparedMessage: null,
             ...options.commitContext,
+            head,
+            // A fake commit's parent is the next one, as `fakeCommit` draws them.
+            headParents:
+              options.commitContext?.headParents ??
+              (head === null ? [] : [(BigInt(`0x${head}`) + 1n).toString(16).padStart(40, "0")]),
           } satisfies CommitContext;
+        }
+        case "move_head": {
+          if (options.headMovesTo !== undefined) movedHead = options.headMovesTo;
+          const at = currentHead();
+          if (args["from"] !== at) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({
+              code: "refs.head_moved",
+              message: `HEAD is at ${at}, not at ${args["from"] as string}`,
+            });
+          }
+          movedHead = args["to"] as string;
+          return null;
+        }
         case "refresh_repository": {
           const path = args["path"] as string;
           const failure = options.summaryErrors?.[path];

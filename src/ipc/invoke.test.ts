@@ -95,6 +95,13 @@ describe("checkArgs", () => {
     expect(
       checkArgs("reset", { repo: "/r", rev: "HEAD~1", mode: "hard", opId: "op" }),
     ).toBeTruthy();
+    // A move of HEAD compares full hashes: never a revision git would resolve as it starts,
+    // nor the zero id, which `update-ref` reads as a delete; the branch by its full ref name.
+    const move = { repo: "/r", from: "a".repeat(40), to: "b".repeat(40), branch: null, opId: "op" };
+    expect(refused(() => checkArgs("move_head", { ...move, from: "HEAD~1" }))).toMatch(/^from: /);
+    expect(refused(() => checkArgs("move_head", { ...move, to: "0".repeat(40) }))).toMatch(/^to: /);
+    expect(refused(() => checkArgs("move_head", { ...move, branch: "main" }))).toMatch(/^branch: /);
+    expect(checkArgs("move_head", { ...move, branch: "refs/heads/main" })).toBeTruthy();
   });
 
   it("refuses staging paths outside the repository and a commit without a subject", () => {

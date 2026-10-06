@@ -69,6 +69,12 @@ export interface PaletteActions {
   branchAction: (action: "checkout" | "merge" | "rebase" | "create") => void;
   /** "Push…" and "Pull…" for the current branch. */
   network: (action: "push" | "pull") => void;
+  /** Moves HEAD back from its commit, the changes kept staged. */
+  undoLastCommit: () => void;
+  /** Whether the last undo can be redone in the open repository. */
+  canRedoUndone: () => boolean;
+  /** Moves HEAD back to the commit the last undo took it from. */
+  redoUndoneCommit: () => void;
   fetchAll: () => Promise<void>;
   openRemotes: () => Promise<void>;
   openStashes: () => void;
@@ -381,6 +387,18 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       labelKey: "palette.commandsById.rebase-onto",
       enabled: withRepo,
       run: () => actions.branchAction("rebase"),
+    },
+    {
+      id: "undo-last-commit",
+      labelKey: "palette.commandsById.undo-last-commit",
+      enabled: withRepo,
+      run: actions.undoLastCommit,
+    },
+    {
+      id: "redo-undone-commit",
+      labelKey: "palette.commandsById.redo-undone-commit",
+      enabled: () => withRepo() && actions.canRedoUndone(),
+      run: actions.redoUndoneCommit,
     },
     {
       id: "push",

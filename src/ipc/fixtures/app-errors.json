@@ -21,6 +21,14 @@
     "message": "Sample message for refs.unrelated_histories"
   },
   {
+    "code": "refs.head_moved",
+    "message": "Sample message for refs.head_moved"
+  },
+  {
+    "code": "refs.head_held",
+    "message": "Sample message for refs.head_held"
+  },
+  {
     "code": "diff.blob_missing",
     "message": "Sample message for diff.blob_missing"
   },

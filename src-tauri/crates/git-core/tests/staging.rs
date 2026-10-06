@@ -10,13 +10,22 @@ use git_core::engine::{Cancel, GitEngine};
 use git_core::error::GitError;
 use git_core::git2_engine::Git2Engine;
 use git_core::types::{
-    ChangeKind, CommitRequest, DiffOptions, DiffTarget, LineKind, PatchSelection, SelectedHunk,
-    SelectedLine, SelectionTarget, WorkingTreeBase,
+    ChangeKind, CommitRequest, DiffOptions, DiffTarget, LineKind, OperationState, OtherOperation,
+    PatchSelection, SelectedHunk, SelectedLine, SelectionTarget, WorkingTreeBase,
 };
 use support::Fixture;
 
 fn engine(f: &Fixture) -> Git2Engine {
     Git2Engine::open(&f.root).expect("open fixture")
+}
+
+/// The parents of `rev` as git reads them: `git rev-list --parents -n 1`, the commit dropped.
+fn parents_of(f: &Fixture, cwd: &std::path::Path, rev: &str) -> Vec<String> {
+    f.git_in(cwd, &["rev-list", "--parents", "-n", "1", rev])
+        .split_whitespace()
+        .skip(1)
+        .map(str::to_owned)
+        .collect()
 }
 
 /// `XY path` per record of `git status --porcelain=v2` (`?` and `!` records as `?? path`).
@@ -827,6 +836,14 @@ fn the_context_has_the_author_the_template_and_the_head_message() {
     assert_eq!(context.template, None);
     assert!(!context.unborn);
     assert_eq!(context.head_message.as_deref(), Some("m1: merge develop"));
+    assert_eq!(context.head.as_deref(), Some(f.head().as_str()));
+    assert_eq!(context.head_parents, parents_of(&f, &f.root, "HEAD"));
+    assert_eq!(
+        context.head_parents.len(),
+        2,
+        "HEAD is the merge of develop"
+    );
+    assert_eq!(context.other_operation, None);
     f.write(".gitmessage", "# subject\n\n# body\n");
     f.git(&["config", "commit.template", ".gitmessage"]);
     f.commit("d3: body\n\nWith a body.");
@@ -836,6 +853,9 @@ fn the_context_has_the_author_the_template_and_the_head_message() {
         context.head_message.as_deref(),
         Some("d3: body\n\nWith a body.")
     );
+    assert_eq!(context.head.as_deref(), Some(f.head().as_str()));
+    assert_eq!(context.head_parents, parents_of(&f, &f.root, "HEAD"));
+    assert_eq!(context.head_parents.len(), 1);
     f.git(&["config", "commit.template", "missing-template"]);
     let context = e.commit_context(&Cancel::never()).expect("context");
     assert_eq!(context.template, None);
@@ -849,6 +869,8 @@ fn the_context_of_an_unborn_branch() {
         .expect("context");
     assert!(context.unborn);
     assert_eq!(context.head_message, None);
+    assert_eq!(context.head, None);
+    assert!(context.head_parents.is_empty());
     assert_eq!(context.author, "Fixture <fixture@example.com>");
 }
 
@@ -869,4 +891,147 @@ fn commits_on_an_unborn_branch() {
         .expect("commit");
     assert_eq!(hash, f.head());
     assert_eq!(f.git(&["rev-list", "--count", "HEAD"]), "1");
+    // The first commit has no parent: nothing to undo it to.
+    let context = engine(&f)
+        .commit_context(&Cancel::never())
+        .expect("context");
+    assert!(!context.unborn);
+    assert_eq!(context.head.as_deref(), Some(hash.as_str()));
+    assert!(context.head_parents.is_empty());
+}
+
+#[test]
+fn the_context_reads_heads_parents_as_git_does() {
+    let mut f = Fixture::basic();
+    let e = engine(&f);
+    let parent = f.head();
+    let v1 = f.rev("v1^{commit}");
+    f.write("graft.txt", "grafted\n");
+    let tip = f.commit("g1: a commit to graft");
+    // A replace ref that drops the parents: git reads a first commit, and so does the context.
+    f.git(&["replace", "--graft", &tip]);
+    let context = e.commit_context(&Cancel::never()).expect("context");
+    assert_eq!(context.head.as_deref(), Some(tip.as_str()));
+    assert_eq!(context.head_parents, parents_of(&f, &f.root, "HEAD"));
+    assert!(context.head_parents.is_empty());
+    // One that adds a parent: a merge, as git reads it.
+    f.git(&["replace", "-d", &tip]);
+    f.git(&["replace", "--graft", &tip, &parent, &v1]);
+    let context = e.commit_context(&Cancel::never()).expect("context");
+    assert_eq!(context.head_parents, vec![parent.clone(), v1]);
+    f.git(&["replace", "-d", &tip]);
+    let context = e.commit_context(&Cancel::never()).expect("context");
+    assert_eq!(context.head_parents, vec![parent]);
+    assert_eq!(
+        context.head_message.as_deref(),
+        Some("g1: a commit to graft")
+    );
+}
+
+#[test]
+fn the_context_of_a_shallow_clone_follows_an_unshallow() {
+    let f = Fixture::basic();
+    let clone = f.sibling("shallow");
+    let clone_str = clone.to_str().expect("utf-8 temp path");
+    let root = f.root.to_str().expect("utf-8 temp path");
+    f.git(&["clone", "-q", "--no-local", "--depth", "1", root, clone_str]);
+    f.git_in(&clone, &["config", "user.name", "Fixture"]);
+    f.git_in(&clone, &["config", "user.email", "fixture@example.com"]);
+    let e = Git2Engine::open(&clone).expect("open the clone");
+    let context = e.commit_context(&Cancel::never()).expect("context");
+    // The history stops at HEAD: git reads no parent.
+    assert!(
+        context.head_parents.is_empty(),
+        "{:?}",
+        context.head_parents
+    );
+    f.git_in(&clone, &["fetch", "-q", "--unshallow"]);
+    // The same engine, after the history grew under it: the parents git reads now.
+    let context = e.commit_context(&Cancel::never()).expect("context");
+    assert_eq!(context.head_parents, parents_of(&f, &clone, "HEAD"));
+    assert_eq!(context.head_parents.len(), 2);
+}
+
+#[test]
+fn the_context_names_a_bisect_and_a_stopped_am() {
+    let mut f = Fixture::basic();
+    let e = engine(&f);
+    let first = f.git(&["rev-list", "--max-parents=0", "HEAD"]);
+    f.git(&["bisect", "start", "HEAD", &first]);
+    let context = e.commit_context(&Cancel::never()).expect("context");
+    assert_eq!(context.other_operation, Some(OtherOperation::Bisect));
+    assert_eq!(context.operation, OperationState::None);
+    f.git(&["bisect", "reset"]);
+    let context = e.commit_context(&Cancel::never()).expect("context");
+    assert_eq!(context.other_operation, None);
+    // A `git am` that stops: its patch edits a line the branch changed meanwhile.
+    f.write("README.md", "# Patched\n");
+    let patched = f.commit("p1: the patch");
+    let patches = f.sibling("patches");
+    let patch = f.git(&[
+        "format-patch",
+        "-1",
+        "-o",
+        patches.to_str().expect("utf-8 temp path"),
+        &patched,
+    ]);
+    f.git(&["reset", "-q", "--hard", "HEAD~1"]);
+    f.write("README.md", "# Changed meanwhile\n");
+    f.commit("p2: a change the patch does not expect");
+    let (applied, _, _) = f.try_git(&["am", patch.trim()]);
+    assert!(!applied, "the patch must stop");
+    let context = e.commit_context(&Cancel::never()).expect("context");
+    assert_eq!(context.other_operation, Some(OtherOperation::Am));
+    f.git(&["am", "--abort"]);
+}
+
+#[test]
+fn the_context_reads_heads_message_as_utf8_whatever_the_log_encoding() {
+    let f = Fixture::basic();
+    let e = engine(&f);
+    f.write("latin1.txt", "latin1\n");
+    f.git(&["add", "latin1.txt"]);
+    let message = f.sibling("latin1.msg");
+    fs::write(&message, b"latin1: caf\xe9 cr\xe8me\n\nna\xefve body\n").expect("message");
+    f.git(&[
+        "-c",
+        "i18n.commitEncoding=ISO-8859-1",
+        "commit",
+        "-q",
+        "-F",
+        message.to_str().expect("utf-8 temp path"),
+    ]);
+    f.git(&["config", "i18n.commitEncoding", "ISO-8859-1"]);
+    f.git(&["config", "i18n.logOutputEncoding", "ISO-8859-1"]);
+    let context = e.commit_context(&Cancel::never()).expect("context");
+    assert_eq!(
+        context.head_message.as_deref(),
+        Some("latin1: café crème\n\nnaïve body")
+    );
+}
+
+#[test]
+fn the_context_names_a_pick_sequence_whose_stop_was_committed_by_hand() {
+    let mut f = Fixture::basic();
+    let e = engine(&f);
+    f.git(&["switch", "-q", "-c", "picks", "v1"]);
+    for (i, text) in ["one", "two", "three"].iter().enumerate() {
+        f.write("README.md", &format!("# {text}\n"));
+        f.commit(&format!("p{i}: {text}"));
+    }
+    f.git(&["switch", "-q", "main"]);
+    f.write("README.md", "# Main\n");
+    f.commit("m2: main readme");
+    let (picked, _, _) = f.try_git(&["cherry-pick", "picks~2", "picks~1", "picks"]);
+    assert!(!picked, "the sequence must stop");
+    f.write("README.md", "# resolved\n");
+    f.git(&["add", "README.md"]);
+    f.git(&["commit", "-q", "--no-edit"]);
+    // `CHERRY_PICK_HEAD` is gone and libgit2 reads a clean state; `sequencer/todo` stays.
+    let context = e.commit_context(&Cancel::never()).expect("context");
+    assert_eq!(context.operation, OperationState::None);
+    assert_eq!(context.other_operation, Some(OtherOperation::Sequence));
+    f.git(&["cherry-pick", "--abort"]);
+    let context = e.commit_context(&Cancel::never()).expect("context");
+    assert_eq!(context.other_operation, None);
 }

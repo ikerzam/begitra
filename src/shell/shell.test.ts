@@ -390,7 +390,10 @@ function backend(
           template: null,
           headMessage: "feat: change 0",
           unborn: false,
+          head: "0".repeat(40),
+          headParents: ["1".padStart(40, "0")],
           operation: options.conflict ? "merge" : "none",
+          otherOperation: null,
           preparedMessage: options.conflict ? "Merge branch 'develop'" : null,
         };
       case "operation_state":

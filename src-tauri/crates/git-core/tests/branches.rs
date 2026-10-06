@@ -9,6 +9,7 @@ use git_core::git2_engine::Git2Engine;
 use git_core::types::{
     ConflictKind, MergeMode, OperationState, OutcomeKind, ResetMode, SequencerAction, SwitchTarget,
 };
+use support::canonical;
 use support::Fixture;
 
 fn engine(f: &Fixture) -> Git2Engine {
@@ -671,4 +672,276 @@ fn a_tracked_branch_from_a_ref_no_remote_fetches_is_refused_before_anything_chan
         !f.try_git(&["rev-parse", "--verify", "refs/heads/stale-develop"])
             .0
     );
+}
+
+// ------------------------------------------------------------------ move_head
+
+/// What a soft reset leaves: HEAD, the index's tree and git's own status with its branch line.
+fn soft_view(f: &Fixture) -> (String, String, String) {
+    (
+        f.head(),
+        f.git(&["write-tree"]),
+        f.git(&[
+            "status",
+            "--porcelain=v2",
+            "--branch",
+            "--untracked-files=all",
+        ]),
+    )
+}
+
+#[test]
+fn moves_head_to_the_parent_as_a_soft_reset_does_and_back() {
+    let mut f = Fixture::basic();
+    let e = engine(&f);
+    let parent = f.head();
+    f.write("undo.txt", "undone\n");
+    f.write("src/lib.rs", "pub fn one() -> u32 {\n    11\n}\n");
+    let tip = f.commit("u1: a commit to undo");
+    let tree = f.rev("HEAD^{tree}");
+    f.git(&["config", "core.logAllRefUpdates", "always"]);
+    e.move_head(&tip, &parent, Some("refs/heads/main"), &never())
+        .expect("undo");
+    assert_eq!(f.head(), parent);
+    assert_eq!(head_ref(&f), "refs/heads/main");
+    // The index keeps the undone commit's tree: its changes are staged, the files as they were.
+    assert_eq!(f.git(&["write-tree"]), tree);
+    assert_eq!(
+        f.git(&["diff", "--cached", "--name-only"]),
+        "src/lib.rs\nundo.txt"
+    );
+    assert_eq!(read(&f, "undo.txt"), "undone\n");
+    let reason = format!("reset: moving to {parent}");
+    assert_eq!(f.git(&["reflog", "-1", "--format=%gs", "main"]), reason);
+    assert_eq!(f.git(&["reflog", "-1", "--format=%gs", "HEAD"]), reason);
+    assert_eq!(f.rev("ORIG_HEAD"), tip);
+    assert_eq!(
+        f.git(&["reflog", "-1", "--format=%gs", "ORIG_HEAD"]),
+        "reset: updating ORIG_HEAD"
+    );
+    let undone = soft_view(&f);
+    e.move_head(&parent, &tip, Some("refs/heads/main"), &never())
+        .expect("redo");
+    assert_eq!(f.head(), tip);
+    assert_eq!(f.git(&["diff", "--cached", "--name-only"]), "");
+    assert_eq!(f.rev("ORIG_HEAD"), parent);
+    // git's own soft reset leaves the same HEAD, index and status.
+    f.git(&["reset", "-q", "--soft", "HEAD~1"]);
+    assert_eq!(soft_view(&f), undone);
+}
+
+#[test]
+fn refuses_to_move_head_that_moved_since_the_plan() {
+    let mut f = Fixture::basic();
+    let e = engine(&f);
+    let parent = f.head();
+    f.write("a.txt", "a\n");
+    let planned = f.commit("a: the commit the undo was planned on");
+    f.write("b.txt", "b\n");
+    let since = f.commit("b: a commit made since");
+    let error = e
+        .move_head(&planned, &parent, Some("refs/heads/main"), &never())
+        .expect_err("HEAD moved");
+    assert!(
+        matches!(&error, GitError::HeadMoved { expected, actual } if *expected == planned && *actual == since),
+        "{error:?}"
+    );
+    assert_eq!(error.code(), "refs.head_moved");
+    assert_eq!(f.head(), since, "nothing moved");
+    assert_eq!(f.git(&["diff", "--cached", "--name-only"]), "");
+}
+
+#[test]
+fn moves_a_detached_head_and_a_linked_worktrees_branch_only() {
+    let f = Fixture::basic().with_linked_worktree();
+    let e = engine(&f);
+    let tip = f.head();
+    let parent = f.rev("HEAD~1");
+    f.git(&["switch", "-q", "--detach"]);
+    e.move_head(&tip, &parent, None, &never())
+        .expect("detached");
+    assert_eq!(f.head(), parent);
+    assert_eq!(f.rev("main"), tip, "the branch stays");
+    assert!(
+        !f.try_git(&["symbolic-ref", "-q", "HEAD"]).0,
+        "HEAD stays detached"
+    );
+    f.git(&["switch", "-q", "main"]);
+    // The linked worktree's HEAD is its own: only its branch moves.
+    let wt = canonical(&f.worktree_path());
+    let w = Git2Engine::open(&wt).expect("open the worktree");
+    let wt_tip = f.git_in(&wt, &["rev-parse", "HEAD"]);
+    let wt_parent = f.git_in(&wt, &["rev-parse", "HEAD~1"]);
+    w.move_head(&wt_tip, &wt_parent, Some("refs/heads/feature/wt"), &never())
+        .expect("worktree");
+    assert_eq!(f.rev("feature/wt"), wt_parent);
+    assert_eq!(f.rev("main"), tip);
+    assert_eq!(f.head(), tip);
+}
+
+#[test]
+fn refuses_to_move_head_during_a_merge_or_with_conflicts() {
+    let mut f = Fixture::basic();
+    let e = engine(&f);
+    let tip = f.head();
+    f.git(&["switch", "-q", "-c", "other", "v1"]);
+    f.write("README.md", "# Other\n");
+    f.commit("o1: other readme");
+    f.git(&["switch", "-q", "main"]);
+    f.write("README.md", "# Main\n");
+    let main_tip = f.commit("m2: main readme");
+    let (merged, _, _) = f.try_git(&["merge", "other"]);
+    assert!(!merged, "the merge must stop on conflicts");
+    let error = e
+        .move_head(&main_tip, &tip, Some("refs/heads/main"), &never())
+        .expect_err("a merge in progress");
+    assert_eq!(error.code(), "refs.head_held", "{error:?}");
+    assert_eq!(f.head(), main_tip);
+    f.git(&["merge", "--abort"]);
+    // Unmerged entries without a merge: a stash whose pop conflicts.
+    f.write("README.md", "# Stashed\n");
+    f.git(&["stash", "push", "-q"]);
+    f.write("README.md", "# Committed\n");
+    let committed = f.commit("m3: another readme");
+    let (popped, _, _) = f.try_git(&["stash", "pop"]);
+    assert!(!popped, "the pop must stop on conflicts");
+    let error = e
+        .move_head(&committed, &main_tip, Some("refs/heads/main"), &never())
+        .expect_err("conflicts in the index");
+    assert_eq!(error.code(), "refs.head_held", "{error:?}");
+    assert_eq!(f.head(), committed);
+}
+
+#[test]
+fn refuses_a_zero_a_missing_or_an_option_shaped_target() {
+    let f = Fixture::basic();
+    let e = engine(&f);
+    let tip = f.head();
+    let reflog = f.git(&["reflog", "--format=%H %gs", "main"]);
+    for to in [
+        "0".repeat(40),
+        "f".repeat(40),
+        "-d".to_owned(),
+        "HEAD~1".to_owned(),
+    ] {
+        let error = e
+            .move_head(&tip, &to, Some("refs/heads/main"), &never())
+            .expect_err("refused");
+        assert_eq!(error.code(), "refs.not_found", "{to}: {error:?}");
+        assert_eq!(f.head(), tip, "{to}");
+        assert_eq!(f.rev("main"), tip, "{to}: the branch stays");
+        assert_eq!(
+            f.git(&["reflog", "--format=%H %gs", "main"]),
+            reflog,
+            "{to}"
+        );
+    }
+}
+
+#[test]
+fn a_held_lock_is_gits_refusal_and_an_unborn_head_moved() {
+    let f = Fixture::basic();
+    let e = engine(&f);
+    let tip = f.head();
+    let parent = f.rev("HEAD~1");
+    let lock = f.git_dir().join("refs").join("heads").join("main.lock");
+    std::fs::write(&lock, "").expect("lock");
+    let error = e
+        .move_head(&tip, &parent, Some("refs/heads/main"), &never())
+        .expect_err("the lock is held");
+    assert_eq!(error.code(), "git.cli_failed", "{error:?}");
+    assert_eq!(f.head(), tip);
+    std::fs::remove_file(&lock).expect("unlock");
+    f.git(&["checkout", "-q", "--orphan", "fresh"]);
+    let error = e
+        .move_head(&tip, &parent, Some("refs/heads/main"), &never())
+        .expect_err("HEAD names no commit");
+    assert!(
+        matches!(&error, GitError::HeadMoved { actual, .. } if actual.is_empty()),
+        "{error:?}"
+    );
+    assert!(error.to_string().contains("no commit"), "{error}");
+}
+
+#[test]
+fn a_linked_worktrees_head_moved_is_refused_there() {
+    let f = Fixture::basic().with_linked_worktree();
+    let wt = canonical(&f.worktree_path());
+    let w = Git2Engine::open(&wt).expect("open the worktree");
+    let planned = f.git_in(&wt, &["rev-parse", "HEAD"]);
+    let parent = f.git_in(&wt, &["rev-parse", "HEAD~1"]);
+    std::fs::write(wt.join("wt.txt"), "wt\n").expect("write");
+    f.git_in(&wt, &["add", "wt.txt"]);
+    f.git_in(&wt, &["commit", "-q", "-m", "w1: committed since"]);
+    let since = f.git_in(&wt, &["rev-parse", "HEAD"]);
+    let error = w
+        .move_head(&planned, &parent, Some("refs/heads/feature/wt"), &never())
+        .expect_err("HEAD moved");
+    assert_eq!(error.code(), "refs.head_moved");
+    assert_eq!(f.rev("feature/wt"), since);
+}
+
+#[test]
+fn a_redo_moves_only_the_branch_it_undid() {
+    let mut f = Fixture::basic();
+    let e = engine(&f);
+    let parent = f.head();
+    f.write("redo.txt", "redo\n");
+    let tip = f.commit("r1: undone, then redone");
+    e.move_head(&tip, &parent, Some("refs/heads/main"), &never())
+        .expect("undo");
+    // A branch at the same commit, checked out from a terminal before the redo.
+    f.git(&["switch", "-q", "-c", "other"]);
+    let error = e
+        .move_head(&parent, &tip, Some("refs/heads/main"), &never())
+        .expect_err("HEAD names another branch");
+    assert_eq!(error.code(), "refs.head_moved", "{error:?}");
+    assert_eq!(f.rev("other"), parent, "the branch checked out stays");
+    assert_eq!(f.rev("main"), parent);
+}
+
+#[test]
+fn a_move_keeps_the_messages_git_prepared() {
+    let mut f = Fixture::basic();
+    let e = engine(&f);
+    f.git(&["switch", "-q", "-c", "squashed", "v1"]);
+    f.write("squash.txt", "squash\n");
+    f.commit("s1: to squash");
+    f.git(&["switch", "-q", "main"]);
+    let parent = f.head();
+    f.write("kept.txt", "kept\n");
+    let tip = f.commit("k1: the commit undone");
+    f.git(&["merge", "-q", "--squash", "squashed"]);
+    assert!(f.git_dir().join("SQUASH_MSG").exists());
+    e.move_head(&tip, &parent, Some("refs/heads/main"), &never())
+        .expect("undo");
+    // Unlike `git reset --soft`, which drops it: the squash's staged changes stay, and so
+    // does the message git prepared for their commit.
+    assert!(f.git_dir().join("SQUASH_MSG").exists());
+    assert_eq!(f.head(), parent);
+}
+
+#[test]
+fn refuses_to_move_head_during_a_paused_pick_sequence() {
+    let mut f = Fixture::basic();
+    let e = engine(&f);
+    f.git(&["switch", "-q", "-c", "picks", "v1"]);
+    for (i, text) in ["one", "two", "three"].iter().enumerate() {
+        f.write("README.md", &format!("# {text}\n"));
+        f.commit(&format!("p{i}: {text}"));
+    }
+    f.git(&["switch", "-q", "main"]);
+    f.write("README.md", "# Main\n");
+    let main_tip = f.commit("m2: main readme");
+    let (picked, _, _) = f.try_git(&["cherry-pick", "picks~2", "picks~1", "picks"]);
+    assert!(!picked, "the sequence must stop");
+    f.write("README.md", "# resolved\n");
+    f.git(&["add", "README.md"]);
+    f.git(&["commit", "-q", "--no-edit"]);
+    let head = f.head();
+    let error = e
+        .move_head(&head, &main_tip, Some("refs/heads/main"), &never())
+        .expect_err("a paused sequence");
+    assert_eq!(error.code(), "refs.head_held", "{error:?}");
+    assert_eq!(f.head(), head);
 }
