@@ -1,5 +1,5 @@
-// Toasts shown by the host in the corner of the shell. Errors stay until dismissed; the rest
-// go away after a few seconds.
+// Toasts shown by the host in the corner of the shell. Errors, and a toast that holds the only
+// way back to what it names, stay until dismissed; the rest go away after a few seconds.
 
 import { defineStore } from "pinia";
 import { ref } from "vue";
@@ -22,6 +22,8 @@ export interface ToastEntry {
   output?: string;
   /** What the action does instead of showing the output; the toast goes once it ran. */
   onAction?: () => void;
+  /** Stays until dismissed, as an error does: it holds the only way back to what it names. */
+  sticky?: boolean;
 }
 
 export const AUTO_DISMISS_MS = 6_000;
@@ -35,7 +37,7 @@ export const useToastsStore = defineStore("toasts", () => {
     const id = nextId;
     nextId += 1;
     toasts.value = [...toasts.value, { ...toast, id }];
-    if (toast.kind !== "error") {
+    if (toast.kind !== "error" && toast.sticky !== true) {
       timers.set(
         id,
         setTimeout(() => dismiss(id), AUTO_DISMISS_MS),

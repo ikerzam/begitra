@@ -214,8 +214,15 @@ describe("branches store", () => {
     });
     await branches.deleteTag("v1");
     expect(of(calls, "tag_delete")[0]?.args["name"]).toBe("v1");
-    // What the tag pointed at puts it back.
-    expect(useToastsStore().toasts.at(-1)?.output).toBe(`git tag v1 ${FAKE_TAG_OBJECT}`);
+    // What the tag pointed at puts it back, the only way back (tags have no reflog): the toast
+    // stays until dismissed.
+    expect(useToastsStore().toasts.at(-1)).toMatchObject({
+      output: `git tag v1 ${FAKE_TAG_OBJECT}`,
+      sticky: true,
+    });
+    // A name a shell would read goes in quotes in the command the user copies.
+    await branches.deleteTag("v2;echo");
+    expect(useToastsStore().toasts.at(-1)?.output).toBe(`git tag 'v2;echo' ${FAKE_TAG_OBJECT}`);
     await branches.setUpstream("main", "origin/main");
     expect(of(calls, "set_upstream")[0]?.args).toMatchObject({
       branch: "main",
@@ -226,6 +233,7 @@ describe("branches store", () => {
       "branches.cherryPicked",
       "branches.reverted",
       "branches.tagged",
+      "branches.tagDeletedWas",
       "branches.tagDeletedWas",
     ]);
   });

@@ -120,6 +120,11 @@ describe("stash store", () => {
       "stash.popped",
       "stash.dropped",
     ]);
+    // The dropped stash's commit is the only way back to it: its toast stays until dismissed.
+    expect(useToastsStore().toasts.at(-1)).toMatchObject({
+      output: `git stash apply ${"f".repeat(40)}`,
+      sticky: true,
+    });
     expect(of(calls, "list_refs").length).toBeGreaterThanOrEqual(4);
   });
 

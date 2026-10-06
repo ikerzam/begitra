@@ -14,7 +14,7 @@ import { newOpId } from "@/ipc/invoke";
 import type { NetworkEvent, PullRequest, PushRequest, Remote } from "@/ipc/schemas";
 import type { StreamHandle } from "@/ipc/stream";
 import { arm } from "@/motion/motion";
-import { baseName, shortHash } from "@/shell/format";
+import { baseName, shellWord, shortHash } from "@/shell/format";
 
 import { useBulkStore } from "./bulk";
 import { useOperationsStore } from "./operations";
@@ -419,7 +419,9 @@ export const useRemotesStore = defineStore("remotes", () => {
       message: "",
       key: target.tip ? "remotes.deletedOnRemoteWas" : "remotes.deletedOnRemote",
       params: { name, remote: target.remote, hash: shortHash(target.tip) },
-      output: target.tip ? `git push ${target.remote} ${target.tip}:${full}` : "",
+      output: target.tip
+        ? `git push ${shellWord(target.remote)} ${shellWord(`${target.tip}:${full}`)}`
+        : "",
       actionKey: target.tip ? "toast.showCommand" : undefined,
     });
     return true;

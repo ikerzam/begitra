@@ -201,6 +201,8 @@ export const useStashStore = defineStore("stash", () => {
         params: { hash: shortHash(hash) },
         output: hash ? `git stash apply ${hash}` : "",
         actionKey: hash ? "toast.showCommand" : undefined,
+        // The dropped stash's commit is the only way back to it.
+        sticky: hash !== "",
       });
     }
     return done === true;

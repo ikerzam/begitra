@@ -8,6 +8,7 @@ import {
   nameAndFolder,
   relativeDate,
   sameFolder,
+  shellWord,
   shortHash,
 } from "./format";
 
@@ -66,5 +67,17 @@ describe("folders", () => {
     expect(abbreviateHome("C:\\Users\\iker\\wt\\x", "C:\\Users\\iker")).toBe("~\\wt\\x");
     expect(abbreviateHome("c:\\users\\iker", "C:\\Users\\iker\\")).toBe("~");
     expect(abbreviateHome("/wt/claude-auth", null)).toBe("/wt/claude-auth");
+  });
+});
+
+describe("shellWord", () => {
+  it("quotes a word only when a shell would read something in it", () => {
+    expect(shellWord("claude/fix-auth")).toBe("claude/fix-auth");
+    expect(shellWord("release/2.4+hotfix@x")).toBe("release/2.4+hotfix@x");
+    expect(shellWord("7a90b1c:refs/tags/v1")).toBe("7a90b1c:refs/tags/v1");
+    expect(shellWord("fix;echo")).toBe("'fix;echo'");
+    expect(shellWord("spike/árbol")).toBe("'spike/árbol'");
+    expect(shellWord("it's")).toBe(`'it'\\''s'`);
+    expect(shellWord("$(rm)")).toBe("'$(rm)'");
   });
 });

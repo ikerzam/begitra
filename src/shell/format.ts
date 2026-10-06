@@ -102,3 +102,12 @@ export function abbreviateHome(path: string, home: string | null): string {
   const rest = path.replace(/[\\/]+$/, "").slice(homeKey.length + 1);
   return `~${separator}${rest}`;
 }
+
+/**
+ * `word` as one word of a POSIX shell, for a command the user copies: as it is when it holds
+ * only characters no shell reads (a branch, tag or remote name may hold `;`, `$` or a quote),
+ * else in single quotes.
+ */
+export function shellWord(word: string): string {
+  return /^[A-Za-z0-9._/@+:-]+$/.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`;
+}

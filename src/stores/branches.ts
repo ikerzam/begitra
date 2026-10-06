@@ -17,7 +17,7 @@ import { toAppError, type AppError } from "@/ipc/errors";
 import { newOpId } from "@/ipc/invoke";
 import type { CommitContext, MergeMode, Outcome, ResetMode, SwitchTarget } from "@/ipc/schemas";
 import { arm } from "@/motion/motion";
-import { baseName, sameFolder, shortHash } from "@/shell/format";
+import { baseName, sameFolder, shellWord, shortHash } from "@/shell/format";
 
 import { draftIsBlank, messageOf, useChangesStore } from "./changes";
 import { useOperationsStore } from "./operations";
@@ -710,8 +710,10 @@ export const useBranchesStore = defineStore("branches", () => {
       message: "",
       key: was ? "branches.tagDeletedWas" : "branches.tagDeleted",
       params: { name, hash: shortHash(was) },
-      output: was ? `git tag ${name} ${was}` : "",
+      output: was ? `git tag ${shellWord(name)} ${was}` : "",
       actionKey: was ? "toast.showCommand" : undefined,
+      // Tags have no reflog: the command is the only way back.
+      sticky: was !== "",
     });
     if (remote !== null) void useRemotesStore().deleteOnRemote({ remote, tag: name, tip: was });
     return true;
