@@ -94,4 +94,25 @@ describe("IconButton", () => {
     await wrapper.trigger("click");
     expect(onClick).not.toHaveBeenCalled();
   });
+
+  it("stays focusable while unavailable, says why, and does nothing on a press", async () => {
+    const onClick = vi.fn();
+    const reason = "A detached HEAD has no branch to push.";
+    const wrapper = mountWithI18n(IconButton, {
+      props: { label: "Push after commit", icon: Settings, pressed: true, unavailable: reason },
+      attrs: { onClick },
+    });
+    expect(wrapper.attributes("disabled")).toBeUndefined();
+    expect(wrapper.attributes("aria-disabled")).toBe("true");
+    expect(wrapper.attributes("aria-label")).toBe("Push after commit");
+    expect(wrapper.attributes("aria-pressed")).toBe("true");
+    expect(wrapper.attributes("data-tooltip")).toBe(reason);
+    expect(wrapper.attributes("aria-description")).toBe(reason);
+    expect(wrapper.classes()).toContain("text-fg-disabled");
+    await wrapper.trigger("click");
+    expect(onClick).not.toHaveBeenCalled();
+    await wrapper.setProps({ unavailable: "" });
+    await wrapper.trigger("click");
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
 });

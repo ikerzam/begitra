@@ -10,6 +10,11 @@ const props = withDefaults(
     /** For toggle buttons (layout modes, the dashboard): renders `aria-pressed` and the selected fill. */
     pressed?: boolean;
     disabled?: boolean;
+    /**
+     * Why the button cannot act now. It stays in the tab order and under the pointer
+     * (`aria-disabled`), its tooltip and description say why, and a press does nothing.
+     */
+    unavailable?: string;
     /** 24px square by default; `lg` is the 32px hit area of the sidebar rail. */
     size?: "md" | "lg";
     /** The tooltip's text where it differs from the accessible name; the label by default. */
@@ -23,6 +28,7 @@ const props = withDefaults(
     icon: undefined,
     pressed: undefined,
     disabled: false,
+    unavailable: "",
     size: "md",
     tooltip: undefined,
     keys: "",
@@ -34,25 +40,39 @@ const { n } = useI18n();
 
 /** Formatted in the locale; past three digits the exact number stops mattering. */
 const countText = computed(() => (props.count > 999 ? `${n(999)}+` : n(props.count)));
+
+/* The colours by state: unavailable dims the icon (a pressed one keeps its fill); a pressed
+   toggle keeps its fill under the pointer instead of turning into a hover. */
+const stateClass = computed(() => {
+  if (props.unavailable) return props.pressed ? "bg-selected text-fg-disabled" : "text-fg-disabled";
+  return props.pressed
+    ? "bg-selected text-fg"
+    : "text-fg-secondary enabled:hover:bg-hover enabled:hover:text-fg";
+});
+
+/** An unavailable button's press reaches no listener, the parent's included. */
+function onClick(event: MouseEvent): void {
+  if (props.unavailable) event.stopImmediatePropagation();
+}
 </script>
 
 <template>
   <button
     type="button"
     :disabled="props.disabled"
+    :aria-disabled="props.unavailable ? 'true' : undefined"
     :aria-label="props.label"
     :aria-pressed="props.pressed"
-    :data-tooltip="props.tooltip ?? props.label"
+    :data-tooltip="props.unavailable || (props.tooltip ?? props.label)"
     :data-tooltip-keys="props.keys || undefined"
-    :aria-description="props.keys || undefined"
-    class="inline-flex shrink-0 items-center justify-center rounded-sm enabled:active:bg-active disabled:text-fg-disabled"
+    :aria-description="props.unavailable || props.keys || undefined"
+    class="inline-flex shrink-0 items-center justify-center rounded-sm disabled:text-fg-disabled"
     :class="[
       props.count > 0 ? 'h-5 min-w-5 gap-1 px-1' : props.size === 'lg' ? 'size-6' : 'size-5',
-      // A pressed toggle keeps its fill under the pointer instead of turning into a hover.
-      props.pressed
-        ? 'bg-selected text-fg'
-        : 'text-fg-secondary enabled:hover:bg-hover enabled:hover:text-fg',
+      props.unavailable ? '' : 'enabled:active:bg-active',
+      stateClass,
     ]"
+    @click="onClick"
   >
     <component
       :is="props.icon"
