@@ -187,6 +187,8 @@ pub fn run() {
             commands::branches::take_side,
             commands::branches::restore_conflicts,
             commands::branches::sequencer,
+            commands::cleanup::cleanup_candidates,
+            commands::cleanup::delete_branches,
             commands::remotes::remotes,
             commands::remotes::remote_add,
             commands::remotes::remote_remove,

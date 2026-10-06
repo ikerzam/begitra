@@ -1,0 +1,51 @@
+[
+  {
+    "name": "claude/fix-auth",
+    "deleted": true,
+    "reason": null,
+    "message": null,
+    "worktreeRemoved": true
+  },
+  {
+    "name": "feature/tiles",
+    "deleted": false,
+    "reason": "moved",
+    "message": null,
+    "worktreeRemoved": false
+  },
+  {
+    "name": "feature/gone-already",
+    "deleted": false,
+    "reason": "missing",
+    "message": null,
+    "worktreeRemoved": false
+  },
+  {
+    "name": "claude/switched",
+    "deleted": false,
+    "reason": "worktree-moved",
+    "message": null,
+    "worktreeRemoved": false
+  },
+  {
+    "name": "claude/review",
+    "deleted": false,
+    "reason": "worktree",
+    "message": "fatal: 'C:/Users/iker/code/geoportal.worktrees/review' contains modified or untracked files, use --force to delete it",
+    "worktreeRemoved": false
+  },
+  {
+    "name": "claude/held",
+    "deleted": false,
+    "reason": "failed",
+    "message": "error: cannot lock ref 'refs/heads/claude/held': Unable to create 'refs/heads/claude/held.lock': File exists.",
+    "worktreeRemoved": true
+  },
+  {
+    "name": "spike/árbol",
+    "deleted": false,
+    "reason": "stopped",
+    "message": null,
+    "worktreeRemoved": false
+  }
+]

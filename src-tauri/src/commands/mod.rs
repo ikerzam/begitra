@@ -2,6 +2,7 @@
 //! run the engine call through [`crate::ops`] and map errors to [`crate::error::AppError`].
 
 pub mod branches;
+pub mod cleanup;
 pub mod compare;
 pub mod diff;
 pub mod external;

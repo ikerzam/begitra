@@ -1,0 +1,12 @@
+[
+  {
+    "name": "claude/fix-auth",
+    "tip": "a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4",
+    "worktree": "C:/Users/iker/code/geoportal.worktrees/fix-auth"
+  },
+  {
+    "name": "feature/tiles",
+    "tip": "7f8e9d0a1b2c3d4e5f67890a1b2c3d4e5f678901",
+    "worktree": null
+  }
+]

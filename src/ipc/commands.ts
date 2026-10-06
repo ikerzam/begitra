@@ -15,6 +15,9 @@ import {
   CommitCountSchema,
   CommitResultSchema,
   ConflictSchema,
+  CleanupCandidatesSchema,
+  DeleteOutcomeSchema,
+  type BranchToDelete,
   type MergeMode,
   type NetworkEvent,
   NetworkEventSchema,
@@ -303,6 +306,23 @@ export function restoreConflicts(
   opId = newOpId("restore-conflicts"),
 ) {
   return call("restore_conflicts", { repo, paths, opId }, v.null());
+}
+
+/** The local branches that can go against the main branch. */
+export function cleanupCandidates(repo: string, opId = newOpId("cleanup")) {
+  return call("cleanup_candidates", { repo, opId }, CleanupCandidatesSchema);
+}
+
+/**
+ * Deletes each branch with its worktree while its tip is still the one listed; answers each
+ * one's outcome, in order.
+ */
+export function deleteBranches(
+  repo: string,
+  branches: BranchToDelete[],
+  opId = newOpId("delete-branches"),
+) {
+  return call("delete_branches", { repo, branches, opId }, v.array(DeleteOutcomeSchema));
 }
 
 /** Continues, skips or aborts the operation in progress. */

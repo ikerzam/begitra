@@ -1,0 +1,46 @@
+[
+  {
+    "main": "main",
+    "candidates": [
+      {
+        "name": "claude/fix-auth",
+        "tip": "a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4",
+        "reason": "merged",
+        "remote": "origin",
+        "worktree": "C:/Users/iker/code/geoportal.worktrees/fix-auth"
+      },
+      {
+        "name": "feature/tiles",
+        "tip": "7f8e9d0a1b2c3d4e5f67890a1b2c3d4e5f678901",
+        "reason": "gone-applied",
+        "remote": "origin",
+        "worktree": null
+      },
+      {
+        "name": "spike/árbol",
+        "tip": "9f3e2c1a7b5d4e6f8a0b1c2d3e4f5a6b7c8d9e0f",
+        "reason": "gone",
+        "remote": "upstream",
+        "worktree": null
+      },
+      {
+        "name": "spike/old-tiles",
+        "tip": "3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d",
+        "reason": "gone-unchecked",
+        "remote": "origin",
+        "worktree": null
+      },
+      {
+        "name": "claude/new-task",
+        "tip": "0a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d",
+        "reason": "no-commits",
+        "remote": null,
+        "worktree": "C:/Users/iker/code/geoportal.worktrees/new-task"
+      }
+    ]
+  },
+  {
+    "main": null,
+    "candidates": []
+  }
+]

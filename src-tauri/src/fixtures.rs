@@ -8,14 +8,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use git_core::types::{
-    BaseCommit, BlobAt, BlobContent, ChangeKind, ChangeSet, CommitContext, CommitCount, CommitNode,
-    CommitRequest, Comparison, ComparisonRelation, Conflict, ConflictKind, DiffLine, DiffOptions,
-    DiffTarget, Edge, Endpoint, FileChange, GitDetection, Hunk, LineKind, MergeMode, MergePreview,
-    MergePreviewKind, OperationSides, OperationState, OtherOperation, Outcome, OutcomeKind,
-    PatchSelection, PullRequest, PushRequest, Ref, RefKind, Remote, Repo, ResetMode, SelectedHunk,
-    SelectedLine, SequencerAction, Side, SideName, Signature, Span, StashPush, StatusEntry,
-    StatusOptions, SwitchTarget, WalkFilter, WalkOptions, WalkOrder, WalkScope, WorkingTreeBase,
-    Worktree, WorktreeAdd, WorktreeBranch,
+    BaseCommit, BlobAt, BlobContent, BranchToDelete, ChangeKind, ChangeSet, CleanupCandidate,
+    CleanupCandidates, CleanupReason, CommitContext, CommitCount, CommitNode, CommitRequest,
+    Comparison, ComparisonRelation, Conflict, ConflictKind, DeleteOutcome, DiffLine, DiffOptions,
+    DiffTarget, Edge, Endpoint, FileChange, GitDetection, Hunk, KeptReason, LineKind, MergeMode,
+    MergePreview, MergePreviewKind, OperationSides, OperationState, OtherOperation, Outcome,
+    OutcomeKind, PatchSelection, PullRequest, PushRequest, Ref, RefKind, Remote, Repo, ResetMode,
+    SelectedHunk, SelectedLine, SequencerAction, Side, SideName, Signature, Span, StashPush,
+    StatusEntry, StatusOptions, SwitchTarget, WalkFilter, WalkOptions, WalkOrder, WalkScope,
+    WorkingTreeBase, Worktree, WorktreeAdd, WorktreeBranch,
 };
 use serde::Serialize;
 use syntax::{Highlight, Symbol, SymbolKind, Token, TokenClass};
@@ -708,6 +709,136 @@ fn write_phase7() {
         ],
     );
     write("sides", &[Side::Ours, Side::Theirs]);
+    write(
+        "cleanup-candidates",
+        &[
+            CleanupCandidates {
+                main: Some("main".to_owned()),
+                candidates: vec![
+                    CleanupCandidate {
+                        name: "claude/fix-auth".to_owned(),
+                        tip: "a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4".to_owned(),
+                        reason: CleanupReason::Merged,
+                        remote: Some("origin".to_owned()),
+                        worktree: Some(PathBuf::from(
+                            "C:/Users/iker/code/geoportal.worktrees/fix-auth",
+                        )),
+                    },
+                    CleanupCandidate {
+                        name: "feature/tiles".to_owned(),
+                        tip: "7f8e9d0a1b2c3d4e5f67890a1b2c3d4e5f678901".to_owned(),
+                        reason: CleanupReason::GoneApplied,
+                        remote: Some("origin".to_owned()),
+                        worktree: None,
+                    },
+                    CleanupCandidate {
+                        name: "spike/árbol".to_owned(),
+                        tip: "9f3e2c1a7b5d4e6f8a0b1c2d3e4f5a6b7c8d9e0f".to_owned(),
+                        reason: CleanupReason::Gone,
+                        remote: Some("upstream".to_owned()),
+                        worktree: None,
+                    },
+                    CleanupCandidate {
+                        name: "spike/old-tiles".to_owned(),
+                        tip: "3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d".to_owned(),
+                        reason: CleanupReason::GoneUnchecked,
+                        remote: Some("origin".to_owned()),
+                        worktree: None,
+                    },
+                    CleanupCandidate {
+                        name: "claude/new-task".to_owned(),
+                        tip: "0a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d".to_owned(),
+                        reason: CleanupReason::NoCommits,
+                        remote: None,
+                        worktree: Some(PathBuf::from(
+                            "C:/Users/iker/code/geoportal.worktrees/new-task",
+                        )),
+                    },
+                ],
+            },
+            CleanupCandidates {
+                main: None,
+                candidates: Vec::new(),
+            },
+        ],
+    );
+    write(
+        "branches-to-delete",
+        &[
+            BranchToDelete {
+                name: "claude/fix-auth".to_owned(),
+                tip: "a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4".to_owned(),
+                worktree: Some(PathBuf::from(
+                    "C:/Users/iker/code/geoportal.worktrees/fix-auth",
+                )),
+            },
+            BranchToDelete {
+                name: "feature/tiles".to_owned(),
+                tip: "7f8e9d0a1b2c3d4e5f67890a1b2c3d4e5f678901".to_owned(),
+                worktree: None,
+            },
+        ],
+    );
+    write(
+        "delete-outcomes",
+        &[
+            DeleteOutcome {
+                name: "claude/fix-auth".to_owned(),
+                deleted: true,
+                reason: None,
+                message: None,
+                worktree_removed: true,
+            },
+            DeleteOutcome {
+                name: "feature/tiles".to_owned(),
+                deleted: false,
+                reason: Some(KeptReason::Moved),
+                message: None,
+                worktree_removed: false,
+            },
+            DeleteOutcome {
+                name: "feature/gone-already".to_owned(),
+                deleted: false,
+                reason: Some(KeptReason::Missing),
+                message: None,
+                worktree_removed: false,
+            },
+            DeleteOutcome {
+                name: "claude/switched".to_owned(),
+                deleted: false,
+                reason: Some(KeptReason::WorktreeMoved),
+                message: None,
+                worktree_removed: false,
+            },
+            DeleteOutcome {
+                name: "claude/review".to_owned(),
+                deleted: false,
+                reason: Some(KeptReason::Worktree),
+                message: Some(
+                    "fatal: 'C:/Users/iker/code/geoportal.worktrees/review' contains modified or untracked files, use --force to delete it"
+                        .to_owned(),
+                ),
+                worktree_removed: false,
+            },
+            DeleteOutcome {
+                name: "claude/held".to_owned(),
+                deleted: false,
+                reason: Some(KeptReason::Failed),
+                message: Some(
+                    "error: cannot lock ref 'refs/heads/claude/held': Unable to create 'refs/heads/claude/held.lock': File exists."
+                        .to_owned(),
+                ),
+                worktree_removed: true,
+            },
+            DeleteOutcome {
+                name: "spike/árbol".to_owned(),
+                deleted: false,
+                reason: Some(KeptReason::Stopped),
+                message: None,
+                worktree_removed: false,
+            },
+        ],
+    );
     write(
         "remotes",
         &[

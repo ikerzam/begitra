@@ -572,6 +572,73 @@ export type OperationSides = v.InferOutput<typeof OperationSidesSchema>;
 export const SideSchema = v.picklist(["ours", "theirs"]);
 export type Side = v.InferOutput<typeof SideSchema>;
 
+/**
+ * Why a local branch can go: its tip is in the main branch (or its upstream); it is in the main
+ * branch with no commits of its own (an agent's new branch); its upstream is gone and merging it
+ * would change nothing; its upstream is gone and main lacks some of it; its upstream is gone and
+ * the merge check did not answer for it (out of time, an older git).
+ */
+export const CleanupReasonSchema = v.picklist([
+  "merged",
+  "no-commits",
+  "gone-applied",
+  "gone",
+  "gone-unchecked",
+]);
+export type CleanupReason = v.InferOutput<typeof CleanupReasonSchema>;
+
+/** A local branch that can go, with the tip it was listed with and its linked worktree. */
+export const CleanupCandidateSchema = v.object({
+  name: v.string(),
+  tip: v.string(),
+  reason: CleanupReasonSchema,
+  remote: v.nullable(v.string()),
+  worktree: v.nullable(v.string()),
+});
+export type CleanupCandidate = v.InferOutput<typeof CleanupCandidateSchema>;
+
+/** The main branch the cleanup compares with (null when none is found) and its candidates. */
+export const CleanupCandidatesSchema = v.object({
+  main: v.nullable(v.string()),
+  candidates: v.array(CleanupCandidateSchema),
+});
+export type CleanupCandidates = v.InferOutput<typeof CleanupCandidatesSchema>;
+
+/** A branch to delete, with the tip it was listed with and its worktree, removed first. */
+export const BranchToDeleteSchema = v.object({
+  name: v.string(),
+  tip: v.string(),
+  worktree: v.nullable(v.string()),
+});
+export type BranchToDelete = v.InferOutput<typeof BranchToDeleteSchema>;
+
+/**
+ * Why a branch of a deletion stayed: a commit since it was listed, deleted elsewhere, its
+ * worktree on another branch now, git refused its worktree or the branch, the deletion stopped.
+ */
+export const KeptReasonSchema = v.picklist([
+  "moved",
+  "missing",
+  "worktree-moved",
+  "worktree",
+  "failed",
+  "stopped",
+]);
+export type KeptReason = v.InferOutput<typeof KeptReasonSchema>;
+
+/**
+ * What became of one branch of a deletion: `message` holds git's words for a refusal, and
+ * `worktreeRemoved` says its worktree went, which it can do before the branch stays.
+ */
+export const DeleteOutcomeSchema = v.object({
+  name: v.string(),
+  deleted: v.boolean(),
+  reason: v.nullable(KeptReasonSchema),
+  message: v.nullable(v.string()),
+  worktreeRemoved: v.boolean(),
+});
+export type DeleteOutcome = v.InferOutput<typeof DeleteOutcomeSchema>;
+
 /** How an operation that may stop on conflicts ended. */
 export const OutcomeSchema = v.object({
   kind: OutcomeKindSchema,
@@ -875,6 +942,12 @@ const localBranchRef = v.pipe(
   v.maxLength(200),
   v.regex(/^refs\/heads\/[^\x00-\x1f\x7f]+$/, "not a local branch's ref"),
 );
+/** One to 1,000 branches to delete, each with the full tip it was listed with. */
+const branchesToDelete = v.pipe(
+  v.array(v.object({ name: refName, tip: fullHash, worktree: v.nullable(worktreePath) })),
+  v.minLength(1),
+  v.maxLength(1000),
+);
 /** A tag message with a line, at most 10,000 characters. */
 const tagMessage = v.pipe(
   v.string(),
@@ -992,6 +1065,8 @@ export const commandArgs = {
   operation_sides: v.object({ repo: path, opId }),
   take_side: v.object({ repo: path, paths: repoPaths, side: SideSchema, opId }),
   restore_conflicts: v.object({ repo: path, paths: repoPaths, opId }),
+  cleanup_candidates: v.object({ repo: path, opId }),
+  delete_branches: v.object({ repo: path, branches: branchesToDelete, opId }),
   sequencer: v.object({ repo: path, action: SequencerActionSchema, opId }),
   remotes: v.object({ repo: path, opId }),
   remote_add: v.object({ repo: path, name: refName, url: remoteUrl, opId }),

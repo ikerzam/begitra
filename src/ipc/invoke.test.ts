@@ -1,10 +1,10 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { openRepository, ping, stashDrop, takeSide } from "./commands";
+import { deleteBranches, openRepository, ping, stashDrop, takeSide } from "./commands";
 import { AppError } from "./errors";
 import { checkArgs, newOpId } from "./invoke";
-import type { Side } from "./schemas";
+import type { BranchToDelete, Side } from "./schemas";
 
 afterEach(() => {
   clearMocks();
@@ -219,6 +219,26 @@ describe("call", () => {
     ] as [string[], Side][]) {
       const error = await takeSide("/r", paths, side).catch((e: unknown) => e as AppError);
       expect((error as AppError).code, `${paths.join()} ${side}`).toBe("ipc.invalid_argument");
+    }
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("deletes one to a thousand listed branches, each with its full tip", async () => {
+    const invoke = vi.fn();
+    mockIPC(invoke);
+    const tip = "a".repeat(40);
+    const many = Array.from({ length: 1001 }, (_, i) => ({ name: `b${i}`, tip, worktree: null }));
+    for (const branches of [
+      [],
+      [{ name: "-x", tip, worktree: null }],
+      [{ name: "a b", tip, worktree: null }],
+      [{ name: "x", tip: "HEAD~1", worktree: null }],
+      [{ name: "x", tip: "0".repeat(40), worktree: null }],
+      [{ name: "x", tip, worktree: "" }],
+      many,
+    ] as BranchToDelete[][]) {
+      const error = await deleteBranches("/r", branches).catch((e: unknown) => e as AppError);
+      expect((error as AppError).code, JSON.stringify(branches[0])).toBe("ipc.invalid_argument");
     }
     expect(invoke).not.toHaveBeenCalled();
   });
