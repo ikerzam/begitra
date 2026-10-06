@@ -18,16 +18,16 @@ use crate::types::{
 };
 
 /// Global options and the pathspec options every path command shares.
-const LITERAL: &str = "--literal-pathspecs";
-const FROM_STDIN: [&str; 2] = ["--pathspec-from-file=-", "--pathspec-file-nul"];
+pub(super) const LITERAL: &str = "--literal-pathspecs";
+pub(super) const FROM_STDIN: [&str; 2] = ["--pathspec-from-file=-", "--pathspec-file-nul"];
 
-fn root(engine: &Git2Engine) -> &Path {
+pub(super) fn root(engine: &Git2Engine) -> &Path {
     &GitEngine::repo(engine).root
 }
 
 /// Turns a non-zero status into [`GitError::Cli`]; git says some refusals on stdout
 /// ("nothing to commit, working tree clean"), which then stands in for an empty stderr.
-fn judged(args: &[&str], exit: CliExit) -> GitResult<CliExit> {
+pub(super) fn judged(args: &[&str], exit: CliExit) -> GitResult<CliExit> {
     if exit.status == Some(0) {
         Ok(exit)
     } else {
@@ -45,7 +45,7 @@ fn judged(args: &[&str], exit: CliExit) -> GitResult<CliExit> {
 }
 
 /// The NUL-separated list `--pathspec-from-file=-` reads.
-fn nul_list(paths: &[String]) -> Vec<u8> {
+pub(super) fn nul_list(paths: &[String]) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(paths.iter().map(|p| p.len() + 1).sum());
     for path in paths {
         bytes.extend_from_slice(path.as_bytes());
@@ -193,11 +193,12 @@ pub(super) fn discard_paths(
     Ok(())
 }
 
-/// Longest argv a run of `git clean` carries, in bytes of paths.
+/// Longest argv a run of `git clean` or `git update-index --unresolve` carries, in bytes of
+/// paths.
 const ARGV_CHUNK_BYTES: usize = 16 * 1024;
 
 /// Splits paths into runs whose joined length stays under [`ARGV_CHUNK_BYTES`].
-fn argv_chunks(paths: &[String]) -> Vec<&[String]> {
+pub(super) fn argv_chunks(paths: &[String]) -> Vec<&[String]> {
     let mut chunks = Vec::new();
     let mut start = 0;
     let mut bytes = 0;

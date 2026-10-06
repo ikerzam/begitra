@@ -967,6 +967,55 @@ pub enum SequencerAction {
     Abort,
 }
 
+/// One side of the operation's conflicts, as the interface names it: never "ours" or
+/// "theirs", whose meaning a rebase swaps.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum SideName {
+    /// A branch, a remote-tracking branch or a tag, by its short name.
+    Ref {
+        /// The name, as git's own messages give it (`main`, `origin/main`, `v1`).
+        name: String,
+    },
+    /// A commit by its hash: the commit a cherry-pick applies, a detached HEAD, the commit a
+    /// rebase replays onto and a merged commit when no branch or name in git's message still
+    /// points at them.
+    Commit {
+        /// The full hash.
+        hash: String,
+        /// Its subject: the first paragraph of its message on one line, as git's `%s` gives it.
+        subject: String,
+    },
+    /// The state before a commit: what a revert brings back, its "theirs".
+    Before {
+        /// The full hash of the commit the revert undoes.
+        hash: String,
+        /// Its subject: the first paragraph of its message on one line, as git's `%s` gives it.
+        subject: String,
+    },
+}
+
+/// The two sides of the operation in progress: git's "ours" and "theirs".
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OperationSides {
+    /// Git's `--ours`: the current branch, or during a rebase the commit rebased onto (git's
+    /// ours is then that commit with the commits replayed so far).
+    pub ours: SideName,
+    /// Git's `--theirs`: what the operation brings in.
+    pub theirs: SideName,
+}
+
+/// Which side of a conflict to take a file whole from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Side {
+    /// Git's `--ours` (stage 2).
+    Ours,
+    /// Git's `--theirs` (stage 3).
+    Theirs,
+}
+
 /// A remote with its URLs.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

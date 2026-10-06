@@ -544,6 +544,26 @@ pub fn run_git_with_input(
     run_polled(command(cwd, args), joined(args), cancel, None, Some(input))
 }
 
+/// [`run_git_with_input`] that also stops git past `limit` (see [`run_git_env_within`]): a
+/// write that goes on whatever the user's cancel says once an earlier one has changed the
+/// index, but must not run forever.
+#[tracing::instrument(level = "debug", skip_all, fields(cwd = %cwd.display(), args = ?Redacted(args), input_bytes = input.len(), limit = ?limit))]
+pub fn run_git_with_input_within(
+    cwd: &Path,
+    args: &[&str],
+    input: Vec<u8>,
+    cancel: &Cancel,
+    limit: Duration,
+) -> GitResult<CliExit> {
+    run_polled(
+        command(cwd, args),
+        joined(args),
+        cancel,
+        Some(limit),
+        Some(input),
+    )
+}
+
 /// A pipe reader's result: the bytes, or the read error.
 type Piped = thread::JoinHandle<std::io::Result<Vec<u8>>>;
 
@@ -692,7 +712,7 @@ fn read_pipe<R: Read + Send + 'static>(name: &str, pipe: Option<R>) -> std::io::
 
 /// Spawns `command` with both pipes captured and polls it: the cancel flag every
 /// [`CANCEL_POLL`], the optional `deadline` from the spawn (past it the tree is stopped and
-/// the run is [`GitError::GitNotStarted`], for the probes). After the exit the readers are
+/// the run is [`GitError::Cli`] with no status). After the exit the readers are
 /// waited for under the same polling, so a grandchild that kept a pipe open cannot pin the
 /// caller past a cancel.
 fn run_polled(

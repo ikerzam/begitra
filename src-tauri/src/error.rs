@@ -43,6 +43,12 @@ pub mod codes {
     pub const GIT_CLI_FAILED: &str = "git.cli_failed";
     /// A stash named by its commit is no longer in the stash list; git did not run.
     pub const STASH_NOT_FOUND: &str = "stash.not_found";
+    /// A side was asked for a path that has no conflict; git did not run.
+    pub const CONFLICT_NOT_CONFLICTED: &str = "conflict.not_conflicted";
+    /// Git no longer holds the sides of a path's conflict, so it cannot be brought back.
+    pub const CONFLICT_GONE: &str = "conflict.gone";
+    /// A side was asked for a submodule's conflict; git did not run.
+    pub const CONFLICT_SUBMODULE: &str = "conflict.submodule";
     /// A command argument did not match its type; `detail` names the field.
     pub const IPC_INVALID_ARGUMENT: &str = "ipc.invalid_argument";
     /// The operation was cancelled.
@@ -72,7 +78,7 @@ pub mod codes {
 
     /// Every code, in the order of the frontend's `errorCodes` (`src/ipc/schemas.ts`); the
     /// contract test compares the two lists through the `app-errors` fixture.
-    pub const ALL: [&str; 27] = [
+    pub const ALL: [&str; 30] = [
         REPO_NOT_FOUND,
         REPO_INVALID,
         REPO_CORRUPT_OBJECT,
@@ -88,6 +94,9 @@ pub mod codes {
         GIT_NOT_STARTED,
         GIT_CLI_FAILED,
         STASH_NOT_FOUND,
+        CONFLICT_NOT_CONFLICTED,
+        CONFLICT_GONE,
+        CONFLICT_SUBMODULE,
         IPC_INVALID_ARGUMENT,
         OP_CANCELLED,
         OP_TIMEOUT,

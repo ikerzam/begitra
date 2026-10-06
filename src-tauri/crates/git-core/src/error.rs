@@ -97,6 +97,20 @@ pub enum GitError {
     /// dropped, or its entry deleted from the stash's reflog, since the list was read.
     #[error("stash {0} is no longer in the stash list")]
     StashNotFound(String),
+    /// A side was asked for a path that has no conflict: it has no sides, and a version written
+    /// over it would take its edits.
+    #[error("{0} has no conflict to take a side of")]
+    NotConflicted(String),
+    /// Git holds no sides of a path's conflict to bring back: no resolve-undo record names it
+    /// (it never conflicted, or the next stop, a reset or another merge dropped the record), or
+    /// no operation is in progress (git's commit keeps the record of the stop it ended).
+    #[error("the conflict of {0} cannot be brought back: git no longer holds its sides")]
+    ConflictGone(String),
+    /// A side was asked for a submodule's conflict: its side is a commit to check out inside the
+    /// submodule, a repository of its own that these writes leave alone, and a side that
+    /// deleted it would delete its folder, untracked files included.
+    #[error("{0} is a submodule: check out the commit wanted inside it, then mark it resolved")]
+    SubmoduleConflict(String),
     /// The operation was cancelled through its [`crate::engine::Cancel`] handle.
     #[error("operation cancelled")]
     Cancelled,
@@ -124,6 +138,9 @@ impl GitError {
             GitError::GitNotStarted { .. } => "git.not_started",
             GitError::Cli { .. } => "git.cli_failed",
             GitError::StashNotFound(_) => "stash.not_found",
+            GitError::NotConflicted(_) => "conflict.not_conflicted",
+            GitError::ConflictGone(_) => "conflict.gone",
+            GitError::SubmoduleConflict(_) => "conflict.submodule",
             GitError::Cancelled => "op.cancelled",
             GitError::Git(_) => "internal",
         }
@@ -144,7 +161,7 @@ impl GitError {
     }
 
     /// Every code an engine error can carry, for the tests that keep the IPC list in sync.
-    pub const CODES: [&'static str; 17] = [
+    pub const CODES: [&'static str; 20] = [
         "repo.not_found",
         "repo.invalid",
         "repo.corrupt_object",
@@ -160,6 +177,9 @@ impl GitError {
         "git.not_started",
         "git.cli_failed",
         "stash.not_found",
+        "conflict.not_conflicted",
+        "conflict.gone",
+        "conflict.submodule",
         "op.cancelled",
         "internal",
     ];
@@ -266,6 +286,9 @@ mod tests {
                 stderr: String::new(),
             },
             GitError::StashNotFound(String::new()),
+            GitError::NotConflicted(String::new()),
+            GitError::ConflictGone(String::new()),
+            GitError::SubmoduleConflict(String::new()),
             GitError::Cancelled,
             GitError::Git(String::new()),
         ];

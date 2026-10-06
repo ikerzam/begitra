@@ -663,7 +663,7 @@ fn signature(signature: &git2::Signature<'_>) -> Signature {
 /// do: leading blank lines are skipped; the subject is the first paragraph with each line's
 /// trailing whitespace removed and the lines joined by one space; the body is what follows the
 /// blank lines after that paragraph, with its trailing newlines removed.
-fn split_message(raw: &[u8]) -> (String, String) {
+pub(super) fn split_message(raw: &[u8]) -> (String, String) {
     let text = String::from_utf8_lossy(raw);
     let lines: Vec<&str> = text.split('\n').collect();
     let mut index = 0;

@@ -9,9 +9,9 @@ use crate::error::{GitError, GitResult};
 use crate::types::{
     BlobAt, BlobContent, ChangeSet, ChangeSetPage, CommitContext, CommitCount, CommitRequest,
     Comparison, Conflict, DiffOptions, DiffTarget, MergeMode, MergePreview, NetworkResult,
-    OperationState, Outcome, Page, PatchSelection, Prompts, PullRequest, PushRequest, Ref, Remote,
-    Repo, ResetMode, SelectionTarget, SequencerAction, StashPush, StatusEntry, StatusOptions,
-    SwitchTarget, WalkOptions, WalkScope, Worktree, WorktreeAdd,
+    OperationSides, OperationState, Outcome, Page, PatchSelection, Prompts, PullRequest,
+    PushRequest, Ref, Remote, Repo, ResetMode, SelectionTarget, SequencerAction, Side, StashPush,
+    StatusEntry, StatusOptions, SwitchTarget, WalkOptions, WalkScope, Worktree, WorktreeAdd,
 };
 
 /// Cooperative cancellation flag checked by long operations between units of work.
@@ -333,6 +333,35 @@ pub trait GitEngine: Send + Sync {
     fn mark_resolved(&self, paths: &[String], cancel: &Cancel) -> GitResult<()> {
         self.stage_paths(paths, cancel)
     }
+
+    /// The names of the operation's two sides, from the worktree's own state files; `None`
+    /// while no operation is in progress, for an octopus merge (no one name says either side),
+    /// and when the state files cannot be read or name no full hash.
+    fn operation_sides(&self) -> GitResult<Option<OperationSides>>;
+
+    /// Takes each conflicted path, spelled as git lists it, whole from `side`: that side's
+    /// index entry (its blob and its mode), resolved, and the file written from it; or the file
+    /// deleted, resolved, where that side has none. Every path is checked before anything is
+    /// written: one that is not conflicted is [`GitError::NotConflicted`], a submodule's
+    /// conflict [`GitError::SubmoduleConflict`]. Once the first write went through, the others
+    /// run whatever the cancel says and a failure is the error after them; a file git could not
+    /// write is then resolved in the index with its old content on disk.
+    ///
+    /// [`GitError::NotConflicted`]: crate::error::GitError::NotConflicted
+    /// [`GitError::SubmoduleConflict`]: crate::error::GitError::SubmoduleConflict
+    fn take_side(&self, paths: &[String], side: Side, cancel: &Cancel) -> GitResult<()>;
+
+    /// Puts the conflicts of `paths` (spelled as git lists them) back after a resolution, from
+    /// git's resolve-undo record: the stages, and the file as git wrote it at the stop (the
+    /// markers, labelled "ours" and "theirs", where both sides have it), in place of the
+    /// resolution and the file there are. A path still conflicted is left as it is. Outside an
+    /// operation every path is [`GitError::ConflictGone`], naming the first, before git runs;
+    /// a path git holds no record of is named the same way after the others are written.
+    /// Once the first run of git went through, the others run whatever the cancel says and a
+    /// failure is the error after them; a run that fails leaves its paths as they were.
+    ///
+    /// [`GitError::ConflictGone`]: crate::error::GitError::ConflictGone
+    fn restore_conflicts(&self, paths: &[String], cancel: &Cancel) -> GitResult<()>;
 
     /// Continues, skips or aborts the operation in progress with its git command.
     fn sequencer(&self, action: SequencerAction, cancel: &Cancel) -> GitResult<Outcome>;

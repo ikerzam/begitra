@@ -17,6 +17,7 @@ pub mod patch;
 mod refs;
 mod remotes;
 mod sequencer;
+mod sides;
 mod staging;
 mod stash;
 mod status;
@@ -38,10 +39,10 @@ use crate::engine::{Cancel, CommitWalk, DiffWalk, GitEngine};
 use crate::error::{GitError, GitResult};
 use crate::types::{
     BlobAt, BlobContent, ChangeSet, CommitContext, CommitCount, CommitRequest, Comparison,
-    Conflict, DiffOptions, DiffTarget, MergeMode, MergePreview, NetworkResult, OperationState,
-    Outcome, PatchSelection, Prompts, PullRequest, PushRequest, Ref, Remote, Repo, ResetMode,
-    SelectionTarget, SequencerAction, StashPush, StatusEntry, StatusOptions, SwitchTarget,
-    WalkOptions, WalkScope, Worktree, WorktreeAdd,
+    Conflict, DiffOptions, DiffTarget, MergeMode, MergePreview, NetworkResult, OperationSides,
+    OperationState, Outcome, PatchSelection, Prompts, PullRequest, PushRequest, Ref, Remote, Repo,
+    ResetMode, SelectionTarget, SequencerAction, Side, StashPush, StatusEntry, StatusOptions,
+    SwitchTarget, WalkOptions, WalkScope, Worktree, WorktreeAdd,
 };
 
 /// A repository opened with libgit2.
@@ -574,6 +575,18 @@ impl GitEngine for Git2Engine {
 
     fn conflicts(&self, cancel: &Cancel) -> GitResult<Vec<Conflict>> {
         sequencer::conflicts(self, cancel)
+    }
+
+    fn operation_sides(&self) -> GitResult<Option<OperationSides>> {
+        sides::operation_sides(self)
+    }
+
+    fn take_side(&self, paths: &[String], side: Side, cancel: &Cancel) -> GitResult<()> {
+        sides::take_side(self, paths, side, cancel)
+    }
+
+    fn restore_conflicts(&self, paths: &[String], cancel: &Cancel) -> GitResult<()> {
+        sides::restore_conflicts(self, paths, cancel)
     }
 
     fn sequencer(&self, action: SequencerAction, cancel: &Cancel) -> GitResult<Outcome> {
