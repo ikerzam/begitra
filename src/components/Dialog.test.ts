@@ -147,4 +147,33 @@ describe("Dialog", () => {
     });
     expect(wrapper.get("[data-testid='dialog-confirm']").attributes("disabled")).toBeDefined();
   });
+
+  it("takes the focus back when the focused control drops it to the page", async () => {
+    wrapper = mountWithI18n(Dialog, {
+      props: removeProps,
+      slots: { default: "<button type='button' data-testid='inner'>Inner</button>" },
+      attachTo: document.body,
+    });
+    const inner = wrapper.get<HTMLButtonElement>("[data-testid='inner']").element;
+    inner.focus();
+    // What Chromium does to a focused control that turns disabled: the focus leaves for the body.
+    inner.blur();
+    expect(document.activeElement).toBe(document.body);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(document.activeElement).toBe(wrapper.get("[role='dialog']").element);
+  });
+
+  it("leaves the focus where it went inside the panel", async () => {
+    wrapper = mountWithI18n(Dialog, {
+      props: removeProps,
+      slots: { default: "<button type='button' data-testid='inner'>Inner</button>" },
+      attachTo: document.body,
+    });
+    const inner = wrapper.get<HTMLButtonElement>("[data-testid='inner']").element;
+    const cancel = wrapper.get<HTMLButtonElement>("[data-testid='dialog-cancel']").element;
+    inner.focus();
+    cancel.focus();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(document.activeElement).toBe(cancel);
+  });
 });

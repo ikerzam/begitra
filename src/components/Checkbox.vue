@@ -9,8 +9,10 @@ const props = withDefaults(
     disabled?: boolean;
     /** False keeps the box out of the Tab order, where its row is the list's tab stop. */
     focusable?: boolean;
+    /** Fills its row: the box on the first line, the label's content taking the rest. */
+    block?: boolean;
   }>(),
-  { label: "", indeterminate: false, disabled: false, focusable: true },
+  { label: "", indeterminate: false, disabled: false, focusable: true, block: false },
 );
 
 const model = defineModel<boolean>({ default: false });
@@ -28,9 +30,14 @@ const boxClass = computed(() => {
 
 <template>
   <label
-    class="inline-flex items-center gap-2 text-md select-none"
-    :class="props.disabled ? 'text-fg-disabled' : 'text-fg'"
+    class="relative gap-2 text-md select-none"
+    :class="[
+      props.disabled ? 'text-fg-disabled' : 'text-fg',
+      props.block ? 'flex w-full items-start' : 'inline-flex items-center',
+    ]"
   >
+    <!-- The label is positioned, so the hidden input sits in it: focusing the input scrolls the
+         list the box is in, which an input positioned against the page would not. -->
     <input
       v-model="model"
       type="checkbox"
@@ -48,7 +55,7 @@ const boxClass = computed(() => {
       <Minus v-if="props.indeterminate" :size="12" :stroke-width="2" />
       <Check v-else-if="model" :size="12" :stroke-width="2" />
     </span>
-    <span v-if="props.label || $slots.default">
+    <span v-if="props.label || $slots.default" :class="props.block ? 'flex min-w-0 flex-1' : ''">
       <slot>{{ props.label }}</slot>
     </span>
   </label>

@@ -53,4 +53,23 @@ describe("Checkbox", () => {
     const wrapper = mountWithI18n(Checkbox, { slots: { default: "Slot label" } });
     expect(wrapper.text()).toBe("Slot label");
   });
+
+  it("holds its hidden input, so focusing it scrolls the list the box is in", () => {
+    const wrapper = mountWithI18n(Checkbox, { props: { label: "x" } });
+    expect(wrapper.classes()).toContain("relative");
+    expect(wrapper.classes()).toContain("inline-flex");
+    expect(wrapper.classes()).toContain("items-center");
+  });
+
+  it("fills its row as a block, its box on the first line and its content taking the rest", () => {
+    const wrapper = mountWithI18n(Checkbox, {
+      props: { block: true },
+      slots: { default: "<span>Name</span><span>Date</span>" },
+    });
+    expect(wrapper.classes()).toEqual(expect.arrayContaining(["relative", "flex", "w-full"]));
+    expect(wrapper.classes()).toContain("items-start");
+    expect(wrapper.classes()).not.toContain("inline-flex");
+    const content = wrapper.get("label > span:not([aria-hidden])");
+    expect(content.classes()).toEqual(expect.arrayContaining(["flex", "min-w-0", "flex-1"]));
+  });
 });

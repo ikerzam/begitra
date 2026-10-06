@@ -63,12 +63,14 @@
   [role="checkbox"],
   [role="radio"],
   [role="switch"],
-  [role="combobox"] {
+  [role="combobox"],
+  label:has(> input:is([type="checkbox"], [type="radio"]):not(:disabled)) {
     cursor: pointer;
   }
 
   button:disabled,
-  [aria-disabled="true"] {
+  [aria-disabled="true"],
+  label:has(> input:is([type="checkbox"], [type="radio"]):disabled) {
     cursor: default;
   }
 

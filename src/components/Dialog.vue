@@ -62,6 +62,20 @@ function onKeydown(event: KeyboardEvent): void {
   if (trap.onKeydown(event)) event.stopPropagation();
 }
 
+/*
+ * A control that turns disabled while it has the focus (a busy footer, a button whose work
+ * runs) drops it to the page's body, out of the panel's keys: Escape, the Tab trap and the
+ * shortcuts' check for an open dialog stop working. The panel takes it back. A window that
+ * loses the focus keeps its focused control, which is left alone.
+ */
+function onFocusout(event: FocusEvent): void {
+  if (event.relatedTarget !== null) return;
+  setTimeout(() => {
+    const active = document.activeElement;
+    if (panel.value && (active === null || active === document.body)) panel.value.focus();
+  }, 0);
+}
+
 onMounted(() => {
   previouslyFocused = document.activeElement;
   trap.autofocusTarget()?.focus();
@@ -86,6 +100,7 @@ onBeforeUnmount(() => {
       :aria-busy="props.busy ? 'true' : undefined"
       class="dialog flex flex-col gap-4 rounded-lg border border-line-strong bg-raised p-5 shadow-overlay"
       @keydown="onKeydown"
+      @focusout="onFocusout"
     >
       <h2 :id="titleId" class="shrink-0 text-xl font-semibold text-fg">{{ props.title }}</h2>
       <!-- The content scrolls between the title and the buttons when the window is too short for
