@@ -34,11 +34,19 @@ function toggle(): void {
   open.value = !open.value;
 }
 
-/* The button takes the focus at once, so a dialog the choice opens ("New project…") returns
-   to it when it closes. */
+/* The button takes the focus at once, and the menu closes before its item acts, so a dialog the
+   choice opens ("New project…") returns to it when it closes. The menu's own late close is a
+   no-op: a browser renders between an item's click and the menu's listener, and focusing the
+   button then would take the focus from the dialog. */
 function close(): void {
+  if (!open.value) return;
   open.value = false;
   button.value?.focus();
+}
+
+function act(action: () => unknown): void {
+  close();
+  void action();
 }
 
 function onButtonKeydown(event: KeyboardEvent): void {
@@ -64,7 +72,7 @@ function context(project: Project): string {
 }
 
 function choose(project: Project): void {
-  void projects.open(project.id);
+  act(() => projects.open(project.id));
 }
 </script>
 
@@ -132,19 +140,19 @@ function choose(project: Project): void {
         :icon="LayoutGrid"
         :disabled="current === null"
         data-testid="switcher-home"
-        @select="() => void projects.close()"
+        @select="act(() => projects.close())"
       />
       <ContextMenuItem
         :label="t('home.openFolder')"
         :icon="FolderOpen"
         data-testid="switcher-open-folder"
-        @select="emit('openFolder')"
+        @select="act(() => emit('openFolder'))"
       />
       <ContextMenuItem
         :label="t('project.new.open')"
         :icon="Plus"
         data-testid="switcher-new-project"
-        @select="dialogs.create()"
+        @select="act(() => dialogs.create())"
       />
     </ContextMenu>
   </div>

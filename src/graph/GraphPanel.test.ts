@@ -14,6 +14,7 @@ import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
 import { useShellStore } from "@/stores/shell";
 import { useToastsStore } from "@/stores/toasts";
+import BranchDialogs from "@/branches/BranchDialogs.vue";
 
 import GraphPanel from "./GraphPanel.vue";
 
@@ -290,6 +291,32 @@ describe("GraphPanel hover card and context menu", () => {
     // Bound to the row's commit: an undo of another commit is refused.
     expect(spy).toHaveBeenCalledExactlyOnceWith({ expected: fakeCommit(0).hash });
     expect(wrapper.find('[role="menu"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("closes the commit menu before its item acts, so the dialog it opens keeps the focus", async () => {
+    // A browser renders between the item's click listener and the menu's own: the item's
+    // listener alone, then a render, is what the dialog meets. The rows have the focus back by
+    // then, so the dialog takes it and gives it back to them.
+    fakeBackend();
+    await openRepository();
+    const wrapper = await mountPanel();
+    const dialogs = mountWithI18n(BranchDialogs, { attachTo: document.body });
+    const rows = wrapper.findAll('[data-testid="graph-row"]');
+    await rows[1]!.trigger("contextmenu", { clientX: 300, clientY: 120 });
+    wrapper
+      .get('[data-testid="menu-create-branch"]')
+      .element.dispatchEvent(new MouseEvent("click", { bubbles: false }));
+    await settled();
+    expect(wrapper.find('[role="menu"]').exists()).toBe(false);
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog?.contains(document.activeElement)).toBe(true);
+    dialog!.querySelector<HTMLElement>('[data-testid="dialog-cancel"]')!.click();
+    await settled();
+    expect(
+      wrapper.get('[data-testid="commit-rows"]').element.contains(document.activeElement),
+    ).toBe(true);
+    dialogs.unmount();
     wrapper.unmount();
   });
 

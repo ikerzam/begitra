@@ -199,6 +199,25 @@ describe("HomeScreen", () => {
     expect(useProjectDialogsStore().deleting).toBe(3);
   });
 
+  it("closes a project's menu before its item acts, the row focused, so a dialog returns there", async () => {
+    // A browser renders between the item's click listener and the menu's own: after the item's
+    // listener alone the menu is closed and the row has the focus, which the dialog the action
+    // opens records as the place to return to.
+    const { wrapper } = await mountHome();
+    const code = wrapper
+      .get('[data-testid="home-section-projects"]')
+      .findAll('[data-testid="home-project"]')[0]!;
+    await code.trigger("contextmenu", { clientX: 300, clientY: 400 });
+    wrapper
+      .get('[data-testid="menu-edit"]')
+      .element.dispatchEvent(new MouseEvent("click", { bubbles: false }));
+    await flushPromises();
+    expect(wrapper.find('[data-testid="project-row-menu"]').exists()).toBe(false);
+    expect(document.activeElement).toBe(code.element);
+    expect(useProjectDialogsStore().editing).toBe(2);
+    wrapper.unmount();
+  });
+
   it("shows the scanning state: Stop, the progress line and each folder project's state", async () => {
     const { wrapper, index } = await mountHome();
     index.scan = {

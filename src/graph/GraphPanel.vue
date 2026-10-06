@@ -81,7 +81,14 @@ function openMenu(index: number, x: number, y: number): void {
   if (commit) menu.value = { index, hash: commit.hash, x, y };
 }
 
+/**
+ * A menu closes with the rows focused, before its item acts, so a dialog the action opens
+ * returns the focus to them. A browser renders between an item's click and the menu's own
+ * listener: a close that came after the action would find the dialog up and take its focus.
+ * The menu's late close is then a no-op.
+ */
 function closeMenu(): void {
+  if (menu.value === null) return;
   menu.value = null;
   rows.value?.focus();
 }
@@ -93,13 +100,20 @@ function openRefMenu(_index: number, target: GitRef, x: number, y: number): void
 }
 
 function closeRefMenu(): void {
+  if (refMenu.value === null) return;
   refMenu.value = null;
   rows.value?.focus();
 }
 
 function withMenuCommit(action: (commit: CommitNode) => unknown): void {
   const commit = menuCommit.value;
+  closeMenu();
   if (commit) void action(commit);
+}
+
+function withMenuClosed(action: () => unknown): void {
+  closeMenu();
+  void action();
 }
 
 function selectParent(hash: string): void {
@@ -304,8 +318,8 @@ defineExpose({ focus });
       @revert="withMenuCommit(actions.revert)"
       @undo="withMenuCommit(actions.undoLastCommit)"
       @reset="withMenuCommit((commit) => actions.reset(commit, repo.currentBranch?.name ?? null))"
-      @open-terminal="() => void actions.openTerminal()"
-      @open-editor="() => void actions.openEditor()"
+      @open-terminal="withMenuClosed(actions.openTerminal)"
+      @open-editor="withMenuClosed(actions.openEditor)"
     />
   </section>
 </template>

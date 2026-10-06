@@ -122,9 +122,11 @@ function openMenu(row: ListRow, x: number, y: number): void {
   menu.value = { project: row.project, x, y };
 }
 
-/* The row takes the focus at once: a dialog the choice opens mounts after it and records the
-   row as the place to return to (a focus moved later would land behind the dialog). */
+/* The row takes the focus at once: the menu closes before its item acts, so a dialog the choice
+   opens mounts after it and records the row as the place to return to (a focus moved later would
+   land behind the dialog). The menu's own late close is a no-op. */
 function closeMenu(): void {
+  if (menu.value === null) return;
   menu.value = null;
   navigation.focus();
 }

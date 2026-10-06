@@ -97,6 +97,22 @@ describe("TopBar", () => {
     wrapper.unmount();
   });
 
+  it("closes the switcher before its item acts, the button focused, so a dialog returns there", async () => {
+    // A browser renders between the item's click listener and the menu's own: after the item's
+    // listener alone the menu is closed and the button has the focus, which the New project
+    // dialog records as the place to return to.
+    const wrapper = mountWithI18n(TopBar, { props, attachTo: document.body });
+    await wrapper.get('[data-testid="project-switcher"]').trigger("click");
+    wrapper
+      .get('[data-testid="switcher-new-project"]')
+      .element.dispatchEvent(new MouseEvent("click", { bubbles: false }));
+    await flushPromises();
+    expect(wrapper.find('[data-testid="project-switcher-menu"]').exists()).toBe(false);
+    expect(document.activeElement).toBe(wrapper.get('[data-testid="project-switcher"]').element);
+    expect(useProjectDialogsStore().creating).toBe(true);
+    wrapper.unmount();
+  });
+
   it("says no project is open, and passes Open folder… up", async () => {
     const wrapper = mountWithI18n(TopBar, { props, attachTo: document.body });
     expect(wrapper.get('[data-testid="project-switcher"]').text()).toBe("No project open");

@@ -2,6 +2,8 @@
 // The menu of a project on Home: pin or unpin, "Edit project…", open a folder
 // project's folder in the terminal or the editor, and "Remove project…", which asks in its own
 // confirmation. Fixed at the given viewport position (a right click, the "…", or the keyboard).
+// Each item closes the menu before it acts, so the row has the focus back first and a dialog the
+// action opens returns it there (see `RefMenu`).
 
 import { Code, Pencil, Pin, PinOff, Terminal, Trash2 } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
@@ -21,6 +23,11 @@ const { t } = useI18n();
 const projects = useProjectsStore();
 const dialogs = useProjectDialogsStore();
 const external = useExternal();
+
+function act(action: () => unknown): void {
+  emit("close");
+  void action();
+}
 </script>
 
 <template>
@@ -35,26 +42,26 @@ const external = useExternal();
       :label="props.project.pinned ? t('home.unpin') : t('home.pin')"
       :icon="props.project.pinned ? PinOff : Pin"
       data-testid="menu-pin"
-      @select="() => void projects.setPinned(props.project.id, !props.project.pinned)"
+      @select="act(() => projects.setPinned(props.project.id, !props.project.pinned))"
     />
     <ContextMenuItem
       :label="t('project.edit')"
       :icon="Pencil"
       data-testid="menu-edit"
-      @select="dialogs.edit(props.project.id)"
+      @select="act(() => dialogs.edit(props.project.id))"
     />
     <template v-if="props.project.folder !== null">
       <ContextMenuItem
         :label="t('palette.commandsById.open-terminal')"
         :icon="Terminal"
         data-testid="menu-terminal"
-        @select="() => props.project.folder && void external.openTerminal(props.project.folder)"
+        @select="act(() => props.project.folder && external.openTerminal(props.project.folder))"
       />
       <ContextMenuItem
         :label="t('palette.commandsById.open-editor')"
         :icon="Code"
         data-testid="menu-editor"
-        @select="() => props.project.folder && void external.openEditor(props.project.folder)"
+        @select="act(() => props.project.folder && external.openEditor(props.project.folder))"
       />
     </template>
     <ContextMenuSeparator />
@@ -63,7 +70,7 @@ const external = useExternal();
       :icon="Trash2"
       destructive
       data-testid="menu-remove"
-      @select="dialogs.askDelete(props.project.id)"
+      @select="act(() => dialogs.askDelete(props.project.id))"
     />
   </ContextMenu>
 </template>

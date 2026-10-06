@@ -524,6 +524,63 @@ describe("RefMenu", () => {
     wrapper.unmount();
   });
 
+  it("closes a sidebar menu before its item acts, so the dialog it opens keeps the focus", async () => {
+    // Checkout of a branch another worktree holds asks in a dialog. A browser renders between
+    // the item's click listener and the menu's own: the item's listener alone, then a render,
+    // is what the dialog meets. The menu must be closed by then, the row focused, so the dialog
+    // takes the focus and gives it back to the row; a close coming after it would take it.
+    await open({ refs: held });
+    const dialogs = mountWithI18n(BranchDialogs, { attachTo: document.body });
+    const rows = useRepoStore()
+      .refs.filter((ref) => ref.kind === "local-branch")
+      .map((ref) => ({ ref, lane: 0 }));
+    const list = mountWithI18n(BranchList, {
+      props: { rows, kind: "local", label: "Branches" },
+      attachTo: document.body,
+    });
+    await settled();
+    const row = list
+      .findAll('[data-testid="list-row"]')
+      .find((entry) => entry.text().startsWith("claude/fix-auth"));
+    await row!.trigger("contextmenu");
+    await settled();
+    document
+      .querySelector('[data-testid="menu-checkout"]')!
+      .dispatchEvent(new MouseEvent("click", { bubbles: false }));
+    await settled();
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    const dialog = document.querySelector('[data-testid="held-worktree-dialog"]');
+    expect(dialog!.contains(document.activeElement)).toBe(true);
+    dialog!.querySelector<HTMLElement>('[data-testid="dialog-cancel"]')!.click();
+    await settled();
+    expect(document.activeElement).toBe(row!.element);
+    list.unmount();
+    dialogs.unmount();
+  });
+
+  it("gives the focus back to the row when its menu closes on its own", async () => {
+    await open({ refs: held });
+    const rows = useRepoStore()
+      .refs.filter((ref) => ref.kind === "local-branch")
+      .map((ref) => ({ ref, lane: 0 }));
+    const list = mountWithI18n(BranchList, {
+      props: { rows, kind: "local", label: "Branches" },
+      attachTo: document.body,
+    });
+    await settled();
+    const row = list
+      .findAll('[data-testid="list-row"]')
+      .find((entry) => entry.text() === "develop");
+    await row!.trigger("contextmenu");
+    await settled();
+    document
+      .querySelector('[role="menu"]')!
+      .dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await settled();
+    expect(document.activeElement).toBe(row!.element);
+    list.unmount();
+  });
+
   it("runs a sidebar menu's item on Enter, never the row's checkout", async () => {
     await open();
     const rows = useRepoStore()

@@ -104,7 +104,13 @@ function onContextMenu(index: number, event: MouseEvent): void {
   if (ref) menu.value = { ref, x: event.clientX, y: event.clientY };
 }
 
+/**
+ * The menu closed: the row takes the focus back at once. The menu closes before its item acts
+ * (see `RefMenu`), so a dialog the action opens returns the focus here; a second close is a
+ * no-op.
+ */
 function closeMenu(): void {
+  if (menu.value === null) return;
   menu.value = null;
   navigation.focus();
 }

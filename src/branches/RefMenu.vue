@@ -1,9 +1,12 @@
 <script setup lang="ts">
 // The menu of a ref by its kind, for the graph's badges and the sidebar's rows:
 // the stash badge's own menu, or the branch menu of a branch, a remote branch or a tag. What
-// is chosen runs through `useBranchActions`. The remotes are listed as the menu opens; until
-// they are, a remote branch's remote is read from its name's first part, and the actions wait
-// for the list.
+// is chosen runs through `useBranchActions`, once the menu has closed: the list it opened from
+// takes the focus back first, so a dialog the action opens has the focus and returns it there.
+// A browser renders between an item's click and the menu's own listener, so a close sent after
+// the action would reach the list with the dialog up and take the focus from it. The remotes
+// are listed as the menu opens; until they are, a remote branch's remote is read from its
+// name's first part, and the actions wait for the list.
 
 import { computed, onMounted } from "vue";
 
@@ -14,7 +17,7 @@ import { useStashStore } from "@/stores/stash";
 
 import BranchContextMenu from "./BranchContextMenu.vue";
 import StashBadgeMenu from "./StashBadgeMenu.vue";
-import { useBranchActions } from "./useBranchActions";
+import { useBranchActions, type BranchAction, type StashAction } from "./useBranchActions";
 
 const props = defineProps<{
   target: GitRef;
@@ -44,6 +47,16 @@ const remote = computed(() => {
 onMounted(() => {
   if (props.target.kind !== "stash") actions.ensureRemotes();
 });
+
+function choose(kind: BranchAction): void {
+  emit("close");
+  actions.run(kind, props.target);
+}
+
+function chooseStash(kind: StashAction): void {
+  emit("close");
+  actions.runStash(kind, props.target);
+}
 </script>
 
 <template>
@@ -53,7 +66,7 @@ onMounted(() => {
     :y="props.y"
     :busy="stash.busy !== null"
     @close="emit('close')"
-    @choose="(kind) => actions.runStash(kind, props.target)"
+    @choose="chooseStash"
   />
   <BranchContextMenu
     v-else
@@ -64,6 +77,6 @@ onMounted(() => {
     :x="props.x"
     :y="props.y"
     @close="emit('close')"
-    @choose="(kind) => actions.run(kind, props.target)"
+    @choose="choose"
   />
 </template>
