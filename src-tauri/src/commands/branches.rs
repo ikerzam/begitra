@@ -12,7 +12,8 @@ use std::time::Duration;
 
 use git_core::engine::GitEngine;
 use git_core::types::{
-    Conflict, MergeMode, OperationState, Outcome, ResetMode, SequencerAction, SwitchTarget,
+    Conflict, MergeMode, OperationSides, OperationState, Outcome, ResetMode, SequencerAction, Side,
+    SwitchTarget,
 };
 use tauri::State;
 
@@ -446,6 +447,79 @@ pub async fn mark_resolved(
     .await
 }
 
+/// The names of the operation's two sides (git's "ours" and "theirs"); null while no operation
+/// is in progress.
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip(state))]
+pub async fn operation_sides(
+    state: State<'_, AppState>,
+    repo: PathBuf,
+    op_id: String,
+) -> Result<Option<OperationSides>, AppError> {
+    let app = state.inner().clone();
+    let worker = app.clone();
+    run_blocking(app.ops(), &op_id, DEFAULT_TIMEOUT, move |_cancel| {
+        worker.open(&repo)?.operation_sides()
+    })
+    .await
+}
+
+/// Conflicted paths spelled as git lists them: the engine finds each by that spelling, and git
+/// reads `a\b` (on Windows) or `a//b` as another, so a conflict put back under git's spelling
+/// would be named gone under the caller's.
+fn validate_conflict_paths(paths: &[String]) -> Result<(), AppError> {
+    validate_paths("paths", paths)?;
+    for path in paths {
+        let backslash = cfg!(windows) && path.contains('\\');
+        if backslash || path.split('/').any(str::is_empty) {
+            return Err(AppError::invalid_argument(
+                "paths",
+                "a path not spelled as git lists it",
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Takes conflicted paths whole from one side, resolved: its version, or the file deleted
+/// where that side has none. A path that is not conflicted, or a submodule's conflict, is
+/// refused before anything is written.
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip(state, paths), fields(paths = paths.len()))]
+pub async fn take_side(
+    state: State<'_, AppState>,
+    repo: PathBuf,
+    paths: Vec<String>,
+    side: Side,
+    op_id: String,
+) -> Result<(), AppError> {
+    validate_conflict_paths(&paths)?;
+    let app = state.inner().clone();
+    run_unregistered(&op_id, WRITE_TIMEOUT, move |cancel| {
+        app.open(&repo)?.take_side(&paths, side, &cancel)
+    })
+    .await
+}
+
+/// Puts back the conflicts of paths resolved during the operation in progress, from git's
+/// resolve-undo record; a path whose sides git no longer holds, or any path outside an
+/// operation, is `conflict.gone`.
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip(state, paths), fields(paths = paths.len()))]
+pub async fn restore_conflicts(
+    state: State<'_, AppState>,
+    repo: PathBuf,
+    paths: Vec<String>,
+    op_id: String,
+) -> Result<(), AppError> {
+    validate_conflict_paths(&paths)?;
+    let app = state.inner().clone();
+    run_unregistered(&op_id, WRITE_TIMEOUT, move |cancel| {
+        app.open(&repo)?.restore_conflicts(&paths, &cancel)
+    })
+    .await
+}
+
 /// Continues, skips or aborts the operation in progress; with nothing in progress (it was
 /// finished elsewhere), or a skip on a merge (which has none), the action is refused as an
 /// argument error before git runs.
@@ -585,5 +659,23 @@ mod tests {
             code(validate_message("message", " \n\t")),
             "ipc.invalid_argument"
         );
+    }
+
+    #[test]
+    fn conflicted_paths_are_spelled_as_git_lists_them() {
+        let paths = |list: &[&str]| list.iter().map(|p| (*p).to_owned()).collect::<Vec<_>>();
+        // A leading dash is a name: git reads every argument after `--unresolve` as a path.
+        let good = paths(&["src/una ruta/ñandú.ts", "-dash.txt", "README.md"]);
+        assert!(validate_conflict_paths(&good).is_ok());
+        for bad in ["a//b.txt", "dir/", "", "../x", "/abs"] {
+            assert_eq!(
+                code(validate_conflict_paths(&paths(&[bad]))),
+                "ipc.invalid_argument",
+                "{bad:?}"
+            );
+        }
+        let backslash = validate_conflict_paths(&paths(&["sub\\x.txt"]));
+        assert_eq!(backslash.is_err(), cfg!(windows));
+        assert_eq!(code(validate_conflict_paths(&[])), "ipc.invalid_argument");
     }
 }

@@ -11,11 +11,11 @@ use git_core::types::{
     BaseCommit, BlobAt, BlobContent, ChangeKind, ChangeSet, CommitContext, CommitCount, CommitNode,
     CommitRequest, Comparison, ComparisonRelation, Conflict, ConflictKind, DiffLine, DiffOptions,
     DiffTarget, Edge, Endpoint, FileChange, GitDetection, Hunk, LineKind, MergeMode, MergePreview,
-    MergePreviewKind, OperationState, OtherOperation, Outcome, OutcomeKind, PatchSelection,
-    PullRequest, PushRequest, Ref, RefKind, Remote, Repo, ResetMode, SelectedHunk, SelectedLine,
-    SequencerAction, Signature, Span, StashPush, StatusEntry, StatusOptions, SwitchTarget,
-    WalkFilter, WalkOptions, WalkOrder, WalkScope, WorkingTreeBase, Worktree, WorktreeAdd,
-    WorktreeBranch,
+    MergePreviewKind, OperationSides, OperationState, OtherOperation, Outcome, OutcomeKind,
+    PatchSelection, PullRequest, PushRequest, Ref, RefKind, Remote, Repo, ResetMode, SelectedHunk,
+    SelectedLine, SequencerAction, Side, SideName, Signature, Span, StashPush, StatusEntry,
+    StatusOptions, SwitchTarget, WalkFilter, WalkOptions, WalkOrder, WalkScope, WorkingTreeBase,
+    Worktree, WorktreeAdd, WorktreeBranch,
 };
 use serde::Serialize;
 use syntax::{Highlight, Symbol, SymbolKind, Token, TokenClass};
@@ -675,6 +675,39 @@ fn write_phase7() {
         ],
     );
     write("conflicts", &conflicts);
+    write(
+        "operation-sides",
+        &[
+            OperationSides {
+                ours: SideName::Ref {
+                    name: "main".to_owned(),
+                },
+                theirs: SideName::Ref {
+                    name: "origin/develop".to_owned(),
+                },
+            },
+            OperationSides {
+                ours: SideName::Ref {
+                    name: "main".to_owned(),
+                },
+                theirs: SideName::Commit {
+                    hash: "a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4".to_owned(),
+                    subject: "Cache tiles by zoom level".to_owned(),
+                },
+            },
+            OperationSides {
+                ours: SideName::Commit {
+                    hash: "7f8e9d0a1b2c3d4e5f67890a1b2c3d4e5f678901".to_owned(),
+                    subject: "Release 2.4".to_owned(),
+                },
+                theirs: SideName::Before {
+                    hash: "9f3e2c1a7b5d4e6f8a0b1c2d3e4f5a6b7c8d9e0f".to_owned(),
+                    subject: "Drop the legacy tile server".to_owned(),
+                },
+            },
+        ],
+    );
+    write("sides", &[Side::Ours, Side::Theirs]);
     write(
         "remotes",
         &[

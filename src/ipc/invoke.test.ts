@@ -1,9 +1,10 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { openRepository, ping, stashDrop } from "./commands";
+import { openRepository, ping, stashDrop, takeSide } from "./commands";
 import { AppError } from "./errors";
 import { checkArgs, newOpId } from "./invoke";
+import type { Side } from "./schemas";
 
 afterEach(() => {
   clearMocks();
@@ -204,6 +205,20 @@ describe("call", () => {
     for (const stash of ["stash@{1}", "abc1234", "A".repeat(40), `-${"a".repeat(39)}`]) {
       const error = await stashDrop("/r", stash).catch((e: unknown) => e as AppError);
       expect((error as AppError).code, stash).toBe("ipc.invalid_argument");
+    }
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("takes ours or theirs only, for paths as the status lists them", async () => {
+    const invoke = vi.fn();
+    mockIPC(invoke);
+    for (const [paths, side] of [
+      [["src/a.ts"], "both"],
+      [[], "ours"],
+      [["/abs/a.ts"], "theirs"],
+    ] as [string[], Side][]) {
+      const error = await takeSide("/r", paths, side).catch((e: unknown) => e as AppError);
+      expect((error as AppError).code, `${paths.join()} ${side}`).toBe("ipc.invalid_argument");
     }
     expect(invoke).not.toHaveBeenCalled();
   });

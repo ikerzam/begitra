@@ -36,6 +36,9 @@ export const errorCodes = [
   "git.not_started",
   "git.cli_failed",
   "stash.not_found",
+  "conflict.not_conflicted",
+  "conflict.gone",
+  "conflict.submodule",
   "ipc.invalid_argument",
   "op.cancelled",
   "op.timeout",
@@ -550,6 +553,25 @@ export type ConflictKind = v.InferOutput<typeof ConflictKindSchema>;
 export const ConflictSchema = v.object({ path: v.string(), kind: ConflictKindSchema });
 export type Conflict = v.InferOutput<typeof ConflictSchema>;
 
+/**
+ * A side of the operation in progress, by what it is: a branch, a remote-tracking branch or a
+ * tag by its short name; a commit no name points at; the state before a commit (a revert's).
+ */
+export const SideNameSchema = v.variant("kind", [
+  v.object({ kind: v.literal("ref"), name: v.string() }),
+  v.object({ kind: v.literal("commit"), hash: v.string(), subject: v.string() }),
+  v.object({ kind: v.literal("before"), hash: v.string(), subject: v.string() }),
+]);
+export type SideName = v.InferOutput<typeof SideNameSchema>;
+
+/** The two sides of the operation in progress: git's "ours" and "theirs". */
+export const OperationSidesSchema = v.object({ ours: SideNameSchema, theirs: SideNameSchema });
+export type OperationSides = v.InferOutput<typeof OperationSidesSchema>;
+
+/** Which side a conflicted file is taken whole from: git's `--ours` or `--theirs`. */
+export const SideSchema = v.picklist(["ours", "theirs"]);
+export type Side = v.InferOutput<typeof SideSchema>;
+
 /** How an operation that may stop on conflicts ended. */
 export const OutcomeSchema = v.object({
   kind: OutcomeKindSchema,
@@ -967,6 +989,9 @@ export const commandArgs = {
   operation_state: v.object({ repo: path, opId }),
   conflicts: v.object({ repo: path, opId }),
   mark_resolved: v.object({ repo: path, paths: repoPaths, opId }),
+  operation_sides: v.object({ repo: path, opId }),
+  take_side: v.object({ repo: path, paths: repoPaths, side: SideSchema, opId }),
+  restore_conflicts: v.object({ repo: path, paths: repoPaths, opId }),
   sequencer: v.object({ repo: path, action: SequencerActionSchema, opId }),
   remotes: v.object({ repo: path, opId }),
   remote_add: v.object({ repo: path, name: refName, url: remoteUrl, opId }),

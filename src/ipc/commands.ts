@@ -18,6 +18,7 @@ import {
   type MergeMode,
   type NetworkEvent,
   NetworkEventSchema,
+  OperationSidesSchema,
   OperationStateSchema,
   OutcomeSchema,
   type PullRequest,
@@ -25,6 +26,7 @@ import {
   RemoteSchema,
   type ResetMode,
   type SequencerAction,
+  type Side,
   type StashPush,
   type SwitchTarget,
   ChangeSetSchema,
@@ -279,6 +281,28 @@ export function conflicts(repo: string, opId = newOpId("conflicts")) {
 /** Marks conflicted paths resolved (`git add`). */
 export function markResolved(repo: string, paths: string[], opId = newOpId("resolved")) {
   return call("mark_resolved", { repo, paths, opId }, v.null());
+}
+
+/** The names of the operation's two sides; null while no operation is in progress. */
+export function operationSides(repo: string, opId = newOpId("sides")) {
+  return call("operation_sides", { repo, opId }, v.nullable(OperationSidesSchema));
+}
+
+/**
+ * Takes conflicted paths whole from one side, resolved: its version, or the file deleted where
+ * that side has none.
+ */
+export function takeSide(repo: string, paths: string[], side: Side, opId = newOpId("take-side")) {
+  return call("take_side", { repo, paths, side, opId }, v.null());
+}
+
+/** Puts back the conflicts of paths resolved during the operation in progress. */
+export function restoreConflicts(
+  repo: string,
+  paths: string[],
+  opId = newOpId("restore-conflicts"),
+) {
+  return call("restore_conflicts", { repo, paths, opId }, v.null());
 }
 
 /** Continues, skips or aborts the operation in progress. */

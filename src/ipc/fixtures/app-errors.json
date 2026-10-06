@@ -62,6 +62,18 @@
     "message": "Sample message for stash.not_found"
   },
   {
+    "code": "conflict.not_conflicted",
+    "message": "Sample message for conflict.not_conflicted"
+  },
+  {
+    "code": "conflict.gone",
+    "message": "Sample message for conflict.gone"
+  },
+  {
+    "code": "conflict.submodule",
+    "message": "Sample message for conflict.submodule"
+  },
+  {
     "code": "ipc.invalid_argument",
     "message": "Sample message for ipc.invalid_argument"
   },
