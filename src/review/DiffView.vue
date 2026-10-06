@@ -80,6 +80,13 @@ useShortcut("mark-reviewed", () => {
 
 /** The rows' own line at the top, read by ⇧⌘E. */
 const rows = ref<{ lineAtTop: () => number | null; focus: () => void } | null>(null);
+const section = ref<HTMLElement | null>(null);
+
+/** The find closed: the rows take the focus, else (an image, a card, nothing open) the panel. */
+function focusAfterFind(): void {
+  if (rows.value) rows.value.focus();
+  else section.value?.focus();
+}
 useOpenFileShortcut(
   root,
   computed(() => props.file),
@@ -88,7 +95,12 @@ useOpenFileShortcut(
 </script>
 
 <template>
-  <section class="flex min-w-0 flex-1 flex-col" data-testid="diff-view">
+  <section
+    ref="section"
+    class="flex min-w-0 flex-1 flex-col outline-none"
+    tabindex="-1"
+    data-testid="diff-view"
+  >
     <DiffHeader
       :file="props.file"
       :conflict="props.conflict"
@@ -98,7 +110,7 @@ useOpenFileShortcut(
       @show-overview="emit('showOverview')"
       @open-in-review="emit('openInReview')"
     />
-    <FindBar @close="rows?.focus()" />
+    <FindBar @close="focusAfterFind" />
 
     <!-- The banner sits 24px from the header and the panel edges. -->
     <div v-if="failed" class="p-5" data-testid="diff-failed">

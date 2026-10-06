@@ -26,9 +26,14 @@ const query = computed({
   set: (text: string) => find.setQuery(text),
 });
 
+/**
+ * "3 of 41"; "41 matches" before next or previous gives one a place; "No results" once a count
+ * is final, and nothing while it waits, runs or the files are still read.
+ */
 const countText = computed(() => {
-  if (find.count === 0) return find.query !== "" && !find.counting ? t("find.noResults") : "";
+  if (find.count === 0) return find.query !== "" && !find.pending ? t("find.noResults") : "";
   const count = find.capped ? `${n(find.count)}+` : n(find.count);
+  if (find.current < 0) return t("find.matches", { count }, find.count);
   return t("find.count", { current: n(find.current + 1), count });
 });
 
@@ -62,7 +67,7 @@ function close(): void {
     v-if="find.open"
     role="search"
     :aria-label="t('find.label')"
-    class="flex h-panel-header shrink-0 items-center gap-2 border-b border-line bg-raised px-3"
+    class="flex h-panel-header shrink-0 items-center gap-3 border-b border-line px-3"
     data-testid="find-bar"
     @keydown.escape.prevent.stop="close"
   >
@@ -85,7 +90,7 @@ function close(): void {
       @click="find.setMatchCase(!find.matchCase)"
     />
     <span
-      class="text-sm whitespace-nowrap text-fg-secondary"
+      class="text-sm whitespace-nowrap text-fg-muted"
       aria-live="polite"
       data-testid="find-count"
       >{{ countText }}</span

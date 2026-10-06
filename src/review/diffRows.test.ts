@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { DiffLine, Hunk } from "@/ipc/schemas";
 
 import {
+  byteOffsets,
   displayColumns,
   firstChangedLine,
   hunkRange,
@@ -291,6 +292,14 @@ describe("segments", () => {
       { text: "añade", emphasis: true, class: "plain" },
       { text: " x", emphasis: false, class: "plain" },
     ]);
+  });
+
+  it("turns the text's offsets into byte offsets in one pass, surrogates included", () => {
+    // a (1 byte), ñ (2), an emoji (4, two UTF-16 units), b (1).
+    expect(byteOffsets("añ😀b", [0, 1, 2, 4, 5])).toEqual([0, 1, 3, 7, 8]);
+    // A lone surrogate is the encoder's replacement character, three bytes.
+    expect(byteOffsets("\ud800x", [0, 1, 2])).toEqual([0, 3, 4]);
+    expect(new TextEncoder().encode("\ud800x").length).toBe(4);
   });
 
   it("cuts at the find's marks, given in the text's own offsets, the current one apart", () => {

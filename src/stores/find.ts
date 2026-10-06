@@ -2,7 +2,8 @@
 // the viewer that shows it, counted 150 ms after the query changes in slices that never hold the
 // window for more than 8 ms, and the current match, which next and previous move across files.
 // What it searches comes from the viewer on screen (`attach`): the review's and the comparison's
-// files panel, or the Changes screen's viewer.
+// files panel, or the Changes screen's viewer. Typing never leaves the open file: a query with no
+// match there counts without a place until next or previous moves.
 
 import { defineStore } from "pinia";
 import { computed, ref, shallowRef, watch } from "vue";
@@ -13,10 +14,15 @@ import { matchFile, type FindFile, type FindMatch } from "@/review/find";
 export interface FindSource {
   /** The files in the viewer's order, each with the hunks its diff shows. */
   files: () => FindFile[];
-  /** Opens a file in the viewer as a click on its row does, showing it past its card. */
+  /**
+   * Shows a file in the viewer as a click on its row does, past its card; asked for every
+   * match it brings into view, the open file's too, so it does nothing more than needed.
+   */
   open: (file: FindFile) => void;
   /** The key of the file the viewer shows. */
   shownKey: () => string | null;
+  /** Whether the viewer's files are still being read (pages streaming, a reload). */
+  loading?: () => boolean;
 }
 
 /** The wait after a keystroke before the matches are counted again. */
@@ -26,14 +32,21 @@ export const FIND_SLICE_MS = 8;
 /** The count stops here: a query of one letter over a large change set would list millions. */
 export const FIND_LIMIT = 10_000;
 
-/** Whether match `a` comes after `b`: by its file's place, then hunk, line and offset. */
-function after(a: FindMatch, b: FindMatch, order: Map<string, number>): boolean {
-  const fa = order.get(a.key) ?? -1;
-  const fb = order.get(b.key) ?? -1;
-  if (fa !== fb) return fa > fb;
-  if (a.hunk !== b.hunk) return a.hunk > b.hunk;
-  if (a.line !== b.line) return a.line > b.line;
-  return a.start > b.start;
+type Reason = "query" | "files";
+
+/** Where a match sits in the viewer's order: its file's place, then hunk, line and offset. */
+function rank(match: FindMatch, order: Map<string, number>): [number, number, number, number] {
+  return [order.get(match.key) ?? -1, match.hunk, match.line, match.start];
+}
+
+function isAfter(
+  a: [number, number, number, number],
+  b: [number, number, number, number],
+): boolean {
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return (a[i] ?? 0) > (b[i] ?? 0);
+  }
+  return false;
 }
 
 export const useFindStore = defineStore("find", () => {
@@ -48,7 +61,9 @@ export const useFindStore = defineStore("find", () => {
   const byKey = shallowRef(new Map<string, FindMatch[]>());
   /** Whether the count stopped at the limit. */
   const capped = ref(false);
+  /** The current match's index; -1 before next or previous gives one a place. */
   const current = ref(-1);
+  /** A count is waiting for the typing to stop or is running. */
   const counting = ref(false);
   /** Bumped to ask the bar's field for the focus. */
   const focusRequest = ref(0);
@@ -57,16 +72,25 @@ export const useFindStore = defineStore("find", () => {
 
   const count = computed(() => matches.value.length);
   const currentMatch = computed<FindMatch | null>(() => matches.value[current.value] ?? null);
+  /** Nothing is final yet: a count waits or runs, or the viewer still reads its files. */
+  const pending = computed(() => counting.value || (source.value?.loading?.() ?? false));
 
   let generation = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  /** Why the next count runs: a new query moves to the open file, new files keep the place. */
-  let reason: "query" | "files" = "query";
+  /** Why the next count runs: a new query places the current match afresh, new files keep it. */
+  let reason: Reason | null = null;
+  /** Why the count under way runs. */
+  let running: Reason | null = null;
   /** The query came from `show`, which counts without the typing wait. */
   let shown = false;
+  /** The current match as last placed, kept through counts that lose it until the query changes. */
+  let anchor: FindMatch | null = null;
+  /** A move asked for while a new query was still being counted, made once it is. */
+  let pendingMove: 1 | -1 | 0 = 0;
 
-  function schedule(why: "query" | "files", delay = FIND_WAIT_MS): void {
-    if (why === "query") reason = "query";
+  function schedule(why: Reason, delay = FIND_WAIT_MS): void {
+    if (why === "query" || reason === null) reason = why;
+    counting.value = true;
     if (timer !== undefined) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = undefined;
@@ -78,15 +102,16 @@ export const useFindStore = defineStore("find", () => {
   function countMatches(): void {
     generation += 1;
     const mine = generation;
-    const why = reason;
-    reason = "files";
+    const why = reason ?? "files";
+    reason = null;
+    running = why;
+    counting.value = true;
     const files = source.value?.files() ?? [];
     const text = open.value ? query.value : "";
     if (text === "" || files.length === 0) {
       finish(mine, why, [], false, files);
       return;
     }
-    counting.value = true;
     const found: FindMatch[] = [];
     let index = 0;
     const step = (): void => {
@@ -111,13 +136,12 @@ export const useFindStore = defineStore("find", () => {
 
   function finish(
     mine: number,
-    why: "query" | "files",
+    why: Reason,
     found: FindMatch[],
     stopped: boolean,
     files: FindFile[],
   ): void {
     if (mine !== generation) return;
-    const previous = currentMatch.value;
     const keyed = new Map<string, FindMatch[]>();
     for (const match of found) {
       const list = keyed.get(match.key);
@@ -127,58 +151,102 @@ export const useFindStore = defineStore("find", () => {
     matches.value = found;
     byKey.value = keyed;
     capped.value = stopped;
-    counting.value = false;
+    running = null;
+    counting.value = timer !== undefined;
     const order = new Map(files.map((file, i) => [file.key, i]));
-    current.value = pick(found, why, previous, order);
-    if (current.value >= 0 && why === "query") reveal();
-  }
-
-  /** The current match after a count. */
-  function pick(
-    found: FindMatch[],
-    why: "query" | "files",
-    previous: FindMatch | null,
-    order: Map<string, number>,
-  ): number {
-    if (found.length === 0) return -1;
-    if (why === "files" && previous) {
-      const same = found.findIndex(
-        (m) =>
-          m.key === previous.key &&
-          m.hunk === previous.hunk &&
-          m.line === previous.line &&
-          m.start === previous.start,
-      );
-      if (same >= 0) return same;
-      const next = found.findIndex((m) => after(m, previous, order));
-      return next >= 0 ? next : 0;
+    if (why === "query") {
+      anchor = null;
+      current.value = firstInShown(found);
+      if (current.value >= 0) anchor = found[current.value] ?? null;
+      const move = pendingMove;
+      pendingMove = 0;
+      if (move !== 0 && current.value < 0) step(move, order);
+      else if (current.value >= 0) reveal();
+      return;
     }
-    const shown = source.value?.shownKey() ?? null;
-    const inShown = shown === null ? -1 : found.findIndex((m) => m.key === shown);
-    if (inShown >= 0) return inShown;
-    const shownAt = shown === null ? -1 : (order.get(shown) ?? -1);
-    const later = found.findIndex((m) => (order.get(m.key) ?? -1) > shownAt);
-    return later >= 0 ? later : 0;
+    current.value = relocate(found, order);
+    if (current.value >= 0) anchor = found[current.value] ?? null;
   }
 
-  /** Opens the current match's file when another shows, and asks for its line in view. */
+  /** The open file's first match, or -1. */
+  function firstInShown(found: FindMatch[]): number {
+    const shownKey = source.value?.shownKey() ?? null;
+    return shownKey === null ? -1 : found.findIndex((match) => match.key === shownKey);
+  }
+
+  /**
+   * The current match after the files were read again: the anchor's line (the same file, text
+   * and offset, the nearest if the line repeats), else the first match after where it was;
+   * without an anchor, the open file's first match.
+   */
+  function relocate(found: FindMatch[], order: Map<string, number>): number {
+    const was = anchor;
+    if (!was) return firstInShown(found);
+    let best = -1;
+    let distance = Infinity;
+    found.forEach((match, index) => {
+      if (match.key !== was.key || match.text !== was.text || match.start !== was.start) return;
+      const away = Math.abs(match.hunk - was.hunk) * 1_000_000 + Math.abs(match.line - was.line);
+      if (away < distance) {
+        best = index;
+        distance = away;
+      }
+    });
+    if (best >= 0) return best;
+    const at = rank(was, order);
+    const next = found.findIndex((match) => isAfter(rank(match, order), at));
+    return next >= 0 ? next : found.length > 0 ? 0 : -1;
+  }
+
+  /** Shows the current match's file (past its card) and asks for its line in view. */
   function reveal(): void {
     const match = currentMatch.value;
     const viewer = source.value;
     if (!match || !viewer) return;
-    if (viewer.shownKey() !== match.key) {
-      const file = viewer.files().find((entry) => entry.key === match.key);
-      if (file) viewer.open(file);
-    }
+    const file = viewer.files().find((entry) => entry.key === match.key);
+    if (file) viewer.open(file);
     revealRequest.value += 1;
   }
 
-  function move(step: 1 | -1): void {
+  /** Moves the current match by `by`; without one, from the open file. */
+  function step(by: 1 | -1, order: Map<string, number>): void {
     const total = matches.value.length;
     if (total === 0) return;
     const at = current.value;
-    current.value = at < 0 ? (step > 0 ? 0 : total - 1) : (at + step + total) % total;
+    if (at >= 0) {
+      current.value = (at + by + total) % total;
+    } else {
+      const shownKey = source.value?.shownKey() ?? null;
+      const place = shownKey === null ? -1 : (order.get(shownKey) ?? -1);
+      const found = matches.value;
+      if (by > 0) {
+        const later = found.findIndex((match) => (order.get(match.key) ?? -1) > place);
+        current.value = later >= 0 ? later : 0;
+      } else {
+        let earlier = -1;
+        found.forEach((match, index) => {
+          if ((order.get(match.key) ?? -1) < place) earlier = index;
+        });
+        current.value = earlier >= 0 ? earlier : total - 1;
+      }
+    }
+    anchor = matches.value[current.value] ?? null;
     reveal();
+  }
+
+  function move(by: 1 | -1): void {
+    // A new query still waiting or counting: count it now, then move.
+    if (reason === "query" || running === "query") {
+      pendingMove = by;
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        timer = undefined;
+        countMatches();
+      }
+      return;
+    }
+    const files = source.value?.files() ?? [];
+    step(by, new Map(files.map((file, i) => [file.key, i])));
   }
 
   /**
@@ -216,6 +284,10 @@ export const useFindStore = defineStore("find", () => {
     generation += 1;
     if (timer !== undefined) clearTimeout(timer);
     timer = undefined;
+    reason = null;
+    running = null;
+    anchor = null;
+    pendingMove = 0;
     matches.value = [];
     byKey.value = new Map();
     capped.value = false;
@@ -265,6 +337,7 @@ export const useFindStore = defineStore("find", () => {
     current,
     count,
     counting,
+    pending,
     currentMatch,
     focusRequest,
     revealRequest,

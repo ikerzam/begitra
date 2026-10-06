@@ -145,7 +145,7 @@
   --diff-del-fg: #e48189;
   --diff-del-emphasis: #e06c7533;
   --find-match: #e5c07b2b;
-  --find-current: #d19a663b;
+  --find-current: #d19a6636;
   --syntax-keyword: #cd88e1;
   --syntax-function: #61afef;
   --syntax-type: #e5c07b;
@@ -551,7 +551,7 @@
   --diff-del-fg: #ff6f6f;
   --diff-del-emphasis: #ff555533;
   --find-match: #f1fa8c40;
-  --find-current: #ffb86c66;
+  --find-current: #ffb86c61;
   --syntax-keyword: #ff83ca;
   --syntax-function: #50fa7b;
   --syntax-type: #8be9fd;
@@ -608,8 +608,8 @@
   --diff-del-bg: #bf616a21;
   --diff-del-fg: #d5979d;
   --diff-del-emphasis: #bf616a33;
-  --find-match: #ebcb8b3b;
-  --find-current: #d0877063;
+  --find-match: #ebcb8b36;
+  --find-current: #d087705c;
   --syntax-keyword: #92aec9;
   --syntax-function: #88c0d0;
   --syntax-type: #8fbcbb;
@@ -667,7 +667,7 @@
   --diff-del-fg: #f7768e;
   --diff-del-emphasis: #f7768e33;
   --find-match: #e0af6840;
-  --find-current: #ff9e6452;
+  --find-current: #ff9e644d;
   --syntax-keyword: #bb9af7;
   --syntax-function: #7aa2f7;
   --syntax-type: #2ac3de;
@@ -725,7 +725,7 @@
   --diff-del-fg: #fc6857;
   --diff-del-emphasis: #fb493433;
   --find-match: #fabd2f40;
-  --find-current: #fe801969;
+  --find-current: #fe801963;
   --syntax-keyword: #fc7161;
   --syntax-function: #b8bb26;
   --syntax-type: #fabd2f;

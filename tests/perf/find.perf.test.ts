@@ -1,11 +1,14 @@
 // The find in the diff's budgets on a change set of 1,000 files of 200 lines (200,000 lines):
 // counting a query over all of them, case folded or not, under 250 ms of work in all, and the
 // work of any one file under 8 ms, the slice the store's count never holds the main thread
-// past. The numbers are printed so a run can be recorded.
+// past; and a minified line of 60,000 characters cut at its 6,000 marks (a one-letter query)
+// for drawing under 50 ms, against the whole line each time Enter moves. The numbers are
+// printed so a run can be recorded.
 
 import { describe, expect, it } from "vitest";
 
 import type { DiffLine, Hunk } from "@/ipc/schemas";
+import { segments } from "@/review/diffRows";
 import { matchFile, type FindFile } from "@/review/find";
 
 const FILES = 1_000;
@@ -15,6 +18,8 @@ const HUNKS_PER_FILE = 10;
 const COUNT_BUDGET_MS = 250;
 /** Milliseconds of work for one file: the store's slice. */
 const SLICE_BUDGET_MS = 8;
+/** Milliseconds to cut one long line at its marks for drawing. */
+const DRAW_BUDGET_MS = 50;
 
 function line(kind: DiffLine["kind"], text: string): DiffLine {
   return { kind, oldNumber: null, newNumber: null, text, spans: [], noNewline: false };
@@ -78,5 +83,22 @@ describe("find performance", () => {
     }
     console.log(`find: the slowest of 100 files took ${worst.toFixed(2)} ms`);
     expect(worst).toBeLessThan(SLICE_BUDGET_MS);
+  });
+
+  it("cuts a minified line of 60,000 characters at its 6,000 marks within the budget", () => {
+    const text = "const é=e;".repeat(6_000);
+    const lineAt = line("added", text);
+    const marks: { start: number; end: number; current: boolean }[] = [];
+    let at = text.indexOf("e");
+    while (at >= 0 && marks.length < 10_000) {
+      marks.push({ start: at, end: at + 1, current: marks.length === 5_000 });
+      at = text.indexOf("e", at + 1);
+    }
+    const { result, ms } = timed(() => segments(lineAt, [], marks));
+    console.log(
+      `find: a 60,000-character line cut at ${marks.length} marks in ${ms.toFixed(1)} ms`,
+    );
+    expect(result.filter((segment) => segment.find === "current")).toHaveLength(1);
+    expect(ms).toBeLessThan(DRAW_BUDGET_MS);
   });
 });

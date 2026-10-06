@@ -167,13 +167,95 @@ describe("DiffView", () => {
     expect(row.find(".diff-row-cursor").exists()).toBe(true);
     const current = row.get(".bg-find-current");
     expect(current.text()).toBe("decodeTile");
-    expect(row.findAll(".bg-find-match").map((match) => match.text())).toEqual(["decodeTile"]);
+    // Its text in --text (no syntax colour keeps its floor on a highlight), and an outline
+    // drawn inside it, which the line's clipping never cuts.
+    expect(current.classes()).toEqual(
+      expect.arrayContaining(["text-fg", "outline-warn", "-outline-offset-1"]),
+    );
+    const other = row.findAll(".bg-find-match");
+    expect(other.map((match) => match.text())).toEqual(["decodeTile"]);
+    expect(other[0]?.classes()).toContain("text-fg");
+    // The cursor marks the match until the reviewer reads on, a little down with the row still
+    // drawn.
+    (body as HTMLElement).scrollTop += 40;
+    await wrapper.get('[data-testid="diff-body"]').trigger("scroll");
+    await nextTick();
+    expect(wrapper.find('[data-row="250"]').exists()).toBe(true);
+    expect(wrapper.find(".diff-row-cursor").exists()).toBe(false);
     // Closing the bar clears the highlights.
     find.close();
     await nextTick();
     expect(wrapper.find(".bg-find-current").exists()).toBe(false);
     expect(wrapper.find(".bg-find-match").exists()).toBe(false);
     wrapper.unmount();
+  });
+
+  it("brings a match past the text column into view sideways, without wrap", async () => {
+    fakeBackend();
+    await useSettingsStore().init(memoryStorage(), "windows");
+    await useRepoStore().open("/r");
+    await settled();
+    const long = `${"x".repeat(250)}decodeTile${"x".repeat(40)}`;
+    const open = file([[line(1), line(2, "added", [], long)]]);
+    const wrapper = await mountView({ file: open });
+    // The text column is measured again once the 800px body is known (jsdom has no observer).
+    const review = useReviewStore();
+    await review.setLayout("side-by-side");
+    await review.setLayout("unified");
+    await nextTick();
+    const find = useFindStore();
+    find.attach({
+      files: () => [{ key: open.path, path: open.path, hunks: open.hunks }],
+      open: () => undefined,
+      shownKey: () => open.path,
+    });
+    find.show("decodetile");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await flushPromises();
+    await nextTick();
+    const body = wrapper.get('[data-testid="diff-body"]').element as HTMLElement;
+    // Characters of 7.2px (jsdom has no canvas): the match spans 250 × 7.2 to 260 × 7.2 px, and
+    // the text column, under 800px, now holds all of it.
+    const offset = Number.parseFloat(body.style.getPropertyValue("--diff-scroll-x"));
+    expect(offset).toBeGreaterThan(260 * 7.2 - 800);
+    expect(offset).toBeLessThan(250 * 7.2);
+    wrapper.unmount();
+  });
+
+  it("marks a context line's match once side by side, and counts without a place elsewhere", async () => {
+    fakeBackend();
+    await useSettingsStore().init(memoryStorage(), "windows");
+    await useRepoStore().open("/r");
+    await settled();
+    await useReviewStore().setLayout("side-by-side");
+    const open = file([[line(1, "context", [], "const tile = decodeTile(x);"), line(2, "added")]]);
+    const other = file([[line(1, "added", [], "decodeTile(y)")]], { path: "src/other.ts" });
+    const wrapper = await mountView({ file: open });
+    const find = useFindStore();
+    const shown = { key: open.path };
+    find.attach({
+      files: () => [
+        { key: open.path, path: open.path, hunks: open.hunks },
+        { key: other.path, path: other.path, hunks: other.hunks },
+      ],
+      open: (entry) => (shown.key = entry.key),
+      shownKey: () => shown.key,
+    });
+    find.show("decodeTile");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await flushPromises();
+    await nextTick();
+    expect(wrapper.findAll(".bg-find-current")).toHaveLength(1);
+    expect(wrapper.get('[data-testid="find-count"]').text()).toBe("1 of 2");
+    wrapper.unmount();
+    // A file without a match: the count has no place, and typing opens nothing.
+    shown.key = "src/none.ts";
+    find.close();
+    find.show("decodeTile");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await flushPromises();
+    expect(find.current).toBe(-1);
+    expect(shown.key).toBe("src/none.ts");
   });
 
   it("shows the file's history in the graph from a line's menu", async () => {

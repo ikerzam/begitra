@@ -7,6 +7,7 @@ import { nextTick } from "vue";
 import { AppError } from "@/ipc/errors";
 import { ShortcutRegistry, setShortcutRegistry } from "@/shortcuts/registry";
 import { useCompareStore } from "@/stores/compare";
+import { useFindStore } from "@/stores/find";
 import { usePickerStore } from "@/stores/picker";
 import { useRepoStore } from "@/stores/repo";
 import { memoryStorage, useSettingsStore, type CompareEndpoint } from "@/stores/settings";
@@ -81,6 +82,23 @@ describe("CompareLayout", () => {
     const conflicting = wrapper.findAll('[data-testid="tree-row-conflict"]');
     expect(conflicting).toHaveLength(1);
     wrapper.unmount();
+  });
+
+  it("finds in the files changed as review focus does, and closes the find when it goes", async () => {
+    const wrapper = await mountComparison(main, feature);
+    const find = useFindStore();
+    find.show("new()");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await flushPromises();
+    await nextTick();
+    const bar = wrapper.get('[data-testid="find-bar"]');
+    expect(bar.get('[data-testid="find-count"]').text()).toBe("1 of 2");
+    find.next();
+    await flushPromises();
+    await nextTick();
+    expect(bar.get('[data-testid="find-count"]').text()).toBe("2 of 2");
+    wrapper.unmount();
+    expect(find.open).toBe(false);
   });
 
   it("opens the review on the same target and the picker for an endpoint", async () => {

@@ -26,7 +26,7 @@ describe("find", () => {
       ),
       hunk(line("added", "export { decodeTile as legacyDecode };")),
     );
-    expect(matchFile(f, "decodetile", false)).toEqual([
+    expect(matchFile(f, "decodetile", false)).toMatchObject([
       { key: "src/tile-cache.ts", hunk: 0, line: 1, start: 15, end: 25 },
       { key: "src/tile-cache.ts", hunk: 1, line: 0, start: 9, end: 19 },
     ]);

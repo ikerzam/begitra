@@ -115,6 +115,13 @@ const editorLabel = computed(() => {
 });
 /** The rows' own line at the top, read by ⇧⌘E. */
 const rows = ref<{ lineAtTop: () => number | null; focus: () => void } | null>(null);
+const section = ref<HTMLElement | null>(null);
+
+/** The find closed: the rows take the focus, else (an image, a card, nothing open) the viewer. */
+function focusAfterFind(): void {
+  if (rows.value) rows.value.focus();
+  else section.value?.focus();
+}
 useOpenFileShortcut(root, file, () => rows.value?.lineAtTop());
 
 /** The keys of every changed line of a hunk. */
@@ -222,7 +229,12 @@ defineExpose({ actOnSelection, selectedCount });
 </script>
 
 <template>
-  <section class="flex min-w-0 flex-1 flex-col" data-testid="changes-viewer">
+  <section
+    ref="section"
+    class="flex min-w-0 flex-1 flex-col outline-none"
+    tabindex="-1"
+    data-testid="changes-viewer"
+  >
     <header
       v-if="!changes.isEmpty"
       class="flex h-panel-header shrink-0 items-center gap-3 border-b border-line px-3 whitespace-nowrap"
@@ -306,7 +318,7 @@ defineExpose({ actOnSelection, selectedCount });
       </template>
       <span v-else class="flex-1"></span>
     </header>
-    <FindBar @close="rows?.focus()" />
+    <FindBar @close="focusAfterFind" />
 
     <!-- The banner sits 12px from the header and the panel edges. -->
     <div v-if="changes.actionError" class="p-3" data-testid="changes-failed">

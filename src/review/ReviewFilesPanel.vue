@@ -20,6 +20,7 @@ import FileMenu from "@/detail/FileMenu.vue";
 import { applyFilters, pathMatcher, sortBySize } from "@/detail/groupFiles";
 import { historySide } from "@/graph/fileHistory";
 import type { FileChange } from "@/ipc/schemas";
+import { outsideOverlays } from "@/shortcuts/registry";
 import { useShortcut } from "@/shortcuts/useShortcut";
 import { useFindStore } from "@/stores/find";
 import { targetLabel, useReviewStore } from "@/stores/review";
@@ -78,15 +79,25 @@ onMounted(() => {
     open: (entry) => {
       const file = files.value.find((listed) => listed.path === entry.path);
       if (file && (file.isLarge || file.isGenerated)) review.reveal(entry.path);
-      review.select(entry.path);
+      if (review.selectedPath !== entry.path) review.select(entry.path);
     },
     shownKey: () => review.selectedPath,
+    loading: () => review.changeSet?.loading ?? false,
   });
 });
 onBeforeUnmount(() => releaseFind?.());
-useShortcut("find", () => find.show(selectedQuery()));
-useShortcut("find-next", () => find.next());
-useShortcut("find-previous", () => find.previous());
+useShortcut(
+  "find",
+  outsideOverlays(() => find.show(selectedQuery())),
+);
+useShortcut(
+  "find-next",
+  outsideOverlays(() => find.next()),
+);
+useShortcut(
+  "find-previous",
+  outsideOverlays(() => find.previous()),
+);
 const count = computed(() => files.value.length);
 const changeSet = computed(() => review.changeSet);
 const targetLine = computed(() => {

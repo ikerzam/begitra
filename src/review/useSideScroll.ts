@@ -47,6 +47,7 @@ export function useSideScroll(options: SideScrollOptions) {
     return Math.max(0, Math.ceil(Math.max(counted, laidOut) - options.textWidth.value));
   });
 
+  /** Moves the text to `x` px, within the reach (a match the find brings into view). */
   function set(x: number): void {
     const next = Math.round(Math.min(Math.max(x, 0), reach.value));
     if (next !== scrollX.value) scrollX.value = next;
@@ -93,5 +94,5 @@ export function useSideScroll(options: SideScrollOptions) {
     if (strip.value) set(strip.value.scrollLeft);
   }
 
-  return { scrollX, reach, onWheel, onKey, onStripScroll };
+  return { scrollX, reach, set, onWheel, onKey, onStripScroll };
 }

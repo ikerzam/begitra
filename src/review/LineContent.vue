@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // The text of one diff line: intra-line emphasis on the changed bytes, the syntax colour of
 // each token class, and the find's matches (`--find-match`, the current one `--find-current`
-// with a `--warn` outline) in place of the emphasis where they meet. The diff's own facts stay
+// with a `--warn` outline, their text in `--text`) in place of both where they meet. The diff's own facts stay
 // in the row tint, the marker and the emphasis background, so the text colour is free for the
 // syntax. Without wrap the text moves sideways by the viewer's `--diff-scroll-x` inside its
 // clipping span.
@@ -50,17 +50,28 @@ const syntax: Record<TokenClass, string> = {
   punctuation: "text-fg-secondary",
 };
 
-/** A segment's own classes: its syntax colour, and its emphasis outside a match. */
+/** A segment's own classes outside a match: its syntax colour and its emphasis. */
 function classOf(segment: Segment): string {
   const colour = syntax[segment.class];
-  if (!segment.emphasis || segment.find) return colour;
+  if (!segment.emphasis) return colour;
   const emphasis = props.line.kind === "added" ? "bg-add-emphasis" : "bg-del-emphasis";
   return colour ? `${colour} ${emphasis}` : emphasis;
 }
 
-/** A match's run: its background, and the current one's outline. */
+/**
+ * A match's run: its background with the text in `--text` (the syntax colours are not kept 3:1
+ * on a highlight, the text is 4.5:1), and the current one's outline, drawn inside the run so the
+ * line's clipping never cuts it at the first column.
+ */
 function findClass(find: Segment["find"]): string {
-  return find === "current" ? "bg-find-current outline outline-1 outline-warn" : "bg-find-match";
+  return find === "current"
+    ? "bg-find-current text-fg outline outline-1 -outline-offset-1 outline-warn"
+    : "bg-find-match text-fg";
+}
+
+/** A run's whole text: a match draws as one span. */
+function textOf(parts: Segment[]): string {
+  return parts.map((part) => part.text).join("");
 }
 </script>
 
@@ -71,11 +82,7 @@ function findClass(find: Segment["find"]): string {
     data-testid="line-content"
     ><span class="block" :class="{ 'line-shift': !props.wrap }" data-testid="line-text"
       ><template v-for="(run, r) in runs" :key="r"
-        ><span v-if="run.find" :class="findClass(run.find)"
-          ><template v-for="(segment, i) in run.parts" :key="i"
-            ><span v-if="classOf(segment)" :class="classOf(segment)">{{ segment.text }}</span
-            ><template v-else>{{ segment.text }}</template></template
-          ></span
+        ><span v-if="run.find" :class="findClass(run.find)">{{ textOf(run.parts) }}</span
         ><template v-else
           ><template v-for="(segment, i) in run.parts" :key="i"
             ><span v-if="classOf(segment)" :class="classOf(segment)">{{ segment.text }}</span

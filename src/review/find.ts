@@ -20,6 +20,8 @@ export interface FindMatch {
   /** UTF-16 offsets in the line's text, `end` excluded. */
   start: number;
   end: number;
+  /** The line's text: which line a match is, when the hunks move. */
+  text: string;
 }
 
 /**
@@ -47,7 +49,14 @@ export function matchFile(file: FindFile, query: string, matchCase: boolean): Fi
       const text = matchCase ? line.text : foldCase(line.text);
       let at = text.indexOf(needle);
       while (at >= 0) {
-        matches.push({ key: file.key, hunk: h, line: l, start: at, end: at + needle.length });
+        matches.push({
+          key: file.key,
+          hunk: h,
+          line: l,
+          start: at,
+          end: at + needle.length,
+          text: line.text,
+        });
         at = text.indexOf(needle, at + needle.length);
       }
     }

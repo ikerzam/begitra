@@ -138,4 +138,50 @@ describe("FindBar in review focus", () => {
     expect(again.get('[data-testid="find-count"]').text()).toBe("1 of 2");
     again.unmount();
   });
+
+  it("lifts the card of the open file when its match is the current one", async () => {
+    const wrapper = await mountReview();
+    const review = useReviewStore();
+    review.setFilter("hideGenerated", false);
+    review.setFilter("hideLockfiles", false);
+    review.select("pnpm-lock.yaml");
+    await settled();
+    expect(wrapper.find('[data-testid="diff-guard"]').exists()).toBe(true);
+    useFindStore().show("more()");
+    await counted();
+    expect(wrapper.find('[data-testid="diff-guard"]').exists()).toBe(false);
+    expect(currentText(wrapper)).toBe("more()");
+    wrapper.unmount();
+  });
+
+  it("leaves the keys to a dialog that holds the focus, and still keeps them from the webview", async () => {
+    const wrapper = await mountReview();
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    const button = document.createElement("button");
+    dialog.append(button);
+    document.body.append(dialog);
+    button.focus();
+    for (const init of [{ key: "f", ctrlKey: true }, { key: "F3" }]) {
+      const event = new KeyboardEvent("keydown", { ...init, cancelable: true });
+      window.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+    }
+    await nextTick();
+    expect(useFindStore().open).toBe(false);
+    expect(document.activeElement).toBe(button);
+    wrapper.unmount();
+  });
+
+  it("gives the focus to the viewer when the bar closes over a file without rows", async () => {
+    const wrapper = await mountReview();
+    useReviewStore().select("docs/tiles-worker.png");
+    await settled();
+    useFindStore().show("new()");
+    await counted();
+    await wrapper.get('[data-testid="find-bar"] input').trigger("keydown", { key: "Escape" });
+    await nextTick();
+    expect(document.activeElement).toBe(wrapper.get('[data-testid="diff-view"]').element);
+    wrapper.unmount();
+  });
 });

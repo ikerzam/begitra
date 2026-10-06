@@ -14,6 +14,7 @@ import ErrorBanner from "@/components/ErrorBanner.vue";
 import type { CommitNode, Ref as GitRef } from "@/ipc/schemas";
 import { errorText } from "@/shell/errorMessage";
 import { sameFolder, shortHash } from "@/shell/format";
+import { outsideOverlays } from "@/shortcuts/registry";
 import { useShortcut } from "@/shortcuts/useShortcut";
 import { useGraphStore } from "@/stores/graph";
 import { useProjectsStore } from "@/stores/projects";
@@ -42,7 +43,10 @@ const hover = useHoverCard();
 const rows = ref<{ focus(): void } | null>(null);
 const filterBar = ref<{ focusSearch(): void } | null>(null);
 // ⌘F here is the history's search: graph focus has no diff to find in.
-useShortcut("find", () => filterBar.value?.focusSearch());
+useShortcut(
+  "find",
+  outsideOverlays(() => filterBar.value?.focusSearch()),
+);
 /** "Clear filters" of the empty state, which takes the focus where the rows would. */
 const clearButton = ref<{ $el: HTMLElement } | null>(null);
 

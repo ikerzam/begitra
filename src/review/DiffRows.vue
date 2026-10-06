@@ -26,6 +26,7 @@ import { useRepoStore } from "@/stores/repo";
 import { useReviewStore, type ReviewTarget } from "@/stores/review";
 
 import {
+  displayColumns,
   EXPAND_STEP,
   hunkRange,
   hunkRowIndexes,
@@ -319,7 +320,11 @@ function onScroll(): void {
   review.currentSymbol = null;
   noteTopLine();
   if ((body.value?.scrollTop ?? 0) > 0) landOnChange = false;
-  if (followMatch && Math.abs((body.value?.scrollTop ?? 0) - matchTop) > 1) followMatch = false;
+  if (followMatch && Math.abs((body.value?.scrollTop ?? 0) - matchTop) > 1) {
+    followMatch = false;
+    // Outside the changes screen the cursor only marks the match: reading on lets it go.
+    if (!props.selectable) cursorKey.value = null;
+  }
 }
 
 // --- The find's matches -----------------------------------------------------------------
@@ -373,8 +378,21 @@ function revealMatch(): void {
   if (top < element.scrollTop || top + height > element.scrollTop + element.clientHeight) {
     scrollTo(Math.max(0, top - (element.clientHeight - height) / 2));
   }
+  revealSideways(match.text, match.start, match.end);
   followMatch = true;
   matchTop = element.scrollTop;
+}
+
+/** Without wrap, moves the text sideways until the match's columns are in the text column. */
+function revealSideways(text: string, start: number, end: number): void {
+  if (review.wrap) return;
+  const width = charWidth.value;
+  const left = displayColumns(text.slice(0, start), review.tabWidth) * width;
+  const right = displayColumns(text.slice(0, end), review.tabWidth) * width;
+  const margin = 4 * width;
+  const x = side.scrollX.value;
+  if (left < x) side.set(left - margin);
+  else if (right > x + textWidth.value) side.set(right - textWidth.value + margin);
 }
 
 watch(
@@ -731,7 +749,11 @@ defineExpose({
                 :left-selected="isSelected(rows[index], 'left')"
                 :right-selected="isSelected(rows[index], 'right')"
                 :cursor="cursorRow === index"
-                :left-marks="marksAt(rows[index].hunkIndex, rows[index].leftIndex)"
+                :left-marks="
+                  rows[index].leftIndex === rows[index].rightIndex
+                    ? NO_MARKS
+                    : marksAt(rows[index].hunkIndex, rows[index].leftIndex)
+                "
                 :right-marks="marksAt(rows[index].hunkIndex, rows[index].rightIndex)"
                 @select-side="(side, event) => onSideClick(index, side, event)"
               />

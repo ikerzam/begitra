@@ -50,6 +50,33 @@ function token(tokens: Map<string, string>, name: string): string {
   return value;
 }
 
+/**
+ * The find's highlights keep their text (`--text`, which draws a match) readable on the plain
+ * background, the changed rows and a picked row (they take a span's place), and still show.
+ */
+function expectFindFloors(id: string, tokens: Map<string, string>): void {
+  const bg = token(tokens, "--bg-app");
+  const surfaces = [
+    bg,
+    composite(token(tokens, "--diff-add-bg"), bg),
+    composite(token(tokens, "--diff-del-bg"), bg),
+    composite(token(tokens, "--bg-selected"), bg),
+  ];
+  for (const name of ["--find-match", "--find-current"]) {
+    for (const surface of surfaces) {
+      const lit = composite(token(tokens, name), surface);
+      expect(
+        contrast(token(tokens, "--text"), lit),
+        `${id} text on ${name}`,
+      ).toBeGreaterThanOrEqual(TINT_FLOORS.text);
+    }
+    expect(
+      deltaE(composite(token(tokens, name), bg), bg),
+      `${id} ${name} shows`,
+    ).toBeGreaterThanOrEqual(FIND_DISTANCE);
+  }
+}
+
 const TEXT_ON_SURFACES = [
   ["--text", 7],
   ["--text-secondary", 4.5],
@@ -143,6 +170,9 @@ describe("themes.css", () => {
       expect(dark.get(name), name).toBe(values.dark.toLowerCase());
       expect(light.get(name), name).toBe(values.light.toLowerCase());
     }
+    // Begitra's own colours meet the find's floors too, which the palettes' derivation keeps.
+    expectFindFloors("dark", dark);
+    expectFindFloors("light", light);
   });
 
   it.each(palettes.map((palette) => [palette.id, palette] as const))(
@@ -200,21 +230,7 @@ describe("themes.css", () => {
       expect(contrast(token(tokens, "--diff-del-fg"), delRow)).toBeGreaterThanOrEqual(
         TINT_FLOORS.marker,
       );
-      // The find's highlights keep the text readable on the plain and the changed rows (they
-      // take a span's place), and still show.
-      for (const name of ["--find-match", "--find-current"]) {
-        for (const surface of [bg, addRow, delRow]) {
-          const lit = composite(token(tokens, name), surface);
-          expect(
-            contrast(token(tokens, "--text"), lit),
-            `${id} text on ${name}`,
-          ).toBeGreaterThanOrEqual(TINT_FLOORS.text);
-        }
-        expect(
-          deltaE(composite(token(tokens, name), bg), bg),
-          `${id} ${name} shows`,
-        ).toBeGreaterThanOrEqual(FIND_DISTANCE);
-      }
+      expectFindFloors(id, tokens);
       // The accent shows as a bar, on a selected row too.
       const accent = token(tokens, "--accent");
       for (const surface of [bg, raised, composite(token(tokens, "--bg-selected"), bg)]) {

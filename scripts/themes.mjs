@@ -409,8 +409,9 @@ export function deriveTokens(palette, names) {
 
   // The find's highlights: the palette's yellow for a match and its orange for the current one,
   // at the largest alphas up to Begitra's own (25% and 60%) that keep the text 4.5:1 on the
-  // plain background and the changed rows; a highlight takes the place of a span's emphasis.
-  const findSurfaces = [bg, addRow, delRow];
+  // plain background, the changed rows and a picked row; a highlight takes the place of a span's
+  // emphasis and draws its text in --text, so no syntax colour needs a floor on it.
+  const findSurfaces = [bg, addRow, delRow, composite(withAlpha(text, selected), bg)];
   const highlight = (hue, most) => {
     for (let percent = most; percent > FIND_LEAST; percent -= 1) {
       const fill = withAlpha(hue, alphaByte(percent / 100));

@@ -97,6 +97,17 @@ export function isOverlayTarget(target: unknown): boolean {
   return target.closest('[role="dialog"], [role="menu"]') !== null;
 }
 
+/**
+ * `handler`, run only while no dialog or menu holds the focus: a key the screen behind takes
+ * (the find's) then does nothing, and still never reaches the webview.
+ */
+export function outsideOverlays(handler: () => void): ShortcutHandler {
+  return () => {
+    if (typeof document !== "undefined" && isOverlayTarget(document.activeElement)) return;
+    handler();
+  };
+}
+
 export class ShortcutRegistry {
   readonly platform: Platform;
   private readonly bindings = new Map<string, ShortcutBinding>();

@@ -71,6 +71,7 @@
     "next": "Coincidencia siguiente",
     "close": "Cerrar",
     "count": "{current} de {count}",
+    "matches": "{count} coincidencia | {count} coincidencias",
     "noResults": "Sin resultados"
   },
   "lineMenu": {

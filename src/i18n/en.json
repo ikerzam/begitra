@@ -71,6 +71,7 @@
     "next": "Next match",
     "close": "Close",
     "count": "{current} of {count}",
+    "matches": "{count} match | {count} matches",
     "noResults": "No results"
   },
   "lineMenu": {

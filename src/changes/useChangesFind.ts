@@ -6,6 +6,7 @@ import { computed, onBeforeUnmount, onMounted } from "vue";
 
 import type { FindFile } from "@/review/find";
 import { selectedQuery } from "@/review/selectedQuery";
+import { outsideOverlays } from "@/shortcuts/registry";
 import { useShortcut } from "@/shortcuts/useShortcut";
 import type { ChangeList } from "@/stores/changes";
 import { useFindStore } from "@/stores/find";
@@ -41,17 +42,30 @@ export function useChangesFind(changes: ChangesView, reveal: (path: string) => v
         if (!list) return;
         const file = changes[list].files.find((candidate) => candidate.path === entry.path);
         if (file && (file.isLarge || file.isGenerated)) reveal(entry.path);
-        changes.select(list, entry.path);
+        const selected = changes.selected;
+        if (selected?.list !== list || selected.path !== entry.path) {
+          changes.select(list, entry.path);
+        }
       },
       shownKey: () => {
         const selected = changes.selected;
         return selected ? findKeyOf(selected.list, selected.path) : null;
       },
+      loading: () => changes.unstaged.loading || changes.staged.loading,
     });
   });
   onBeforeUnmount(() => release?.());
 
-  useShortcut("find", () => find.show(selectedQuery()));
-  useShortcut("find-next", () => find.next());
-  useShortcut("find-previous", () => find.previous());
+  useShortcut(
+    "find",
+    outsideOverlays(() => find.show(selectedQuery())),
+  );
+  useShortcut(
+    "find-next",
+    outsideOverlays(() => find.next()),
+  );
+  useShortcut(
+    "find-previous",
+    outsideOverlays(() => find.previous()),
+  );
 }

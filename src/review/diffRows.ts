@@ -347,35 +347,82 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
 /**
+ * The UTF-8 byte offsets of `offsets` (UTF-16 offsets of `text`, ascending), in one pass over
+ * the text: a lone surrogate counts the three bytes of the replacement character the encoder
+ * writes for it.
+ */
+export function byteOffsets(text: string, offsets: number[]): number[] {
+  const result: number[] = [];
+  let unit = 0;
+  let bytes = 0;
+  for (const offset of offsets) {
+    while (unit < offset && unit < text.length) {
+      const code = text.charCodeAt(unit);
+      const next = text.charCodeAt(unit + 1);
+      if (code >= 0xd800 && code <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        unit += 2;
+      } else {
+        bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : 3;
+        unit += 1;
+      }
+    }
+    result.push(bytes);
+  }
+  return result;
+}
+
+/** Ranges sorted by start, for the walk below. */
+function byStart<T extends { start: number }>(ranges: readonly T[]): T[] {
+  return [...ranges].sort((a, b) => a.start - b.start);
+}
+
+/**
  * Splits a line into segments at every intra-line span boundary (UTF-8 byte offsets), every
  * token boundary and every mark of the find (offsets of the text), so each segment has one
- * emphasis, one class and one mark.
+ * emphasis, one class and one mark. Each kind of range is walked once in order, so a minified
+ * line with thousands of marks costs its length, not marks times cuts.
  */
 export function segments(line: DiffLine, tokens: Token[] = [], marks: LineMark[] = []): Segment[] {
   if (line.spans.length === 0 && tokens.length === 0 && marks.length === 0) {
     return [{ text: line.text, emphasis: false, class: "plain" }];
   }
   const bytes = encoder.encode(line.text);
-  const byteAt = (offset: number) => encoder.encode(line.text.slice(0, offset)).length;
-  const byteMarks = marks.map((mark) => ({
-    start: byteAt(mark.start),
-    end: byteAt(mark.end),
+  const sortedMarks = byStart(marks);
+  const markBytes = byteOffsets(
+    line.text,
+    sortedMarks.flatMap((mark) => [mark.start, mark.end]),
+  );
+  const byteMarks = sortedMarks.map((mark, i) => ({
+    start: markBytes[2 * i] ?? 0,
+    end: markBytes[2 * i + 1] ?? 0,
     current: mark.current,
   }));
+  const spans = byStart(line.spans);
+  const sortedTokens = byStart(tokens);
   const cuts = new Set<number>([0, bytes.length]);
-  for (const range of [...line.spans, ...tokens, ...byteMarks]) {
+  for (const range of [...spans, ...sortedTokens, ...byteMarks]) {
     cuts.add(Math.min(range.start, bytes.length));
     cuts.add(Math.min(range.end, bytes.length));
   }
   const points = [...cuts].sort((a, b) => a - b);
   const result: Segment[] = [];
+  let s = 0;
+  let t = 0;
+  let m = 0;
   for (let i = 0; i + 1 < points.length; i += 1) {
     const start = points[i]!;
     const end = points[i + 1]!;
     if (end <= start) continue;
-    const emphasis = line.spans.some((span) => span.start <= start && span.end >= end);
-    const token = tokens.find((t) => t.start <= start && t.end >= end);
-    const mark = byteMarks.find((m) => m.start <= start && m.end >= end);
+    while (s < spans.length && spans[s]!.end <= start) s += 1;
+    while (t < sortedTokens.length && sortedTokens[t]!.end <= start) t += 1;
+    while (m < byteMarks.length && byteMarks[m]!.end <= start) m += 1;
+    const span = spans[s];
+    const emphasis = span !== undefined && span.start <= start && span.end >= end;
+    const candidate = sortedTokens[t];
+    const token = candidate && candidate.start <= start && candidate.end >= end ? candidate : null;
+    const markAt = byteMarks[m];
+    const mark = markAt && markAt.start <= start && markAt.end >= end ? markAt : null;
     const find = mark ? (mark.current ? "current" : "match") : undefined;
     const text = decoder.decode(bytes.subarray(start, end));
     const cls = token?.class ?? "plain";
