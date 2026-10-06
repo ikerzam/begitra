@@ -8,6 +8,7 @@ import type { CommitNode, Ref, WalkFilter, WalkScope } from "@/ipc/schemas";
 import { useGraphStore } from "./graph";
 import { useRepoStore } from "./repo";
 import { useReviewStore } from "./review";
+import { useShellStore } from "./shell";
 
 const authorsOf = ["iker", "claude", "ane"] as const;
 
@@ -293,5 +294,94 @@ describe("graph store", () => {
     expect(graph.rangeEnd).toBeNull();
     expect(graph.filters.text).toBe("");
     expect(graph.isActive).toBe(false);
+  });
+});
+
+describe("file history", () => {
+  it("shows the graph filtered by the path alone, the scope kept", async () => {
+    const calls = mockBackend();
+    const repo = useRepoStore();
+    const graph = useGraphStore();
+    const shell = useShellStore();
+    await repo.open("/r");
+    await settled();
+    await shell.setLayoutMode("review");
+    graph.setText("fix(auth)");
+    graph.setAuthor("iker");
+    graph.setDateRange("30d");
+    graph.setScope({ kind: "ref", name: "main", fullName: "refs/heads/main" });
+    await settled();
+    await graph.showHistory("apps/api/src/index.ts");
+    await settled();
+    expect(graph.filters).toEqual({
+      text: "",
+      author: "",
+      dateRange: "any",
+      path: "apps/api/src/index.ts",
+      scope: { kind: "ref", name: "main", fullName: "refs/heads/main" },
+    });
+    expect(shell.layoutMode).toBe("graph");
+    const last = calls.filter((c) => c.cmd === "walk_commits").at(-1);
+    expect(last?.args["scope"]).toEqual({ kind: "ref", name: "refs/heads/main" });
+    expect(last?.args["options"]).toEqual({
+      pageSize: 500,
+      order: "lazy",
+      filter: { paths: ["apps/api/src/index.ts"] },
+    });
+  });
+
+  it("restarts nothing for the history it shows, and opens nothing for the open repository", async () => {
+    const calls = mockBackend();
+    const repo = useRepoStore();
+    const graph = useGraphStore();
+    await repo.open("/r");
+    await settled();
+    await graph.showHistory("src/a.ts");
+    await settled();
+    const walks = () => calls.filter((c) => c.cmd === "walk_commits").length;
+    const before = walks();
+    await graph.showHistory("src/a.ts", "/r/");
+    await settled();
+    expect(walks()).toBe(before);
+    expect(calls.filter((c) => c.cmd === "open_repository")).toHaveLength(1);
+    expect(graph.filters.path).toBe("src/a.ts");
+  });
+
+  it("takes a file's path as git names it, spaces and backslashes included", async () => {
+    const calls = mockBackend();
+    const repo = useRepoStore();
+    const graph = useGraphStore();
+    await repo.open("/r");
+    await settled();
+    for (const path of [" notes.md", "docs\\a.md"]) {
+      await graph.showHistory(path);
+      await settled();
+      expect(graph.filters.path).toBe(path);
+      const last = calls.filter((c) => c.cmd === "walk_commits").at(-1);
+      expect((last?.args["options"] as { filter?: unknown }).filter).toEqual({ paths: [path] });
+    }
+  });
+
+  it("keeps the selected commit in graph focus, and starts on the first row from elsewhere", async () => {
+    mockBackend();
+    const repo = useRepoStore();
+    const graph = useGraphStore();
+    const shell = useShellStore();
+    await repo.open("/r");
+    await settled();
+    // Commit 4 is one of the commits the path filter lists.
+    repo.select(4);
+    await settled();
+    const selected = () => repo.commits[repo.selectedIndex]?.hash;
+    const fourth = commit(4).hash;
+    expect(selected()).toBe(fourth);
+    await graph.showHistory("src/a.ts");
+    await settled();
+    expect(selected()).toBe(fourth);
+    await shell.setLayoutMode("review");
+    await graph.showHistory("src/b.ts");
+    await settled();
+    expect(repo.selectedIndex).toBe(0);
+    expect(selected()).toBe(commit(0).hash);
   });
 });

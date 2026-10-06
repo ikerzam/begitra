@@ -259,15 +259,27 @@ watch(
 watch(
   () => repo.selectedIndex,
   (index, previous) => {
-    if (index >= 0 && previous < 0 && shell.layoutMode === "graph") {
-      void nextTick(() => {
-        const active = document.activeElement;
-        if (active && active !== document.body) return;
-        graphLayout.value?.focusRows();
-      });
-    }
+    if (index >= 0 && previous < 0 && shell.layoutMode === "graph") focusGraphRows();
   },
 );
+
+// Graph focus starts on its rows when it comes back from another layout (⌘1, a file's "File
+// history"): the layout it left took the focus with it.
+watch(
+  () => shell.layoutMode,
+  (mode, previous) => {
+    if (mode === "graph" && previous !== "graph") focusGraphRows();
+  },
+);
+
+/** The commit rows take the focus on the next tick, when nothing else holds it. */
+function focusGraphRows(): void {
+  void nextTick(() => {
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    graphLayout.value?.focusRows();
+  });
+}
 
 // Review focus starts on the files list, so j/k work at once (the status bar says so).
 watch(reviewMode, (on) => {

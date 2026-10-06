@@ -17,6 +17,7 @@ import SkeletonRow from "@/components/SkeletonRow.vue";
 import FileList from "@/detail/FileList.vue";
 import FileMenu from "@/detail/FileMenu.vue";
 import { applyFilters, pathMatcher, sortBySize } from "@/detail/groupFiles";
+import { historySide } from "@/graph/fileHistory";
 import type { FileChange } from "@/ipc/schemas";
 import { targetLabel, useReviewStore } from "@/stores/review";
 
@@ -186,6 +187,7 @@ defineExpose({ focus: () => list.value?.focus(), moveFile });
         :file="fileMenu.file"
         :x="fileMenu.x"
         :y="fileMenu.y"
+        :side="historySide(review.target)"
         @close="closeFileMenu"
       />
       <EmptyState

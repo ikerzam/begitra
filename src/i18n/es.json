@@ -72,6 +72,7 @@
     "openInReview": "Abrir en revisión",
     "copyPath": "Copiar la ruta",
     "openInEditor": "Abrir en el editor",
+    "history": "Historial del fichero",
     "pathCopied": "Ruta {path} copiada"
   },
   "dialog": {

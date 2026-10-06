@@ -136,6 +136,35 @@ describe("GraphPanel filters", () => {
     expect(useGraphStore().isActive).toBe(false);
     wrapper.unmount();
   });
+
+  it("gives Clear filters the focus when nothing matches and nothing else holds it", async () => {
+    fakeBackend();
+    await openRepository();
+    const wrapper = await mountPanel();
+    const graph = useGraphStore();
+    (document.activeElement as HTMLElement | null)?.blur();
+    graph.setText("nothing like this");
+    await settled();
+    await flushPromises();
+    const clear = wrapper.get('[data-testid="graph-empty"] button');
+    expect(document.activeElement).toBe(clear.element);
+    const panel = wrapper.vm as unknown as { focus(): void };
+    (document.activeElement as HTMLElement | null)?.blur();
+    panel.focus();
+    expect(document.activeElement).toBe(clear.element);
+    // The search keeps the focus while the user types a query that matches nothing.
+    graph.clear();
+    await settled();
+    await flushPromises();
+    const search = wrapper.get('[data-testid="graph-filters"] input').element as HTMLInputElement;
+    search.focus();
+    graph.setText("nothing like this either");
+    await settled();
+    await flushPromises();
+    expect(wrapper.find('[data-testid="graph-empty"]').exists()).toBe(true);
+    expect(document.activeElement).toBe(search);
+    wrapper.unmount();
+  });
 });
 
 describe("GraphPanel hover card and context menu", () => {

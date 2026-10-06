@@ -3,8 +3,11 @@ import { flushPromises } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { useChangesStore } from "@/stores/changes";
+import { useGraphStore } from "@/stores/graph";
 import { useRepoStore } from "@/stores/repo";
 import { memoryStorage, useSettingsStore } from "@/stores/settings";
+import { useShellStore } from "@/stores/shell";
 import { useToastsStore } from "@/stores/toasts";
 import { fakeBackend, settled } from "@/test/backend";
 import { changedFile } from "@/test/changes";
@@ -60,6 +63,7 @@ describe("FileMenu", () => {
       "Open in review",
       "Copy path",
       "Open in editor",
+      "File history",
     ]);
     await wrapper.get('[data-testid="file-menu-review"]').trigger("click");
     expect(wrapper.emitted("review")?.[0]).toEqual([file]);
@@ -84,5 +88,53 @@ describe("FileMenu", () => {
       "true",
     );
     wrapper.unmount();
+  });
+
+  it("shows the file's history in the graph, a commit's rename under its new path", async () => {
+    const calls = fakeBackend();
+    await useRepoStore().open("/r");
+    await settled();
+    const file = changedFile("src/map/pool.ts", { status: "renamed", oldPath: "src/pool.ts" });
+    const wrapper = mountWithI18n(FileMenu, { props: { file, x: 0, y: 0 } });
+    await wrapper.get('[data-testid="file-menu-history"]').trigger("click");
+    await settled();
+    expect(useGraphStore().filters.path).toBe("src/map/pool.ts");
+    expect(useShellStore().layoutMode).toBe("graph");
+    const walk = calls.filter((call) => call.cmd === "walk_commits").at(-1);
+    expect((walk?.args["options"] as { filter?: unknown }).filter).toEqual({
+      paths: ["src/map/pool.ts"],
+    });
+    wrapper.unmount();
+  });
+
+  it("lists a change not committed yet under the path behind it, and offers none for a new file", async () => {
+    const renamed = changedFile("src/map/pool.ts", { status: "renamed", oldPath: "src/pool.ts" });
+    fakeBackend({ changes: { unstaged: [], staged: [renamed] } });
+    // The shell keeps the open repository's lists, as the top bar counts them.
+    const changes = useChangesStore();
+    await useRepoStore().open("/r");
+    await settled();
+    await settled();
+    expect(changes.staged.files.map((file) => file.path)).toEqual(["src/map/pool.ts"]);
+    const wrapper = mountWithI18n(FileMenu, {
+      props: { file: renamed, x: 0, y: 0, side: "index" },
+    });
+    await wrapper.get('[data-testid="file-menu-history"]').trigger("click");
+    await settled();
+    expect(useGraphStore().filters.path).toBe("src/pool.ts");
+    wrapper.unmount();
+    // The working tree's edit of the renamed file goes through the index's rename.
+    const edited = mountWithI18n(FileMenu, {
+      props: { file: changedFile("src/map/pool.ts"), x: 0, y: 0, side: "worktree" },
+    });
+    await edited.get('[data-testid="file-menu-history"]').trigger("click");
+    await settled();
+    expect(useGraphStore().filters.path).toBe("src/pool.ts");
+    edited.unmount();
+    const added = mountWithI18n(FileMenu, {
+      props: { file: changedFile("src/new.ts", { status: "added" }), x: 0, y: 0, side: "index" },
+    });
+    expect(added.find('[data-testid="file-menu-history"]').exists()).toBe(false);
+    added.unmount();
   });
 });

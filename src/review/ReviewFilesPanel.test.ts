@@ -5,8 +5,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { nextTick } from "vue";
 
 import { ShortcutRegistry, setShortcutRegistry } from "@/shortcuts/registry";
+import { useGraphStore } from "@/stores/graph";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
+import { useShellStore } from "@/stores/shell";
 import { fakeBackend, settled } from "@/test/backend";
 import { mountWithI18n } from "@/test/mount";
 
@@ -86,6 +88,29 @@ describe("ReviewFilesPanel", () => {
     await settled();
     await nextTick();
     expect(wrapper.get('[data-testid="review-target"]').text()).toBe("v2.3.1...main");
+    wrapper.unmount();
+  });
+
+  it("offers a file's history as the target has it: none for a file the working tree adds", async () => {
+    fakeBackend();
+    await openRepository();
+    const review = useReviewStore();
+    review.setTarget({ kind: "worktree" });
+    await settled();
+    const wrapper = mountWithI18n(ReviewFilesPanel, { attachTo: document.body });
+    await flushPromises();
+    const menuOn = async (path: string) => {
+      await wrapper.get(`[data-testid="tree-row"][data-path="${path}"]`).trigger("contextmenu");
+      await flushPromises();
+    };
+    await menuOn("src/lib.ts");
+    expect(wrapper.find('[data-testid="file-menu"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="file-menu-history"]').exists()).toBe(false);
+    await menuOn("src/working-tree.rs");
+    await wrapper.get('[data-testid="file-menu-history"]').trigger("click");
+    await settled();
+    expect(useGraphStore().filters.path).toBe("src/working-tree.rs");
+    expect(useShellStore().layoutMode).toBe("graph");
     wrapper.unmount();
   });
 });

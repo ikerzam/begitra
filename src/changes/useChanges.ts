@@ -5,6 +5,7 @@
 
 import { inject, provide, type InjectionKey } from "vue";
 
+import type { FileChange } from "@/ipc/schemas";
 import { useChangesStore } from "@/stores/changes";
 import type { ChangesView } from "@/stores/changesModel";
 
@@ -25,4 +26,14 @@ export function useChanges(): ChangesView {
 /** Whether the changes are the open repository's, whose conflicts and operation show. */
 export function useOpenRepositoryChanges(): boolean {
   return inject(changesKey, null) === null;
+}
+
+/**
+ * The Staged list's file at a path, of the changes this component works on; the open
+ * repository's store is reached only when asked, so a viewer outside the changes screen does
+ * not make it.
+ */
+export function useStagedFiles(): (path: string) => FileChange | undefined {
+  const scoped = inject(changesKey, null);
+  return (path) => (scoped ?? useChangesStore()).staged.files.find((file) => file.path === path);
 }

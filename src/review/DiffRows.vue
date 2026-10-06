@@ -13,11 +13,14 @@ import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 
 import DiffRow from "@/components/DiffRow.vue";
 import HunkRow from "@/components/HunkRow.vue";
+import { useStagedFiles } from "@/changes/useChanges";
 import { refocusAfterMenu } from "@/components/menuFocus";
+import { historyPath, historySide } from "@/graph/fileHistory";
 import type { FileChange, Hunk } from "@/ipc/schemas";
 import { useShortcut } from "@/shortcuts/useShortcut";
 import { useExternal } from "@/shell/useExternal";
 import { useCodeTheme } from "@/shell/useTheme";
+import { useGraphStore } from "@/stores/graph";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore, type ReviewTarget } from "@/stores/review";
 
@@ -72,12 +75,16 @@ const emit = defineEmits<{ select: [keys: string[], extend: boolean] }>();
 
 const repo = useRepoStore();
 const review = useReviewStore();
+const graph = useGraphStore();
 const codeTheme = useCodeTheme();
 const external = useExternal();
+const staged = useStagedFiles();
 const body = ref<HTMLElement | null>(null);
 
 const root = computed(() => (props.root === undefined ? (repo.repo?.root ?? null) : props.root));
 const target = computed(() => (props.target === undefined ? review.target : props.target));
+/** The path the line menu's "File history" lists, as the target has the file. */
+const history = computed(() => historyPath(props.file, historySide(target.value ?? null), staged));
 const file = computed<FileChange | null>(() => props.file);
 const layout = computed(() => review.layout);
 const hunks = computed(() => props.hunks);
@@ -444,6 +451,11 @@ function openAtLine(line: number | null): void {
   if (at && !deleted.value) void external.openFile(at, props.file.path, line);
 }
 
+/** The file's history in the graph of its repository. */
+function showHistory(): void {
+  if (history.value !== null) void graph.showHistory(history.value, root.value);
+}
+
 /** Where ⇧⌘E opens the file (the viewer binds it): the cursor's line, else the top row's. */
 function lineAtTop(): number | null {
   const index = cursorRow.value ?? topRowIndex();
@@ -651,7 +663,9 @@ defineExpose({
         :path="props.file.path"
         :line="menu.line"
         :selection="menu.selection"
+        :history="history !== null"
         @open="openAtLine"
+        @history="showHistory"
         @close="closeMenu"
       />
     </div>

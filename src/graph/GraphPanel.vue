@@ -4,7 +4,7 @@
 // stopped at an error, a repository that could not be opened).
 
 import { Terminal } from "@lucide/vue";
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import RefMenu from "@/branches/RefMenu.vue";
@@ -39,6 +39,8 @@ const projects = useProjectsStore();
 const actions = useCommitActions();
 const hover = useHoverCard();
 const rows = ref<{ focus(): void } | null>(null);
+/** "Clear filters" of the empty state, which takes the focus where the rows would. */
+const clearButton = ref<{ $el: HTMLElement } | null>(null);
 
 /** The commit menu, on the commit it opened on: `index` finds it fast, `hash` names it. */
 const menu = ref<{ index: number; hash: string; x: number; y: number } | null>(null);
@@ -158,7 +160,27 @@ const scanInstead = computed(() => {
   );
 });
 
-defineExpose({ focus: () => rows.value?.focus() });
+/** The rows, or the empty state's "Clear filters" when the filters match nothing. */
+function focus(): void {
+  if (rows.value) rows.value.focus();
+  else clearButton.value?.$el.focus();
+}
+
+// Filters that match nothing (a file's history with no commit in the scope) end with no row
+// to focus: "Clear filters" takes the focus, unless the user is typing elsewhere.
+watch(
+  () => showEmpty.value && graph.isActive,
+  (empty) => {
+    if (!empty) return;
+    void nextTick(() => {
+      const active = document.activeElement;
+      if (active && active !== document.body) return;
+      clearButton.value?.$el.focus();
+    });
+  },
+);
+
+defineExpose({ focus });
 </script>
 
 <template>
@@ -189,7 +211,9 @@ defineExpose({ focus: () => rows.value?.focus() });
         :message="t('graph.noMatches')"
         data-testid="graph-empty"
       >
-        <Button variant="secondary" @click="graph.clear()">{{ t("graph.clearFilters") }}</Button>
+        <Button ref="clearButton" variant="secondary" @click="graph.clear()">{{
+          t("graph.clearFilters")
+        }}</Button>
       </EmptyState>
       <EmptyState v-else-if="showEmpty" :message="t('graph.noCommits')" data-testid="graph-empty" />
       <CommitRows

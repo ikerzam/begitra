@@ -7,9 +7,11 @@ import { nextTick } from "vue";
 import type { DiffLine, FileChange } from "@/ipc/schemas";
 import { ShortcutRegistry, setShortcutRegistry, shortcutRegistry } from "@/shortcuts/registry";
 import { installShortcuts } from "@/shortcuts/useShortcut";
+import { useGraphStore } from "@/stores/graph";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
 import { memoryStorage, useSettingsStore } from "@/stores/settings";
+import { useShellStore } from "@/stores/shell";
 import { fakeBackend, settled } from "@/test/backend";
 import { mountWithI18n } from "@/test/mount";
 
@@ -131,6 +133,39 @@ describe("DiffView", () => {
     expect(lineMenu()?.querySelector('[data-testid="line-menu-editor"]')).toBeNull();
     expect(lineMenu()?.textContent).toContain("Copy path");
     deleted.unmount();
+  });
+
+  it("shows the file's history in the graph from a line's menu", async () => {
+    fakeBackend();
+    await useSettingsStore().init(memoryStorage(), "windows");
+    await useRepoStore().open("/r");
+    await settled();
+    const historyItem = () =>
+      lineMenu()?.querySelector<HTMLElement>('[data-testid="line-menu-history"]') ?? null;
+    const wrapper = await mountView({ file: file([[line(1), line(2, "added")]]) });
+    await wrapper.findAll('[data-testid="diff-row"]')[1]!.trigger("contextmenu");
+    expect(lineMenu()?.textContent).toContain("File history");
+    historyItem()?.click();
+    await settled();
+    expect(useGraphStore().filters.path).toBe("src/app.ts");
+    expect(useShellStore().layoutMode).toBe("graph");
+    wrapper.unmount();
+    // In the working tree, a rename's history is its old path's and a new file has none.
+    useReviewStore().setTarget({ kind: "worktree" });
+    await settled();
+    const renamed = await mountView({
+      file: file([[line(1), line(2, "added")]], { status: "renamed", oldPath: "src/old-app.ts" }),
+    });
+    await renamed.findAll('[data-testid="diff-row"]')[1]!.trigger("contextmenu");
+    historyItem()?.click();
+    await settled();
+    expect(useGraphStore().filters.path).toBe("src/old-app.ts");
+    renamed.unmount();
+    const added = await mountView({ file: file([[line(1, "added")]], { status: "added" }) });
+    await added.findAll('[data-testid="diff-row"]')[0]!.trigger("contextmenu");
+    expect(lineMenu()).not.toBeNull();
+    expect(historyItem()).toBeNull();
+    added.unmount();
   });
 
   it("opens the working tree's file at its first change from the header", async () => {

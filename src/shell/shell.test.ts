@@ -855,6 +855,31 @@ describe("AppShell", () => {
     wrapper.unmount();
   });
 
+  it("gives the graph's rows the focus when it comes back from another screen", async () => {
+    backend();
+    const shell = useShellStore();
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    shell.setWindowWidth(1440);
+    await useRepoStore().open("/r");
+    await settle();
+    const onRow = () => document.activeElement?.closest('[data-testid="graph-row"]') ?? null;
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "3", ctrlKey: true }));
+    await settle();
+    expect(onRow()).toBeNull();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "1", ctrlKey: true }));
+    await settle();
+    expect(onRow()).not.toBeNull();
+    // A file's "File history" from review focus lands on them too.
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "2", ctrlKey: true }));
+    await settle();
+    expect(onRow()).toBeNull();
+    await useGraphStore().showHistory("src/app.ts");
+    await settle();
+    expect(shell.layoutMode).toBe("graph");
+    expect(onRow()).not.toBeNull();
+    wrapper.unmount();
+  });
+
   it("switches to the changes screen with Ctrl 3, keeps the sidebar, counts in the status bar", async () => {
     backend();
     const shell = useShellStore();

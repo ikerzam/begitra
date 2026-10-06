@@ -9,7 +9,7 @@
 // folder view's sections, the lists scroll with the view, show no empty sentence, and hand
 // the row keys on at their ends (`edge`) so the view carries them into the next section.
 
-import { Check, CheckCheck, Code, Copy, Minus, Plus, Terminal, Undo2 } from "@lucide/vue";
+import { Check, CheckCheck, Code, Copy, History, Minus, Plus, Terminal, Undo2 } from "@lucide/vue";
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -25,6 +25,7 @@ import SkeletonRow from "@/components/SkeletonRow.vue";
 import TreeRow from "@/components/TreeRow.vue";
 import type { FileStatus } from "@/components/types";
 import { statusOf } from "@/detail/groupFiles";
+import { historyPath } from "@/graph/fileHistory";
 import type { Conflict, FileChange } from "@/ipc/schemas";
 import { errorText } from "@/shell/errorMessage";
 import { useShortcutHint } from "@/shortcuts/useShortcut";
@@ -34,6 +35,7 @@ import { copyText } from "@/shell/clipboard";
 import { nameAndFolder } from "@/shell/format";
 import { useExternal } from "@/shell/useExternal";
 import type { ChangeList } from "@/stores/changes";
+import { useGraphStore } from "@/stores/graph";
 import { useSequencerStore } from "@/stores/sequencer";
 import { useSettingsStore } from "@/stores/settings";
 import { useToastsStore } from "@/stores/toasts";
@@ -66,9 +68,19 @@ const openRepository = useOpenRepositoryChanges();
 const conflicts = computed(() => (openRepository ? sequencer.conflicts : []));
 const external = useExternal();
 const opener = useFileOpener(computed(() => changes.root));
+const graph = useGraphStore();
 const toasts = useToastsStore();
 const panel = ref<HTMLElement | null>(null);
 const menu = ref<{ list: ChangeList; file: FileChange; x: number; y: number } | null>(null);
+/** The path the open row menu's "File history" lists; none for a file no commit has yet. */
+const menuHistory = computed(() => {
+  const open = menu.value;
+  if (!open) return null;
+  const side = open.list === "unstaged" ? "worktree" : "index";
+  return historyPath(open.file, side, (path) =>
+    changes.staged.files.find((file) => file.path === path),
+  );
+});
 /** The conflict row whose menu is open. */
 const conflictMenu = ref<{ conflict: Conflict; x: number; y: number } | null>(null);
 const resolveHint = useShortcutHint("mark-resolved");
@@ -259,15 +271,19 @@ function closeMenu(): void {
   navigation.focus();
 }
 
-function menuAction(action: "stage" | "unstage" | "discard" | "editor" | "copy"): void {
+function menuAction(action: "stage" | "unstage" | "discard" | "editor" | "copy" | "history"): void {
   const current = menu.value;
   if (!current) return;
+  const history = menuHistory.value;
   menu.value = null;
   if (action === "stage") void changes.stage([current.file.path]);
   else if (action === "unstage") void changes.unstage([current.file.path]);
   else if (action === "editor") void opener.openFile(current.file);
   else if (action === "copy") void copyPath(current.file.path);
-  else emit("discard", [current.file]);
+  // In a folder view's section, the section's repository shows first.
+  else if (action === "history") {
+    if (history !== null) void graph.showHistory(history, changes.root);
+  } else emit("discard", [current.file]);
 }
 
 async function copyPath(path: string): Promise<void> {
@@ -552,6 +568,13 @@ defineExpose({ focus: navigation.focus, moveFile, selectEdge });
         :disabled="!opener.canOpen(menu.file)"
         data-testid="menu-editor"
         @select="menuAction('editor')"
+      />
+      <ContextMenuItem
+        v-if="menuHistory !== null"
+        :label="t('fileMenu.history')"
+        :icon="History"
+        data-testid="menu-history"
+        @select="menuAction('history')"
       />
     </ContextMenu>
     <ContextMenu

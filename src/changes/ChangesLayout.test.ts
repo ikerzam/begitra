@@ -8,10 +8,12 @@ import type { PatchSelection, Ref as GitRef, Remote } from "@/ipc/schemas";
 import { ShortcutRegistry, setShortcutRegistry } from "@/shortcuts/registry";
 import { installShortcuts } from "@/shortcuts/useShortcut";
 import { useChangesStore } from "@/stores/changes";
+import { useGraphStore } from "@/stores/graph";
 import { useRemotesStore } from "@/stores/remotes";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
 import { memoryStorage, useSettingsStore } from "@/stores/settings";
+import { useShellStore } from "@/stores/shell";
 import { useToastsStore } from "@/stores/toasts";
 import {
   fakeBackend,
@@ -250,6 +252,50 @@ describe("ChangesLayout", () => {
     await wrapper.get('[data-testid="menu-unstage"]').trigger("click");
     await settled();
     expect(of(calls, "unstage_paths")[0]?.args["paths"]).toEqual(["src/a.ts"]);
+    wrapper.unmount();
+  });
+
+  it("shows a row's file history in the graph: a staged rename's old path, none for a new file", async () => {
+    const { wrapper, calls } = await mountScreen({
+      changes: {
+        // src/moved.ts and src/fresh.ts were edited again after `git mv` and `git add`.
+        unstaged: [...unstagedFiles(), changedFile("src/moved.ts"), changedFile("src/fresh.ts")],
+        staged: [
+          changedFile("src/moved.ts", { status: "renamed", oldPath: "src/old.ts" }),
+          changedFile("src/fresh.ts", { status: "added", deletions: 0 }),
+        ],
+      },
+    });
+    const menuOn = async (list: "unstaged" | "staged", path: string) => {
+      await wrapper.get(`[data-list="${list}"][data-path="${path}"]`).trigger("contextmenu");
+      await nextTick();
+    };
+    // An untracked file and a file the commit adds have no history yet, edited or not.
+    await menuOn("unstaged", "src/new.md");
+    expect(wrapper.find('[data-testid="menu-copy-path"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="menu-history"]').exists()).toBe(false);
+    await menuOn("staged", "src/fresh.ts");
+    expect(wrapper.find('[data-testid="menu-history"]').exists()).toBe(false);
+    await menuOn("unstaged", "src/fresh.ts");
+    expect(wrapper.find('[data-testid="menu-history"]').exists()).toBe(false);
+    // The edit of a staged rename lists the commits under the name before the rename.
+    await menuOn("unstaged", "src/moved.ts");
+    await wrapper.get('[data-testid="menu-history"]').trigger("click");
+    await settled();
+    expect(useGraphStore().filters.path).toBe("src/old.ts");
+    useGraphStore().setPath("");
+    await settled();
+    await menuOn("staged", "src/moved.ts");
+    await wrapper.get('[data-testid="menu-history"]').trigger("click");
+    await settled();
+    expect(useGraphStore().filters.path).toBe("src/old.ts");
+    expect(useShellStore().layoutMode).toBe("graph");
+    // The open repository's own changes open no other.
+    expect(of(calls, "open_repository")).toHaveLength(1);
+    const walk = of(calls, "walk_commits").at(-1);
+    expect((walk?.args["options"] as { filter?: unknown }).filter).toEqual({
+      paths: ["src/old.ts"],
+    });
     wrapper.unmount();
   });
 

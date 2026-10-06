@@ -1,9 +1,10 @@
 <script setup lang="ts">
 // The menu of a diff line: Copy while text is selected, "Open in editor at line N" (the new
-// side's line; absent for a deleted file) and Copy path. It opens on a right click of a line or
-// its numbers, and on the menu key while the diff has focus.
+// side's line; absent for a deleted file), Copy path and File history (absent for a file new in
+// a change not committed yet). It opens on a right click of a line or its numbers, and on the
+// menu key while the diff has focus.
 
-import { Code, Copy, FileText } from "@lucide/vue";
+import { Code, Copy, FileText, History } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
 
 import ContextMenu from "@/components/ContextMenu.vue";
@@ -23,8 +24,10 @@ const props = defineProps<{
   line: number | null;
   /** The text selected where the menu opened, if any. */
   selection: string;
+  /** Whether the file has a history for the graph to list. */
+  history: boolean;
 }>();
-const emit = defineEmits<{ close: []; open: [line: number] }>();
+const emit = defineEmits<{ close: []; open: [line: number]; history: [] }>();
 
 const { t } = useI18n();
 const toasts = useToastsStore();
@@ -70,6 +73,13 @@ async function copyPath(): Promise<void> {
         :icon="FileText"
         data-testid="line-menu-copy-path"
         @select="() => void copyPath()"
+      />
+      <ContextMenuItem
+        v-if="props.history"
+        :label="t('fileMenu.history')"
+        :icon="History"
+        data-testid="line-menu-history"
+        @select="emit('history')"
       />
     </ContextMenu>
   </Teleport>

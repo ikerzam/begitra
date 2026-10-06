@@ -7,9 +7,11 @@ import { defineComponent, h, nextTick } from "vue";
 import type { IndexEntry } from "@/ipc/schemas";
 import { ShortcutRegistry, setShortcutRegistry } from "@/shortcuts/registry";
 import { installShortcuts } from "@/shortcuts/useShortcut";
+import { useGraphStore } from "@/stores/graph";
 import { useIndexStore } from "@/stores/index";
 import { useProjectDialogsStore } from "@/stores/projectDialogs";
 import { useProjectsStore } from "@/stores/projects";
+import { useRepoStore } from "@/stores/repo";
 import { memoryStorage, useSettingsStore } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
 import { fakeBackend, settled, type Call, type FakeBackendOptions } from "@/test/backend";
@@ -187,6 +189,38 @@ describe("the folder view's Changes", () => {
     await nextTick();
     expect(menu.element.contains(document.activeElement)).toBe(true);
     expect(row(wrapper, "/code/web", "tiles.ts").attributes("aria-selected")).toBe("false");
+    wrapper.unmount();
+  });
+
+  it("shows a section's file history in the graph of that section's repository", async () => {
+    const { wrapper, calls } = await mountFolder({ rootIsPath: true });
+    const repo = useRepoStore();
+    expect(repo.repo?.root).not.toBe("/code/web");
+    await row(wrapper, "/code/web", "tiles.ts").trigger("contextmenu");
+    await flushPromises();
+    await wrapper.get('[data-testid="menu-history"]').trigger("click");
+    for (let i = 0; i < 3; i += 1) await settled();
+    expect(repo.repo?.root).toBe("/code/web");
+    expect(useGraphStore().filters.path).toBe("tiles.ts");
+    expect(useShellStore().layoutMode).toBe("graph");
+    const walk = of(calls, "walk_commits").at(-1);
+    expect(walk?.args["repo"]).toBe("/code/web");
+    expect((walk?.args["options"] as { filter?: unknown }).filter).toEqual({
+      paths: ["tiles.ts"],
+    });
+    wrapper.unmount();
+  });
+
+  it("shows the graph's open error when a section's repository fails to open for its history", async () => {
+    const { wrapper } = await mountFolder({ rootIsPath: true, notRepositories: ["/code/web"] });
+    await row(wrapper, "/code/web", "tiles.ts").trigger("contextmenu");
+    await flushPromises();
+    await wrapper.get('[data-testid="menu-history"]').trigger("click");
+    for (let i = 0; i < 3; i += 1) await settled();
+    const repo = useRepoStore();
+    expect(repo.state.kind).toBe("error");
+    expect(useShellStore().layoutMode).toBe("graph");
+    expect(useGraphStore().filters.path).toBe("");
     wrapper.unmount();
   });
 

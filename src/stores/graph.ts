@@ -1,16 +1,20 @@
 // The commit graph's filters and counts: the text, scope, author, date range and path the bar
 // shows, turned into the walk scope and filter the repo store restarts with; the authors seen
-// in the loaded commits; the count of the scope for the "N of M commits" line; and the two
-// commits pinned as chips (kept in the review store).
+// in the loaded commits; the count of the scope for the "N of M commits" line; the two
+// commits pinned as chips (kept in the review store); and a file's history, the graph shown
+// filtered by its path.
 
 import { defineStore } from "pinia";
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 
 import * as ipc from "@/ipc/commands";
 import type { CommitCount, CommitNode, WalkFilter, WalkScope } from "@/ipc/schemas";
+import { sameFolder } from "@/shell/format";
 
+import { useProjectsStore } from "./projects";
 import { useRepoStore } from "./repo";
 import { useReviewStore } from "./review";
+import { useShellStore } from "./shell";
 
 export type GraphScope =
   { kind: "all" } | { kind: "current" } | { kind: "ref"; name: string; fullName: string };
@@ -47,6 +51,11 @@ function defaultFilters(): GraphFilters {
   return { text: "", scope: { kind: "all" }, author: "", dateRange: "any", path: "" };
 }
 
+/** A path as git names it: backslashes (typed on Windows) are slashes, no trailing one. */
+function gitPath(path: string): string {
+  return path.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
 function scopeKey(scope: WalkScope): string {
   return JSON.stringify(scope);
 }
@@ -54,6 +63,7 @@ function scopeKey(scope: WalkScope): string {
 export const useGraphStore = defineStore("graph", () => {
   const repo = useRepoStore();
   const review = useReviewStore();
+  const shell = useShellStore();
 
   const filters = ref<GraphFilters>(defaultFilters());
   /** Authors of the commits loaded since the repository opened, keyed by name. */
@@ -109,8 +119,9 @@ export const useGraphStore = defineStore("graph", () => {
   const diffBase = computed(() => review.diffBase);
   const rangeEnd = computed(() => review.rangeEnd);
 
-  function apply(): void {
-    repo.restartWalk(walkScope.value, walkFilter.value);
+  /** Restarts the walk; `selectHash` as `repo.restartWalk` takes it, the selection by default. */
+  function apply(selectHash?: string | null): void {
+    repo.restartWalk(walkScope.value, walkFilter.value, selectHash);
   }
 
   function setText(text: string): void {
@@ -140,7 +151,7 @@ export const useGraphStore = defineStore("graph", () => {
 
   /** A repository-relative path; backslashes (typed on Windows) are git's slashes. */
   function setPath(path: string): void {
-    const trimmed = path.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+    const trimmed = gitPath(path);
     if (filters.value.path === trimmed) return;
     filters.value = { ...filters.value, path: trimmed };
     apply();
@@ -151,6 +162,48 @@ export const useGraphStore = defineStore("graph", () => {
     if (!isActive.value) return;
     filters.value = defaultFilters();
     apply();
+  }
+
+  /**
+   * A file's history: the graph filtered by `path` alone, the text, author and date cleared
+   * (left there, they would hide commits of the file unsaid) and the scope kept. The path is
+   * git's own (a file's), taken as it is. A `root` other than the open repository's is shown
+   * first, as its "Open repository" does, and starts from its own filters; when it fails to
+   * open, the graph shows the error, unless another open came after it.
+   */
+  async function showHistory(path: string, root: string | null = null): Promise<void> {
+    const fromGraph = shell.layoutMode === "graph";
+    if (root !== null && !isOpen(root)) {
+      await useProjectsStore().show(root);
+      // The root's watcher below clears the filters of the repository that opened.
+      await nextTick();
+      if (!isOpen(root)) {
+        const state = repo.state;
+        if (state.kind === "error" && sameFolder(state.path, root)) {
+          await shell.setLayoutMode("graph");
+        }
+        return;
+      }
+    }
+    const current = filters.value;
+    const next: GraphFilters = { ...defaultFilters(), scope: current.scope, path };
+    const unchanged =
+      current.text === next.text &&
+      current.author === next.author &&
+      current.dateRange === next.dateRange &&
+      current.path === next.path;
+    if (!unchanged) {
+      filters.value = next;
+      // From another layout the selected commit rarely touches the file: the first row is
+      // selected at once rather than after up to four pages looking for it.
+      apply(fromGraph ? undefined : null);
+    }
+    await shell.setLayoutMode("graph");
+  }
+
+  function isOpen(root: string): boolean {
+    const open = repo.repo?.root;
+    return open !== undefined && sameFolder(open, root);
   }
 
   /** The pins drive the review target: `base..end` (HEAD without an end); none follows the selection. */
@@ -279,6 +332,7 @@ export const useGraphStore = defineStore("graph", () => {
     setDateRange,
     setPath,
     clear,
+    showHistory,
     setDiffBase,
     setRangeEnd,
   };

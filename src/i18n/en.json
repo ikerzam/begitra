@@ -72,6 +72,7 @@
     "openInReview": "Open in review",
     "copyPath": "Copy path",
     "openInEditor": "Open in editor",
+    "history": "File history",
     "pathCopied": "Path {path} copied"
   },
   "dialog": {

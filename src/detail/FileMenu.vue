@@ -1,18 +1,23 @@
 <script setup lang="ts">
 // The menu of a file row (the commit's files, the review's and the comparison's files panel):
 // Open in review where the panel offers it, Copy path (the repository-relative path, with a
-// toast) and Open in editor (the file on disk; nothing to open for a deleted file).
+// toast), Open in editor (the file on disk; nothing to open for a deleted file) and File
+// history (the graph filtered by the path the commits have; none for a file new in the working
+// tree or the index).
 
-import { Code, Copy, FileDiff } from "@lucide/vue";
+import { Code, Copy, FileDiff, History } from "@lucide/vue";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
+import { useStagedFiles } from "@/changes/useChanges";
 import ContextMenu from "@/components/ContextMenu.vue";
 import ContextMenuItem from "@/components/ContextMenuItem.vue";
 import ContextMenuSeparator from "@/components/ContextMenuSeparator.vue";
+import { historyPath, type HistorySide } from "@/graph/fileHistory";
 import type { FileChange } from "@/ipc/schemas";
 import { copyText } from "@/shell/clipboard";
 import { useExternal } from "@/shell/useExternal";
+import { useGraphStore } from "@/stores/graph";
 import { useRepoStore } from "@/stores/repo";
 import { useToastsStore } from "@/stores/toasts";
 
@@ -23,17 +28,22 @@ const props = withDefaults(
     y: number;
     /** Whether "Open in review" is offered (not in the review itself). */
     review?: boolean;
+    /** Where the file's change stands: a commit's, or the review's of the index or working tree. */
+    side?: HistorySide;
   }>(),
-  { review: false },
+  { review: false, side: "committed" },
 );
 const emit = defineEmits<{ close: []; review: [file: FileChange] }>();
 
 const { t } = useI18n();
 const repo = useRepoStore();
+const graph = useGraphStore();
 const toasts = useToastsStore();
 const external = useExternal();
+const staged = useStagedFiles();
 
 const deleted = computed(() => props.file.status === "deleted");
+const history = computed(() => historyPath(props.file, props.side, staged));
 
 async function copyPath(): Promise<void> {
   if (await copyText(props.file.path)) {
@@ -79,6 +89,13 @@ function openInEditor(): void {
       :disabled="deleted"
       data-testid="file-menu-editor"
       @select="openInEditor"
+    />
+    <ContextMenuItem
+      v-if="history !== null"
+      :label="t('fileMenu.history')"
+      :icon="History"
+      data-testid="file-menu-history"
+      @select="() => history !== null && void graph.showHistory(history)"
     />
   </ContextMenu>
 </template>
