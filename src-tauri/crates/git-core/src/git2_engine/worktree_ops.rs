@@ -310,6 +310,23 @@ pub(super) fn remove(
     }
 }
 
+/// Removes a worktree without force for the branch cleanup: a refusal (changes, untracked files,
+/// a lock, submodules) is the error with git's own words, and the run ignores the caller's
+/// cancel, so a removal never stops half way, but ends past `limit`.
+#[tracing::instrument(level = "debug", skip_all, fields(path = %path.display()))]
+pub(super) fn remove_within(engine: &Git2Engine, path: &Path, limit: Duration) -> GitResult<()> {
+    let never = Cancel::never();
+    let place = Place::of(engine, &never)?;
+    let path_text = path.to_string_lossy().into_owned();
+    let args = place.args(&["worktree", "remove", "--", path_text.as_str()]);
+    let exit = run_git_env_within(&place.cwd, &args, &[], &never, limit)?;
+    if exit.status == Some(0) {
+        Ok(())
+    } else {
+        Err(exit.into_failure(&args))
+    }
+}
+
 /// Whether git's refusal names `--force`: the dirty refusal does ("contains modified or
 /// untracked files, use --force to delete it", the token untranslated); a locked worktree's
 /// ("use 'remove -f -f' to override or unlock first") and one with submodules ("working

@@ -6,6 +6,7 @@
 
 mod blob;
 mod branches;
+mod cleanup;
 mod cli_walk;
 mod compare;
 mod count;
@@ -44,6 +45,7 @@ use crate::types::{
     ResetMode, SelectionTarget, SequencerAction, Side, StashPush, StatusEntry, StatusOptions,
     SwitchTarget, WalkOptions, WalkScope, Worktree, WorktreeAdd,
 };
+use crate::types::{BranchToDelete, CleanupCandidates, DeleteOutcome};
 
 /// A repository opened with libgit2.
 ///
@@ -587,6 +589,18 @@ impl GitEngine for Git2Engine {
 
     fn restore_conflicts(&self, paths: &[String], cancel: &Cancel) -> GitResult<()> {
         sides::restore_conflicts(self, paths, cancel)
+    }
+
+    fn cleanup_candidates(&self, cancel: &Cancel) -> GitResult<CleanupCandidates> {
+        cleanup::cleanup_candidates(self, cancel)
+    }
+
+    fn delete_branches(
+        &self,
+        branches: &[BranchToDelete],
+        cancel: &Cancel,
+    ) -> GitResult<Vec<DeleteOutcome>> {
+        cleanup::delete_branches(self, branches, cancel)
     }
 
     fn sequencer(&self, action: SequencerAction, cancel: &Cancel) -> GitResult<Outcome> {

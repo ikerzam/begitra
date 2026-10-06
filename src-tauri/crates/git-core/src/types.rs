@@ -1016,6 +1016,101 @@ pub enum Side {
     Theirs,
 }
 
+/// Why a local branch can go.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CleanupReason {
+    /// Its tip is in the main branch, or in the main branch's remote-tracking upstream.
+    Merged,
+    /// Its tip is in the main branch, or in its upstream, and it has no commits of its own: it
+    /// never moved since it was made (its reflog holds its creation alone, a rename or a copy)
+    /// and it is on the main line (no upstream, or the main branch or its upstream as one), or
+    /// it is at the tip of either. An agent's new branch before its first commit.
+    NoCommits,
+    /// Its upstream is gone and merging it into the main branch, or into its upstream, would
+    /// change nothing: a squash or a rebase merge took its changes.
+    GoneApplied,
+    /// Its upstream is gone and the main branch lacks some of its changes.
+    Gone,
+    /// Its upstream is gone and the merge check did not answer for it: past its time budget,
+    /// a git before 2.39, objects a partial clone lacks, or no folder for the check.
+    GoneUnchecked,
+}
+
+/// A local branch that can go, as listed for the cleanup.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupCandidate {
+    /// Short name (`claude/fix-auth`).
+    pub name: String,
+    /// Full hash of its tip when it was listed.
+    pub tip: String,
+    /// Why it can go.
+    pub reason: CleanupReason,
+    /// The remote of its upstream (`origin`); `None` without one, or for a local upstream.
+    pub remote: Option<String>,
+    /// The linked worktree that has it checked out, which goes with it.
+    pub worktree: Option<PathBuf>,
+}
+
+/// The cleanup's listing: the main branch it compares with and the branches that can go.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupCandidates {
+    /// The main branch's short name; `None` when no main branch is found, and then no candidate.
+    pub main: Option<String>,
+    /// The candidates, by name.
+    pub candidates: Vec<CleanupCandidate>,
+}
+
+/// A branch to delete with its worktree, as the cleanup listed it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BranchToDelete {
+    /// Short name.
+    pub name: String,
+    /// Full hash of the tip it was listed with: another tip keeps the branch.
+    pub tip: String,
+    /// Its linked worktree, removed first.
+    pub worktree: Option<PathBuf>,
+}
+
+/// Why a branch of a deletion stayed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum KeptReason {
+    /// Its tip is not the one listed: a commit since, before its worktree went or after.
+    Moved,
+    /// It was deleted elsewhere since it was listed.
+    Missing,
+    /// Its worktree has another branch checked out now, and stays.
+    WorktreeMoved,
+    /// git refused to remove its worktree: changes, untracked files, a lock, submodules.
+    Worktree,
+    /// git refused to delete it, or it could not be read.
+    Failed,
+    /// The deletion stopped before it (a cancel).
+    Stopped,
+}
+
+/// What became of one branch of a deletion.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteOutcome {
+    /// Short name.
+    pub name: String,
+    /// Whether the branch went.
+    pub deleted: bool,
+    /// Why it stayed; `None` when it went.
+    pub reason: Option<KeptReason>,
+    /// The raw words of a failure (`Worktree`, `Failed`): git's when it refused, else why git
+    /// gave no answer (it could not start, it ran past its limit, the branch could not be read);
+    /// `None` otherwise.
+    pub message: Option<String>,
+    /// Whether its worktree went, which it can do before the branch stays.
+    pub worktree_removed: bool,
+}
+
 /// A remote with its URLs.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -13,6 +13,7 @@ use crate::types::{
     PushRequest, Ref, Remote, Repo, ResetMode, SelectionTarget, SequencerAction, Side, StashPush,
     StatusEntry, StatusOptions, SwitchTarget, WalkOptions, WalkScope, Worktree, WorktreeAdd,
 };
+use crate::types::{BranchToDelete, CleanupCandidates, DeleteOutcome};
 
 /// Cooperative cancellation flag checked by long operations between units of work.
 ///
@@ -362,6 +363,38 @@ pub trait GitEngine: Send + Sync {
     ///
     /// [`GitError::ConflictGone`]: crate::error::GitError::ConflictGone
     fn restore_conflicts(&self, paths: &[String], cancel: &Cancel) -> GitResult<()>;
+
+    /// The local branches that can go against the main branch (see [`CleanupCandidates`]): the
+    /// local branch named like the one `origin/HEAD` points at, else `main`, else `master`, by
+    /// the exact names git lists, and none otherwise (then no candidate: the main line is never
+    /// guessed from what is checked out). A branch is listed when it is merged into the main
+    /// branch or its remote-tracking upstream, or when its upstream is gone (a remote's branch
+    /// or a local one), with or without its changes in the main branch, which `git merge-tree`
+    /// tells with every configured merge driver made to report a conflict (a driver that keeps
+    /// one side would drop the branch's changes), no lazy fetch, and its objects written to a
+    /// folder of its own, not the repository's; the newest go first, and those the check has
+    /// not answered within its time budget are [`CleanupReason::GoneUnchecked`]. Never
+    /// listed: the current branch, the main branch, the main worktree's branch, a branch whose
+    /// worktree's folder is missing, a branch git counts as in use by a rebase or a bisect in
+    /// any worktree, and a symbolic ref; names compare as the disk does (`core.ignorecase`).
+    /// Cancellable at any step.
+    ///
+    /// [`CleanupReason::GoneUnchecked`]: crate::types::CleanupReason::GoneUnchecked
+    fn cleanup_candidates(&self, cancel: &Cancel) -> GitResult<CleanupCandidates>;
+
+    /// Deletes each branch with `git branch -D`, after its worktree (`git worktree remove`, never
+    /// forced: changes, untracked files or a lock keep both), only while its tip is the one given,
+    /// read before the worktree goes and again before the branch does; answers each one's
+    /// outcome in order, and a branch that stays never stops the others. The cancel is honoured
+    /// between branches only, so a removal never stops half way: the branches not reached stay
+    /// with [`KeptReason::Stopped`], and each git run is bounded by its own time limit instead.
+    ///
+    /// [`KeptReason::Stopped`]: crate::types::KeptReason::Stopped
+    fn delete_branches(
+        &self,
+        branches: &[BranchToDelete],
+        cancel: &Cancel,
+    ) -> GitResult<Vec<DeleteOutcome>>;
 
     /// Continues, skips or aborts the operation in progress with its git command.
     fn sequencer(&self, action: SequencerAction, cancel: &Cancel) -> GitResult<Outcome>;
