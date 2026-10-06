@@ -3,7 +3,8 @@
 // checkout), rename, set upstream, tag, reset (soft, mixed or hard, as radios)
 // and "Stash and switch" after a dirty switch was refused; the deletes of a branch and of a
 // tag are DeleteDialogs', the undo of a pushed commit UndoCommitDialog's, a branch another
-// worktree holds HeldWorktreeDialog's. Each confirms through the store.
+// worktree holds HeldWorktreeDialog's. Each confirms through the store. The cleanup's dialog,
+// CleanupDialog, comes from its own store.
 
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -20,8 +21,10 @@ import type { ResetMode } from "@/ipc/schemas";
 import { shortHash } from "@/shell/format";
 import { targetName, useBranchesStore } from "@/stores/branches";
 import { useChangesStore } from "@/stores/changes";
+import { useCleanupStore } from "@/stores/cleanup";
 import { useRepoStore } from "@/stores/repo";
 
+import CleanupDialog from "./CleanupDialog.vue";
 import DeleteDialogs from "./DeleteDialogs.vue";
 import HeldWorktreeDialog from "./HeldWorktreeDialog.vue";
 import { validName } from "./names";
@@ -31,6 +34,7 @@ const { t } = useI18n();
 const branches = useBranchesStore();
 const repo = useRepoStore();
 const changes = useChangesStore();
+const cleanup = useCleanupStore();
 
 const resetModes = computed<RadioOption[]>(() =>
   (["soft", "mixed", "hard"] as const).map((option) => ({
@@ -262,4 +266,5 @@ function confirm(): void {
       />
     </Dialog>
   </template>
+  <CleanupDialog v-if="cleanup.isOpen" />
 </template>

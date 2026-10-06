@@ -76,6 +76,8 @@ export interface PaletteActions {
   /** Moves HEAD back to the commit the last undo took it from. */
   redoUndoneCommit: () => void;
   fetchAll: () => Promise<void>;
+  /** Opens the dialog of the branches that can go against the main branch. */
+  cleanUpBranches: () => void;
   openRemotes: () => Promise<void>;
   openStashes: () => void;
   /** Whether an operation stopped on conflicts is in progress. */
@@ -418,6 +420,12 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       labelKey: "palette.commandsById.fetch-all",
       enabled: withRepo,
       run: actions.fetchAll,
+    },
+    {
+      id: "clean-up-branches",
+      labelKey: "palette.commandsById.clean-up-branches",
+      enabled: withRepo,
+      run: actions.cleanUpBranches,
     },
     {
       id: "remotes",

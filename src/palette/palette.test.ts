@@ -16,6 +16,7 @@ const labels: Record<string, string> = {
   "palette.commandsById.push": "Push…",
   "palette.commandsById.pull": "Pull…",
   "palette.commandsById.fetch-all": "Fetch all remotes",
+  "palette.commandsById.clean-up-branches": "Clean up branches…",
   "palette.commandsById.remotes": "Remotes…",
   "palette.commandsById.stashes": "Stashes…",
   "palette.commandsById.stash-changes": "Stash changes…",
@@ -193,6 +194,9 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
       calls.push("fetchAll");
       return Promise.resolve();
     },
+    cleanUpBranches: () => {
+      calls.push("cleanUpBranches");
+    },
     openRemotes: () => {
       calls.push("remotes");
       return Promise.resolve();
@@ -308,6 +312,7 @@ describe("usePalette", () => {
       "push",
       "pull",
       "fetch-all",
+      "clean-up-branches",
       "remotes",
       "stashes",
       "stash-changes",
@@ -347,6 +352,15 @@ describe("usePalette", () => {
     await next?.command.run();
     await overview?.command.run();
     expect(acts.calls).toEqual(["fetchProject", "projectNeighbour:1", "showOverview"]);
+  });
+
+  it("offers Clean up branches with a repository open, and runs it", async () => {
+    expect(
+      setup({ hasRepository: false }).palette.rows.value.map((r) => r.command.id),
+    ).not.toContain("clean-up-branches");
+    const { palette, acts } = setup();
+    await palette.rows.value.find((r) => r.command.id === "clean-up-branches")?.command.run();
+    expect(acts.calls).toEqual(["cleanUpBranches"]);
   });
 
   it("offers Redo undone commit only while an undo can be redone, and runs it", async () => {

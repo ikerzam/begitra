@@ -10,6 +10,8 @@ import { comparePaths, covers } from "@/stores/reloads";
 import type {
   Annotation,
   AnnotationWrite,
+  BranchToDelete,
+  CleanupCandidates,
   CommitContext,
   CommitNode,
   Conflict,
@@ -18,6 +20,7 @@ import type {
   FileChange,
   Hunk,
   IndexEntry,
+  KeptReason,
   MergePreview,
   OperationSides,
   OperationState,
@@ -203,6 +206,22 @@ export interface FakeBackendOptions {
     sides?: { code: string; message: string; detail?: string };
     take?: { code: string; message: string; detail?: string };
     restore?: { code: string; message: string; detail?: string };
+  };
+  /**
+   * What `cleanup_candidates` answers: `main` and no candidate by default. `delete_branches`
+   * takes the branches it deletes out of the candidates and the refs, and their worktrees out of
+   * the worktrees.
+   */
+  cleanup?: CleanupCandidates;
+  /** `delete_branches` keeps these branches, by name, with these outcomes. */
+  cleanupKept?: Record<
+    string,
+    { reason: KeptReason; message: string | null; worktreeRemoved?: boolean }
+  >;
+  /** `cleanup_candidates` and `delete_branches` reject with these errors. */
+  cleanupErrors?: {
+    list?: { code: string; message: string; detail?: string };
+    delete?: { code: string; message: string; detail?: string };
   };
   /** Apply, pop and drop reject with `stash.not_found` (the stash went outside the app). */
   stashGone?: boolean;
@@ -1117,6 +1136,59 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
             );
           }
           return null;
+        }
+        case "cleanup_candidates": {
+          if (options.cleanupErrors?.list) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject(options.cleanupErrors.list);
+          }
+          const listed = options.cleanup ?? { main: "main", candidates: [] };
+          return { main: listed.main, candidates: listed.candidates.map((c) => ({ ...c })) };
+        }
+        case "delete_branches": {
+          if (options.cleanupErrors?.delete) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject(options.cleanupErrors.delete);
+          }
+          const deleteThem = () =>
+            (args["branches"] as BranchToDelete[]).map((branch) => {
+              const kept = options.cleanupKept?.[branch.name];
+              if (kept) {
+                // A branch kept after its worktree went: the worktree leaves the list.
+                if (kept.worktreeRemoved && branch.worktree !== null) {
+                  worktrees = worktrees.filter((worktree) => worktree.path !== branch.worktree);
+                }
+                return {
+                  name: branch.name,
+                  deleted: false,
+                  reason: kept.reason,
+                  message: kept.message,
+                  worktreeRemoved: kept.worktreeRemoved ?? false,
+                };
+              }
+              if (options.cleanup) {
+                options.cleanup = {
+                  ...options.cleanup,
+                  candidates: options.cleanup.candidates.filter((c) => c.name !== branch.name),
+                };
+              }
+              if (options.refs) {
+                options.refs = options.refs.filter(
+                  (entry) => entry.fullName !== `refs/heads/${branch.name}`,
+                );
+              }
+              if (branch.worktree !== null) {
+                worktrees = worktrees.filter((worktree) => worktree.path !== branch.worktree);
+              }
+              return {
+                name: branch.name,
+                deleted: true,
+                reason: null,
+                message: null,
+                worktreeRemoved: branch.worktree !== null,
+              };
+            });
+          return options.writeGate ? options.writeGate.hold(cmd, deleteThem) : deleteThem();
         }
         case "remotes":
           return remotes.map((remote) => ({ ...remote }));

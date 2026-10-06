@@ -13,6 +13,7 @@ import { folderKey } from "@/shell/format";
 import { useExternal } from "@/shell/useExternal";
 import { useOpenFolder } from "@/shell/useOpenFolder";
 import { useBranchesStore } from "@/stores/branches";
+import { useCleanupStore } from "@/stores/cleanup";
 import { useIndexStore } from "@/stores/index";
 import { useChangesStore } from "@/stores/changes";
 import { useRemotesStore } from "@/stores/remotes";
@@ -48,6 +49,7 @@ export function usePaletteActions(): PaletteActions {
   const worktrees = useWorktreesStore();
   const changes = useChangesStore();
   const remotes = useRemotesStore();
+  const cleanup = useCleanupStore();
   const branches = useBranchesStore();
   const sequencer = useSequencerStore();
   const stash = useStashStore();
@@ -128,6 +130,7 @@ export function usePaletteActions(): PaletteActions {
     fetchAll: async () => {
       await remotes.fetch(null, false);
     },
+    cleanUpBranches: () => void cleanup.open(),
     openRemotes: () => remotes.openSheet(),
     openStashes: () => stash.openSheet(),
     inOperation: () => sequencer.inProgress,

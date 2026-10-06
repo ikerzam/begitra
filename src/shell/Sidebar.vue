@@ -1,18 +1,20 @@
 <script setup lang="ts">
 // The 240px sidebar: one filter, then one column of sections that scrolls under their sticky
 // headers. In order: the project's repositories (while it holds more than one), the local
-// branches, the remote branches, the tags (each while there is one) and the worktrees. A section
-// folds from its header (`useSectionFolds`); j/k at a list's end go on into the next open section
-// that has a row. A rail icon reveals its section. The branch rows' actions run through
-// `useBranchActions`, shared with the graph's ref badges.
+// branches (their header orders them and opens the cleanup), the remote branches, the tags (each
+// while there is one) and the worktrees. A section folds from its header (`useSectionFolds`);
+// j/k at a list's end go on into the next open section that has a row. A rail icon reveals its
+// section. The branch rows' actions run through `useBranchActions`, shared with the graph's ref
+// badges.
 
-import { ArrowDownAZ, ClockArrowDown, LayoutList, Search } from "@lucide/vue";
+import { ArrowDownAZ, BrushCleaning, ClockArrowDown, LayoutList, Search } from "@lucide/vue";
 import { computed, nextTick, onUnmounted, provide, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import { useBranchActions } from "@/branches/useBranchActions";
 import IconButton from "@/components/IconButton.vue";
 import Input from "@/components/Input.vue";
+import { useCleanupStore } from "@/stores/cleanup";
 import { useRepoStore } from "@/stores/repo";
 import { useSettingsStore, type SidebarSectionId } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
@@ -29,6 +31,7 @@ const { t, n } = useI18n();
 const shell = useShellStore();
 const settings = useSettingsStore();
 const repo = useRepoStore();
+const cleanup = useCleanupStore();
 const actions = useBranchActions();
 
 /* One branch selection for the three ref lists: a move from one into the next scopes once. */
@@ -182,12 +185,21 @@ watch(
         @toggle="toggle(id)"
       >
         <template v-if="id === 'local'" #actions>
-          <IconButton
-            :icon="byRecent ? ArrowDownAZ : ClockArrowDown"
-            :label="byRecent ? t('sidebar.sortByName') : t('sidebar.sortByRecent')"
-            data-testid="branch-sort"
-            @click="toggleBranchSort"
-          />
+          <div class="flex items-center">
+            <IconButton
+              :icon="byRecent ? ArrowDownAZ : ClockArrowDown"
+              :label="byRecent ? t('sidebar.sortByName') : t('sidebar.sortByRecent')"
+              data-testid="branch-sort"
+              @click="toggleBranchSort"
+            />
+            <IconButton
+              :icon="BrushCleaning"
+              :label="t('palette.commandsById.clean-up-branches')"
+              :disabled="!repoReady"
+              data-testid="branch-cleanup"
+              @click="cleanup.open()"
+            />
+          </div>
         </template>
         <template v-else-if="id === 'worktrees'" #actions>
           <IconButton
