@@ -3,12 +3,19 @@ import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { Conflict } from "@/ipc/schemas";
-import { fakeBackend, settled, type Call, type FakeBackendOptions } from "@/test/backend";
+import {
+  FAKE_SIDES,
+  fakeBackend,
+  settled,
+  type Call,
+  type FakeBackendOptions,
+} from "@/test/backend";
 import { repoChange } from "@/test/changes";
 
 import { useRepoStore } from "./repo";
 import { useSequencerStore } from "./sequencer";
 import { memoryStorage, useSettingsStore } from "./settings";
+import { useToastsStore } from "./toasts";
 
 const conflicts: Conflict[] = [
   { path: "src/a.ts", kind: "both-modified" },
@@ -115,5 +122,151 @@ describe("sequencer store", () => {
     expect(sequencer.busy).toBe(false);
     sequencer.dismissError();
     expect(sequencer.error).toBeNull();
+  });
+});
+
+describe("taking a side", () => {
+  /** The toast that offers to undo a side taken. */
+  function undoToast() {
+    return useToastsStore().toasts.find((toast) => toast.actionKey === "sequencer.side.undo");
+  }
+
+  it("reads the operation's sides with its state, and none without an operation", async () => {
+    await open({ operation: "merge", conflicts });
+    const sequencer = useSequencerStore();
+    await sequencer.load();
+    expect(sequencer.sides).toEqual(FAKE_SIDES);
+    clearMocks();
+    fakeBackend();
+    await sequencer.load();
+    expect(sequencer.sides).toBeNull();
+  });
+
+  it("keeps the conflicts when the sides cannot be named, without offering a side", async () => {
+    await open({
+      operation: "cherry-pick",
+      conflicts,
+      sideErrors: { sides: { code: "internal", message: "HEAD names no commit" } },
+    });
+    const sequencer = useSequencerStore();
+    await sequencer.load();
+    expect(sequencer.conflicts).toEqual(conflicts);
+    expect(sequencer.sides).toBeNull();
+    expect(sequencer.error).toBeNull();
+    sequencer.askTakeSide("src/a.ts", "ours");
+    expect(sequencer.takePrompt).toBeNull();
+  });
+
+  it("asks first, then takes the side, lists the conflicts again and offers Undo", async () => {
+    const calls = await open({ operation: "merge", conflicts });
+    const sequencer = useSequencerStore();
+    await sequencer.load();
+    sequencer.askTakeSide("src/a.ts", "theirs");
+    expect(sequencer.takePrompt).toEqual({ path: "src/a.ts", side: "theirs" });
+    expect(of(calls, "take_side")).toHaveLength(0);
+    expect(await sequencer.takeSide()).toBe(true);
+    expect(sequencer.takePrompt).toBeNull();
+    expect(of(calls, "take_side")[0]?.args).toMatchObject({ paths: ["src/a.ts"], side: "theirs" });
+    expect(sequencer.conflicts.map((conflict) => conflict.path)).toEqual(["docs/b.md"]);
+    const toast = undoToast();
+    expect(toast?.kind).toBe("success");
+    expect(toast?.key).toBe("sequencer.side.used.ref");
+    expect(toast?.params).toMatchObject({ file: "a.ts", name: "develop" });
+    // Undo: the conflict comes back into the list.
+    toast?.onAction?.();
+    await settled();
+    expect(of(calls, "restore_conflicts")[0]?.args["paths"]).toEqual(["src/a.ts"]);
+    expect(sequencer.conflicts.map((conflict) => conflict.path)).toEqual(["docs/b.md", "src/a.ts"]);
+  });
+
+  it("cancels without writing, and asks nothing without sides or for a path not conflicted", async () => {
+    const calls = await open({ operation: "merge", conflicts });
+    const sequencer = useSequencerStore();
+    await sequencer.load();
+    sequencer.askTakeSide("src/a.ts", "ours");
+    sequencer.dismissTakeSide();
+    expect(sequencer.takePrompt).toBeNull();
+    expect(await sequencer.takeSide()).toBe(false);
+    sequencer.askTakeSide("src/elsewhere.ts", "ours");
+    expect(sequencer.takePrompt).toBeNull();
+    clearMocks();
+    fakeBackend({ operation: "merge", conflicts, sides: null });
+    await sequencer.load();
+    sequencer.askTakeSide("src/a.ts", "ours");
+    expect(sequencer.takePrompt).toBeNull();
+    expect(of(calls, "take_side")).toHaveLength(0);
+  });
+
+  it("says a refused side or Undo in a toast that names the file", async () => {
+    await open({
+      operation: "merge",
+      conflicts,
+      sideErrors: {
+        take: { code: "conflict.submodule", message: "src/a.ts is a submodule" },
+        restore: {
+          code: "conflict.gone",
+          message: "the conflict of src/a.ts cannot be brought back",
+        },
+      },
+    });
+    const sequencer = useSequencerStore();
+    await sequencer.load();
+    sequencer.askTakeSide("src/a.ts", "ours");
+    expect(await sequencer.takeSide()).toBe(false);
+    const toasts = useToastsStore();
+    expect(toasts.toasts.at(-1)).toMatchObject({
+      kind: "error",
+      key: "errors.submoduleConflict",
+      params: { path: "src/a.ts" },
+    });
+    expect(sequencer.conflicts).toHaveLength(2);
+    expect(sequencer.busy).toBe(false);
+    expect(await sequencer.restoreConflict("/r", "src/a.ts")).toBe(false);
+    expect(toasts.toasts.at(-1)).toMatchObject({
+      kind: "error",
+      key: "errors.conflictGone",
+      params: { path: "src/a.ts" },
+    });
+  });
+
+  it("names the action and the file when git refuses with words of its own", async () => {
+    const refused = { code: "git.cli_failed", message: "git checkout failed", detail: "error: x" };
+    await open({ operation: "merge", conflicts, sideErrors: { take: refused, restore: refused } });
+    const sequencer = useSequencerStore();
+    await sequencer.load();
+    sequencer.askTakeSide("src/a.ts", "theirs");
+    await sequencer.takeSide();
+    const toasts = useToastsStore();
+    expect(toasts.toasts.at(-1)).toMatchObject({
+      key: "sequencer.side.takeFailed",
+      params: { path: "src/a.ts" },
+      output: "error: x",
+    });
+    await sequencer.restoreConflict("/r", "src/a.ts");
+    expect(toasts.toasts.at(-1)).toMatchObject({ key: "sequencer.side.undoFailed" });
+    // A lock is still said as such.
+    const locked = { ...refused, detail: "fatal: Unable to create '/r/.git/index.lock'" };
+    clearMocks();
+    fakeBackend({ operation: "merge", conflicts, sideErrors: { take: locked } });
+    sequencer.askTakeSide("src/a.ts", "theirs");
+    await sequencer.takeSide();
+    expect(toasts.toasts.at(-1)).toMatchObject({ key: "errors.indexLock" });
+  });
+
+  it("closes the Undo toast when the sequencer runs, and keeps one at a time", async () => {
+    await open({ operation: "merge", conflicts });
+    const sequencer = useSequencerStore();
+    await sequencer.load();
+    sequencer.askTakeSide("src/a.ts", "ours");
+    await sequencer.takeSide();
+    sequencer.askTakeSide("docs/b.md", "theirs");
+    await sequencer.takeSide();
+    const offered = useToastsStore().toasts.filter(
+      (toast) => toast.actionKey === "sequencer.side.undo",
+    );
+    expect(offered).toHaveLength(1);
+    expect(offered[0]?.params).toMatchObject({ file: "b.md" });
+    await sequencer.act("continue");
+    expect(undoToast()).toBeUndefined();
   });
 });

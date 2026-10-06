@@ -40,6 +40,12 @@ export function errorText(
       return { key: "errors.gitFailed", params };
     case "stash.not_found":
       return { key: "errors.stashNotFound", params };
+    case "conflict.not_conflicted":
+      return { key: "errors.notConflicted", params };
+    case "conflict.gone":
+      return { key: "errors.conflictGone", params };
+    case "conflict.submodule":
+      return { key: "errors.submoduleConflict", params };
     case "external.spawn_failed":
       return { key: "errors.spawnFailed", params };
     case "external.not_found":

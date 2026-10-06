@@ -9,10 +9,23 @@
 // folder view's sections, the lists scroll with the view, show no empty sentence, and hand
 // the row keys on at their ends (`edge`) so the view carries them into the next section.
 
-import { Check, CheckCheck, Code, Copy, History, Minus, Plus, Terminal, Undo2 } from "@lucide/vue";
+import {
+  ArrowLeftToLine,
+  ArrowRightToLine,
+  Check,
+  CheckCheck,
+  Code,
+  Copy,
+  History,
+  Minus,
+  Plus,
+  Terminal,
+  Undo2,
+} from "@lucide/vue";
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
+import { useSideTexts } from "@/branches/useSideTexts";
 import ContextMenu from "@/components/ContextMenu.vue";
 import ContextMenuItem from "@/components/ContextMenuItem.vue";
 import ContextMenuSeparator from "@/components/ContextMenuSeparator.vue";
@@ -26,7 +39,7 @@ import TreeRow from "@/components/TreeRow.vue";
 import type { FileStatus } from "@/components/types";
 import { statusOf } from "@/detail/groupFiles";
 import { historyPath } from "@/graph/fileHistory";
-import type { Conflict, FileChange } from "@/ipc/schemas";
+import type { Conflict, FileChange, Side } from "@/ipc/schemas";
 import { errorText } from "@/shell/errorMessage";
 import { useShortcutHint } from "@/shortcuts/useShortcut";
 import { isListKeydown, rowStep, useListNavigation } from "@/shortcuts/useListNavigation";
@@ -66,6 +79,7 @@ const settings = useSettingsStore();
 /** The operation's conflicts, which belong to the open repository alone. */
 const openRepository = useOpenRepositoryChanges();
 const conflicts = computed(() => (openRepository ? sequencer.conflicts : []));
+const sideTexts = useSideTexts();
 const external = useExternal();
 const opener = useFileOpener(computed(() => changes.root));
 const graph = useGraphStore();
@@ -225,11 +239,17 @@ function closeConflictMenu(): void {
   navigation.focus();
 }
 
-function conflictAction(action: "resolve" | "editor" | "terminal"): void {
+function conflictAction(action: "resolve" | Side | "editor" | "terminal"): void {
   const current = conflictMenu.value;
   if (!current) return;
-  conflictMenu.value = null;
+  // Closed here with the focus back on the row, before the action: the menu unmounts before
+  // its own close would run, and a dialog the action opens returns the focus to the row.
+  closeConflictMenu();
   if (action === "resolve") void sequencer.markResolved([current.conflict.path]);
+  // One side's version whole, once confirmed.
+  else if (action === "ours" || action === "theirs") {
+    sequencer.askTakeSide(current.conflict.path, action);
+  }
   // The conflicted file itself, at its first conflict marker.
   else if (action === "editor") void opener.openConflict(current.conflict.path);
   else void external.openTerminal();
@@ -275,7 +295,8 @@ function menuAction(action: "stage" | "unstage" | "discard" | "editor" | "copy" 
   const current = menu.value;
   if (!current) return;
   const history = menuHistory.value;
-  menu.value = null;
+  // As in `conflictAction`: closed with the focus back on the row before the action.
+  closeMenu();
   if (action === "stage") void changes.stage([current.file.path]);
   else if (action === "unstage") void changes.unstage([current.file.path]);
   else if (action === "editor") void opener.openFile(current.file);
@@ -591,6 +612,23 @@ defineExpose({ focus: navigation.focus, moveFile, selectEdge });
         data-testid="menu-resolve"
         @select="conflictAction('resolve')"
       />
+      <template v-if="sequencer.sides">
+        <ContextMenuItem
+          :label="sideTexts.takeLabel(sequencer.sides.ours)"
+          :icon="ArrowLeftToLine"
+          :disabled="sequencer.busy"
+          data-testid="menu-take-ours"
+          @select="conflictAction('ours')"
+        />
+        <ContextMenuItem
+          :label="sideTexts.takeLabel(sequencer.sides.theirs)"
+          :icon="ArrowRightToLine"
+          :disabled="sequencer.busy"
+          data-testid="menu-take-theirs"
+          @select="conflictAction('theirs')"
+        />
+      </template>
+      <ContextMenuSeparator />
       <ContextMenuItem
         :label="t('fileMenu.openInEditor')"
         :icon="Code"

@@ -15,6 +15,20 @@ describe("errorText", () => {
     expect(errorText({ code: "something.else", message: "x" }).key).toBe("errors.generic");
   });
 
+  it("names the file a side or its Undo was refused for", () => {
+    const keys: [string, string][] = [
+      ["conflict.not_conflicted", "errors.notConflicted"],
+      ["conflict.gone", "errors.conflictGone"],
+      ["conflict.submodule", "errors.submoduleConflict"],
+    ];
+    for (const [code, key] of keys) {
+      expect(errorText({ code, message: "x" }, "src/a.ts")).toEqual({
+        key,
+        params: { path: "src/a.ts", message: "x" },
+      });
+    }
+  });
+
   it("names the index lock when git could not take it", () => {
     const locked = {
       code: "git.cli_failed",

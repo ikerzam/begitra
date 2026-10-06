@@ -2,7 +2,8 @@
 // The banner under the top bar while an operation is in progress: the
 // operation and its source, the conflict count, the hint, "Resolve…" from any other screen,
 // "Skip" where git has one, "Abort <operation>…" (confirmed once) and "Continue" (disabled
-// while a conflict remains). A refused continue shows git's words under the banner.
+// while a conflict remains). A refused continue shows git's words under the banner. The
+// confirmation of a conflicted file taken whole from one side, asked from any screen, is here.
 
 import { GitMerge } from "@lucide/vue";
 import { computed, watch } from "vue";
@@ -17,11 +18,29 @@ import { useRepoStore } from "@/stores/repo";
 import { useSequencerStore } from "@/stores/sequencer";
 import { useShellStore } from "@/stores/shell";
 
+import { useSideTexts } from "./useSideTexts";
+
 const { t } = useI18n();
 const sequencer = useSequencerStore();
 const changes = useChangesStore();
 const repo = useRepoStore();
 const shell = useShellStore();
+const sideTexts = useSideTexts();
+
+/** The confirmation of a side taken, while its file is still conflicted. */
+const takeDialog = computed(() => {
+  const prompt = sequencer.takePrompt;
+  const sides = sequencer.sides;
+  if (!prompt || !sides) return null;
+  const conflict = sequencer.conflicts.find((entry) => entry.path === prompt.path);
+  if (!conflict) return null;
+  return sideTexts.confirmation(sides, conflict.path, conflict.kind, prompt.side);
+});
+
+// A reload that took the file out of the conflicts (resolved elsewhere) closes the question.
+watch(takeDialog, (dialog) => {
+  if (dialog === null && sequencer.takePrompt !== null) sequencer.dismissTakeSide();
+});
 
 const operationName = computed(() => t(`sequencer.operations.${sequencer.operation}`));
 const branch = computed(() => repo.currentBranch?.name ?? "HEAD");
@@ -130,17 +149,27 @@ function confirmAbort(): void {
     <div v-if="failure" class="px-3 pb-3" data-testid="operation-failed">
       <ErrorBanner :message="failure.message" :output="failure.output" open />
     </div>
-    <Dialog
-      v-if="sequencer.abortPrompt"
-      :title="t('sequencer.banner.abortTitle', { operation: operationName.toLowerCase() })"
-      :body="t('sequencer.banner.abortBody')"
-      :confirm-label="
-        t('sequencer.banner.abortConfirm', { operation: operationName.toLowerCase() })
-      "
-      variant="destructive"
-      data-testid="abort-dialog"
-      @confirm="confirmAbort"
-      @cancel="sequencer.dismissAbort()"
-    />
   </div>
+  <!-- Outside the banner's live region, which would read a dialog in it once more. -->
+  <Dialog
+    v-if="sequencer.inProgress && sequencer.abortPrompt"
+    :title="t('sequencer.banner.abortTitle', { operation: operationName.toLowerCase() })"
+    :body="t('sequencer.banner.abortBody')"
+    :confirm-label="t('sequencer.banner.abortConfirm', { operation: operationName.toLowerCase() })"
+    variant="destructive"
+    data-testid="abort-dialog"
+    @confirm="confirmAbort"
+    @cancel="sequencer.dismissAbort()"
+  />
+  <Dialog
+    v-if="takeDialog"
+    :title="takeDialog.title"
+    :body="takeDialog.body"
+    :confirm-label="takeDialog.confirm"
+    :confirm-disabled="sequencer.busy"
+    variant="destructive"
+    data-testid="take-side-dialog"
+    @confirm="() => void sequencer.takeSide()"
+    @cancel="sequencer.dismissTakeSide()"
+  />
 </template>

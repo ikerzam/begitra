@@ -19,6 +19,7 @@ import type {
   Hunk,
   IndexEntry,
   MergePreview,
+  OperationSides,
   OperationState,
   Outcome,
   PatchSelection,
@@ -189,9 +190,20 @@ export interface FakeBackendOptions {
   remotes?: Remote[];
   /** What the operations that may stop on conflicts answer; done on a new commit by default. */
   outcome?: Outcome;
-  /** What `operation_state` and `conflicts` answer. */
+  /**
+   * What `operation_state` and `conflicts` answer; `take_side` takes paths out of the conflicts
+   * and `restore_conflicts` puts them back.
+   */
   operation?: OperationState;
   conflicts?: Conflict[];
+  /** What `operation_sides` answers; `FAKE_SIDES` while an operation is in progress by default. */
+  sides?: OperationSides | null;
+  /** `operation_sides`, `take_side` and `restore_conflicts` reject with these errors. */
+  sideErrors?: {
+    sides?: { code: string; message: string; detail?: string };
+    take?: { code: string; message: string; detail?: string };
+    restore?: { code: string; message: string; detail?: string };
+  };
   /** Apply, pop and drop reject with `stash.not_found` (the stash went outside the app). */
   stashGone?: boolean;
   /** `switch` rejects with git's "would be overwritten" message. */
@@ -226,6 +238,12 @@ export interface FakeBackendOptions {
 
 /** The hash the operations that move HEAD answer. */
 export const FAKE_OUTCOME_HASH = "beef00".padEnd(40, "0");
+
+/** The sides `operation_sides` answers while an operation is in progress: `main` and `develop`. */
+export const FAKE_SIDES: OperationSides = {
+  ours: { kind: "ref", name: "main" },
+  theirs: { kind: "ref", name: "develop" },
+};
 
 /** The progress lines every network command streams before its result. */
 export const FAKE_PROGRESS = ["Enumerating objects: 12, done.", "Writing objects: 100% (12/12)"];
@@ -405,6 +423,8 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
   const annotations: Record<string, Annotation[]> = options.annotations ?? {};
   let worktrees: Worktree[] = (options.worktrees ?? []).map((worktree) => ({ ...worktree }));
   let remotes: Remote[] = (options.remotes ?? []).map((remote) => ({ ...remote }));
+  /** The conflicts a side was taken for, by path, which `restore_conflicts` puts back. */
+  const taken = new Map<string, Conflict>();
   const copyProject = (project: Project): Project => ({
     ...project,
     members: project.members.map((member) => ({ ...member })),
@@ -1061,7 +1081,43 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
         case "operation_state":
           return options.operation ?? "none";
         case "conflicts":
-          return options.conflicts ?? [];
+          return (options.conflicts ?? []).map((conflict) => ({ ...conflict }));
+        case "operation_sides":
+          if (options.sideErrors?.sides) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject(options.sideErrors.sides);
+          }
+          if (options.sides !== undefined) return options.sides;
+          return (options.operation ?? "none") === "none" ? null : FAKE_SIDES;
+        case "take_side": {
+          if (options.sideErrors?.take) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject(options.sideErrors.take);
+          }
+          const paths = args["paths"] as string[];
+          const listed = options.conflicts ?? [];
+          for (const conflict of listed) {
+            if (paths.includes(conflict.path)) taken.set(conflict.path, conflict);
+          }
+          // A new list on the options, which tests may also replace: the caller's array stays.
+          options.conflicts = listed.filter((conflict) => !paths.includes(conflict.path));
+          return null;
+        }
+        case "restore_conflicts": {
+          if (options.sideErrors?.restore) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject(options.sideErrors.restore);
+          }
+          for (const path of args["paths"] as string[]) {
+            const conflict = taken.get(path);
+            if (!conflict) continue;
+            taken.delete(path);
+            options.conflicts = [...(options.conflicts ?? []), conflict].sort((a, b) =>
+              a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
+            );
+          }
+          return null;
+        }
         case "remotes":
           return remotes.map((remote) => ({ ...remote }));
         case "remote_add":

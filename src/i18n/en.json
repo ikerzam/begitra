@@ -242,6 +242,8 @@
     "skipping": "Skipping",
     "aborting": "Aborting",
     "markingResolved": "Marking resolved",
+    "takingSide": "Using a side's version",
+    "restoringConflict": "Bringing the conflict back",
     "addingRemote": "Adding remote",
     "removingRemote": "Removing remote",
     "fetching": "Fetching {remote}",
@@ -489,6 +491,7 @@
     "binaryFileBody": "Binary files have no lines to read; the viewer shows images only.",
     "unmergedTitle": "Unmerged file",
     "unmergedFile": "This file carries conflict markers. Resolve the conflict in your editor, then review the result.",
+    "unmergedFileSides": "This file carries conflict markers. Resolve it in your editor, or use one side's version whole: the other side's changes to it go.",
     "wouldConflict": "would conflict"
   },
   "palette": {
@@ -599,6 +602,9 @@
     "indexFolder": "Couldn't scan {path}. {message}",
     "watcherUnavailable": "Changes in this repository will not be detected automatically.",
     "stashNotFound": "That stash is no longer in the list: it was applied or dropped outside Begitra.",
+    "notConflicted": "{path} is no longer conflicted: nothing was written.",
+    "conflictGone": "The conflict of {path} can't be brought back: git no longer holds its sides.",
+    "submoduleConflict": "{path} is a submodule: check out the commit you want inside it, then mark it resolved.",
     "generic": "{message}"
   },
   "repoRow": {
@@ -958,6 +964,38 @@
     "conflicts": "Conflicts",
     "markResolved": "Mark resolved",
     "markAllResolved": "Mark all resolved",
+    "side": {
+      "use": {
+        "ref": "Use {name}'s version",
+        "commit": "Use the version from {hash}",
+        "before": "Use the version before {hash}"
+      },
+      "title": {
+        "ref": "Use {name}'s version of {file}?",
+        "commit": "Use the version of {file} from {hash}?",
+        "before": "Use the version of {file} before {hash}?"
+      },
+      "lost": {
+        "ref": "{name}'s changes to {path}",
+        "commit": "{hash}'s changes to {path}",
+        "before": "The revert of {hash} in {path}"
+      },
+      "holder": {
+        "ref": "{name}",
+        "commit": "{hash}",
+        "before": "the state before {hash}"
+      },
+      "body": "{lost}, and any edit made to it since the conflict, go, and the file is marked resolved. Undo in the toast brings the conflict back.",
+      "bodyDeleted": "{lost}, and any edit made to it since the conflict, go: the file is deleted, as {holder} has no version of it, and marked resolved. Undo in the toast brings the conflict back.",
+      "used": {
+        "ref": "Used {name}'s version of {file}",
+        "commit": "Used the version of {file} from {hash}",
+        "before": "Used the version of {file} before {hash}"
+      },
+      "undo": "Undo",
+      "takeFailed": "Couldn't use a side's version of {path}. {message}",
+      "undoFailed": "Couldn't bring back the conflict of {path}. {message}"
+    },
     "kinds": {
       "both-modified": "both modified",
       "both-added": "both added",

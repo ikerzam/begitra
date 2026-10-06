@@ -242,6 +242,8 @@
     "skipping": "Saltando",
     "aborting": "Abortando",
     "markingResolved": "Marcando como resuelto",
+    "takingSide": "Usando la versión de un lado",
+    "restoringConflict": "Recuperando el conflicto",
     "addingRemote": "Añadiendo el remoto",
     "removingRemote": "Eliminando el remoto",
     "fetching": "Trayendo {remote}",
@@ -489,6 +491,7 @@
     "binaryFileBody": "Los ficheros binarios no tienen líneas que leer; el visor solo muestra imágenes.",
     "unmergedTitle": "Fichero sin fusionar",
     "unmergedFile": "Este fichero lleva marcas de conflicto. Resuelve el conflicto en el editor y revisa el resultado.",
+    "unmergedFileSides": "Este fichero lleva marcas de conflicto. Resuélvelo en el editor, o usa entera la versión de un lado: los cambios del otro lado en él se pierden.",
     "wouldConflict": "entraría en conflicto"
   },
   "palette": {
@@ -599,6 +602,9 @@
     "indexFolder": "No se ha podido escanear {path}. {message}",
     "watcherUnavailable": "Los cambios en este repositorio no se detectarán automáticamente.",
     "stashNotFound": "Ese stash ya no está en la lista: se aplicó o se borró fuera de Begitra.",
+    "notConflicted": "{path} ya no tiene conflicto: no se escribió nada.",
+    "conflictGone": "El conflicto de {path} no se puede recuperar: git ya no guarda sus lados.",
+    "submoduleConflict": "{path} es un submódulo: haz checkout del commit que quieras dentro de él y márcalo como resuelto.",
     "generic": "{message}"
   },
   "repoRow": {
@@ -958,6 +964,38 @@
     "conflicts": "Conflictos",
     "markResolved": "Marcar como resuelto",
     "markAllResolved": "Marcar todo como resuelto",
+    "side": {
+      "use": {
+        "ref": "Usar la versión de {name}",
+        "commit": "Usar la versión de {hash}",
+        "before": "Usar la versión anterior a {hash}"
+      },
+      "title": {
+        "ref": "¿Usar en {file} la versión de {name}?",
+        "commit": "¿Usar en {file} la versión de {hash}?",
+        "before": "¿Usar en {file} la versión anterior a {hash}?"
+      },
+      "lost": {
+        "ref": "Los cambios de {name} en {path}",
+        "commit": "Los cambios de {hash} en {path}",
+        "before": "La reversión de {hash} en {path}"
+      },
+      "holder": {
+        "ref": "{name}",
+        "commit": "{hash}",
+        "before": "el estado anterior a {hash}"
+      },
+      "body": "{lost} y cualquier edición hecha en él desde el conflicto se pierden, y el fichero queda marcado como resuelto. Deshacer, en el aviso, recupera el conflicto.",
+      "bodyDeleted": "{lost} y cualquier edición hecha en él desde el conflicto se pierden: el fichero se borra, porque {holder} no tiene ninguna versión de él, y queda marcado como resuelto. Deshacer, en el aviso, recupera el conflicto.",
+      "used": {
+        "ref": "Se usó en {file} la versión de {name}",
+        "commit": "Se usó en {file} la versión de {hash}",
+        "before": "Se usó en {file} la versión anterior a {hash}"
+      },
+      "undo": "Deshacer",
+      "takeFailed": "No se pudo usar la versión de un lado de {path}. {message}",
+      "undoFailed": "No se pudo recuperar el conflicto de {path}. {message}"
+    },
     "kinds": {
       "both-modified": "modificado por ambos",
       "both-added": "añadido por ambos",

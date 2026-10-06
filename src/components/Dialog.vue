@@ -100,7 +100,9 @@ onBeforeUnmount(() => {
         <p v-if="props.body" :id="bodyId" class="text-md text-fg-secondary">{{ props.body }}</p>
         <slot />
       </div>
-      <div class="mt-2 flex shrink-0 items-center justify-end gap-2">
+      <!-- A confirm too long for the row (a long branch name) takes a row of its own and
+           truncates, so the footer stays inside the panel. -->
+      <div class="mt-2 flex shrink-0 flex-wrap items-center justify-end gap-2">
         <!-- An action of its own at the start of the footer ("Add repository…", "Delete project…"). -->
         <div v-if="$slots['footer-start']" class="mr-auto flex items-center">
           <slot name="footer-start" />
@@ -123,13 +125,14 @@ onBeforeUnmount(() => {
         </Button>
         <Button
           size="lg"
+          class="max-w-full"
           :variant="props.variant === 'destructive' ? 'destructive' : 'primary'"
           :disabled="props.confirmDisabled || props.busy"
           :icon="props.confirmIcon"
           data-testid="dialog-confirm"
           @click="emit('confirm')"
         >
-          {{ props.confirmLabel || t("dialog.confirm") }}
+          <span class="min-w-0 truncate">{{ props.confirmLabel || t("dialog.confirm") }}</span>
         </Button>
       </div>
     </div>
