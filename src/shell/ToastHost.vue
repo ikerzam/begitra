@@ -29,7 +29,14 @@ function onAction(toast: ToastEntry): void {
 }
 
 function messageOf(toast: ToastEntry): string {
-  return toast.key ? t(toast.key, toast.params ?? {}) : toast.message;
+  if (!toast.key) return toast.message;
+  const params = toast.params ?? {};
+  // A count `n` picks the message's plural form ("Cherry-picked 2 commits"), given as a number
+  // or as the string a store formats; vue-i18n reads only a number.
+  const n = typeof params["n"] === "string" ? Number(params["n"]) : params["n"];
+  return typeof n === "number" && Number.isInteger(n)
+    ? t(toast.key, params, n)
+    : t(toast.key, params);
 }
 
 function actionOf(toast: ToastEntry): string {
