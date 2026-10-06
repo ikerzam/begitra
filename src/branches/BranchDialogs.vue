@@ -2,8 +2,8 @@
 // The dialogs of the branch actions, one at a time from `branches.prompt`: create (name,
 // checkout), rename, set upstream, tag, reset (soft, mixed or hard, as radios)
 // and "Stash and switch" after a dirty switch was refused; the deletes of a branch and of a
-// tag are DeleteDialogs', the undo of a pushed commit UndoCommitDialog's. Each confirms
-// through the store.
+// tag are DeleteDialogs', the undo of a pushed commit UndoCommitDialog's, a branch another
+// worktree holds HeldWorktreeDialog's. Each confirms through the store.
 
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -23,6 +23,7 @@ import { useChangesStore } from "@/stores/changes";
 import { useRepoStore } from "@/stores/repo";
 
 import DeleteDialogs from "./DeleteDialogs.vue";
+import HeldWorktreeDialog from "./HeldWorktreeDialog.vue";
 import { validName } from "./names";
 import UndoCommitDialog from "./UndoCommitDialog.vue";
 
@@ -244,6 +245,7 @@ function confirm(): void {
     </Dialog>
 
     <UndoCommitDialog v-else-if="branches.prompt.kind === 'undoCommit'" />
+    <HeldWorktreeDialog v-else-if="branches.prompt.kind === 'heldElsewhere'" />
     <Dialog
       v-else-if="branches.prompt.kind === 'dirtySwitch'"
       :title="t('branches.dialogs.dirtySwitchTitle')"

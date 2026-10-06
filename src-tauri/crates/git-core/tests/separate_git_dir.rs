@@ -242,6 +242,7 @@ fn the_worktree_commands_name_a_git_directory_git_would_not_find() {
                 branch: WorktreeBranch::New {
                     name: "feature/added".to_owned(),
                     start: "HEAD".to_owned(),
+                    track: None,
                 },
             },
             &cancel,

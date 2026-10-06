@@ -202,7 +202,7 @@ export interface FakeBackendOptions {
   failNetwork?: boolean;
   /** The network commands of these repositories end with these errors. */
   networkErrors?: Record<string, { code: string; message: string; detail?: string }>;
-  /** `switch` and `branch_create` in these repositories reject with these errors. */
+  /** `switch`, `branch_create` and `branch_delete` in these repositories reject with these errors. */
   writeErrors?: Record<string, { code: string; message: string; detail?: string }>;
   /** `stash_push` answers false (nothing to save). */
   stashNothing?: boolean;
@@ -256,6 +256,7 @@ export function fakeWorktrees(): Worktree[] {
       locked: false,
       lockReason: null,
       prunable: false,
+      bare: false,
     },
     {
       path: "/wt/claude-auth",
@@ -267,6 +268,7 @@ export function fakeWorktrees(): Worktree[] {
       locked: false,
       lockReason: null,
       prunable: false,
+      bare: false,
     },
     {
       path: "/wt/gone",
@@ -278,6 +280,7 @@ export function fakeWorktrees(): Worktree[] {
       locked: true,
       lockReason: "review",
       prunable: true,
+      bare: false,
     },
   ];
 }
@@ -818,12 +821,22 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
             locked: false,
             lockReason: null,
             prunable: false,
+            bare: false,
           };
           worktrees = [...worktrees, added];
           return { ...added };
         }
         case "worktree_remove": {
           const path = args["path"] as string;
+          // As the bridge: the worktree the app has open cannot go.
+          if (path === args["repo"]) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({
+              code: "ipc.invalid_argument",
+              message: "Invalid argument path",
+              detail: "path: the open repository; open another worktree first",
+            });
+          }
           if (!args["force"] && options.dirtyWorktrees?.includes(path)) {
             // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
             return Promise.reject({
@@ -831,8 +844,11 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
               message: `the worktree ${path} has uncommitted changes`,
             });
           }
-          worktrees = worktrees.filter((worktree) => worktree.path !== path);
-          return null;
+          const removeIt = () => {
+            worktrees = worktrees.filter((worktree) => worktree.path !== path);
+            return null;
+          };
+          return options.writeGate ? options.writeGate.hold(cmd, removeIt) : removeIt();
         }
         case "worktree_prune": {
           const pruned = worktrees.filter((worktree) => worktree.prunable).map((w) => w.path);
@@ -1014,6 +1030,10 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
           }
           return null;
         case "branch_delete":
+          if (options.writeErrors?.[args["repo"] as string]) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject(options.writeErrors[args["repo"] as string]);
+          }
           if (options.unmergedBranch && !args["force"]) {
             // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
             return Promise.reject({

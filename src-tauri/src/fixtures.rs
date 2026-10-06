@@ -367,6 +367,7 @@ fn worktrees() -> Vec<Worktree> {
             locked: false,
             lock_reason: None,
             prunable: false,
+            bare: false,
         },
         Worktree {
             path: PathBuf::from("/wt/claude-auth"),
@@ -378,6 +379,7 @@ fn worktrees() -> Vec<Worktree> {
             locked: true,
             lock_reason: Some("agent running".to_owned()),
             prunable: false,
+            bare: false,
         },
         Worktree {
             path: PathBuf::from("/wt/gone"),
@@ -389,6 +391,7 @@ fn worktrees() -> Vec<Worktree> {
             locked: false,
             lock_reason: None,
             prunable: true,
+            bare: false,
         },
     ]
 }
@@ -896,6 +899,7 @@ fn write_fixtures() {
                 branch: WorktreeBranch::New {
                     name: "claude/fix-auth".to_owned(),
                     start: "main".to_owned(),
+                    track: None,
                 },
             },
             WorktreeAdd {

@@ -511,6 +511,11 @@ fn symbolic_head(repo: &Repository) -> GitResult<Option<String>> {
 fn checkouts(repo: &Repository, cancel: &Cancel) -> GitResult<HashMap<String, PathBuf>> {
     let mut map = HashMap::new();
     for worktree in worktrees::collect(repo, cancel)? {
+        // A bare main worktree holds the branch its HEAD names no more than git says it does:
+        // a linked worktree may check it out.
+        if worktree.bare {
+            continue;
+        }
         let Some(branch) = worktree.branch else {
             continue;
         };

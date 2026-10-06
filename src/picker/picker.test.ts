@@ -67,6 +67,7 @@ const worktrees: Worktree[] = [
     locked: false,
     lockReason: null,
     prunable: false,
+    bare: false,
   },
   {
     path: "/wt/claude-tiles",
@@ -78,6 +79,7 @@ const worktrees: Worktree[] = [
     locked: false,
     lockReason: null,
     prunable: false,
+    bare: false,
   },
 ];
 

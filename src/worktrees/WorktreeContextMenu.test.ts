@@ -15,6 +15,7 @@ const gone: WorktreeRow = {
   locked: false,
   lockReason: null,
   prunable: true,
+  bare: false,
   dirty: null,
   lastCommitAt: null,
   lastSubject: null,

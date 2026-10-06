@@ -29,7 +29,7 @@ const branchOptions = computed<SelectOption[]>(() => [
   ...form.freeBranches.value.map((name) => ({ value: name, label: name })),
 ]);
 const startOptions = computed<SelectOption[]>(() =>
-  form.localBranches.value.map((name) => ({ value: name, label: name })),
+  form.startChoices.value.map((choice) => ({ value: choice.ref, label: choice.label })),
 );
 const nameError = computed(() => (form.nameInvalid.value ? t("worktrees.add.invalidName") : ""));
 const pathError = computed(() => (form.pathExists.value ? t("worktrees.add.folderExists") : ""));
@@ -91,14 +91,24 @@ async function submit(): Promise<void> {
           :options="startOptions"
           data-testid="add-worktree-start"
         />
+        <p
+          v-if="form.tracks.value"
+          class="col-start-2 text-sm text-fg-muted"
+          data-testid="add-worktree-tracks"
+        >
+          {{ t("worktrees.add.tracks", { upstream: form.tracks.value }) }}
+        </p>
       </template>
       <label for="add-worktree-path" class="text-md text-fg-secondary">
         {{ t("worktrees.add.path") }}
       </label>
+      <!-- On a branch picked already ("New worktree…" on a free branch), the path is what is left
+           to look at: ↵ there adds. -->
       <Input
         id="add-worktree-path"
         v-model="form.path.value"
         :error="pathError"
+        :data-autofocus="form.isNew.value ? undefined : ''"
         data-testid="add-worktree-path"
         @input="form.editPath()"
       />

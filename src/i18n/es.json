@@ -684,6 +684,7 @@
       "namePlaceholder": "nombre de la rama",
       "invalidName": "No es un nombre de rama válido.",
       "startFrom": "Empezar desde",
+      "tracks": "Sigue a {upstream}",
       "path": "Ruta",
       "help": "Por defecto, {folder}/‹rama›. La carpeta no debe existir todavía.",
       "folderExists": "La carpeta no debe existir todavía."
@@ -697,11 +698,17 @@
     "remove": {
       "title": "¿Eliminar el worktree {folder}?",
       "body": "Borra la carpeta {path}. La rama {branch} se queda y se puede volver a sacar.",
-      "confirm": "Eliminar"
+      "bodyWithBranch": "Borra la carpeta {path}, y también la rama {branch} si git la ve fusionada.",
+      "bodyDetached": "Borra la carpeta {path}.",
+      "confirm": "Eliminar",
+      "confirmWithBranch": "Eliminar worktree y rama",
+      "deleteBranch": "Borrar también la rama {branch}"
     },
     "removeAnyway": {
       "title": "¿Eliminar el worktree {folder} de todos modos?",
       "body": "Tiene cambios sin confirmar, que se perderán. La rama {branch} se queda y se puede volver a sacar.",
+      "bodyWithBranch": "Tiene cambios sin confirmar, que se perderán. La rama {branch} también se borra si git la ve fusionada.",
+      "bodyDetached": "Tiene cambios sin confirmar, que se perderán.",
       "confirm": "Eliminar de todos modos"
     },
     "lockPrompt": {
@@ -712,7 +719,13 @@
       "confirm": "Bloquear"
     },
     "removeMenu": "Eliminar worktree…",
-    "count": "{n} worktree enlazado | {n} worktrees enlazados"
+    "count": "{n} worktree enlazado | {n} worktrees enlazados",
+    "removedWithBranch": "Eliminado el worktree {folder} y borrada la rama {name}",
+    "removedBranchKept": "Eliminado el worktree {folder}. git ve la rama {name} sin fusionar del todo, así que se queda: sin el worktree, ningún reflog devolvería sus commits.",
+    "removedBranchFailed": "Eliminado el worktree {folder}; git no borró la rama {name}. {message}",
+    "removedBranchNoHost": "Eliminado el worktree {folder}. La rama {name} se queda: no queda otro worktree desde el que borrarla.",
+    "added": "Worktree añadido",
+    "open": "Abrir"
   },
   "changes": {
     "title": "Cambios",
@@ -791,6 +804,8 @@
     "menu": "Acciones de la rama",
     "checkout": "Cambiar a esta rama",
     "createHere": "Crear rama aquí…",
+    "newWorktree": "Nuevo worktree…",
+    "openWorktree": "Abrir worktree",
     "mergeInto": "Fusionar en {branch}",
     "rebaseOnto": "Rebasar {branch} sobre esta",
     "compareWith": "Comparar con…",
@@ -883,7 +898,9 @@
       "deleteTagBody": "La etiqueta se borra. Las etiquetas no tienen reflog: el aviso guarda su hash, y git tag la recupera hasta que pase git gc.",
       "deleteTag": "Borrar la etiqueta",
       "deleteTagOnRemoteToo": "Borrarla también en {remote}",
-      "onRemoteConsequence": "{name} desaparece de {remote} para todos los que lo usan; el aviso guarda el comando que la restaura."
+      "onRemoteConsequence": "{name} desaparece de {remote} para todos los que lo usan; el aviso guarda el comando que la restaura.",
+      "heldTitle": "{branch} está activa en otro worktree",
+      "heldBody": "Una rama solo puede estar en un worktree a la vez: {branch} está en {folder}."
     },
     "checkoutDetached": "Ir a este commit (sin rama)",
     "pullInto": "Pull a {branch}…",

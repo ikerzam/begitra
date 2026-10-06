@@ -728,14 +728,15 @@ describe("ChangesLayout, commit and push around other work", () => {
       rootIsPath: true,
     });
     await commitPush(wrapper.get('[data-testid="commit-subject"]'));
-    await settled();
-    expect(gate.waiting).toEqual(["commit"]);
+    // Waited for, not counted in turns: under a loaded test run the steps take longer.
+    await vi.waitFor(() => expect(gate.waiting).toEqual(["commit"]));
     await useRepoStore().open("/other");
     await settled();
     gate.release();
-    await settled();
+    await vi.waitFor(() =>
+      expect(useToastsStore().toasts.at(-1)?.key).toBe("changes.committedNotPushed"),
+    );
     expect(of(calls, "push")).toHaveLength(0);
-    expect(useToastsStore().toasts.at(-1)?.key).toBe("changes.committedNotPushed");
     wrapper.unmount();
   });
 

@@ -433,6 +433,8 @@ export const WorktreeSchema = v.object({
   locked: v.boolean(),
   lockReason: v.nullable(v.string()),
   prunable: v.boolean(),
+  /** The main worktree of a bare repository: no working tree, no HEAD, no branch. */
+  bare: v.optional(v.boolean(), false),
 });
 export type Worktree = v.InferOutput<typeof WorktreeSchema>;
 
@@ -603,7 +605,16 @@ export type StashPush = v.InferOutput<typeof StashPushSchema>;
 
 /** What a new worktree checks out. */
 export const WorktreeBranchSchema = v.variant("kind", [
-  v.object({ kind: v.literal("new"), name: v.string(), start: v.string() }),
+  /**
+   * `track`: true tracks `start` (`--track`), false tracks nothing (`--no-track`), whatever
+   * `branch.autoSetupMerge` says; absent leaves it to git's setting.
+   */
+  v.object({
+    kind: v.literal("new"),
+    name: v.string(),
+    start: v.string(),
+    track: v.optional(v.boolean()),
+  }),
   v.object({ kind: v.literal("existing"), name: v.string() }),
   v.object({ kind: v.literal("detached"), rev: v.string() }),
 ]);
@@ -866,7 +877,12 @@ export const commandArgs = {
     request: v.object({
       path: worktreePath,
       branch: v.variant("kind", [
-        v.object({ kind: v.literal("new"), name: revision, start: revision }),
+        v.object({
+          kind: v.literal("new"),
+          name: revision,
+          start: revision,
+          track: v.optional(v.boolean()),
+        }),
         v.object({ kind: v.literal("existing"), name: revision }),
         v.object({ kind: v.literal("detached"), rev: revision }),
       ]),

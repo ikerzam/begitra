@@ -67,7 +67,7 @@ fn validate_path(field: &str, path: &Path) -> Result<(), AppError> {
 fn validate_add(request: &WorktreeAdd) -> Result<(), AppError> {
     validate_path("path", &request.path)?;
     match &request.branch {
-        WorktreeBranch::New { name, start } => {
+        WorktreeBranch::New { name, start, .. } => {
             validate_text("name", name)?;
             validate_text("start", start)
         }
@@ -260,6 +260,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_new_branch_without_track_leaves_tracking_to_git() {
+        let request: WorktreeAdd = serde_json::from_str(
+            r#"{"path":"/x","branch":{"kind":"new","name":"t","start":"main"}}"#,
+        )
+        .expect("a request without track");
+        assert!(matches!(
+            request.branch,
+            WorktreeBranch::New { track: None, .. }
+        ));
+    }
+
+    #[test]
     fn add_requests_are_validated() {
         let temp = std::env::temp_dir();
         let free = temp.join("begitra-no-such-folder-for-tests");
@@ -268,6 +280,7 @@ mod tests {
             branch: WorktreeBranch::New {
                 name: "topic".to_owned(),
                 start: "main".to_owned(),
+                track: None,
             },
         };
         assert!(validate_add(&ok).is_ok());

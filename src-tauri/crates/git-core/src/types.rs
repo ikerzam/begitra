@@ -231,6 +231,13 @@ pub enum WorktreeBranch {
         name: String,
         /// The revision the branch starts at.
         start: String,
+        /// Whether the branch tracks `start`, whatever `branch.autoSetupMerge` says: `Some(true)`
+        /// is `--track` (`start` must then be a branch: git refuses a tag, a commit or a
+        /// remote-tracking ref no fetch refspec maps, and nothing is created), `Some(false)`
+        /// `--no-track`; `None` leaves it to git's setting (by default, a remote-tracking start
+        /// is tracked). Left out of the JSON when `None`, as the frontend leaves it out.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        track: Option<bool>,
     },
     /// An existing local branch that no worktree has checked out.
     Existing {
@@ -714,6 +721,11 @@ pub struct Worktree {
     pub lock_reason: Option<String>,
     /// Whether `git worktree prune` would remove it (its folder is missing).
     pub prunable: bool,
+    /// The main worktree of a bare repository, which has no working tree: its `branch` is the
+    /// one HEAD names (the dashboard's comparison base), which it does not hold, so a linked
+    /// worktree may check it out, as git allows; `git worktree list` shows it as `bare`.
+    #[serde(default)]
+    pub bare: bool,
 }
 
 /// What a selection of changed lines is applied to.

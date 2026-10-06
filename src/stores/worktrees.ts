@@ -14,6 +14,7 @@ import type { RepoChangeKind, WorktreeAdd } from "@/ipc/schemas";
 import { arm } from "@/motion/motion";
 import { baseName, sameFolder } from "@/shell/format";
 
+import { isUnmergedDelete } from "./branches";
 import { useCompareStore } from "./compare";
 import { useIndexStore } from "./index";
 import { useOperationsStore } from "./operations";
@@ -21,6 +22,7 @@ import { useProjectsStore } from "./projects";
 import { useRepoStore } from "./repo";
 import { useSettingsStore } from "./settings";
 import { useShellStore } from "./shell";
+import { useToastsStore } from "./toasts";
 
 /** One row of the dashboard. */
 export interface WorktreeRow {
@@ -34,6 +36,8 @@ export interface WorktreeRow {
   locked: boolean;
   lockReason: string | null;
   prunable: boolean;
+  /** The main worktree of a bare repository, which has no working tree to run git in. */
+  bare: boolean;
   /** From the index; null when unknown or not refreshed yet. */
   dirty: boolean | null;
   lastCommitAt: number | null;
@@ -46,14 +50,24 @@ export interface WorktreeRow {
 
 /** What the layout asks the user before a write. */
 export type WorktreePrompt =
-  | { kind: "remove"; path: string; force: boolean }
+  /** `branch`: the branch the removal deletes too, once the worktree is gone. */
+  | { kind: "remove"; path: string; force: boolean; branch?: string | null }
   | { kind: "prune"; paths: string[] }
   | { kind: "lock"; path: string };
+
+/**
+ * What the add dialog starts from, when a branch's "New worktree…" opens it: an existing
+ * branch, or a new branch from `start`, named `name` and tracking `start` when `track`.
+ */
+export type AddPreset =
+  | { kind: "existing"; branch: string }
+  | { kind: "new"; start: string; name: string; track: boolean };
 
 export const useWorktreesStore = defineStore("worktrees", () => {
   const repo = useRepoStore();
   const index = useIndexStore();
   const settings = useSettingsStore();
+  const toasts = useToastsStore();
   const shell = useShellStore();
   const compare = useCompareStore();
   const operations = useOperationsStore();
@@ -67,6 +81,8 @@ export const useWorktreesStore = defineStore("worktrees", () => {
   /** The path the failed write concerned, for the missing-folder banner. */
   const errorPath = ref<string | null>(null);
   const addOpen = ref(false);
+  /** What the add dialog starts from; null for its defaults. */
+  const addPreset = ref<AddPreset | null>(null);
   const prompt = ref<WorktreePrompt | null>(null);
   const aheadBehind = ref(new Map<string, { ahead: number; behind: number }>());
   /** Locks and unlocks asked and not yet read back: the rows show them before git answers. */
@@ -101,6 +117,7 @@ export const useWorktreesStore = defineStore("worktrees", () => {
         locked: asked ? asked.locked : worktree.locked,
         lockReason: asked ? asked.reason : worktree.lockReason,
         prunable: worktree.prunable,
+        bare: worktree.bare,
         dirty: summary?.dirty ?? null,
         lastCommitAt: summary?.lastCommitAt ?? tip?.author.time ?? null,
         lastSubject: tip?.subject ?? null,
@@ -282,10 +299,22 @@ export const useWorktreesStore = defineStore("worktrees", () => {
       // The new worktree joins the open project.
       void useProjectsStore().join(added.path);
       addOpen.value = false;
+      addPreset.value = null;
       clearError();
       void load();
       // A new branch (`-b`) and the branch's worktree marker come with the refs.
       void repo.refreshRefs();
+      // Away from the dashboard (a branch's "New worktree…"), the toast says where it went.
+      if (shell.layoutMode !== "worktrees") {
+        toasts.push({
+          kind: "success",
+          message: "",
+          key: "worktrees.added",
+          params: { folder: baseName(added.path) },
+          actionKey: "worktrees.open",
+          onAction: () => void openAsContext(added.path),
+        });
+      }
       return added.path;
     } catch (failed) {
       error.value = toAppError(failed);
@@ -300,15 +329,23 @@ export const useWorktreesStore = defineStore("worktrees", () => {
   }
 
   /**
-   * Removes a worktree. Without `force`, git's refusal of a dirty worktree opens the second
-   * prompt ("Remove anyway") instead of failing.
+   * Removes a worktree, and then `branch` when given, in the same repository as soon as git
+   * removed the worktree (git refuses to delete a branch a worktree holds). Without `force`,
+   * git's refusal of a dirty worktree opens the second prompt ("Remove anyway"), which keeps
+   * the branch asked.
    */
-  async function remove(path: string, force: boolean): Promise<boolean> {
+  async function remove(
+    path: string,
+    force: boolean,
+    branch: string | null = null,
+  ): Promise<boolean> {
     const root = repo.repo?.root;
     // A removal already running deletes the same folder: a second one would only fail.
     if (!root || removing.value.includes(path)) return false;
     prompt.value = null;
     clearError();
+    // Where the branch is deleted, chosen before the list loses the worktree.
+    const host = branch !== null ? hostFor(path, root) : null;
     const opId = newOpId("worktree-remove");
     removing.value = [...removing.value, path];
     operations.start(opId, "operations.removingWorktree", undefined, {
@@ -319,7 +356,7 @@ export const useWorktreesStore = defineStore("worktrees", () => {
     } catch (failed) {
       const appError = toAppError(failed);
       if (appError.code === "worktree.dirty" && !force) {
-        prompt.value = { kind: "remove", path, force: true };
+        prompt.value = { kind: "remove", path, force: true, branch };
         return false;
       }
       error.value = appError;
@@ -334,8 +371,71 @@ export const useWorktreesStore = defineStore("worktrees", () => {
     arm("worktrees");
     repo.patchWorktrees((listed) => listed.filter((worktree) => worktree.path !== path));
     gone([path]);
+    if (branch !== null) await deleteBranchOf(root, host, path, branch);
     await load();
     return true;
+  }
+
+  /**
+   * A worktree of the same repository that the removal of `path` leaves on disk, where its
+   * branch can be deleted: the main one first (`git branch -d` without an upstream checks the
+   * branch against HEAD there, so "merged" reads as merged into the main branch), else the open
+   * one, else another; never a missing folder or a bare main worktree, which the engine does
+   * not open (git itself could run there).
+   */
+  function hostFor(path: string, root: string): string | null {
+    const others = rows.value.filter(
+      (row) => !sameFolder(row.path, path) && !row.prunable && !row.bare,
+    );
+    const pick =
+      others.find((row) => row.isMain) ??
+      others.find((row) => sameFolder(row.path, root)) ??
+      others[0];
+    return pick?.path ?? null;
+  }
+
+  /**
+   * The branch a removed worktree held, deleted with `git branch -d` in `host`, a worktree of
+   * the repository the worktree was removed from (`root`), whichever is open now. Never `-D`:
+   * with its worktree gone, an unmerged branch's commits would have no reflog left, so git's
+   * refusal keeps the branch and the toast says why.
+   */
+  async function deleteBranchOf(
+    root: string,
+    host: string | null,
+    path: string,
+    branch: string,
+  ): Promise<void> {
+    const params = { folder: baseName(path), name: branch };
+    if (host === null) {
+      toasts.push({ kind: "info", message: "", key: "worktrees.removedBranchNoHost", params });
+      return;
+    }
+    const opId = newOpId("branch-delete");
+    operations.start(opId, "operations.deletingBranch");
+    try {
+      await ipc.branchDelete(host, branch, false, opId);
+      if (repo.repo?.root === root) {
+        repo.patchRefs({ kind: "delete", fullName: `refs/heads/${branch}` });
+        void repo.refreshRefs();
+      }
+      toasts.push({ kind: "success", message: "", key: "worktrees.removedWithBranch", params });
+    } catch (failure) {
+      const refused = toAppError(failure);
+      toasts.push(
+        isUnmergedDelete(refused)
+          ? { kind: "info", message: "", key: "worktrees.removedBranchKept", params }
+          : {
+              kind: "error",
+              message: "",
+              key: "worktrees.removedBranchFailed",
+              params: { ...params, message: refused.message },
+              output: refused.detail ?? refused.message,
+            },
+      );
+    } finally {
+      operations.finish(opId);
+    }
   }
 
   /**
@@ -417,13 +517,15 @@ export const useWorktreesStore = defineStore("worktrees", () => {
     prompt.value = null;
   }
 
-  function openAdd(): void {
+  function openAdd(preset: AddPreset | null = null): void {
     clearError();
+    addPreset.value = preset;
     addOpen.value = true;
   }
 
   function closeAdd(): void {
     addOpen.value = false;
+    addPreset.value = null;
     clearError();
   }
 
@@ -487,6 +589,7 @@ export const useWorktreesStore = defineStore("worktrees", () => {
     errorPath,
     errorIsMissingFolder,
     addOpen,
+    addPreset,
     prompt,
     mainBranch,
     worktreeFolder,

@@ -1,11 +1,13 @@
 <script setup lang="ts">
 // The one confirmation of each worktree write, through `Dialog`: remove (the folder goes,
-// the branch stays), remove anyway (git refused a dirty worktree: the changes will be lost),
-// prune (the entries whose folders are missing) and lock (with an optional reason).
+// the branch stays unless "Delete the branch too" is ticked), remove anyway (git refused a
+// dirty worktree: the changes will be lost; the tick kept), prune (the entries whose folders
+// are missing) and lock (with an optional reason).
 
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
+import Checkbox from "@/components/Checkbox.vue";
 import Dialog from "@/components/Dialog.vue";
 import Input from "@/components/Input.vue";
 import { baseName } from "@/shell/format";
@@ -16,6 +18,8 @@ const props = defineProps<{ prompt: WorktreePrompt }>();
 const { t } = useI18n();
 const worktrees = useWorktreesStore();
 const reason = ref("");
+/** "Delete the branch too", as the prompt asked it (kept from the first confirmation). */
+const deleteBranch = ref(props.prompt.kind === "remove" && Boolean(props.prompt.branch));
 
 /** The path the prompt concerns; none for prune. */
 const path = computed(() => {
@@ -24,6 +28,9 @@ const path = computed(() => {
 });
 const row = computed(() => worktrees.rows.find((entry) => entry.path === path.value) ?? null);
 const folder = computed(() => (path.value === null ? "" : baseName(path.value)));
+/** The branch the worktree holds; null when detached, and on an orphan branch with no commit yet,
+ * which has no ref to delete or keep. */
+const branchName = computed(() => (row.value?.head ? (row.value.branch ?? null) : null));
 
 const title = computed(() => {
   switch (props.prompt.kind) {
@@ -40,10 +47,11 @@ const title = computed(() => {
 const body = computed(() => {
   switch (props.prompt.kind) {
     case "remove": {
-      const branch = row.value?.branch ?? "";
-      return props.prompt.force
-        ? t("worktrees.removeAnyway.body", { branch })
-        : t("worktrees.remove.body", { path: props.prompt.path, branch });
+      const branch = branchName.value;
+      // A detached worktree holds no branch: nothing stays or goes with it.
+      const which = branch === null ? "Detached" : deleteBranch.value ? "WithBranch" : "";
+      const key = props.prompt.force ? "worktrees.removeAnyway.body" : "worktrees.remove.body";
+      return t(`${key}${which}`, { path: props.prompt.path, branch: branch ?? "" });
     }
     case "prune":
       return t("worktrees.prune.body", {
@@ -57,8 +65,10 @@ const body = computed(() => {
 const confirmLabel = computed(() => {
   switch (props.prompt.kind) {
     case "remove":
-      return props.prompt.force
-        ? t("worktrees.removeAnyway.confirm")
+      // "Remove anyway" names the force whatever goes with it; the body says the branch does.
+      if (props.prompt.force) return t("worktrees.removeAnyway.confirm");
+      return deleteBranch.value && branchName.value !== null
+        ? t("worktrees.remove.confirmWithBranch")
         : t("worktrees.remove.confirm");
     case "prune":
       return t("worktrees.prune.confirm");
@@ -72,7 +82,11 @@ function confirm(): void {
   const prompt = props.prompt;
   switch (prompt.kind) {
     case "remove":
-      void worktrees.remove(prompt.path, prompt.force);
+      void worktrees.remove(
+        prompt.path,
+        prompt.force,
+        deleteBranch.value ? branchName.value : null,
+      );
       break;
     case "prune":
       void worktrees.prune();
@@ -94,6 +108,12 @@ function confirm(): void {
     @confirm="confirm"
     @cancel="worktrees.dismissPrompt()"
   >
+    <Checkbox
+      v-if="props.prompt.kind === 'remove' && branchName !== null"
+      v-model="deleteBranch"
+      :label="t('worktrees.remove.deleteBranch', { branch: branchName })"
+      data-testid="remove-delete-branch"
+    />
     <Input
       v-if="props.prompt.kind === 'lock'"
       v-model="reason"

@@ -8,7 +8,8 @@
     "isMain": true,
     "locked": false,
     "lockReason": null,
-    "prunable": false
+    "prunable": false,
+    "bare": false
   },
   {
     "path": "/wt/claude-auth",
@@ -19,7 +20,8 @@
     "isMain": false,
     "locked": true,
     "lockReason": "agent running",
-    "prunable": false
+    "prunable": false,
+    "bare": false
   },
   {
     "path": "/wt/gone",
@@ -30,6 +32,7 @@
     "isMain": false,
     "locked": false,
     "lockReason": null,
-    "prunable": true
+    "prunable": true,
+    "bare": false
   }
 ]

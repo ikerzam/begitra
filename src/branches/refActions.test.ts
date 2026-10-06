@@ -4,12 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defineComponent, h, nextTick } from "vue";
 
 import type { Ref, Remote } from "@/ipc/schemas";
-import { targetName, useBranchesStore } from "@/stores/branches";
+import { heldWorktreeOf, targetName, useBranchesStore } from "@/stores/branches";
 import { useRemotesStore } from "@/stores/remotes";
 import { useRepoStore } from "@/stores/repo";
 import { memoryStorage, useSettingsStore } from "@/stores/settings";
 import { useStashStore } from "@/stores/stash";
 import { useToastsStore } from "@/stores/toasts";
+import { useWorktreesStore } from "@/stores/worktrees";
 import {
   FAKE_TAG_OBJECT,
   fakeBackend,
@@ -97,6 +98,17 @@ afterEach(() => {
 });
 
 describe("the actions of a ref by its kind", () => {
+  it("reads the folder git names for a branch another worktree holds, apostrophes included", () => {
+    const refused = (detail: string) => heldWorktreeOf({ message: "git switch failed", detail });
+    expect(refused("fatal: 'apos' is already used by worktree at 'C:/x/it's here/wt'")).toBe(
+      "C:/x/it's here/wt",
+    );
+    // git before 2.42.
+    expect(refused("fatal: 'b' is already checked out at '/home/i/wt b'\n")).toBe("/home/i/wt b");
+    // A translated git: not read, the error toast stays.
+    expect(refused("fatal: 'b' ya está en uso por el árbol de trabajo en '/wt'")).toBeNull();
+  });
+
   it("names a checkout's target whole, and shortens only a commit's hash", () => {
     expect(targetName({ kind: "branch", name: "feature/x" })).toBe("feature/x");
     expect(targetName({ kind: "detached", rev: "refs/tags/v1.2.0" })).toBe("v1.2.0");
@@ -294,6 +306,130 @@ describe("RefMenu", () => {
 
   const item = (wrapper: Awaited<ReturnType<typeof menu>>, id: string) =>
     wrapper.get(`[data-testid="menu-${id}"]`);
+
+  /** `main` checked out here, `claude/fix-auth` in a linked worktree, the rest free. */
+  const held: Ref[] = [
+    { ...main, worktree: "/r" },
+    ref("claude/fix-auth", "local-branch", { worktree: "/wt/claude-auth" }),
+    ...refs.slice(1),
+  ];
+
+  it("opens the add dialog set for the branch from New worktree…, never for a tag", async () => {
+    await open({ refs: held });
+    const worktrees = useWorktreesStore();
+    const choose = async (target: Ref) => {
+      const wrapper = await menu(target);
+      await item(wrapper, "new-worktree").trigger("click");
+      await settled();
+      wrapper.unmount();
+      return worktrees.addPreset;
+    };
+    const named = (name: string) => held.find((entry) => entry.name === name)!;
+    expect(await choose(named("develop"))).toEqual({ kind: "existing", branch: "develop" });
+    // Held by a worktree, this one or another: a new branch from it.
+    expect(await choose(named("main"))).toEqual({
+      kind: "new",
+      start: "refs/heads/main",
+      name: "",
+      track: false,
+    });
+    expect(await choose(named("claude/fix-auth"))).toEqual({
+      kind: "new",
+      start: "refs/heads/claude/fix-auth",
+      name: "",
+      track: false,
+    });
+    // A remote branch: a new branch of its name that tracks it, or its local branch.
+    expect(await choose(named("origin/feature/x"))).toEqual({
+      kind: "new",
+      start: "refs/remotes/origin/feature/x",
+      name: "feature/x",
+      track: true,
+    });
+    expect(await choose(named("origin/develop"))).toEqual({ kind: "existing", branch: "develop" });
+    expect(worktrees.addOpen).toBe(true);
+    const tag = await menu(named("v1.2.0"));
+    expect(tag.find('[data-testid="menu-new-worktree"]').exists()).toBe(false);
+    tag.unmount();
+    // A remote branch whose remote is no longer listed: nothing to set up from.
+    const gone = await menu(named("gone/old"));
+    expect(gone.find('[data-testid="menu-new-worktree"]').exists()).toBe(false);
+    gone.unmount();
+  });
+
+  it("offers Open worktree on a local branch another worktree holds, and opens it", async () => {
+    await open({ refs: held });
+    const spy = vi.spyOn(useWorktreesStore(), "openAsContext").mockResolvedValue();
+    const own = await menu(held[0]!);
+    expect(own.find('[data-testid="menu-open-worktree"]').exists()).toBe(false);
+    own.unmount();
+    const other = await menu(held[1]!);
+    expect(item(other, "open-worktree").text()).toContain("Open worktree");
+    await item(other, "open-worktree").trigger("click");
+    expect(spy).toHaveBeenCalledWith("/wt/claude-auth");
+    other.unmount();
+  });
+
+  it("never takes the current branch for one held elsewhere, whatever spelling its folder has", async () => {
+    // Opened through a junction: the listing names the real folder.
+    const linked = [{ ...main, worktree: "C:/real/wt" }, ...refs.slice(1)];
+    await open({ refs: linked });
+    const wrapper = await menu(linked[0]!);
+    expect(wrapper.find('[data-testid="menu-open-worktree"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("leads a checkout of a branch another worktree holds to that worktree, git untouched", async () => {
+    const calls = await open({ refs: held });
+    const branches = useBranchesStore();
+    const wrapper = mountWithI18n(BranchDialogs, { attachTo: document.body });
+    expect(await branches.checkout({ kind: "branch", name: "claude/fix-auth" })).toBe(false);
+    expect(of(calls, "switch")).toHaveLength(0);
+    expect(branches.prompt).toEqual({
+      kind: "heldElsewhere",
+      branch: "claude/fix-auth",
+      path: "/wt/claude-auth",
+    });
+    await nextTick();
+    const dialog = wrapper.get('[data-testid="held-worktree-dialog"]');
+    expect(dialog.text()).toContain("claude/fix-auth is checked out in another worktree");
+    expect(dialog.text()).toContain("claude/fix-auth is in claude-auth.");
+    expect(dialog.get('[data-testid="held-worktree-path"]').text()).toBe("/wt/claude-auth");
+    const spy = vi.spyOn(useWorktreesStore(), "openAsContext").mockResolvedValue();
+    await dialog.get('[data-testid="dialog-confirm"]').trigger("click");
+    expect(spy).toHaveBeenCalledWith("/wt/claude-auth");
+    expect(branches.prompt).toBeNull();
+    // A remote branch whose local branch another worktree holds goes the same way.
+    expect(
+      await branches.checkoutRemote("refs/remotes/origin/claude/fix-auth", {
+        remote: "origin",
+        branch: "claude/fix-auth",
+      }),
+    ).toBe(false);
+    expect(branches.prompt).toMatchObject({ kind: "heldElsewhere", path: "/wt/claude-auth" });
+    expect(of(calls, "switch")).toHaveLength(0);
+    wrapper.unmount();
+  });
+
+  it("reads git's refusal of a branch the listing did not know as held by another worktree", async () => {
+    const calls = await open({
+      writeErrors: {
+        "/r": {
+          code: "git.cli_failed",
+          message: "git switch failed",
+          detail: "fatal: 'develop' is already used by worktree at 'C:/wt/dev'",
+        },
+      },
+    });
+    const branches = useBranchesStore();
+    expect(await branches.checkout({ kind: "branch", name: "develop" })).toBe(false);
+    expect(of(calls, "switch")).toHaveLength(1);
+    expect(branches.prompt).toEqual({
+      kind: "heldElsewhere",
+      branch: "develop",
+      path: "C:/wt/dev",
+    });
+  });
 
   it("gives the stash badge its own menu, which runs on the stash the badge names", async () => {
     const calls = await open();

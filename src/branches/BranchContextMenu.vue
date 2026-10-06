@@ -1,15 +1,18 @@
 <script setup lang="ts">
 // The menu of a branch row or a ref badge, by the ref's kind. A local branch:
-// Checkout (↵), Create branch here…, Merge into <current>, Rebase <current> onto this, Compare
-// with… (⇧⌘C), Rename…, Set upstream…, Push (⇧⌘P), Copy branch name, Delete…. A remote branch:
-// Checkout (a local branch that tracks it), create, merge, rebase, compare, Pull into
-// <current>…, Fetch <remote>, copy, Delete on <remote>…. A tag: Checkout (detached), create,
+// Checkout (↵), Create branch here…, New worktree…, Open worktree (when another worktree holds
+// it), Merge into <current>, Rebase <current> onto this, Compare with… (⇧⌘C), Rename…, Set
+// upstream…, Push (⇧⌘P), Copy branch name, Delete…. A remote branch: Checkout (a local branch
+// that tracks it), create, New worktree…, merge, rebase, compare, Pull into <current>…, Fetch
+// <remote>, copy, Delete on <remote>…. A tag: Checkout (detached), create,
 // compare, Push tag…, copy, Delete tag…. The stash badge has a menu of its own (StashBadgeMenu).
 
 import {
   Cloud,
   Copy,
   Download,
+  FolderOpen,
+  FolderPlus,
   GitBranch,
   GitBranchPlus,
   GitCompareArrows,
@@ -27,6 +30,8 @@ import ContextMenu from "@/components/ContextMenu.vue";
 import ContextMenuItem from "@/components/ContextMenuItem.vue";
 import ContextMenuSeparator from "@/components/ContextMenuSeparator.vue";
 import type { Ref as GitRef } from "@/ipc/schemas";
+import { sameFolder } from "@/shell/format";
+import { useRepoStore } from "@/stores/repo";
 import { useShortcutHint } from "@/shortcuts/useShortcut";
 
 import type { RemoteBranch } from "./names";
@@ -47,12 +52,25 @@ const props = defineProps<{
 const emit = defineEmits<{ close: []; choose: [kind: BranchAction] }>();
 
 const { t } = useI18n();
+const repo = useRepoStore();
 const compareHint = useShortcutHint("compare-with");
 const pushHint = useShortcutHint("push");
 
 const isLocal = computed(() => props.target.kind === "local-branch");
 const isRemote = computed(() => props.target.kind === "remote-branch");
 const isTag = computed(() => props.target.kind === "tag");
+/** Another worktree than the open one holds the local branch: "Open worktree" leads there. */
+const heldElsewhere = computed(() => {
+  const worktree = props.target.worktree;
+  const root = repo.repo?.root;
+  return (
+    isLocal.value &&
+    !props.target.isCurrent &&
+    worktree !== null &&
+    root !== undefined &&
+    !sameFolder(worktree, root)
+  );
+});
 /** The current branch cannot be merged or rebased onto itself. */
 const isCurrent = computed(() => props.target.isCurrent);
 const currentName = computed(() => props.current ?? "HEAD");
@@ -82,6 +100,20 @@ const label = computed(() =>
       :icon="GitBranchPlus"
       data-testid="menu-create"
       @select="emit('choose', 'createHere')"
+    />
+    <ContextMenuItem
+      v-if="isLocal || (isRemote && remoteName !== null)"
+      :label="t('branches.newWorktree')"
+      :icon="FolderPlus"
+      data-testid="menu-new-worktree"
+      @select="emit('choose', 'newWorktree')"
+    />
+    <ContextMenuItem
+      v-if="heldElsewhere"
+      :label="t('branches.openWorktree')"
+      :icon="FolderOpen"
+      data-testid="menu-open-worktree"
+      @select="emit('choose', 'openWorktree')"
     />
     <ContextMenuSeparator />
     <template v-if="!isTag">

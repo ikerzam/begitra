@@ -98,10 +98,30 @@ pub(super) fn add(
     request: &WorktreeAdd,
     cancel: &Cancel,
 ) -> GitResult<Worktree> {
+    // A branch that tracks a remote-tracking ref needs the one remote that fetches it: git
+    // creates the branch first, then refuses to track it and leaves it behind (no remote, or
+    // two that claim the ref), so the remote is asked of libgit2 first, as `branch_create`
+    // asks it.
+    if let WorktreeBranch::New {
+        start,
+        track: Some(true),
+        ..
+    } = &request.branch
+    {
+        if start.starts_with("refs/remotes/") {
+            engine.with_repo(|repo| match repo.branch_remote_name(start) {
+                Ok(_) => Ok(()),
+                Err(error) => Err(GitError::Git(format!(
+                    "{start} cannot be tracked: no remote, or more than one, fetches it ({})",
+                    error.message()
+                ))),
+            })?;
+        }
+    }
     let path = request.path.to_string_lossy().into_owned();
     let mut args: Vec<&str> = vec!["worktree", "add"];
     match &request.branch {
-        WorktreeBranch::New { name, start } => {
+        WorktreeBranch::New { name, start, track } => {
             // `--` protects the positionals; the value of `-b` it cannot, and an
             // option-shaped one would reach `git branch` as an option.
             if name.starts_with('-') {
@@ -110,6 +130,11 @@ pub(super) fn add(
                     status: None,
                     stderr: format!("fatal: '{name}' is not a valid branch name"),
                 });
+            }
+            match track {
+                Some(true) => args.push("--track"),
+                Some(false) => args.push("--no-track"),
+                None => {}
             }
             args.extend(["-b", name.as_str(), "--", path.as_str(), start.as_str()]);
         }

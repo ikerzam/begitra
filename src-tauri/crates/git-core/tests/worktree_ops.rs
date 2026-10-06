@@ -82,6 +82,7 @@ fn adds_worktrees_on_a_new_branch_an_existing_one_and_a_detached_revision() {
         WorktreeBranch::New {
             name: "topic/new".to_owned(),
             start: "v1".to_owned(),
+            track: None,
         },
     );
     assert!(new.join("src").join("lib.rs").exists());
@@ -306,6 +307,7 @@ fn an_option_shaped_branch_name_is_refused_and_moves_nothing() {
                 branch: WorktreeBranch::New {
                     name: "--force".to_owned(),
                     start: "develop".to_owned(),
+                    track: None,
                 },
             },
             &Cancel::never(),
@@ -339,6 +341,7 @@ fn a_cancelled_add_is_rolled_back() {
         branch: WorktreeBranch::New {
             name: "cancelled".to_owned(),
             start: "main".to_owned(),
+            track: None,
         },
     };
     let worker = std::sync::Arc::clone(&engine);
@@ -450,6 +453,7 @@ fn removes_clean_worktrees_and_refuses_dirty_ones_until_forced() {
         WorktreeBranch::New {
             name: "clean".to_owned(),
             start: "main".to_owned(),
+            track: None,
         },
     );
     engine
@@ -547,4 +551,138 @@ fn locks_with_and_without_a_reason_and_unlocks() {
             .code(),
         "op.cancelled"
     );
+}
+
+/// A new branch that tracks its start point, whatever `branch.autoSetupMerge` says; without
+/// `track` git's setting decides, and under `false` there is no upstream.
+#[test]
+fn adds_a_new_branch_that_tracks_its_start_point() {
+    let f = Fixture::basic().with_remote();
+    let engine = engine(&f);
+    // Without `track`, git's default decides: a remote-tracking start is tracked.
+    let default = add(
+        &f,
+        &engine,
+        f.sibling("wt-default"),
+        WorktreeBranch::New {
+            name: "default".to_owned(),
+            start: "origin/develop".to_owned(),
+            track: None,
+        },
+    );
+    assert_eq!(
+        f.git_in(
+            &default,
+            &["rev-parse", "--abbrev-ref", "default@{upstream}"]
+        ),
+        "origin/develop"
+    );
+    f.git(&["config", "branch.autoSetupMerge", "false"]);
+    let tracking = add(
+        &f,
+        &engine,
+        f.sibling("wt-tracking"),
+        WorktreeBranch::New {
+            name: "tracking".to_owned(),
+            start: "origin/develop".to_owned(),
+            track: Some(true),
+        },
+    );
+    assert_eq!(
+        f.git_in(
+            &tracking,
+            &["rev-parse", "--abbrev-ref", "tracking@{upstream}"]
+        ),
+        "origin/develop"
+    );
+    let plain = add(
+        &f,
+        &engine,
+        f.sibling("wt-plain"),
+        WorktreeBranch::New {
+            name: "plain".to_owned(),
+            start: "origin/develop".to_owned(),
+            track: None,
+        },
+    );
+    let (has_upstream, _, _) =
+        f.try_git_in(&plain, &["rev-parse", "--abbrev-ref", "plain@{upstream}"]);
+    assert!(
+        !has_upstream,
+        "no upstream under branch.autoSetupMerge=false"
+    );
+    // `Some(false)` is `--no-track`: no upstream even where git's setting would set one.
+    f.git(&["config", "branch.autoSetupMerge", "always"]);
+    let untracked = add(
+        &f,
+        &engine,
+        f.sibling("wt-untracked"),
+        WorktreeBranch::New {
+            name: "untracked".to_owned(),
+            start: "origin/develop".to_owned(),
+            track: Some(false),
+        },
+    );
+    let (has_upstream, _, _) = f.try_git_in(
+        &untracked,
+        &["rev-parse", "--abbrev-ref", "untracked@{upstream}"],
+    );
+    assert!(!has_upstream, "no upstream with --no-track");
+}
+
+/// `--track` from a remote-tracking ref that no remote fetches, or that two do: git creates
+/// the branch, then refuses to track it, and leaves it behind. Refused before git, as a
+/// tracking branch's creation is: nothing is created.
+#[test]
+fn refuses_to_track_a_ref_no_remote_or_two_remotes_fetch() {
+    let f = Fixture::basic().with_remote();
+    let engine = engine(&f);
+    // A ref under refs/remotes that no fetch refspec maps.
+    f.git(&["update-ref", "refs/remotes/stray/x", "main"]);
+    // A second remote that fetches into origin's namespace too.
+    let mirror = f.sibling("mirror.git");
+    f.git(&[
+        "init",
+        "-q",
+        "--bare",
+        mirror.to_str().expect("utf-8 temp path"),
+    ]);
+    f.git(&[
+        "remote",
+        "add",
+        "mirror",
+        mirror.to_str().expect("utf-8 temp path"),
+    ]);
+    f.git(&[
+        "config",
+        "remote.mirror.fetch",
+        "+refs/heads/*:refs/remotes/origin/*",
+    ]);
+    for (name, start) in [
+        ("stray", "refs/remotes/stray/x"),
+        ("ambiguous", "refs/remotes/origin/develop"),
+    ] {
+        let path = f.sibling(&format!("wt-{name}"));
+        let error = engine
+            .worktree_add(
+                &WorktreeAdd {
+                    path: path.clone(),
+                    branch: WorktreeBranch::New {
+                        name: name.to_owned(),
+                        start: start.to_owned(),
+                        track: Some(true),
+                    },
+                },
+                &Cancel::never(),
+            )
+            .expect_err("refused");
+        assert!(
+            error.to_string().contains("cannot be tracked"),
+            "{name}: {error}"
+        );
+        assert!(!path.exists(), "{name}: no folder");
+        let (exists, _, _) =
+            f.try_git(&["rev-parse", "--verify", "-q", &format!("refs/heads/{name}")]);
+        assert!(!exists, "{name}: no branch left behind");
+    }
 }

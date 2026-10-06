@@ -22,10 +22,16 @@ struct CliWorktree {
     /// `Some(reason)` when locked; the reason is `None` when the lock has none.
     locked: Option<Option<String>>,
     prunable: bool,
+    /// The main worktree of a bare repository: no working tree, no HEAD or branch line.
+    bare: bool,
 }
 
 fn cli_worktrees(f: &Fixture) -> Vec<CliWorktree> {
-    let output = f.git(&["worktree", "list", "--porcelain"]);
+    cli_worktrees_in(f, &f.root)
+}
+
+fn cli_worktrees_in(f: &Fixture, cwd: &Path) -> Vec<CliWorktree> {
+    let output = f.git_in(cwd, &["worktree", "list", "--porcelain"]);
     output
         .split("\n\n")
         .filter(|block| !block.trim().is_empty())
@@ -46,6 +52,8 @@ fn cli_worktrees(f: &Fixture) -> Vec<CliWorktree> {
                     entry.locked = Some(Some(reason.to_owned()));
                 } else if line.starts_with("prunable") {
                     entry.prunable = true;
+                } else if line == "bare" {
+                    entry.bare = true;
                 } else {
                     panic!("unexpected porcelain line {line:?} in:\n{output}");
                 }
@@ -86,8 +94,13 @@ fn assert_matches_cli(ours: &[Worktree], cli: &[CliWorktree]) {
             .find(|w| same_path(&w.path, &expected.path))
             .unwrap_or_else(|| panic!("no entry for {}: {ours:#?}", expected.path));
         let branch = actual.branch.as_ref().map(|b| format!("refs/heads/{b}"));
-        assert_eq!(actual.head, expected.head, "head of {}", expected.path);
-        assert_eq!(branch, expected.branch, "branch of {}", expected.path);
+        assert_eq!(actual.bare, expected.bare, "bare {}", expected.path);
+        // A bare main worktree: git prints neither HEAD nor branch; ours names the branch its
+        // HEAD names, which it does not hold.
+        if !expected.bare {
+            assert_eq!(actual.head, expected.head, "head of {}", expected.path);
+            assert_eq!(branch, expected.branch, "branch of {}", expected.path);
+        }
         assert_eq!(
             actual.detached, expected.detached,
             "detached {}",
@@ -268,4 +281,49 @@ fn stops_when_cancelled() {
     let error = engine.worktrees(&cancel).expect_err("must be cancelled");
     assert!(matches!(error, GitError::Cancelled), "{error:?}");
     assert_eq!(error.code(), "op.cancelled");
+}
+
+/// The common layout of a bare repository with its worktrees beside it (`project/.bare`,
+/// `project/main`, `project/feature`): the bare main worktree names the branch its HEAD names
+/// but holds none, as git lists it, so `main` is held by its linked worktree and nothing else.
+#[test]
+fn a_bare_main_worktree_holds_no_branch() {
+    let f = Fixture::basic();
+    let bare = f.sibling("project.bare");
+    let main = f.sibling("project-main");
+    let feature = f.sibling("project-feature");
+    let utf8 = |path: &Path| path.to_str().expect("utf-8 temp path").to_owned();
+    let root = utf8(&f.root);
+    f.git(&["clone", "-q", "--bare", &root, &utf8(&bare)]);
+    f.git_in(&bare, &["worktree", "add", "-q", &utf8(&main), "main"]);
+    f.git_in(
+        &bare,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "feature",
+            &utf8(&feature),
+            "main",
+        ],
+    );
+    let main = canonical(&main);
+    let feature = canonical(&feature);
+    let ours = worktrees_at(&feature);
+    assert_matches_cli(&ours, &cli_worktrees_in(&f, &feature));
+    assert!(ours[0].bare, "{ours:#?}");
+    assert_eq!(ours[0].branch.as_deref(), Some("main"));
+    let refs = Git2Engine::open(&feature)
+        .expect("open")
+        .refs(&Cancel::never())
+        .expect("refs");
+    let held = |name: &str| {
+        refs.iter()
+            .find(|entry| entry.full_name == format!("refs/heads/{name}"))
+            .and_then(|entry| entry.worktree.clone())
+            .map(|path| canonical(&path))
+    };
+    assert_eq!(held("main"), Some(main));
+    assert_eq!(held("feature"), Some(feature));
 }

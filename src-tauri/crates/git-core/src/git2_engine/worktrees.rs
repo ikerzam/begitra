@@ -69,7 +69,18 @@ fn main_worktree(repo: &Repository, common_dir: &Path) -> GitResult<Worktree> {
         locked: false,
         lock_reason: None,
         prunable: false,
+        // A bare repository's HEAD names a branch no working tree holds (`bare`).
+        bare: repo.is_worktree() && bare_common_dir(common_dir),
     })
+}
+
+/// Whether the repository whose common directory is `common_dir` is bare (`core.bare`), as
+/// git reads it for its main worktree.
+fn bare_common_dir(common_dir: &Path) -> bool {
+    git2::Config::open(&common_dir.join("config"))
+        .ok()
+        .and_then(|config| config.get_bool("core.bare").ok())
+        .unwrap_or(false)
 }
 
 /// Where the main working tree of the repository whose common directory is `common_dir`
@@ -142,6 +153,7 @@ fn linked_worktree(repo: &Repository, common_dir: &Path, name: &str) -> GitResul
         locked,
         lock_reason: lock.flatten(),
         prunable,
+        bare: false,
     })
 }
 

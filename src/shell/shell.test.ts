@@ -432,6 +432,7 @@ function backend(
             locked: false,
             lockReason: null,
             prunable: false,
+            bare: false,
           },
           {
             path: "/wt/claude-auth",
@@ -443,6 +444,7 @@ function backend(
             locked: false,
             lockReason: null,
             prunable: false,
+            bare: false,
           },
         ];
         return options.worktreesGate ? options.worktreesGate.then(() => worktrees) : worktrees;

@@ -17,7 +17,7 @@ import { toAppError, type AppError } from "@/ipc/errors";
 import { newOpId } from "@/ipc/invoke";
 import type { CommitContext, MergeMode, Outcome, ResetMode, SwitchTarget } from "@/ipc/schemas";
 import { arm } from "@/motion/motion";
-import { baseName, shortHash } from "@/shell/format";
+import { baseName, sameFolder, shortHash } from "@/shell/format";
 
 import { draftIsBlank, messageOf, useChangesStore } from "./changes";
 import { useOperationsStore } from "./operations";
@@ -57,6 +57,8 @@ export type BranchPrompt =
   | { kind: "reset"; rev: string; label: string; branch: string }
   /** The last commit is on `remote` already: its undo asks first. */
   | { kind: "undoCommit"; hash: string; label: string; remote: string }
+  /** The branch is checked out in the worktree at `path`: git checks it out in one only. */
+  | { kind: "heldElsewhere"; branch: string; path: string }
   /**
    * git refused the switch because of local changes: "Stash and switch". `tracking` is a
    * remote branch's checkout, which makes the local branch that tracks it.
@@ -99,6 +101,15 @@ export function targetName(target: SwitchTarget): string {
 export function isDirtySwitch(error: AppError): boolean {
   const output = `${error.message}\n${error.detail ?? ""}`;
   return /would be overwritten|local changes|uncommitted changes/i.test(output);
+}
+
+/**
+ * The folder git names when it refuses a branch another worktree holds ("is already used by
+ * worktree at '<path>'", "is already checked out at" before git 2.42); null for another refusal.
+ */
+export function heldWorktreeOf(error: Pick<AppError, "message" | "detail">): string | null {
+  const output = `${error.message}\n${error.detail ?? ""}`;
+  return /is already (?:used by worktree|checked out) at '(.+)'\s*$/m.exec(output)?.[1] ?? null;
 }
 
 /** git's refusal of an unmerged branch (`git branch -d`). */
@@ -203,8 +214,29 @@ export const useBranchesStore = defineStore("branches", () => {
     });
   }
 
-  /** Switches; a refusal because of local changes prompts "Stash and switch". */
+  /** The folder of the other worktree that holds the local branch `name`; null for none. */
+  function heldElsewhere(name: string): string | null {
+    const local = repo.refs.find((entry) => entry.kind === "local-branch" && entry.name === name);
+    const root = repo.repo?.root;
+    // The current branch is this worktree's, whatever spelling of its folder the listing has
+    // (a junction, a link).
+    if (!local?.worktree || local.isCurrent || !root || sameFolder(local.worktree, root)) {
+      return null;
+    }
+    return local.worktree;
+  }
+
+  /**
+   * Switches; a refusal because of local changes prompts "Stash and switch". A branch another
+   * worktree holds is not asked of git: the prompt offers that worktree, as it does when git
+   * refuses one the listing did not know.
+   */
   async function checkout(target: SwitchTarget): Promise<boolean> {
+    const held = target.kind === "branch" ? heldElsewhere(target.name) : null;
+    if (target.kind === "branch" && held !== null) {
+      ask({ kind: "heldElsewhere", branch: target.name, path: held });
+      return false;
+    }
     const done = await write(
       "operations.switching",
       async (root, opId) => {
@@ -212,6 +244,11 @@ export const useBranchesStore = defineStore("branches", () => {
         return true;
       },
       (error) => {
+        const holder = heldWorktreeOf(error);
+        if (holder !== null && target.kind === "branch") {
+          ask({ kind: "heldElsewhere", branch: target.name, path: holder });
+          return true;
+        }
         if (!isDirtySwitch(error)) return false;
         ask({ kind: "dirtySwitch", target, output: error.detail ?? error.message });
         return true;

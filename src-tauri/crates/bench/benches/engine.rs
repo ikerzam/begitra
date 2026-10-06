@@ -679,6 +679,7 @@ fn worktree_add_remove(c: &mut Criterion) {
                     branch: WorktreeBranch::New {
                         name: "begitra-bench-wt".to_owned(),
                         start: "HEAD".to_owned(),
+                        track: None,
                     },
                 };
                 e.worktree_add(&request, &Cancel::never()).expect("add");

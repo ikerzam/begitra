@@ -187,7 +187,13 @@ describe("worktrees store", () => {
     worktrees.askRemove("/wt/claude-auth");
     expect(worktrees.prompt).toEqual({ kind: "remove", path: "/wt/claude-auth", force: false });
     expect(await worktrees.remove("/wt/claude-auth", false)).toBe(false);
-    expect(worktrees.prompt).toEqual({ kind: "remove", path: "/wt/claude-auth", force: true });
+    // The second prompt keeps the branch the first one asked to delete: none here.
+    expect(worktrees.prompt).toEqual({
+      kind: "remove",
+      path: "/wt/claude-auth",
+      force: true,
+      branch: null,
+    });
     expect(worktrees.error).toBeNull();
     expect(await worktrees.remove("/wt/claude-auth", true)).toBe(true);
     await settled();

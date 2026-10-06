@@ -16,6 +16,7 @@ import { useRemotesStore } from "@/stores/remotes";
 import { useRepoStore } from "@/stores/repo";
 import { stashIndex, useStashStore, type StashRow } from "@/stores/stash";
 import { useToastsStore } from "@/stores/toasts";
+import { useWorktreesStore } from "@/stores/worktrees";
 
 import { remoteOf, type RemoteBranch } from "./names";
 
@@ -23,6 +24,8 @@ import { remoteOf, type RemoteBranch } from "./names";
 export type BranchAction =
   | "checkout"
   | "createHere"
+  | "newWorktree"
+  | "openWorktree"
   | "merge"
   | "rebase"
   | "compare"
@@ -58,6 +61,7 @@ export function useBranchActions() {
   function needsRemotes(kind: BranchAction, ref: GitRef): boolean {
     switch (kind) {
       case "checkout":
+      case "newWorktree":
         return ref.kind === "remote-branch";
       case "delete":
         return ref.upstream !== null;
@@ -85,6 +89,31 @@ export function useBranchActions() {
     const remote = remoteOf({ kind: "remote-branch", name: upstream }, remotes.remotes);
     if (!tracking || !remote) return null;
     return { remote: remote.remote, name: remote.branch, tip: tracking.target };
+  }
+
+  /**
+   * "New worktree…": the add dialog set for the branch. A branch no worktree holds is checked
+   * out as it is; one a worktree holds starts a new branch, since git checks a branch out in
+   * one worktree at a time; a remote branch takes its local branch when one exists, and
+   * otherwise starts a new branch of its name that tracks it.
+   */
+  function newWorktree(ref: GitRef, remote: RemoteBranch | null): void {
+    const local =
+      ref.kind === "local-branch"
+        ? ref
+        : remote
+          ? repo.refs.find((entry) => entry.kind === "local-branch" && entry.name === remote.branch)
+          : undefined;
+    const worktrees = useWorktreesStore();
+    if (local) {
+      worktrees.openAdd(
+        local.worktree === null
+          ? { kind: "existing", branch: local.name }
+          : { kind: "new", start: local.fullName, name: "", track: false },
+      );
+    } else if (remote) {
+      worktrees.openAdd({ kind: "new", start: ref.fullName, name: remote.branch, track: true });
+    }
   }
 
   function compareWith(ref: GitRef): void {
@@ -116,6 +145,12 @@ export function useBranchActions() {
         break;
       case "createHere":
         branches.ask({ kind: "create", start: ref.name, startLabel: ref.name });
+        break;
+      case "newWorktree":
+        newWorktree(ref, remote);
+        break;
+      case "openWorktree":
+        if (ref.worktree) void useWorktreesStore().openAsContext(ref.worktree);
         break;
       case "merge":
         void branches.merge(ref.name, "default");

@@ -4,16 +4,20 @@ import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { nextTick } from "vue";
 
+import type { Worktree } from "@/ipc/schemas";
 import { ShortcutRegistry, setShortcutRegistry } from "@/shortcuts/registry";
 import { useCompareStore } from "@/stores/compare";
 import { useRepoStore } from "@/stores/repo";
 import { memoryStorage, useSettingsStore } from "@/stores/settings";
+import { useBranchesStore } from "@/stores/branches";
 import { useShellStore } from "@/stores/shell";
+import { useToastsStore } from "@/stores/toasts";
 import { useWorktreesStore } from "@/stores/worktrees";
 import {
   fakeBackend,
   fakeWorktrees,
   settled,
+  writeGate,
   type Call,
   type FakeBackendOptions,
 } from "@/test/backend";
@@ -185,6 +189,175 @@ describe("WorktreesLayout", () => {
     expect(
       calls.filter((call) => call.cmd === "worktree_remove").map((c) => c.args["force"]),
     ).toEqual([false, true]);
+  });
+
+  it("removes the worktree and then its branch when asked, in one toast", async () => {
+    const { wrapper, calls } = await mountDashboard();
+    const remove = rows(wrapper)[1]!.findAll('[data-testid="worktree-row-actions"] button').at(-1);
+    await remove!.trigger("click");
+    await nextTick();
+    const prompt = wrapper.get('[data-testid="worktree-prompt-remove"]');
+    expect(prompt.text()).toContain("Delete the branch claude/fix-auth too");
+    await prompt.get('[data-testid="remove-delete-branch"] input').setValue(true);
+    expect(prompt.text()).toContain("and the branch claude/fix-auth too if git finds it merged.");
+    expect(prompt.get('[data-testid="dialog-confirm"]').text()).toBe("Remove worktree and branch");
+    await prompt.get('[data-testid="dialog-confirm"]').trigger("click");
+    await settled();
+    const order = calls
+      .filter((call) => call.cmd === "worktree_remove" || call.cmd === "branch_delete")
+      .map((call) => call.cmd);
+    expect(order).toEqual(["worktree_remove", "branch_delete"]);
+    expect(calls.find((call) => call.cmd === "branch_delete")?.args).toMatchObject({
+      repo: "/r",
+      name: "claude/fix-auth",
+      force: false,
+    });
+    expect(useToastsStore().toasts.map((toast) => toast.key)).toEqual([
+      "worktrees.removedWithBranch",
+    ]);
+    expect(useToastsStore().toasts.at(-1)?.params).toEqual({
+      folder: "claude-auth",
+      name: "claude/fix-auth",
+    });
+  });
+
+  it("deletes the branch in the repository the worktree left, whichever is open by then", async () => {
+    const gate = writeGate();
+    const { wrapper, calls } = await mountDashboard({ writeGate: gate, rootIsPath: true });
+    const remove = rows(wrapper)[1]!.findAll('[data-testid="worktree-row-actions"] button').at(-1);
+    await remove!.trigger("click");
+    await nextTick();
+    const prompt = wrapper.get('[data-testid="worktree-prompt-remove"]');
+    await prompt.get('[data-testid="remove-delete-branch"] input').setValue(true);
+    await prompt.get('[data-testid="dialog-confirm"]').trigger("click");
+    await settled();
+    expect(gate.waiting).toEqual(["worktree_remove"]);
+    // Another repository opens while git deletes the folder.
+    await useRepoStore().open("/s");
+    await settled();
+    gate.release();
+    await settled();
+    expect(calls.find((call) => call.cmd === "branch_delete")?.args).toMatchObject({
+      repo: "/r",
+      name: "claude/fix-auth",
+    });
+  });
+
+  it("keeps the branch asked through Remove anyway, and keeps an unmerged branch, saying why", async () => {
+    const { wrapper, calls } = await mountDashboard({
+      dirtyWorktrees: ["/wt/claude-auth"],
+      unmergedBranch: true,
+    });
+    const remove = rows(wrapper)[1]!.findAll('[data-testid="worktree-row-actions"] button').at(-1);
+    await remove!.trigger("click");
+    await nextTick();
+    const first = wrapper.get('[data-testid="worktree-prompt-remove"]');
+    await first.get('[data-testid="remove-delete-branch"] input').setValue(true);
+    await first.get('[data-testid="dialog-confirm"]').trigger("click");
+    await settled();
+    const again = wrapper.get('[data-testid="worktree-prompt-remove"]');
+    expect(
+      again.get<HTMLInputElement>('[data-testid="remove-delete-branch"] input').element.checked,
+    ).toBe(true);
+    expect(again.text()).toContain("The branch claude/fix-auth goes too if git finds it merged.");
+    // The force is what the button names; the body says the branch goes with it.
+    expect(again.get('[data-testid="dialog-confirm"]').text()).toBe("Remove anyway");
+    await again.get('[data-testid="dialog-confirm"]').trigger("click");
+    await settled();
+    expect(
+      calls.filter((call) => call.cmd === "worktree_remove").map((c) => c.args["force"]),
+    ).toEqual([false, true]);
+    // `-d` only: an unmerged branch stays, and nothing asks to force it.
+    expect(
+      calls.filter((call) => call.cmd === "branch_delete").map((c) => c.args["force"]),
+    ).toEqual([false]);
+    expect(useBranchesStore().prompt).toBeNull();
+    expect(useToastsStore().toasts.at(-1)).toMatchObject({
+      kind: "info",
+      key: "worktrees.removedBranchKept",
+      params: { folder: "claude-auth", name: "claude/fix-auth" },
+    });
+  });
+
+  /** The fake worktrees and a linked one on `review/x`, open from there. */
+  const withReview = (main: Partial<Worktree> = {}): Worktree[] => [
+    ...fakeWorktrees().map((worktree) => (worktree.isMain ? { ...worktree, ...main } : worktree)),
+    { ...fakeWorktrees()[1]!, path: "/wt/review", name: "review", branch: "review/x" },
+  ];
+
+  async function removeWithBranch(options: FakeBackendOptions) {
+    const result = await mountDashboard({ rootIsPath: true, ...options });
+    await useRepoStore().open("/wt/review");
+    await settled();
+    await useWorktreesStore().show();
+    await settled();
+    const row = rows(result.wrapper).find(
+      (entry) => entry.get('[data-testid="worktree-row-path"]').text() === "/wt/claude-auth",
+    );
+    await row!.findAll('[data-testid="worktree-row-actions"] button').at(-1)!.trigger("click");
+    await nextTick();
+    const prompt = result.wrapper.get('[data-testid="worktree-prompt-remove"]');
+    await prompt.get('[data-testid="remove-delete-branch"] input').setValue(true);
+    await prompt.get('[data-testid="dialog-confirm"]').trigger("click");
+    await settled();
+    return result;
+  }
+
+  it("deletes the branch from the main worktree, whichever one is open", async () => {
+    const { calls } = await removeWithBranch({ worktrees: withReview() });
+    expect(calls.find((call) => call.cmd === "branch_delete")?.args).toMatchObject({
+      repo: "/r",
+      name: "claude/fix-auth",
+    });
+  });
+
+  it("deletes it from the open worktree when the main one is bare, and says git's refusal", async () => {
+    const { calls } = await removeWithBranch({
+      worktrees: withReview({ bare: true }),
+      writeErrors: {
+        "/wt/review": {
+          code: "git.cli_failed",
+          message: "git branch -d failed",
+          detail: "error: cannot lock ref 'refs/heads/claude/fix-auth'",
+        },
+      },
+    });
+    expect(calls.find((call) => call.cmd === "branch_delete")?.args).toMatchObject({
+      repo: "/wt/review",
+    });
+    expect(useToastsStore().toasts.at(-1)).toMatchObject({
+      kind: "error",
+      key: "worktrees.removedBranchFailed",
+      output: "error: cannot lock ref 'refs/heads/claude/fix-auth'",
+    });
+  });
+
+  it("offers no branch to delete on an orphan branch with no commit yet", async () => {
+    const orphan = fakeWorktrees().map((worktree) =>
+      worktree.path === "/wt/claude-auth" ? { ...worktree, head: null } : worktree,
+    );
+    const { wrapper } = await mountDashboard({ worktrees: orphan });
+    const remove = rows(wrapper)[1]!.findAll('[data-testid="worktree-row-actions"] button').at(-1);
+    await remove!.trigger("click");
+    await nextTick();
+    const prompt = wrapper.get('[data-testid="worktree-prompt-remove"]');
+    expect(prompt.find('[data-testid="remove-delete-branch"]').exists()).toBe(false);
+  });
+
+  it("offers no branch to delete with a detached worktree, and names none", async () => {
+    const detached = fakeWorktrees().map((worktree) =>
+      worktree.path === "/wt/claude-auth"
+        ? { ...worktree, branch: null, detached: true }
+        : worktree,
+    );
+    const { wrapper } = await mountDashboard({ worktrees: detached });
+    const remove = rows(wrapper)[1]!.findAll('[data-testid="worktree-row-actions"] button').at(-1);
+    await remove!.trigger("click");
+    await nextTick();
+    const prompt = wrapper.get('[data-testid="worktree-prompt-remove"]');
+    expect(prompt.find('[data-testid="remove-delete-branch"]').exists()).toBe(false);
+    expect(prompt.text()).toContain("This deletes the folder /wt/claude-auth.");
+    expect(prompt.text()).not.toContain("The branch");
   });
 
   it("prunes from the header after one confirmation that lists the missing folders", async () => {

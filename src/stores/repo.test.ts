@@ -229,6 +229,7 @@ function mockBackend(options: BackendOptions = {}): Call[] {
             locked: false,
             lockReason: null,
             prunable: false,
+            bare: false,
           },
         ];
         return call.gate ? call.gate.then(() => listed) : listed;

@@ -684,6 +684,7 @@
       "namePlaceholder": "branch name",
       "invalidName": "Not a valid branch name.",
       "startFrom": "Start from",
+      "tracks": "Tracks {upstream}",
       "path": "Path",
       "help": "Defaults to {folder}/‹branch›. The folder must not exist yet.",
       "folderExists": "The folder must not exist yet."
@@ -697,11 +698,17 @@
     "remove": {
       "title": "Remove worktree {folder}?",
       "body": "This deletes the folder {path}. The branch {branch} stays and can be checked out again.",
-      "confirm": "Remove"
+      "bodyWithBranch": "This deletes the folder {path}, and the branch {branch} too if git finds it merged.",
+      "bodyDetached": "This deletes the folder {path}.",
+      "confirm": "Remove",
+      "confirmWithBranch": "Remove worktree and branch",
+      "deleteBranch": "Delete the branch {branch} too"
     },
     "removeAnyway": {
       "title": "Remove worktree {folder} anyway?",
       "body": "It has uncommitted changes, which will be lost. The branch {branch} stays and can be checked out again.",
+      "bodyWithBranch": "It has uncommitted changes, which will be lost. The branch {branch} goes too if git finds it merged.",
+      "bodyDetached": "It has uncommitted changes, which will be lost.",
       "confirm": "Remove anyway"
     },
     "lockPrompt": {
@@ -712,7 +719,13 @@
       "confirm": "Lock"
     },
     "removeMenu": "Remove worktree…",
-    "count": "{n} linked worktree | {n} linked worktrees"
+    "count": "{n} linked worktree | {n} linked worktrees",
+    "removedWithBranch": "Removed worktree {folder} and branch {name}",
+    "removedBranchKept": "Removed worktree {folder}. git found the branch {name} not fully merged, so it stays: with the worktree gone, no reflog would bring its commits back.",
+    "removedBranchFailed": "Removed worktree {folder}; git refused to delete the branch {name}. {message}",
+    "removedBranchNoHost": "Removed worktree {folder}. The branch {name} stays: no other worktree is left to delete it from.",
+    "added": "Worktree added",
+    "open": "Open"
   },
   "changes": {
     "title": "Changes",
@@ -791,6 +804,8 @@
     "menu": "Branch actions",
     "checkout": "Checkout",
     "createHere": "Create branch here…",
+    "newWorktree": "New worktree…",
+    "openWorktree": "Open worktree",
     "mergeInto": "Merge into {branch}",
     "rebaseOnto": "Rebase {branch} onto this",
     "compareWith": "Compare with…",
@@ -883,7 +898,9 @@
       "deleteTagBody": "The tag is deleted. Tags have no reflog: the toast keeps its hash, and git tag brings it back until git gc runs.",
       "deleteTag": "Delete tag",
       "deleteTagOnRemoteToo": "Delete it on {remote} too",
-      "onRemoteConsequence": "{name} leaves {remote} for everyone who uses it; the toast keeps the command that puts it back."
+      "onRemoteConsequence": "{name} leaves {remote} for everyone who uses it; the toast keeps the command that puts it back.",
+      "heldTitle": "{branch} is checked out in another worktree",
+      "heldBody": "A branch is checked out in one worktree at a time: {branch} is in {folder}."
     },
     "checkoutDetached": "Checkout (detached)",
     "pullInto": "Pull into {branch}…",
