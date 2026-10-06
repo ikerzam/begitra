@@ -52,6 +52,12 @@ pub fn budget(id: &str) -> Option<Duration> {
         ("discovery", "scan_full") => 2_000,
         ("worktrees", "synthetic") => 50,
         ("worktrees", _) => 500,
+        // The listing's second plus the merge check's 3 s budget, where the check stops itself
+        // and the gone branches it did not answer read as not checked: fifty forked long ago
+        // take minutes in all.
+        ("cleanup_candidates", "synthetic-gone") => 4_000,
+        // The cleanup dialog lists behind its loading state: within a second.
+        ("cleanup_candidates", _) => 1_000,
         // The dashboard: the listing and one comparison per linked worktree.
         ("worktree_dashboard", _) => 500,
         // Adding a worktree checks out the whole tree: a user action with its progress.

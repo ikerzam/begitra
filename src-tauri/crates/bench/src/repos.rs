@@ -42,6 +42,197 @@ pub fn discovery() -> PathBuf {
     repos_dir().join("discovery")
 }
 
+/// A clone of the synthetic repository for the cleanup benchmark, made by
+/// [`ensure_gone_branches`].
+pub fn synthetic_gone() -> PathBuf {
+    repos_dir().join("synthetic-gone")
+}
+
+/// Makes sure [`synthetic_gone`] exists and returns it: a clone of the synthetic repository
+/// without a checkout, whose first `count` branches not in `main` are local branches with an
+/// upstream gone from `origin`, so the cleanup's listing merges each with `main` (one batch of
+/// `git merge-tree`, a merge apiece). They forked long ago, which makes each merge slow: the
+/// listing's worst case. Built in a sibling folder and renamed once complete, so a failure
+/// half way never leaves a clone with fewer branches.
+pub fn ensure_gone_branches(count: usize) -> Result<PathBuf, Error> {
+    let path = synthetic_gone();
+    if is_repository(&path) {
+        return Ok(path);
+    }
+    let source = synthetic();
+    if !is_repository(&source) {
+        return Err(Error::Usage(format!(
+            "{} is missing, run `cargo run -p bench --release -- generate`",
+            source.display()
+        )));
+    }
+    let building = repos_dir().join("synthetic-gone.building");
+    let _ = std::fs::remove_dir_all(&building);
+    git(
+        &repos_dir(),
+        &[
+            "clone",
+            "--quiet",
+            "--local",
+            "--no-checkout",
+            "--",
+            &source.to_string_lossy(),
+            &building.to_string_lossy(),
+        ],
+        &[],
+    )?;
+    let unmerged = git(
+        &building,
+        &[
+            "for-each-ref",
+            "--no-merged=refs/remotes/origin/main",
+            "--format=%(refname:lstrip=3)",
+            "refs/remotes/origin/",
+        ],
+        &[],
+    )?;
+    for name in unmerged.lines().filter(|name| *name != "HEAD").take(count) {
+        let tracking = format!("refs/remotes/origin/{name}");
+        git(
+            &building,
+            &["branch", "--no-track", "--", name, &tracking],
+            &[],
+        )?;
+        git(
+            &building,
+            &["config", &format!("branch.{name}.remote"), "origin"],
+            &[],
+        )?;
+        git(
+            &building,
+            &[
+                "config",
+                &format!("branch.{name}.merge"),
+                &format!("refs/heads/gone/{name}"),
+            ],
+            &[],
+        )?;
+    }
+    std::fs::rename(&building, &path).map_err(|source| Error::Io {
+        context: format!("rename {} to {}", building.display(), path.display()),
+        source,
+    })?;
+    Ok(path)
+}
+
+/// A clone of the synthetic repository for the cleanup benchmark's common case, made by
+/// [`ensure_squashed_branches`].
+pub fn synthetic_squashed() -> PathBuf {
+    repos_dir().join("synthetic-squashed")
+}
+
+/// Makes sure [`synthetic_squashed`] exists and returns it: a clone of the synthetic repository
+/// without a checkout, where `count` branches made from `main` each add a file, `origin/main`
+/// takes each change as a squash commit of its own, and each branch's upstream is gone: what a
+/// batch of squash-merged pull requests leaves after "Fetch and prune", the local `main`
+/// behind. Every one is applied, against `origin/main`. Built in a sibling folder and renamed
+/// once complete.
+pub fn ensure_squashed_branches(count: usize) -> Result<PathBuf, Error> {
+    let path = synthetic_squashed();
+    if is_repository(&path) {
+        return Ok(path);
+    }
+    let source = synthetic();
+    if !is_repository(&source) {
+        return Err(Error::Usage(format!(
+            "{} is missing, run `cargo run -p bench --release -- generate`",
+            source.display()
+        )));
+    }
+    let building = repos_dir().join("synthetic-squashed.building");
+    let _ = std::fs::remove_dir_all(&building);
+    git(
+        &repos_dir(),
+        &[
+            "clone",
+            "--quiet",
+            "--local",
+            "--no-checkout",
+            "--",
+            &source.to_string_lossy(),
+            &building.to_string_lossy(),
+        ],
+        &[],
+    )?;
+    let base = git(&building, &["rev-parse", "refs/heads/main"], &[])?;
+    // One fast-import stream: each branch's commit on main's tip, then origin/main's squash
+    // commits, one a branch, in order.
+    let committer = "committer Bench <bench@example.com> 1767225600 +0000";
+    let mut stream = String::new();
+    let mut commit =
+        |reference: &str, from: Option<&str>, message: &str, file: &str, text: &str| {
+            stream.push_str(&format!("commit {reference}\n{committer}\n"));
+            stream.push_str(&format!("data {}\n{message}\n", message.len()));
+            if let Some(from) = from {
+                stream.push_str(&format!("from {from}\n"));
+            }
+            stream.push_str(&format!(
+                "M 100644 inline {file}\ndata {}\n{text}\n",
+                text.len()
+            ));
+        };
+    let names: Vec<String> = (0..count).map(|i| format!("squashed/{i:03}")).collect();
+    for name in &names {
+        let text = format!("{name}\n");
+        commit(
+            &format!("refs/heads/{name}"),
+            Some(&base),
+            &format!("{name} work"),
+            &format!("{name}.txt"),
+            &text,
+        );
+    }
+    for (index, name) in names.iter().enumerate() {
+        let text = format!("{name}\n");
+        commit(
+            "refs/remotes/origin/main",
+            (index == 0).then_some(base.as_str()),
+            &format!("{name} (#{index})"),
+            &format!("{name}.txt"),
+            &text,
+        );
+    }
+    let imported = git_core::cli::run_git_with_input(
+        &building,
+        &["fast-import", "--quiet"],
+        stream.into_bytes(),
+        &git_core::engine::Cancel::never(),
+    )
+    .map_err(|error| Error::Usage(format!("git fast-import: {error}")))?;
+    if imported.status != Some(0) {
+        return Err(Error::Usage(format!(
+            "git fast-import: {}",
+            imported.stderr.trim()
+        )));
+    }
+    for name in &names {
+        git(
+            &building,
+            &["config", &format!("branch.{name}.remote"), "origin"],
+            &[],
+        )?;
+        git(
+            &building,
+            &[
+                "config",
+                &format!("branch.{name}.merge"),
+                &format!("refs/heads/{name}"),
+            ],
+            &[],
+        )?;
+    }
+    std::fs::rename(&building, &path).map_err(|source| Error::Io {
+        context: format!("rename {} to {}", building.display(), path.display()),
+        source,
+    })?;
+    Ok(path)
+}
+
 /// Whether `path` is a git working tree with at least one commit.
 pub fn is_repository(path: &Path) -> bool {
     git2::Repository::open(path)

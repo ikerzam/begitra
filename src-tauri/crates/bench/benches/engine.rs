@@ -1080,10 +1080,42 @@ fn fetch_push_bare(c: &mut Criterion) {
     group.finish();
 }
 
+/// The cleanup dialog's listing on each repository as it is, and on two clones of the synthetic
+/// one with fifty branches gone from their remote: squash-merged a moment ago, the common case
+/// (a hundred merges, each against the local main and `origin/main`), and forked long ago and
+/// never merged, the worst case, whose merge check runs to its budget.
+fn cleanup_candidates(c: &mut Criterion) {
+    let mut group = c.benchmark_group("cleanup_candidates");
+    group.sample_size(10);
+    let mut targets: Vec<(String, PathBuf)> = present()
+        .into_iter()
+        .map(|target| (target.name.to_owned(), target.path))
+        .collect();
+    match repos::ensure_squashed_branches(50) {
+        Ok(path) => targets.push(("synthetic-squashed".to_owned(), path)),
+        Err(error) => eprintln!("cleanup_candidates/synthetic-squashed: {error}"),
+    }
+    match repos::ensure_gone_branches(50) {
+        Ok(path) => targets.push(("synthetic-gone".to_owned(), path)),
+        Err(error) => eprintln!("cleanup_candidates/synthetic-gone: {error}"),
+    }
+    for (name, path) in targets {
+        let engine = engine(&path);
+        group.bench_with_input(BenchmarkId::from_parameter(&name), &engine, |b, e| {
+            b.iter(|| {
+                e.cleanup_candidates(&Cancel::never())
+                    .expect("cleanup candidates")
+            });
+        });
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     open,
     refs,
+    cleanup_candidates,
     walk_first_page,
     walk_first_page_date_topo,
     walk_first_page_filtered,
