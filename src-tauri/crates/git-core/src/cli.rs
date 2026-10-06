@@ -223,8 +223,9 @@ pub struct CliOutput {
 }
 
 /// Environment variables that would redirect git away from `cwd`. They are set when the
-/// process runs inside a git hook or a `git` alias, so they are always removed: the repository
-/// a call targets is the `cwd` the caller chose, never an inherited one. Public for the tests
+/// process runs inside a git hook or a `git` alias, so an inherited one is always removed: the
+/// repository a call targets is the `cwd` the caller chose, and only a variable the caller sets
+/// on the command itself (a merge check's own object folder) stays. Public for the tests
 /// that run git on fixtures: a hook of a linked worktree exports `GIT_DIR`, and a fixture's
 /// `git init` under it would reinitialise the checkout's own repository as bare.
 pub const REDIRECTING_VARS: [&str; 9] = [
@@ -248,12 +249,20 @@ pub fn command(cwd: &Path, args: &[&str]) -> Command {
     command
 }
 
-/// Stdin closed, the redirecting variables removed, no console window on Windows, and on
+/// Stdin closed, the inherited redirecting variables removed (one the caller set on the
+/// command, a merge check's own object folder, stays), no console window on Windows, and on
 /// Unix a process group of its own so that a cancel can stop what git started.
 fn isolate(command: &mut Command) {
     command.stdin(Stdio::null());
+    let set: Vec<std::ffi::OsString> = command
+        .get_envs()
+        .filter(|(_, value)| value.is_some())
+        .map(|(key, _)| key.to_owned())
+        .collect();
     for var in REDIRECTING_VARS {
-        command.env_remove(var);
+        if !set.iter().any(|key| key == var) {
+            command.env_remove(var);
+        }
     }
     #[cfg(windows)]
     {
@@ -564,8 +573,82 @@ pub fn run_git_with_input_within(
     )
 }
 
+/// [`run_git_with_input`] with extra environment variables (see [`run_git_env`]) that answers at
+/// `budget` with what git wrote so far: past it the tree is stopped and the exit holds the
+/// output read until then, with no status. For a batch that writes each answer as it ends
+/// (`git merge-tree --stdin`, its objects in a folder of their own), so that a slow tail costs
+/// its own answers and not the ones before it.
+#[tracing::instrument(level = "debug", skip_all, fields(cwd = %cwd.display(), args = ?Redacted(args), input_bytes = input.len(), budget = ?budget))]
+pub fn run_git_env_with_input_for(
+    cwd: &Path,
+    args: &[&str],
+    env: &[(&str, &str)],
+    input: Vec<u8>,
+    cancel: &Cancel,
+    budget: Duration,
+) -> GitResult<CliExit> {
+    let mut command = command(cwd, args);
+    command.envs(env.iter().copied());
+    run_polled_for(command, joined(args), cancel, budget, input)
+}
+
 /// A pipe reader's result: the bytes, or the read error.
 type Piped = thread::JoinHandle<std::io::Result<Vec<u8>>>;
+
+/// Bytes a pipe reader appends as they arrive, for a caller that may stop before the end.
+type Collected = Arc<Mutex<Vec<u8>>>;
+
+/// Writes `bytes` to the child's stdin from a thread of its own, so that neither side blocks on
+/// a full pipe. The writer ends when the bytes are written or the child stops reading (a broken
+/// pipe is not an error of the run: git's status and stderr say what happened).
+fn feed(child: &mut Child, bytes: Vec<u8>) -> std::io::Result<()> {
+    let Some(mut stdin) = child.stdin.take() else {
+        return Ok(());
+    };
+    thread::Builder::new()
+        .name("begitra-git-in".to_owned())
+        .spawn(move || {
+            use std::io::Write;
+            let _ = stdin.write_all(&bytes);
+        })
+        .map(|_| ())
+}
+
+/// Reads a pipe to its end into `into`, chunk by chunk, so that what arrived is there to take
+/// at any moment.
+fn read_pipe_into<R: Read + Send + 'static>(
+    name: &str,
+    pipe: Option<R>,
+    into: Collected,
+) -> std::io::Result<thread::JoinHandle<std::io::Result<()>>> {
+    thread::Builder::new()
+        .name(format!("begitra-git-{name}"))
+        .spawn(move || {
+            let Some(mut pipe) = pipe else {
+                return Ok(());
+            };
+            let mut chunk = [0_u8; 8192];
+            loop {
+                match pipe.read(&mut chunk) {
+                    Ok(0) => return Ok(()),
+                    Ok(read) => into
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .extend_from_slice(&chunk[..read]),
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                    Err(error) => return Err(error),
+                }
+            }
+        })
+}
+
+fn take_collected(collected: &Collected) -> Vec<u8> {
+    std::mem::take(
+        &mut *collected
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    )
+}
 
 /// Longest line the streaming reader hands over; the rest of a longer one is dropped (a
 /// hostile remote could otherwise grow a line without bound).
@@ -741,16 +824,8 @@ fn run_polled(
             command: joined.clone(),
             reason: error.to_string(),
         })?;
-    if let (Some(bytes), Some(mut stdin)) = (input, child.stdin.take()) {
-        // The writer ends when the bytes are written or the child stops reading (a broken
-        // pipe is not an error of the run: git's status and stderr say what happened).
-        let writer = thread::Builder::new()
-            .name("begitra-git-in".to_owned())
-            .spawn(move || {
-                use std::io::Write;
-                let _ = stdin.write_all(&bytes);
-            });
-        if let Err(error) = writer {
+    if let Some(bytes) = input {
+        if let Err(error) = feed(&mut child, bytes) {
             abort(child);
             return Err(run_failed(format!(
                 "could not start the input thread: {error}"
@@ -816,6 +891,105 @@ fn run_polled(
         status: status.code(),
         stdout,
         stderr: String::from_utf8_lossy(&stderr).into_owned(),
+    })
+}
+
+/// [`run_polled`] with `input` that, past `budget` from the spawn, stops the tree and answers
+/// the output read so far with no status instead of failing.
+fn run_polled_for(
+    mut command: Command,
+    joined: String,
+    cancel: &Cancel,
+    budget: Duration,
+    input: Vec<u8>,
+) -> GitResult<CliExit> {
+    let run_failed = |what: String| GitError::Cli {
+        command: joined.clone(),
+        status: None,
+        stderr: what,
+    };
+    cancel.check()?;
+    isolate(&mut command);
+    command.stdin(Stdio::piped());
+    let started = Instant::now();
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| GitError::GitNotStarted {
+            command: joined.clone(),
+            reason: error.to_string(),
+        })?;
+    if let Err(error) = feed(&mut child, input) {
+        abort(child);
+        return Err(run_failed(format!(
+            "could not start the input thread: {error}"
+        )));
+    }
+    let (out, err) = (Collected::default(), Collected::default());
+    let out_reader = match read_pipe_into("out", child.stdout.take(), Arc::clone(&out)) {
+        Ok(reader) => reader,
+        Err(error) => {
+            abort(child);
+            return Err(run_failed(format!(
+                "could not start the output thread: {error}"
+            )));
+        }
+    };
+    let err_reader = match read_pipe_into("err", child.stderr.take(), Arc::clone(&err)) {
+        Ok(reader) => reader,
+        Err(error) => {
+            abort(child);
+            return Err(run_failed(format!(
+                "could not start the error thread: {error}"
+            )));
+        }
+    };
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if cancel.is_cancelled() {
+                    abort(child);
+                    return Err(GitError::Cancelled);
+                }
+                if started.elapsed() > budget {
+                    // Stopped as a cancel is, without waiting for the tree to go (a tenth of a
+                    // second and more on Windows): the caller has the answers read until now,
+                    // and git may hold its files a moment after this returns.
+                    abort(child);
+                    return Ok(CliExit {
+                        status: None,
+                        stdout: take_collected(&out),
+                        stderr: String::from_utf8_lossy(&take_collected(&err)).into_owned(),
+                    });
+                }
+                thread::sleep(CANCEL_POLL);
+            }
+            Err(error) => {
+                abort(child);
+                return Err(run_failed(format!("could not wait for git: {error}")));
+            }
+        }
+    };
+    while !(out_reader.is_finished() && err_reader.is_finished()) {
+        if cancel.is_cancelled() {
+            return Err(GitError::Cancelled);
+        }
+        thread::sleep(CANCEL_POLL);
+    }
+    out_reader
+        .join()
+        .unwrap_or(Ok(()))
+        .map_err(|error| run_failed(format!("could not read git's output: {error}")))?;
+    err_reader
+        .join()
+        .unwrap_or(Ok(()))
+        .map_err(|error| run_failed(format!("could not read git's messages: {error}")))?;
+    Ok(CliExit {
+        status: status.code(),
+        stdout: take_collected(&out),
+        stderr: String::from_utf8_lossy(&take_collected(&err)).into_owned(),
     })
 }
 
@@ -1118,6 +1292,49 @@ mod tests {
     }
 
     #[test]
+    fn a_run_with_a_budget_answers_what_git_wrote_before_it() {
+        // The alias writes one answer, then works past the budget: the run stops the tree and
+        // answers what came, with no status. The budget leaves the alias's shell time to start.
+        let started = Instant::now();
+        let stopped = run_git_env_with_input_for(
+            Path::new("."),
+            &["-c", "alias.w=!printf 'first\\0'; sleep 30", "w"],
+            &WRITE_ENV,
+            b"unread\n".to_vec(),
+            &Cancel::never(),
+            Duration::from_secs(3),
+        )
+        .expect("answers");
+        assert_eq!(stopped.status, None);
+        assert_eq!(stopped.stdout, b"first\0");
+        assert!(started.elapsed() < Duration::from_secs(10));
+        // A run that ends in time answers whole, its input read.
+        let whole = run_git_env_with_input_for(
+            Path::new("."),
+            &["hash-object", "--stdin"],
+            &[],
+            b"x".to_vec(),
+            &Cancel::never(),
+            Duration::from_secs(30),
+        )
+        .expect("answers");
+        assert_eq!(whole.status, Some(0), "{}", whole.stderr);
+        assert_eq!(whole.stdout.len(), 41, "one hash and a newline");
+        let cancel = Cancel::new();
+        cancel.cancel();
+        let cancelled = run_git_env_with_input_for(
+            Path::new("."),
+            &["--version"],
+            &[],
+            Vec::new(),
+            &cancel,
+            Duration::from_secs(30),
+        )
+        .expect_err("cancelled before starting");
+        assert_eq!(cancelled.code(), "op.cancelled");
+    }
+
+    #[test]
     fn reports_the_version() {
         let output = run_git(Path::new("."), &["--version"]).expect("git is installed");
         assert!(output.stdout.starts_with("git version"));
@@ -1152,5 +1369,29 @@ mod tests {
             assert!(removed.contains(&var.to_owned()), "{var} is not removed");
         }
         assert_eq!(command.get_current_dir(), Some(Path::new(".")));
+    }
+
+    #[test]
+    fn keeps_a_redirecting_variable_the_caller_sets() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let repo = dir.path().join("repo");
+        std::fs::create_dir_all(&repo).expect("repo folder");
+        run_git(&repo, &["init", "-q"]).expect("init");
+        let objects = dir.path().join("objects");
+        std::fs::create_dir_all(&objects).expect("objects");
+        let objects = objects.to_string_lossy().into_owned();
+        let exit = run_git_env(
+            &repo,
+            &["rev-parse", "--git-path", "objects"],
+            &[("GIT_OBJECT_DIRECTORY", objects.as_str())],
+            &Cancel::never(),
+        )
+        .expect("ran");
+        assert_eq!(
+            String::from_utf8_lossy(&exit.stdout).trim(),
+            objects,
+            "{}",
+            exit.stderr
+        );
     }
 }
