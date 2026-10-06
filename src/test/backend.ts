@@ -173,6 +173,8 @@ export interface FakeBackendOptions {
   networkDelayMs?: number;
   /** The refs `list_refs` answers; the two local branches by default. */
   refs?: Ref[];
+  /** `open_repository` answers a detached HEAD, as on a checked-out commit. */
+  detachedHead?: boolean;
   /** The remotes `remotes` answers; `remote_add` and `remote_remove` change the list. */
   remotes?: Remote[];
   /** What the operations that may stop on conflicts answer; done on a new commit by default. */
@@ -555,8 +557,8 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
           return {
             root,
             commonDir: `${root}/.git`,
-            currentBranch: "main",
-            detached: false,
+            currentBranch: options.detachedHead ? null : "main",
+            detached: options.detachedHead ?? false,
             isLinkedWorktree: false,
           };
         }

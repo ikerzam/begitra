@@ -42,6 +42,7 @@ export const defaultBindings: readonly ShortcutBinding[] = [
   { id: "unstage-file", keys: "u", scope: "changes" },
   { id: "discard-file", keys: "backspace", scope: "changes" },
   { id: "commit", keys: "mod+enter", scope: "changes" },
+  { id: "commit-push", keys: "shift+mod+enter", scope: "changes" },
   { id: "push", keys: "shift+mod+p", scope: "global" },
   { id: "mark-resolved", keys: "r", scope: "changes" },
   { id: "next-project-repo", keys: "alt+arrowdown", scope: "global" },

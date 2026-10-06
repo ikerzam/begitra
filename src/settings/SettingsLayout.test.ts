@@ -72,7 +72,7 @@ describe("SettingsLayout", () => {
     expect(input(wrapper, "skip-folders").element.value).toBe(defaultSkipFolders.join(", "));
     expect(input(wrapper, "max-depth").element.value).toBe("2");
     const rows = wrapper.findAll('[data-testid="shortcut-rows"] li');
-    expect(rows).toHaveLength(24);
+    expect(rows).toHaveLength(25);
     expect(rows[0]?.text()).toContain("Command palette");
     // Change is a pencil: its name starts with its tooltip's words and says which shortcut.
     const change = rows[0]?.get('[data-testid="shortcut-change"]');
@@ -88,6 +88,9 @@ describe("SettingsLayout", () => {
     const staging = wrapper.get('[data-testid="shortcut-stageUnstageFile"]');
     expect(staging.findAll("kbd").map((k) => k.text())).toEqual(["s", "u"]);
     expect(wrapper.get('[data-testid="shortcut-commit"]').find("kbd").text()).toBe("Ctrl ↵");
+    const commitPush = wrapper.get('[data-testid="shortcut-commitPush"]');
+    expect(commitPush.text()).toContain("Commit and push");
+    expect(commitPush.find("kbd").text()).toBe("Ctrl Shift ↵");
     const zoom = wrapper.get('[data-testid="shortcut-zoom"]');
     expect(zoom.findAll("kbd").map((k) => k.text())).toEqual(["Ctrl =", "Ctrl -", "Ctrl 0"]);
     expect(wrapper.text()).toContain(

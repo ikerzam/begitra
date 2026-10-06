@@ -14,8 +14,9 @@ import { newOpId } from "@/ipc/invoke";
 import type { NetworkEvent, PullRequest, PushRequest, Remote } from "@/ipc/schemas";
 import type { StreamHandle } from "@/ipc/stream";
 import { arm } from "@/motion/motion";
-import { shortHash } from "@/shell/format";
+import { baseName, shortHash } from "@/shell/format";
 
+import { useBulkStore } from "./bulk";
 import { useOperationsStore } from "./operations";
 import { useRepoStore } from "./repo";
 import { useSequencerStore } from "./sequencer";
@@ -31,6 +32,28 @@ export type NetworkPrompt =
   /** A remote branch's "Delete on <remote>…": `tip` restores it. */
   | { kind: "deleteOnRemote"; remote: string; branch: string; tip: string }
   | { kind: "removeRemote"; name: string };
+
+/** How a failed network command reads in its toast, and what its action does. */
+interface Explained {
+  key: string;
+  params: Record<string, string>;
+  /** The toast's own action in place of "Show git output", which then shows at once. */
+  actionKey?: string;
+  onAction?: () => void;
+}
+
+/** What a push carries besides its request. */
+export interface PushOptions {
+  /** A commit and push: its commit is made, so a failure offers "Push again". */
+  retry?: boolean;
+  /** The pushed commit replaces one by amending it: a rejection needs a force, not a pull. */
+  amended?: boolean;
+}
+
+/** git refused the push because the remote holds commits the branch lacks (`LC_ALL=C` keeps the words). */
+export function isRejectedPush(output: string): boolean {
+  return /\[rejected\]/.test(output) && /fetch first|non-fast-forward/.test(output);
+}
 
 /** The upstream of a branch split into its remote and branch (`origin/main`). */
 export function splitUpstream(upstream: string | null): { remote: string; branch: string } | null {
@@ -204,7 +227,7 @@ export const useRemotesStore = defineStore("remotes", () => {
     label: string,
     params: Record<string, string>,
     start: (root: string, onEvent: (event: NetworkEvent) => void, opId: string) => StreamHandle,
-    explain?: (error: AppError) => { key: string; params: Record<string, string> } | null,
+    explain?: (error: AppError) => Explained | null,
   ): Promise<NetworkEvent | null> {
     const root = repo.repo?.root;
     if (!root || refusedWhileBusy()) return Promise.resolve(null);
@@ -231,7 +254,7 @@ export const useRemotesStore = defineStore("remotes", () => {
       .catch((failure: unknown) => {
         const error = toAppError(failure);
         if (error.code !== "op.cancelled") {
-          const readable = explain?.(error) ?? {
+          const readable: Explained = explain?.(error) ?? {
             key: "remotes.networkFailed",
             params: { message: error.message },
           };
@@ -241,6 +264,9 @@ export const useRemotesStore = defineStore("remotes", () => {
             key: readable.key,
             params: readable.params,
             output: error.detail ?? error.message,
+            ...(readable.onAction
+              ? { actionKey: readable.actionKey, onAction: readable.onAction }
+              : {}),
           });
         }
         return null;
@@ -399,14 +425,65 @@ export const useRemotesStore = defineStore("remotes", () => {
     return true;
   }
 
-  async function push(request: PushRequest): Promise<boolean> {
+  /**
+   * Runs `act` in the repository open when it was offered, or says that repository is no longer
+   * open: a toast's action outlives a switch to another repository.
+   */
+  function inRepository(root: string | undefined, act: () => void): () => void {
+    return () => {
+      if (root !== undefined && repo.repo?.root === root) act();
+      else
+        toasts.push({
+          kind: "info",
+          message: "",
+          key: "remotes.repositoryChanged",
+          params: { name: baseName(root ?? "") },
+        });
+    };
+  }
+
+  /**
+   * Pushes as `request` says. A push the remote rejects for commits the branch lacks says so and
+   * offers "Pull…" on the checked-out branch, unless it follows an amend (`amended`), whose
+   * replacement only a forced push moves; with `retry` (a commit and push, whose commit is made)
+   * any other failure offers "Push again". Both act in the repository the push ran in.
+   */
+  async function push(request: PushRequest, options: PushOptions = {}): Promise<boolean> {
     if (refusedWhileBusy()) return false;
     dismiss();
+    const root = repo.repo?.root;
     const branch = request.branch ?? repo.currentBranch?.name ?? "HEAD";
     const remote =
       request.remote ?? splitUpstream(repo.currentBranch?.upstream ?? null)?.remote ?? "origin";
-    const result = await network("operations.pushing", { branch, remote }, (root, onEvent, opId) =>
-      ipc.push(root, request, onEvent, opId),
+    const explain = (error: AppError): Explained | null => {
+      if (isRejectedPush(error.detail ?? error.message)) {
+        if (options.amended)
+          return { key: "remotes.pushRejectedAmend", params: { branch, remote } };
+        const pullable = branch === repo.currentBranch?.name;
+        return {
+          key: "remotes.pushRejected",
+          params: { branch, remote },
+          ...(pullable
+            ? {
+                actionKey: "remotes.pullAction",
+                onAction: inRepository(root, () => ask({ kind: "pull", branch })),
+              }
+            : {}),
+        };
+      }
+      if (!options.retry) return null;
+      return {
+        key: "remotes.pushFailed",
+        params: { branch, remote },
+        actionKey: "remotes.pushAgain",
+        onAction: inRepository(root, () => void push(request, options)),
+      };
+    };
+    const result = await network(
+      "operations.pushing",
+      { branch, remote },
+      (root, onEvent, opId) => ipc.push(root, request, onEvent, opId),
+      explain,
     );
     if (!result) return false;
     void repo.refreshRefs();
@@ -419,6 +496,27 @@ export const useRemotesStore = defineStore("remotes", () => {
         result.kind === "result" && result.summary.length > 0 ? result.summary.join("\n") : "",
     });
     return true;
+  }
+
+  /**
+   * A push asked while a fetch, pull or push, or a project's bulk operation, runs: it runs once
+   * they end, the toast saying so, and not at all if another repository opened meanwhile, since
+   * the push commands act on the open one.
+   */
+  function pushWhenFree(request: PushRequest, options: PushOptions = {}): void {
+    const root = repo.repo?.root;
+    const bulk = useBulkStore();
+    const blocked = () => inFlight.value !== null || bulk.running;
+    if (!blocked()) {
+      void push(request, options);
+      return;
+    }
+    toasts.push({ kind: "info", message: "", key: "remotes.pushWaits" });
+    const stop = watch(blocked, (now) => {
+      if (now) return;
+      stop();
+      inRepository(root, () => void push(request, options))();
+    });
   }
 
   return {
@@ -442,6 +540,7 @@ export const useRemotesStore = defineStore("remotes", () => {
     fetch,
     pull,
     push,
+    pushWhenFree,
     pushTag,
     deleteOnRemote,
     cancel,

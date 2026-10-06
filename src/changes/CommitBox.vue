@@ -1,12 +1,15 @@
 <script setup lang="ts">
 // The commit box under the lists: the subject with its count past 72 characters, the
 // description, "Amend last commit" (HEAD's message borrowed into an empty box, off on an unborn
-// branch) and "Sign off" as icon toggles beside the author line git will use (or the commit
-// being amended), and "Commit" with ⌘↵, enabled only with a subject and something to commit.
+// branch), "Sign off" and "Push after commit" as icon toggles beside the author line git will use
+// (or the commit being amended), and "Commit" with ⌘↵, enabled only with a subject and something
+// to commit. "Push after commit" is a setting: pressed, the button reads "Commit and push" and
+// the commit is followed by a push; when the push cannot run (`pushPlan`) the toggle is
+// unavailable, its tooltip saying why, and the commit goes alone.
 // The draft lives in the store, so leaving the screen keeps it. In the folder view a line above
 // the fields reads "Commit to" with the repository and its branch.
 
-import { PencilLine, Signature } from "@lucide/vue";
+import { PencilLine, Signature, Upload } from "@lucide/vue";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -19,8 +22,10 @@ import Textarea from "@/components/Textarea.vue";
 import { shortHash } from "@/shell/format";
 import { useShortcutHint } from "@/shortcuts/useShortcut";
 import { useRepoStore } from "@/stores/repo";
+import { useSettingsStore } from "@/stores/settings";
 
 import { useChanges, useOpenRepositoryChanges } from "./useChanges";
+import { useCommitAndPush } from "./useCommitAndPush";
 
 const props = withDefaults(
   defineProps<{
@@ -40,6 +45,8 @@ const SUBJECT_WIDTH = 72;
 const { t, n } = useI18n();
 const changes = useChanges();
 const repo = useRepoStore();
+const settings = useSettingsStore();
+const pushing = useCommitAndPush();
 /** HEAD's hash is known for the open repository only (its refs are listed). */
 const openRepository = useOpenRepositoryChanges();
 const commitHint = useShortcutHint("commit");
@@ -74,8 +81,20 @@ const authorLine = computed(() => {
   return author;
 });
 
+/** Why the push cannot run, as the toggle's tooltip and description; empty when it can. */
+const pushRefusal = computed(() => {
+  const plan = pushing.planFor(changes);
+  return plan.kind === "refused" ? t(`changes.pushRefused.${plan.reason}`) : "";
+});
+const willPush = computed(() => pushing.willPush(changes));
+const buttonLabel = computed(() => {
+  if (changes.draft.amend)
+    return willPush.value ? t("changes.amendAndPush") : t("changes.amendButton");
+  return willPush.value ? t("changes.commitAndPush") : t("changes.commit");
+});
+
 function onSubmit(): void {
-  void changes.commit();
+  void pushing.submit(changes);
 }
 
 /** Enter alone in the subject stays put: the commit key is ⌘↵ (the registry runs it). */
@@ -131,9 +150,9 @@ function onSubjectKeydown(event: KeyboardEvent): void {
         data-testid="commit-body"
       />
     </div>
-    <!-- The toggles beside the author line they change (the commit amended, the sign-off); their
-         pressed fill is their state, since they carry no words. Commit has the last row, so the
-         author line keeps its width in the 280px column. -->
+    <!-- The toggles before the author line, pressed while on, since they carry no words: Amend
+         and Sign off change the commit the line names, Push after commit what follows it. Commit
+         has the last row, so the author line keeps its width in the 280px column. -->
     <div class="flex items-center gap-3">
       <div class="flex shrink-0 items-center gap-1">
         <IconButton
@@ -151,6 +170,15 @@ function onSubjectKeydown(event: KeyboardEvent): void {
           :disabled="inert"
           data-testid="commit-signoff"
           @click="changes.setDraft({ signoff: !changes.draft.signoff })"
+        />
+        <IconButton
+          :label="t('changes.pushAfterCommit')"
+          :icon="Upload"
+          :pressed="settings.values.pushAfterCommit"
+          :disabled="inert"
+          :unavailable="pushRefusal"
+          data-testid="commit-push"
+          @click="() => void settings.update('pushAfterCommit', !settings.values.pushAfterCommit)"
         />
       </div>
       <span
@@ -170,7 +198,7 @@ function onSubjectKeydown(event: KeyboardEvent): void {
         :disabled="!changes.canCommit"
         data-testid="commit-button"
       >
-        {{ changes.draft.amend ? t("changes.amendButton") : t("changes.commit") }}
+        {{ buttonLabel }}
       </Button>
     </div>
   </form>

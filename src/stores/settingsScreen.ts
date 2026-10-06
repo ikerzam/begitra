@@ -60,6 +60,7 @@ export const shortcutRows: readonly ShortcutRow[] = [
   { key: "stageUnstageFile", groups: [["stage-file"], ["unstage-file"]] },
   { key: "discardFile", groups: [["discard-file"]] },
   { key: "commit", groups: [["commit"]] },
+  { key: "commitPush", groups: [["commit-push"]] },
   { key: "push", groups: [["push"]] },
   { key: "markResolved", groups: [["mark-resolved"]] },
   { key: "openTerminal", groups: [["open-terminal"]] },

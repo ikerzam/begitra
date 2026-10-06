@@ -172,24 +172,33 @@ describe("remotes store", () => {
     expect(of(calls, "push")).toHaveLength(0);
   });
 
-  it("shows a rejected push as an error toast with git's output", async () => {
+  it("says a rejected push needs a pull, offers Pull… on the checked-out branch, and keeps git's output", async () => {
     await open({ failNetwork: true });
     const store = useRemotesStore();
-    expect(
-      await store.push({
-        remote: null,
-        branch: null,
-        tag: null,
-        delete: false,
-        setUpstream: true,
-        forceWithLease: false,
-      }),
-    ).toBe(false);
+    const request = (branch: string | null) => ({
+      remote: null,
+      branch,
+      tag: null,
+      delete: false,
+      setUpstream: true,
+      forceWithLease: false,
+    });
+    expect(await store.push(request(null))).toBe(false);
     const toast = useToastsStore().toasts.at(-1);
     expect(toast?.kind).toBe("error");
-    expect(toast?.key).toBe("remotes.networkFailed");
+    expect(toast?.key).toBe("remotes.pushRejected");
+    expect(toast?.params).toEqual({ branch: "main", remote: "origin" });
     expect(toast?.output).toContain("[rejected]");
+    expect(toast?.actionKey).toBe("remotes.pullAction");
+    toast?.onAction?.();
+    expect(store.prompt).toEqual({ kind: "pull", branch: "main" });
     expect(useOperationsStore().current).toBeUndefined();
+    // A branch that is not checked out cannot take a pull: the toast says why, without the action.
+    store.dismiss();
+    expect(await store.push(request("develop"))).toBe(false);
+    const other = useToastsStore().toasts.at(-1);
+    expect(other?.key).toBe("remotes.pushRejected");
+    expect(other?.onAction).toBeUndefined();
   });
 
   it("fetches with prune and pulls; a pull that conflicts opens the changes screen", async () => {

@@ -345,7 +345,7 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       enabled: several,
       run: () => actions.projectNeighbour(-1),
     },
-    ...["stage-file", "unstage-file", "discard-file", "commit"].map((id) => ({
+    ...["stage-file", "unstage-file", "discard-file", "commit", "commit-push"].map((id) => ({
       id,
       labelKey: `palette.commandsById.${id}`,
       shortcutId: id,

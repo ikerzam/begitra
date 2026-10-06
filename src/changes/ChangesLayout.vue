@@ -19,6 +19,7 @@ import ChangeLists from "./ChangeLists.vue";
 import ChangesViewer from "./ChangesViewer.vue";
 import CommitBox from "./CommitBox.vue";
 import type { DiscardRequest } from "./discard";
+import { useCommitAndPush } from "./useCommitAndPush";
 import { useDiscardDialog } from "./useDiscardDialog";
 
 const { t } = useI18n();
@@ -30,6 +31,7 @@ const viewer = ref<{ actOnSelection(action: "stage" | "unstage" | "discard"): bo
   null,
 );
 const discard = useDiscardDialog();
+const pushing = useCommitAndPush();
 const listsWidth = computed(() => `${shell.paneSizes.files}px`);
 
 function askDiscard(request: DiscardRequest): void {
@@ -55,7 +57,8 @@ useShortcut("previous-file", () => lists.value?.moveFile(-1));
 useShortcut("stage-file", () => actOnSelected("stage"));
 useShortcut("unstage-file", () => actOnSelected("unstage"));
 useShortcut("discard-file", () => actOnSelected("discard"));
-useShortcut("commit", () => void changes.commit());
+useShortcut("commit", () => void pushing.submit(changes));
+useShortcut("commit-push", () => void pushing.commitAndPush(changes));
 // r marks the selected file resolved while it is one of the operation's conflicts.
 useShortcut("mark-resolved", () => {
   const path = changes.selected?.path;

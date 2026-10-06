@@ -99,6 +99,17 @@ describe("settings store", () => {
     expect(invalid.values.fileIcons).toBe(true);
   });
 
+  it("commits without pushing by default, and remembers Push after commit", async () => {
+    expect(defaultSettings("windows").pushAfterCommit).toBe(false);
+    const store = useSettingsStore();
+    await store.init(memoryStorage({ pushAfterCommit: true }), "windows");
+    expect(store.values.pushAfterCommit).toBe(true);
+    setActivePinia(createPinia());
+    const invalid = useSettingsStore();
+    await invalid.init(memoryStorage({ pushAfterCommit: "always" }), "windows");
+    expect(invalid.values.pushAfterCommit).toBe(false);
+  });
+
   it("folds the remote branches and the tags by default, and keeps the sidebar's folds", async () => {
     expect(defaultSettings("windows").sidebarFolded).toEqual(["remote", "tags"]);
     const store = useSettingsStore();

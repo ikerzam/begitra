@@ -2,10 +2,11 @@
 // order, entering the next section on its first row (or the one before on its last) and
 // passing the closed sections and those that draw no row; s, u and Backspace act on the picked
 // lines, else on the selected file, in its repository, a discard confirming once; ⌘↵ commits
-// the box's repository.
+// the box's repository, pushed as the box says, and ⇧⌘↵ commits and pushes it.
 
 import type { Ref } from "vue";
 
+import { useCommitAndPush } from "@/changes/useCommitAndPush";
 import type { useDiscardDialog } from "@/changes/useDiscardDialog";
 import { useShortcut } from "@/shortcuts/useShortcut";
 import type { useFolderStore } from "@/stores/folder";
@@ -24,6 +25,7 @@ export function useFolderKeys(options: {
 }) {
   const { folder, discard, viewer } = options;
   const sections = new Map<string, SectionHandle>();
+  const pushing = useCommitAndPush();
 
   function setSection(root: string, handle: unknown): void {
     if (handle) sections.set(root, handle as SectionHandle);
@@ -83,7 +85,14 @@ export function useFolderKeys(options: {
   useShortcut("stage-file", () => actOnSelected("stage"));
   useShortcut("unstage-file", () => actOnSelected("unstage"));
   useShortcut("discard-file", () => actOnSelected("discard"));
-  useShortcut("commit", () => void folder.active?.view.commit());
+  useShortcut("commit", () => {
+    const view = folder.active?.view;
+    if (view) void pushing.submit(view);
+  });
+  useShortcut("commit-push", () => {
+    const view = folder.active?.view;
+    if (view) void pushing.commitAndPush(view);
+  });
 
   return { setSection, enterNext, focusActive };
 }

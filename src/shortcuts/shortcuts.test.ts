@@ -90,6 +90,9 @@ describe("ShortcutRegistry", () => {
     expect(registry.hint("compare-with")).toBe("Ctrl Shift C");
     expect(registry.hint("nope")).toBe("");
     expect(new ShortcutRegistry("macos").hint("add-worktree")).toBe("⇧⌘W");
+    // Commit and push is the commit's key with Shift.
+    expect(registry.hint("commit-push")).toBe("Ctrl Shift ↵");
+    expect(new ShortcutRegistry("macos").hint("commit-push")).toBe("⇧⌘↵");
   });
 
   it("dispatches to the last attached handler and prevents default", () => {
