@@ -9,7 +9,7 @@ beforeEach(() => {
 });
 
 describe("shell store", () => {
-  it("switches layout modes and toggles the sidebar through the settings", async () => {
+  it("switches layout modes through the settings", async () => {
     const settings = useSettingsStore();
     const storage = memoryStorage();
     await settings.init(storage, "windows");
@@ -18,10 +18,43 @@ describe("shell store", () => {
     await shell.setLayoutMode("review");
     expect(shell.layoutMode).toBe("review");
     expect(storage.data.get("layoutMode")).toBe("review");
-    await shell.toggleSidebar();
-    expect(shell.sidebarCollapsed).toBe(true);
-    await shell.toggleSidebar();
-    expect(shell.sidebarCollapsed).toBe(false);
+  });
+
+  it("opens and closes the sidebar's panels, Ctrl B the last one, for the session", async () => {
+    const settings = useSettingsStore();
+    const storage = memoryStorage();
+    await settings.init(storage, "windows");
+    const shell = useShellStore();
+    expect(shell.sidebarPanel).toBeNull();
+    // Ctrl B with none open opens Branches the first time.
+    shell.toggleSidebarPanel();
+    expect(shell.sidebarPanel).toBe("local");
+    // A rail icon opens its panel in place of the open one, and closes it when it is the open one.
+    shell.toggleSidebarPanel("worktrees");
+    expect(shell.sidebarPanel).toBe("worktrees");
+    shell.toggleSidebarPanel("worktrees");
+    expect(shell.sidebarPanel).toBeNull();
+    // Ctrl B opens the last one again, then closes it.
+    shell.toggleSidebarPanel();
+    expect(shell.sidebarPanel).toBe("worktrees");
+    shell.toggleSidebarPanel();
+    expect(shell.sidebarPanel).toBeNull();
+    // Nothing of it is a setting.
+    expect([...storage.data.keys()].some((key) => key.startsWith("sidebar"))).toBe(false);
+  });
+
+  it("keeps a filter per panel until the filters are cleared", async () => {
+    const settings = useSettingsStore();
+    await settings.init(memoryStorage(), "windows");
+    const shell = useShellStore();
+    shell.setSidebarFilter("local", "auth");
+    shell.setSidebarFilter("tags", "v2");
+    expect(shell.sidebarFilters.local).toBe("auth");
+    expect(shell.sidebarFilters.remote).toBe("");
+    shell.closeSidebarPanel();
+    expect(shell.sidebarFilters.tags).toBe("v2");
+    shell.clearSidebarFilters();
+    expect(Object.values(shell.sidebarFilters)).toEqual(["", "", "", "", ""]);
   });
 
   it("remembers pane sizes within limits", async () => {
@@ -88,38 +121,6 @@ describe("shell store", () => {
     expect((storage.data.get("paneSizes") as { detail: number }).detail).toBe(520);
   });
 
-  it("shows the sidebar as its rail under 1024px until the user shows it, for the session", async () => {
-    const settings = useSettingsStore();
-    await settings.init(memoryStorage(), "windows");
-    const shell = useShellStore();
-    shell.setWindowWidth(1440);
-    expect(shell.sidebarCollapsed).toBe(false);
-    // 1440px at 175% zoom.
-    shell.setWindowWidth(823);
-    expect(shell.sidebarCollapsed).toBe(true);
-    await shell.expandSidebar("local");
-    expect(shell.sidebarCollapsed).toBe(false);
-    expect(shell.sidebarReveal?.id).toBe("local");
-    await shell.toggleSidebar();
-    expect(shell.sidebarCollapsed).toBe(true);
-    await shell.toggleSidebar();
-    expect(shell.sidebarCollapsed).toBe(false);
-    // The remembered setting is left as it was.
-    expect(settings.values.sidebarCollapsed).toBe(false);
-    // Crossing 1024px hands the sidebar back to the rule.
-    shell.setWindowWidth(1440);
-    expect(shell.sidebarCollapsed).toBe(false);
-    shell.setWindowWidth(823);
-    expect(shell.sidebarCollapsed).toBe(true);
-    // A sidebar collapsed at normal widths stays collapsed there.
-    await shell.expandSidebar("repos");
-    shell.setWindowWidth(1440);
-    await shell.toggleSidebar();
-    shell.setWindowWidth(823);
-    shell.setWindowWidth(1440);
-    expect(shell.sidebarCollapsed).toBe(true);
-  });
-
   it("gives the graph panel 320px under 1024px, the detail panel down to 280px", async () => {
     const settings = useSettingsStore();
     await settings.init(memoryStorage(), "windows");
@@ -137,11 +138,11 @@ describe("shell store", () => {
     expect(shell.detailWidth).toBe(455);
     shell.setWindowWidth(1440);
     expect(shell.detailWidth).toBe(520);
-    // With the sidebar shown while narrow the room is the page less the sidebar.
+    // An open panel floats: the room stays the page less the rail.
     await shell.resetPaneSize("detail");
     shell.setWindowWidth(823);
-    await shell.expandSidebar("repos");
-    expect(shell.detailWidth).toBe(280);
+    shell.openSidebarPanel("repos");
+    expect(shell.detailWidth).toBe(310);
     // 1024px and above keep the normal limits, 360 to 900.
     shell.setWindowWidth(1024);
     expect(shell.detailWidth).toBe(360);

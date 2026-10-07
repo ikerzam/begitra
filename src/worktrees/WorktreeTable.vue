@@ -105,7 +105,8 @@ async function focus(): Promise<void> {
 function sidebarRowFocused(): boolean {
   const active = document.activeElement;
   return (
-    active instanceof Element && active.closest('[data-testid="sidebar"] [role="option"]') !== null
+    active instanceof Element &&
+    active.closest('[data-testid="sidebar-panel"] [role="option"]') !== null
   );
 }
 

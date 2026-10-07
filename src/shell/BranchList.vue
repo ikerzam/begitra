@@ -1,9 +1,9 @@
 <script setup lang="ts">
-// The refs of one section of the sidebar (the local branches, the remote branches or the tags),
-// filtered by the sidebar, with roving focus and j/k navigation; at its first or last row the
-// move goes on to the next section (`edge`). Selecting a branch scopes the graph to it (the
-// selection lives in the graph store, so the scope control and the lists agree); nothing is
-// selected until the user picks a row, and the first row is the tab stop until then.
+// The refs of one sidebar panel (the local branches, the remote branches or the tags), filtered
+// by the panel, with roving focus and j/k navigation. Selecting a branch scopes the graph to it
+// (the selection lives in the graph store, so the scope control and the lists agree); nothing is
+// selected until the user picks a row, and the first row is the tab stop until then. ↵ checks a
+// branch out and says the row was activated (`activated`), which closes the panel.
 
 import { Tag } from "@lucide/vue";
 import { computed, inject, onUnmounted, ref } from "vue";
@@ -15,7 +15,7 @@ import ListRow from "@/components/ListRow.vue";
 import MotionRows from "@/components/MotionRows.vue";
 import SkeletonRow from "@/components/SkeletonRow.vue";
 import type { Ref as GitRef } from "@/ipc/schemas";
-import { isListKeydown, rowStep, useListNavigation } from "@/shortcuts/useListNavigation";
+import { isListKeydown, useListNavigation } from "@/shortcuts/useListNavigation";
 import { useRepoStore } from "@/stores/repo";
 
 import { branchSelectionKey, useBranchSelection } from "./useBranchSelection";
@@ -30,8 +30,8 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{
   action: [kind: BranchAction, ref: GitRef];
-  /** A move past the first (-1) or the last (1) row, for the next section. */
-  edge: [direction: 1 | -1];
+  /** A row was activated (↵): the panel closes. */
+  activated: [];
 }>();
 
 const { t } = useI18n();
@@ -63,16 +63,14 @@ const navigation = useListNavigation({
   count: rowCount,
   selected: selectedRow,
   rowElement,
-  onActivate: (index) => {
-    const ref = props.rows[index]?.ref;
-    if (ref && !ref.isCurrent) emit("action", "checkout", ref);
-  },
+  onActivate: (index) => activate(index),
 });
 
-/** Whether moving by `step` would leave the rows: the sidebar hands it on then. */
-function atEdge(step: 1 | -1): boolean {
-  const index = selectedRow.value;
-  return step === 1 ? index === rowCount.value - 1 : index <= 0;
+/** ↵ or a double click on a row: checks the branch out (not the current one), then says so. */
+function activate(index: number): void {
+  const ref = props.rows[index]?.ref;
+  if (ref && !ref.isCurrent) emit("action", "checkout", ref);
+  emit("activated");
 }
 
 /** The menu opens under the row, past the lane dot, where the graph opens its own. */
@@ -86,12 +84,6 @@ function onKeydown(event: KeyboardEvent): void {
     event.preventDefault();
     const rect = rowElement(selectedRow.value)?.getBoundingClientRect();
     menu.value = { ref, x: rect ? rect.left + MENU_OFFSET_X : 0, y: rect ? rect.bottom : 0 };
-    return;
-  }
-  const step = rowStep(event);
-  if (step !== 0 && atEdge(step)) {
-    event.preventDefault();
-    emit("edge", step);
     return;
   }
   navigation.onKeydown(event);
@@ -115,14 +107,7 @@ function closeMenu(): void {
   navigation.focus();
 }
 
-/** Selects and focuses the first or the last row (the sidebar entering the list); false when empty. */
-function selectEdge(edge: "first" | "last"): boolean {
-  if (rowCount.value === 0) return false;
-  navigation.select(edge === "first" ? 0 : rowCount.value - 1);
-  return true;
-}
-
-defineExpose({ focus: navigation.focus, selectEdge });
+defineExpose({ focus: navigation.focus });
 </script>
 
 <template>
@@ -152,6 +137,7 @@ defineExpose({ focus: navigation.focus, selectEdge });
         :selected="index === selectedRow"
         :tab-stop="index === tabStopRow"
         @select="navigation.select(index)"
+        @activate="activate(index)"
         @contextmenu="(event: MouseEvent) => onContextMenu(index, event)"
       />
     </MotionRows>

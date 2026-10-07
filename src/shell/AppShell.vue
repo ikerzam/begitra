@@ -6,7 +6,6 @@
 // the repository it showed while the index loads beside it.
 
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { useI18n } from "vue-i18n";
 
 import BranchDialogs from "@/branches/BranchDialogs.vue";
 import OperationBanner from "@/branches/OperationBanner.vue";
@@ -43,18 +42,17 @@ import { useFolderStore } from "@/stores/folder";
 import { useProjectsStore } from "@/stores/projects";
 import { useBulkStore } from "@/stores/bulk";
 import { useProjectDialogsStore } from "@/stores/projectDialogs";
-import { useSettingsStore, type SidebarSectionId } from "@/stores/settings";
-import { paneLimits, useShellStore } from "@/stores/shell";
+import { useSettingsStore } from "@/stores/settings";
+import { useShellStore } from "@/stores/shell";
 import { useWorktreesStore } from "@/stores/worktrees";
 import { useSettingsScreenStore } from "@/stores/settingsScreen";
 import SettingsLayout from "@/settings/SettingsLayout.vue";
 import AddWorktreeDialog from "@/worktrees/AddWorktreeDialog.vue";
 import WorktreesLayout from "@/worktrees/WorktreesLayout.vue";
 
-import PaneResizer from "./PaneResizer.vue";
 import GraphFocusLayout from "./GraphFocusLayout.vue";
 import ReviewFocusLayout from "./ReviewFocusLayout.vue";
-import Sidebar from "./Sidebar.vue";
+import SidebarPanel from "./SidebarPanel.vue";
 import SidebarRail from "./SidebarRail.vue";
 import StatusBar from "./StatusBar.vue";
 import TextMenu from "./TextMenu.vue";
@@ -66,7 +64,6 @@ import { useRepoWatcher } from "./useRepoWatcher";
 import { useNativeMenu, type TextMenuRequest } from "./useNativeMenu";
 import { useZoom } from "./useZoom";
 
-const { t } = useI18n();
 const shell = useShellStore();
 const repo = useRepoStore();
 const index = useIndexStore();
@@ -127,27 +124,15 @@ const changedCount = computed(() => {
   );
   return Math.max(read, changes.counts?.changed ?? 0);
 });
-/** Home has no sidebar: it shows with a repository or a project open. */
+/**
+ * The sidebar, its rail, shows in every layout with a repository or a project open, and Home has
+ * none. Its panel floats over whichever layout shows, which keeps its width.
+ */
 const sidebarAvailable = computed(() => repo.state.kind !== "empty" || projects.active !== null);
-/**
- * One sidebar for every layout but review focus and the settings (which show the rail), so
- * switching layouts keeps its filter, its folds and its lists.
- */
-const showSidebar = computed(
-  () =>
-    sidebarAvailable.value && !shell.sidebarCollapsed && !reviewMode.value && !settingsMode.value,
-);
-
-/**
- * A rail icon expands the sidebar on its section; from review focus or the settings that means
- * leaving them. The sidebar reveals the section and focuses its list. At Home the icons are
- * disabled: a request there would wait for the next project and take its focus.
- */
-function selectRailSection(id: SidebarSectionId): void {
-  if (!sidebarAvailable.value) return;
-  if (reviewMode.value || settingsMode.value) void shell.setLayoutMode("graph");
-  void shell.expandSidebar(id);
-}
+/* Home closes a panel left open: the next project opens with none. */
+watch(sidebarAvailable, (available) => {
+  if (!available) shell.closeSidebarPanel();
+});
 
 /** "Compare with…": the selected commit in graph focus, else the current branch, as A. */
 function compareWith(): void {
@@ -178,7 +163,9 @@ onBeforeUnmount(() => {
 });
 useShortcut("graph-focus", () => void shell.setLayoutMode("graph"));
 useShortcut("review-focus", () => void shell.setLayoutMode("review"));
-useShortcut("toggle-sidebar", () => void shell.toggleSidebar());
+useShortcut("toggle-sidebar", () => {
+  if (sidebarAvailable.value) shell.toggleSidebarPanel();
+});
 useShortcut("open-terminal", () => void external.openTerminal());
 useShortcut("open-editor", () => void external.openEditor());
 useShortcut("compare-with", compareWith);
@@ -294,6 +281,29 @@ watch(
   },
 );
 
+/**
+ * A sidebar panel that closes with the focus inside it (⌘B, a row's activation) would leave the
+ * focus on the page's body: the layout behind takes it on its list, as when it shows. Escape has
+ * given it to the rail's icon already, and a press outside to what it pressed.
+ */
+watch(
+  () => shell.sidebarPanel,
+  (panel, previous) => {
+    if (panel !== null || previous === null) return;
+    void nextTick(() => {
+      const active = document.activeElement;
+      if (active && active !== document.body) return;
+      if (reviewMode.value) reviewLayout.value?.focusFiles();
+      else if (compareMode.value) compareLayout.value?.focusSides();
+      else if (worktreesMode.value) worktreesLayout.value?.focusRows();
+      else if (settingsMode.value) settingsLayout.value?.focus();
+      else if (changesMode.value) changesLayout.value?.focusLists();
+      else if (projectMode.value) projectLayout.value?.focus();
+      else graphLayout.value?.focusRows();
+    });
+  },
+);
+
 /** The commit rows take the focus on the next tick, when nothing else holds it. */
 function focusGraphRows(): void {
   void nextTick(() => {
@@ -360,17 +370,7 @@ function removeFromProject(): void {
     />
     <OperationBanner />
     <div class="relative flex min-h-0 flex-1">
-      <Sidebar v-if="showSidebar" />
-      <PaneResizer
-        v-if="showSidebar"
-        :size="shell.paneSizes.sidebar"
-        :min="paneLimits.sidebar.min"
-        :max="paneLimits.sidebar.max"
-        :label="t('layout.resizeSidebar')"
-        @resize="(px) => void shell.setPaneSize('sidebar', px)"
-        @reset="() => void shell.resetPaneSize('sidebar')"
-      />
-      <SidebarRail v-else :disabled="!sidebarAvailable" @select="selectRailSection" />
+      <SidebarRail v-if="sidebarAvailable" />
       <ReviewFocusLayout v-if="reviewMode" ref="reviewLayout" />
       <CompareLayout v-else-if="compareMode" ref="compareLayout" />
       <WorktreesLayout v-else-if="worktreesMode" ref="worktreesLayout" />
@@ -384,6 +384,11 @@ function removeFromProject(): void {
         @add-folder="() => void addFolder()"
         @review="(file) => void review(file)"
         @remove-from-project="removeFromProject"
+      />
+      <SidebarPanel
+        v-if="sidebarAvailable && shell.sidebarPanel"
+        :id="shell.sidebarPanel"
+        :key="shell.sidebarPanel"
       />
       <DropTarget :active="dragging" />
     </div>

@@ -83,7 +83,6 @@ export interface Settings {
   editorLineCommand: string;
   paneSizes: PaneSizes;
   columnWidths: ColumnWidths;
-  sidebarCollapsed: boolean;
   layoutMode: LayoutMode;
   locale: Locale;
   /** Ids of the last commands run from the palette, most recent first. */
@@ -134,8 +133,6 @@ export interface Settings {
   branchSort: BranchSort;
   /** An icon of each file's kind in the file lists. */
   fileIcons: boolean;
-  /** The sidebar's folded sections. */
-  sidebarFolded: SidebarSectionId[];
 }
 
 /** The sections of the sidebar's column, in their order. */
@@ -163,7 +160,6 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   columnWidths: v.object({
     worktrees: v.object({ path: px, branch: px, state: px, ahead: px }),
   }),
-  sidebarCollapsed: v.boolean(),
   layoutMode: v.picklist([
     "graph",
     "review",
@@ -198,7 +194,6 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   zoom: v.picklist(zoomLevels),
   branchSort: v.picklist(["recent", "name"]),
   fileIcons: v.boolean(),
-  sidebarFolded: v.array(v.picklist(sidebarSectionIds)),
 };
 
 export const settingsKeys = Object.keys(schemas) as (keyof Settings)[];
@@ -261,7 +256,6 @@ export function defaultSettings(platform: Platform): Settings {
     editorLineCommand: "",
     paneSizes: { sidebar: 240, detail: null, files: 280, reviewRail: 280 },
     columnWidths: defaultColumnWidths(),
-    sidebarCollapsed: false,
     layoutMode: "graph",
     locale: "en",
     paletteRecents: [],
@@ -288,7 +282,6 @@ export function defaultSettings(platform: Platform): Settings {
     zoom: 100,
     branchSort: "recent",
     fileIcons: true,
-    sidebarFolded: ["remote", "tags"],
   };
 }
 

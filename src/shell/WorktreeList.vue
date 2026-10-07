@@ -1,10 +1,10 @@
 <script setup lang="ts">
-// The Worktrees section of the sidebar: the worktrees of the open repository as their folder name
-// with the branch's lane dot and the tree icon, filtered by the sidebar, with roving focus and
-// j/k navigation; at its first or last row the move goes on to the next section (`edge`).
-// Selecting a row selects it in the dashboard; ↵ opens it as the context; a right click or the
-// menu key opens the dashboard's row menu without its dialog actions. The sidebar reads the list;
-// skeleton rows stand in until it answers, and a listing that fails says so above the rows.
+// The sidebar's Worktrees panel: the worktrees of the open repository as their folder name with
+// the branch's lane dot and the tree icon, filtered by the panel, with roving focus and j/k
+// navigation. Selecting a row selects it in the dashboard; ↵ opens it as the context and says the
+// row was activated (`activated`), which closes the panel; a right click or the menu key opens the
+// dashboard's row menu without its dialog actions. The rail reads the list; skeleton rows stand in
+// until it answers, and a listing that fails says so above the rows.
 
 import { ListTree } from "@lucide/vue";
 import { computed, ref } from "vue";
@@ -15,7 +15,7 @@ import ListRow from "@/components/ListRow.vue";
 import MotionRows from "@/components/MotionRows.vue";
 import { refocusAfterMenu } from "@/components/menuFocus";
 import SkeletonRow from "@/components/SkeletonRow.vue";
-import { isListKeydown, rowStep, useListNavigation } from "@/shortcuts/useListNavigation";
+import { isListKeydown, useListNavigation } from "@/shortcuts/useListNavigation";
 import { useRepoStore } from "@/stores/repo";
 import { useWorktreesStore } from "@/stores/worktrees";
 import WorktreeContextMenu from "@/worktrees/WorktreeContextMenu.vue";
@@ -26,8 +26,8 @@ import type { WorktreeRow } from "./useSidebarSections";
 
 const props = defineProps<{ rows: WorktreeRow[] }>();
 const emit = defineEmits<{
-  /** A move past the first (-1) or the last (1) row, for the next section. */
-  edge: [direction: 1 | -1];
+  /** A row was activated (↵): the panel closes. */
+  activated: [];
 }>();
 
 const { t } = useI18n();
@@ -54,10 +54,16 @@ const navigation = useListNavigation({
   selected: selectedRow,
   onActivate: (index) => {
     const row = props.rows[index];
-    if (row) void worktrees.openAsContext(row.key);
+    if (row) openAsContext(row.key);
   },
   rowElement: (index) => listbox.value?.querySelector(`[data-index="${index}"]`),
 });
+
+/** Opens a worktree as the context; the panel closes on it. */
+function openAsContext(key: string): void {
+  void worktrees.openAsContext(key);
+  emit("activated");
+}
 
 /** The repository is opening, or open with its worktrees not listed yet. */
 const loading = computed(
@@ -96,13 +102,6 @@ function onKeydown(event: KeyboardEvent): void {
     openMenu(index, rect?.left ?? 0, rect?.bottom ?? 0);
     return;
   }
-  const step = rowStep(event);
-  const index = selectedRow.value;
-  if (step !== 0 && (step === 1 ? index === rowCount.value - 1 : index <= 0)) {
-    event.preventDefault();
-    emit("edge", step);
-    return;
-  }
   navigation.onKeydown(event);
 }
 
@@ -119,14 +118,7 @@ function withMenuRow(action: (path: string) => void): void {
   if (path) action(path);
 }
 
-/** Selects and focuses the first or the last row (the sidebar entering the list); false when empty. */
-function selectEdge(edge: "first" | "last"): boolean {
-  if (rowCount.value === 0) return false;
-  navigation.select(edge === "first" ? 0 : rowCount.value - 1);
-  return true;
-}
-
-defineExpose({ focus: navigation.focus, selectEdge });
+defineExpose({ focus: navigation.focus });
 </script>
 
 <template>
@@ -160,7 +152,7 @@ defineExpose({ focus: navigation.focus, selectEdge });
         :selected="index === selectedRow"
         :tab-stop="index === tabStopRow"
         @select="navigation.select(index)"
-        @activate="() => void worktrees.openAsContext(row.key)"
+        @activate="openAsContext(row.key)"
         @contextmenu="(event: MouseEvent) => onContextMenu(index, event)"
       />
     </MotionRows>

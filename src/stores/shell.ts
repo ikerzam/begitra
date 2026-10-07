@@ -1,6 +1,6 @@
-// Shell layout state: layout mode, sidebar rail, pane sizes (persisted through the settings
-// store), the narrow-window collapse of the review rail, the sidebar and the detail panel
-// under the zoom, and the palette.
+// Shell layout state: layout mode, the sidebar's open panel (its rail is the sidebar), pane
+// sizes (persisted through the settings store), the narrow-window collapse of the review rail and
+// of the detail panel under the zoom, and the palette.
 
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
@@ -33,11 +33,13 @@ export const REVIEW_RAIL_BREAKPOINT = 1100;
 
 /**
  * Below this page width, which only the zoom reaches (the window's minimum is 1024), the
- * sidebar starts as its rail and the detail panel gives way to the graph panel.
+ * detail panel gives way to the graph panel.
  */
 export const NARROW_BREAKPOINT = 1024;
-/** The sidebar's rail (`--rail-w`). */
+/** The sidebar's rail (`--rail-w`): all the room the sidebar takes, its panels floating. */
 const RAIL_WIDTH = 48;
+/** The room the detail panel's default share leaves the sidebar, as the frames measure it. */
+const SIDEBAR_SHARE = 240;
 /** Under the narrow breakpoint: the width the detail panel leaves the graph panel (its lanes,
  * a subject and the time), and the detail panel's own floor (the summary and the file names). */
 const NARROW_GRAPH_MIN = 320;
@@ -59,30 +61,32 @@ export function defaultDetailWidth(windowWidth: number, sidebarWidth: number): n
 /** The user's say on the review rail; "auto" follows the window width. */
 export type ReviewRailPreference = "auto" | "shown" | "hidden";
 
-/** The sidebar under the narrow breakpoint: its rail ("auto") until the user shows it. */
-export type NarrowSidebar = "auto" | "shown";
+/** No filter in any panel. */
+const noFilters = (): Record<SidebarSectionId, string> => ({
+  repos: "",
+  local: "",
+  remote: "",
+  tags: "",
+  worktrees: "",
+});
 
 export const useShellStore = defineStore("shell", () => {
   const settings = useSettingsStore();
   const windowWidth = ref(1440);
   const reviewRailPreference = ref<ReviewRailPreference>("auto");
-  /** Session state, not a setting: a toggle while zoomed would otherwise hide the sidebar of
-   * the next unzoomed launch. */
-  const narrowSidebar = ref<NarrowSidebar>("auto");
   const paletteOpen = ref(false);
   /**
-   * A section of the sidebar to reveal (a rail icon asked for it): the sidebar takes the request,
-   * opens the section, scrolls it to the top and focuses its list. Each request is a new object,
-   * so asking for the same section again is a new request.
+   * The sidebar's open panel, floating over the main area; none open by default. Session state,
+   * not a setting: a panel open at start would cover the graph.
    */
-  const sidebarReveal = ref<{ id: SidebarSectionId } | null>(null);
+  const sidebarPanel = ref<SidebarSectionId | null>(null);
+  /** The panel ⌘B opens: the last one opened, Branches until one is. */
+  const lastSidebarPanel = ref<SidebarSectionId>("local");
+  /** Each panel's filter, kept while it is closed; cleared when another repository shows. */
+  const sidebarFilters = ref<Record<SidebarSectionId, string>>(noFilters());
 
   const layoutMode = computed<LayoutMode>(() => settings.values.layoutMode);
   const narrow = computed(() => windowWidth.value < NARROW_BREAKPOINT);
-  /** The remembered setting; under the narrow breakpoint the rail, until the user shows it. */
-  const sidebarCollapsed = computed(() =>
-    narrow.value ? narrowSidebar.value === "auto" : settings.values.sidebarCollapsed,
-  );
   const paneSizes = computed<PaneSizes>(() => settings.values.paneSizes);
   const columnWidths = computed<ColumnWidths>(() => settings.values.columnWidths);
 
@@ -92,8 +96,7 @@ export const useShellStore = defineStore("shell", () => {
    */
   const detailLimits = computed(() => {
     if (!narrow.value) return paneLimits.detail;
-    const side = sidebarCollapsed.value ? RAIL_WIDTH : paneSizes.value.sidebar;
-    const room = windowWidth.value - side - NARROW_GRAPH_MIN;
+    const room = windowWidth.value - RAIL_WIDTH - NARROW_GRAPH_MIN;
     const max = Math.max(NARROW_DETAIL_MIN, Math.min(room, paneLimits.detail.max));
     return { min: NARROW_DETAIL_MIN, max };
   });
@@ -101,16 +104,15 @@ export const useShellStore = defineStore("shell", () => {
   /**
    * Width of the detail panel: the pinned size after a drag, else the fraction of the window.
    * Under the narrow breakpoint it leaves the graph panel 320px, down to 280px of its own, the
-   * share taken of the window less what the sidebar or its rail takes.
+   * share taken of the window less the rail.
    */
   const detailWidth = computed(() => {
     const pinned = paneSizes.value.detail;
     if (!narrow.value) {
       if (pinned !== null) return clampPane("detail", pinned);
-      return defaultDetailWidth(windowWidth.value, paneSizes.value.sidebar);
+      return defaultDetailWidth(windowWidth.value, SIDEBAR_SHARE);
     }
-    const side = sidebarCollapsed.value ? RAIL_WIDTH : paneSizes.value.sidebar;
-    const width = pinned ?? DETAIL_FRACTION * (windowWidth.value - side);
+    const width = pinned ?? DETAIL_FRACTION * (windowWidth.value - RAIL_WIDTH);
     const { min, max } = detailLimits.value;
     return Math.round(Math.min(Math.max(width, min), max));
   });
@@ -126,13 +128,34 @@ export const useShellStore = defineStore("shell", () => {
     return settings.update("layoutMode", mode);
   }
 
-  /** ⌘B: under the narrow breakpoint it shows or hides the sidebar for the session only. */
-  function toggleSidebar(): Promise<void> {
-    if (narrow.value) {
-      narrowSidebar.value = narrowSidebar.value === "auto" ? "shown" : "auto";
-      return Promise.resolve();
+  /** Opens a sidebar panel over the main area; the next ⌘B opens it again. */
+  function openSidebarPanel(id: SidebarSectionId): void {
+    sidebarPanel.value = id;
+    lastSidebarPanel.value = id;
+  }
+
+  function closeSidebarPanel(): void {
+    sidebarPanel.value = null;
+  }
+
+  /**
+   * A rail icon (`id`): opens its panel, or closes it when it is the open one. ⌘B (no `id`):
+   * closes the open panel, or opens the last one.
+   */
+  function toggleSidebarPanel(id?: SidebarSectionId): void {
+    if (sidebarPanel.value !== null && (id === undefined || sidebarPanel.value === id)) {
+      closeSidebarPanel();
+    } else {
+      openSidebarPanel(id ?? lastSidebarPanel.value);
     }
-    return settings.update("sidebarCollapsed", !settings.values.sidebarCollapsed);
+  }
+
+  function setSidebarFilter(id: SidebarSectionId, value: string): void {
+    sidebarFilters.value = { ...sidebarFilters.value, [id]: value };
+  }
+
+  function clearSidebarFilters(): void {
+    sidebarFilters.value = noFilters();
   }
 
   /**
@@ -188,7 +211,6 @@ export const useShellStore = defineStore("shell", () => {
     if (railNarrow !== windowWidth.value < REVIEW_RAIL_BREAKPOINT) {
       reviewRailPreference.value = "auto";
     }
-    if (px < NARROW_BREAKPOINT !== narrow.value) narrowSidebar.value = "auto";
     windowWidth.value = px;
   }
 
@@ -212,31 +234,23 @@ export const useShellStore = defineStore("shell", () => {
     paletteOpen.value = !paletteOpen.value;
   }
 
-  function revealSidebarSection(id: SidebarSectionId): void {
-    sidebarReveal.value = { id };
-  }
-
-  /** Expands the sidebar on a section (the rail icons do this); for the session when narrow. */
-  async function expandSidebar(id: SidebarSectionId): Promise<void> {
-    revealSidebarSection(id);
-    if (narrow.value) narrowSidebar.value = "shown";
-    else if (settings.values.sidebarCollapsed) await settings.update("sidebarCollapsed", false);
-  }
-
   return {
     windowWidth,
-    sidebarReveal,
-    revealSidebarSection,
-    expandSidebar,
+    sidebarPanel,
+    lastSidebarPanel,
+    sidebarFilters,
+    openSidebarPanel,
+    closeSidebarPanel,
+    toggleSidebarPanel,
+    setSidebarFilter,
+    clearSidebarFilters,
     layoutMode,
-    sidebarCollapsed,
     paneSizes,
     detailWidth,
     detailLimits,
     reviewRailCollapsed,
     paletteOpen,
     setLayoutMode,
-    toggleSidebar,
     setPaneSize,
     resetPaneSize,
     columnWidths,

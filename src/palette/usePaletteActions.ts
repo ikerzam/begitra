@@ -76,7 +76,7 @@ export function usePaletteActions(): PaletteActions {
     },
     setGraphFocus: () => void shell.setLayoutMode("graph"),
     setReviewFocus: () => void shell.setLayoutMode("review"),
-    toggleSidebar: () => void shell.toggleSidebar(),
+    toggleSidebar: () => shell.toggleSidebarPanel(),
     openTerminal: async () => {
       await external.openTerminal();
     },

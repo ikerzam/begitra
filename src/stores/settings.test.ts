@@ -106,15 +106,15 @@ describe("settings store", () => {
     expect(store.values.fileIcons).toBe(false);
   });
 
-  it("folds the remote branches and the tags by default, and keeps the sidebar's folds", async () => {
-    expect(defaultSettings("windows").sidebarFolded).toEqual(["remote", "tags"]);
+  it("ignores a stored sidebar collapse or folds, which no longer exist", async () => {
     const store = useSettingsStore();
-    await store.init(memoryStorage({ sidebarFolded: ["local", "worktrees"] }), "windows");
-    expect(store.values.sidebarFolded).toEqual(["local", "worktrees"]);
-    setActivePinia(createPinia());
-    const invalid = useSettingsStore();
-    await invalid.init(memoryStorage({ sidebarFolded: ["branches"] }), "windows");
-    expect(invalid.values.sidebarFolded).toEqual(["remote", "tags"]);
+    await store.init(
+      memoryStorage({ sidebarCollapsed: true, sidebarFolded: ["local"], fileIcons: false }),
+      "windows",
+    );
+    expect(store.values).not.toHaveProperty("sidebarCollapsed");
+    expect(store.values).not.toHaveProperty("sidebarFolded");
+    expect(store.values.fileIcons).toBe(false);
   });
 
   it("keeps stored discovery keys that are valid and drops the rest", async () => {
@@ -248,12 +248,12 @@ describe("settings store", () => {
 
   it("keeps an update made before init and writes it once the storage is there", async () => {
     const store = useSettingsStore();
-    const storage = memoryStorage({ locale: "en", sidebarCollapsed: true });
+    const storage = memoryStorage({ locale: "en", fileIcons: false });
     await store.update("locale", "es");
     expect(store.values.locale).toBe("es");
     await store.init(storage, "windows");
     expect(store.values.locale).toBe("es");
-    expect(store.values.sidebarCollapsed).toBe(true);
+    expect(store.values.fileIcons).toBe(false);
     expect(storage.data.get("locale")).toBe("es");
     expect(storage.saved).toBe(1);
   });

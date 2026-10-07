@@ -619,10 +619,13 @@ describe("launch and the watcher", () => {
     expect(useRepoStore().repo?.root).toBe("/r");
     expect(useShellStore().layoutMode).toBe("worktrees");
     expect(wrapper.find('[data-testid="worktrees-layout"]').exists()).toBe(true);
+    // The Worktrees panel's dashboard toggle shows it.
+    await wrapper.get('[data-testid="rail-worktrees"]').trigger("click");
+    await settle();
     expect(wrapper.get('[data-testid="sidebar-dashboard"]').attributes("aria-pressed")).toBe(
       "true",
     );
-    // ⌘1 returns to the graph, the sidebar as it was.
+    // ⌘1 returns to the graph.
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "1", ctrlKey: true }));
     await settle();
     expect(useShellStore().layoutMode).toBe("graph");
@@ -644,7 +647,9 @@ describe("launch and the watcher", () => {
       "Couldn't open /r. The folder was removed or is no longer a Git repository.",
     );
     expect(banner.text()).toContain("Remove from project");
-    // The Repositories section flags it among the project's repositories.
+    // The Repositories panel flags it among the project's repositories.
+    await wrapper.get('[data-testid="rail-repos"]').trigger("click");
+    await settle();
     const flagged = wrapper.get('[data-testid="repo-list"] [data-path="/r"]');
     expect(flagged.text()).toContain("not found");
     expect(useIndexStore().find("/r")?.missing).toBe(true);
@@ -771,10 +776,16 @@ describe("AppShell", () => {
     await settle();
     expect(calls).toContain("open_repository");
     expect(wrapper.get('[data-testid="top-bar"]').text()).toContain("r");
-    expect(wrapper.find('[data-testid="sidebar"]').exists()).toBe(true);
-    expect(wrapper.get('[data-testid="branch-list-local"]').text()).toContain("main");
-    expect(wrapper.get('[data-section="remote"] [data-testid="section-count"]').text()).toBe("1");
+    expect(wrapper.find('[data-testid="sidebar-rail"]').exists()).toBe(true);
     expect(wrapper.findAll('[data-testid="graph-row"]')).toHaveLength(3);
+    await wrapper.get('[data-testid="rail-local"]').trigger("click");
+    await settle();
+    expect(wrapper.get('[data-testid="branch-list-local"]').text()).toContain("main");
+    await wrapper.get('[data-testid="rail-remote"]').trigger("click");
+    await settle();
+    expect(wrapper.get('[data-testid="sidebar-panel-count"]').text()).toBe("1");
+    await wrapper.get('[data-testid="rail-remote"]').trigger("click");
+    await settle();
     expect(wrapper.get('[data-testid="commit-subject"]').text()).toBe("feat: change 0");
     expect(wrapper.get('[data-testid="detail-stats"]').text()).toContain("2 files");
     expect(wrapper.get('[data-testid="file-list"]').text()).toContain("app.ts");
@@ -962,7 +973,7 @@ describe("AppShell", () => {
     await settle();
     expect(shell.layoutMode).toBe("changes");
     expect(wrapper.find('[data-testid="changes-screen"]').exists()).toBe(true);
-    expect(wrapper.find('[data-testid="sidebar"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="sidebar-rail"]').exists()).toBe(true);
     // The same two files answer both diffs of the fake: two unstaged, two staged.
     expect(wrapper.get('[data-testid="status-changes"]').text()).toBe("2 unstaged, 2 staged");
     expect(wrapper.get('[data-testid="status-hints"]').text()).toContain("stage");
@@ -1062,25 +1073,33 @@ describe("AppShell", () => {
     wrapper.unmount();
   });
 
-  it("resizes the sidebar from its divider, remembers it and resets it with a double click", async () => {
+  it("resizes a panel from its edge, remembers it for every panel and resets it with a double click", async () => {
     backend();
     const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
     await useRepoStore().open("/r");
     await settle();
+    // Closed, a panel takes its edge with it.
+    expect(wrapper.find('[aria-label="Resize the sidebar"]').exists()).toBe(false);
+    await wrapper.get('[data-testid="rail-local"]').trigger("click");
+    await settle();
     const divider = wrapper.get('[aria-label="Resize the sidebar"]');
-    await divider.trigger("mousedown", { clientX: 240 });
-    window.dispatchEvent(new MouseEvent("mousemove", { clientX: 320 }));
+    await divider.trigger("mousedown", { clientX: 288 });
+    window.dispatchEvent(new MouseEvent("mousemove", { clientX: 368 }));
     window.dispatchEvent(new MouseEvent("mouseup"));
     await settle();
     expect(useSettingsStore().values.paneSizes.sidebar).toBe(320);
-    expect(wrapper.get('[data-testid="sidebar"]').attributes("style")).toContain("width: 320px");
-    await divider.trigger("dblclick");
+    expect(wrapper.get('[data-testid="sidebar-panel"]').attributes("style")).toContain(
+      "width: 320px",
+    );
+    // Another panel opens at the same width.
+    await wrapper.get('[data-testid="rail-worktrees"]').trigger("click");
+    await settle();
+    expect(wrapper.get('[data-testid="sidebar-panel"]').attributes("style")).toContain(
+      "width: 320px",
+    );
+    await wrapper.get('[aria-label="Resize the sidebar"]').trigger("dblclick");
     await settle();
     expect(useSettingsStore().values.paneSizes.sidebar).toBe(240);
-    // Collapsed, the sidebar takes its divider with it.
-    await useShellStore().toggleSidebar();
-    await settle();
-    expect(wrapper.find('[aria-label="Resize the sidebar"]').exists()).toBe(false);
     wrapper.unmount();
   });
 
@@ -1096,23 +1115,18 @@ describe("AppShell", () => {
     expect(wrapper.get('[data-testid="detail-panel"]').text()).toContain(
       "Nothing to show until the repository opens",
     );
+    expect(wrapper.find('[data-testid="sidebar-rail"]').exists()).toBe(true);
+    // Ctrl B opens the Branches panel; a repository that failed to open lists no branch, so its
+    // filter takes the focus.
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "b", ctrlKey: true }));
     await settle();
-    expect(shell.sidebarCollapsed).toBe(true);
-    expect(wrapper.find('[data-testid="sidebar"]').exists()).toBe(false);
-    expect(wrapper.find('[data-testid="sidebar-rail"]').exists()).toBe(true);
-    // A rail icon shows the sidebar and hands the focus to the section it chose: its header,
-    // since a repository that failed to open lists no branch.
-    const railIcon = wrapper
-      .get('[data-testid="sidebar-rail"]')
-      .findAll("button")
-      .find((button) => button.attributes("aria-label") === "Branches");
-    await railIcon!.trigger("click");
+    expect(shell.sidebarPanel).toBe("local");
+    const panel = wrapper.get('[data-testid="sidebar-panel"]');
+    expect(panel.text()).toContain("No repository open");
+    expect(document.activeElement).toBe(panel.get('[data-testid="sidebar-filter"]').element);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "b", ctrlKey: true }));
     await settle();
-    expect(wrapper.find('[data-testid="sidebar"]').exists()).toBe(true);
-    expect(document.activeElement).toBe(
-      wrapper.get('[data-section="local"] [data-testid="section-header"]').element,
-    );
+    expect(wrapper.find('[data-testid="sidebar-panel"]').exists()).toBe(false);
     wrapper.unmount();
   });
 
@@ -1140,56 +1154,165 @@ describe("AppShell", () => {
   });
 });
 
-describe("Sidebar", () => {
-  const header = (wrapper: VueWrapper, id: string) =>
-    wrapper.get(`[data-section="${id}"] [data-testid="section-header"]`);
-  const count = (wrapper: VueWrapper, id: string) =>
-    wrapper.get(`[data-section="${id}"] [data-testid="section-count"]`).text();
+describe("Sidebar rail and panels", () => {
+  const rail = (wrapper: VueWrapper) =>
+    wrapper.findAll('[data-testid="sidebar-rail"] button').map((b) => b.attributes("aria-label"));
+  const icon = (wrapper: VueWrapper, id: string) => wrapper.get(`[data-testid="rail-${id}"]`);
+  const panel = (wrapper: VueWrapper) => wrapper.find('[data-testid="sidebar-panel"]');
+  const count = (wrapper: VueWrapper) => wrapper.get('[data-testid="sidebar-panel-count"]').text();
 
-  async function openShell() {
-    backend();
+  let calls: string[] = [];
+
+  async function openShell(options: Parameters<typeof backend>[0] = {}) {
+    calls = backend(options);
     const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
-    const projects = useProjectsStore();
     await settle();
-    await projects.open(1);
+    await useProjectsStore().open(1);
     await settle();
     return wrapper;
   }
 
-  it("shows the project's repositories, the branches and the worktrees, with the remote branches folded", async () => {
-    const wrapper = await openShell();
-    const sections = wrapper.findAll('[data-testid="sidebar-section"]');
-    expect(sections.map((section) => section.attributes("data-section"))).toEqual([
-      "repos",
-      "local",
-      "remote",
-      "worktrees",
-    ]);
-    expect(["repos", "local", "remote", "worktrees"].map((id) => count(wrapper, id))).toEqual([
-      "3",
-      "1",
-      "1",
-      "2",
-    ]);
-    expect(
-      ["repos", "local", "remote", "worktrees"].map((id) =>
-        header(wrapper, id).attributes("aria-expanded"),
-      ),
-    ).toEqual(["true", "true", "false", "true"]);
-    expect(wrapper.find('[data-testid="branch-list-remote"]').exists()).toBe(false);
-    wrapper.unmount();
-  });
-
-  it("leaves no native tooltip in the shell: every hint is the app's", async () => {
-    const wrapper = await openShell();
-    await header(wrapper, "remote").trigger("click");
+  async function open(wrapper: VueWrapper, id: string) {
+    await icon(wrapper, id).trigger("click");
     await settle();
-    expect(wrapper.findAll("[title], svg title")).toHaveLength(0);
-    expect(wrapper.findAll("[data-tooltip]").length).toBeGreaterThan(0);
+    return wrapper.get('[data-testid="sidebar-panel"]');
+  }
+
+  const press = (key: string, init: KeyboardEventInit = {}) =>
+    window.dispatchEvent(new KeyboardEvent("keydown", { key, ctrlKey: true, ...init }));
+
+  it("shows the same rail in every layout with a project, and none at Home", async () => {
+    const wrapper = await openShell();
+    const icons = ["Repositories", "Branches", "Remote branches", "Tags", "Worktrees"];
+    expect(rail(wrapper)).toEqual(icons);
+    expect(panel(wrapper).exists()).toBe(false);
+    // Review focus, the Changes and the settings keep it as it is.
+    for (const key of ["2", "3", ","]) {
+      press(key);
+      await settle();
+      expect(rail(wrapper)).toEqual(icons);
+    }
+    press("1");
+    await settle();
+    await useProjectsStore().close();
+    await settle();
+    expect(wrapper.find('[data-testid="sidebar-rail"]').exists()).toBe(false);
     wrapper.unmount();
   });
 
-  it("sorts the branches by their last commit or by name from the toggle in the Branches header", async () => {
+  it("opens a panel from its icon over the layout, its list focused; the icon or Ctrl B closes it", async () => {
+    const wrapper = await openShell();
+    const shown = await open(wrapper, "local");
+    expect(shown.attributes("data-panel")).toBe("local");
+    expect(icon(wrapper, "local").attributes("aria-pressed")).toBe("true");
+    expect(shown.get('[data-testid="sidebar-panel-title"]').text()).toBe("Branches");
+    expect(count(wrapper)).toBe("1");
+    // The layout behind is still graph focus.
+    expect(wrapper.find('[data-testid="graph-focus"]').exists()).toBe(true);
+    const row = shown.get('[data-testid="branch-list-local"] [data-testid="list-row"]');
+    expect(document.activeElement).toBe(row.element);
+    // Its icon closes it.
+    await icon(wrapper, "local").trigger("click");
+    await settle();
+    expect(panel(wrapper).exists()).toBe(false);
+    expect(icon(wrapper, "local").attributes("aria-pressed")).toBe("false");
+    // Another icon opens its own panel in place of the open one.
+    await open(wrapper, "local");
+    await open(wrapper, "remote");
+    expect(panel(wrapper).attributes("data-panel")).toBe("remote");
+    // Ctrl B closes the open panel, its focus going to the graph's rows behind it, then opens
+    // the last one again.
+    press("b");
+    await settle();
+    expect(panel(wrapper).exists()).toBe(false);
+    expect(
+      wrapper.get('[data-testid="commit-rows"]').element.contains(document.activeElement),
+    ).toBe(true);
+    press("b");
+    await settle();
+    expect(panel(wrapper).attributes("data-panel")).toBe("remote");
+    wrapper.unmount();
+  });
+
+  it("closes on Escape with the focus on its icon, and on a press outside that reaches its target", async () => {
+    const wrapper = await openShell();
+    const shown = await open(wrapper, "worktrees");
+    const row = shown.get('[data-testid="worktree-list"] [data-testid="list-row"]');
+    (row.element as HTMLElement).focus();
+    await row.trigger("keydown", { key: "Escape" });
+    await settle();
+    expect(panel(wrapper).exists()).toBe(false);
+    expect(document.activeElement).toBe(icon(wrapper, "worktrees").element);
+    // A press on the graph closes the panel and selects the commit it pressed.
+    await open(wrapper, "tags");
+    const commitRow = wrapper.findAll('[data-testid="graph-row"]')[2]!;
+    commitRow.element.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    await commitRow.trigger("click");
+    await settle();
+    expect(panel(wrapper).exists()).toBe(false);
+    expect(useRepoStore().selectedIndex).toBe(2);
+    // A press on the rail does not count as outside: its icon decides.
+    await open(wrapper, "tags");
+    icon(wrapper, "local").element.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    await icon(wrapper, "local").trigger("click");
+    await settle();
+    expect(panel(wrapper).attributes("data-panel")).toBe("local");
+    wrapper.unmount();
+  });
+
+  it("keeps the panel open through a row's menu and the dialog its action opens", async () => {
+    const wrapper = await openShell();
+    const shown = await open(wrapper, "local");
+    const row = shown.get('[data-testid="branch-list-local"] [data-testid="list-row"]');
+    await row.trigger("contextmenu", { clientX: 40, clientY: 80 });
+    await settle();
+    const rename = wrapper.get('[role="menu"] [data-testid="menu-rename"]');
+    rename.element.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    await rename.trigger("click");
+    await settle();
+    const dialog = wrapper.get('[role="dialog"]');
+    const field = dialog.get("input");
+    field.element.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    await settle();
+    expect(panel(wrapper).exists()).toBe(true);
+    // Escape in the dialog closes the dialog alone.
+    await field.trigger("keydown", { key: "Escape" });
+    await settle();
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+    expect(panel(wrapper).exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("keeps a filter per panel while it is closed, and clears them for another repository", async () => {
+    const wrapper = await openShell();
+    await useIndexStore().load();
+    let shown = await open(wrapper, "local");
+    await shown.get('[data-testid="sidebar-filter"]').setValue("zzz");
+    await settle();
+    expect(count(wrapper)).toBe("0 of 1");
+    expect(shown.get('[data-testid="panel-no-matches"]').text()).toBe(
+      "Nothing matches the filter.",
+    );
+    shown = await open(wrapper, "remote");
+    expect((shown.get('[data-testid="sidebar-filter"]').element as HTMLInputElement).value).toBe(
+      "",
+    );
+    expect(count(wrapper)).toBe("1");
+    shown = await open(wrapper, "local");
+    expect((shown.get('[data-testid="sidebar-filter"]').element as HTMLInputElement).value).toBe(
+      "zzz",
+    );
+    await useProjectsStore().show("/other");
+    await settle();
+    shown = await open(wrapper, "worktrees");
+    shown = await open(wrapper, "local");
+    expect((shown.get('[data-testid="sidebar-filter"]').element as HTMLInputElement).value).toBe(
+      "",
+    );
+    wrapper.unmount();
+  });
+
+  it("sorts the branches by their last commit or by name from the Branches panel's header", async () => {
     const wrapper = await openShell();
     const local = (name: string, committedAt: number) => ({
       name,
@@ -1206,6 +1329,7 @@ describe("Sidebar", () => {
     });
     useRepoStore().refs = [local("alpha", 100), local("beta", 900), local("gamma", 500)];
     await settle();
+    await open(wrapper, "local");
     const names = () =>
       wrapper
         .get('[data-testid="branch-list-local"]')
@@ -1221,51 +1345,24 @@ describe("Sidebar", () => {
     expect(wrapper.get('[data-testid="branch-sort"]').attributes("aria-label")).toBe(
       "Sort by last commit",
     );
+    // ↵ on a branch checks it out and closes the panel.
+    const beta = wrapper.findAll('[data-testid="branch-list-local"] [data-testid="list-row"]')[1]!;
+    await beta.trigger("click");
+    await beta.trigger("keydown", { key: "Enter" });
+    await settle();
+    expect(calls).toContain("switch");
+    expect(panel(wrapper).exists()).toBe(false);
     wrapper.unmount();
   });
 
-  it("selects no branch on load, and j at a list's end goes on into the next open section", async () => {
+  it("selects no branch on open, and scopes the graph once the selection settles", async () => {
     const wrapper = await openShell();
-    const rows = wrapper
-      .get('[data-testid="branch-list-local"]')
-      .findAll('[data-testid="list-row"]');
-    expect(rows.map((row) => row.text())).toEqual(["main20"]);
-    expect(rows[0]?.attributes("aria-selected")).toBe("false");
-    expect(wrapper.get('[data-testid="branch-list-local"]').attributes("tabindex")).toBeUndefined();
+    const shown = await open(wrapper, "remote");
+    const rows = shown.findAll('[data-testid="branch-list-remote"] [data-testid="list-row"]');
+    expect(rows.map((row) => row.attributes("aria-selected"))).toEqual(["false"]);
     expect(rows[0]?.attributes("tabindex")).toBe("0");
-    (rows[0]?.element as HTMLElement).focus();
     await rows[0]!.trigger("keydown", { key: "j" });
     expect(rows[0]?.attributes("aria-selected")).toBe("true");
-    expect(document.activeElement).toBe(rows[0]?.element);
-    // The remote branches are folded: the next open section is the worktrees.
-    await rows[0]!.trigger("keydown", { key: "j" });
-    const worktrees = wrapper
-      .get('[data-testid="worktree-list"]')
-      .findAll('[data-testid="list-row"]');
-    expect(worktrees[0]?.attributes("aria-selected")).toBe("true");
-    expect(document.activeElement).toBe(worktrees[0]?.element);
-    // k at the worktrees' first row goes back to the last branch.
-    await worktrees[0]!.trigger("keydown", { key: "k" });
-    expect(document.activeElement).toBe(rows[0]?.element);
-    wrapper.unmount();
-  });
-
-  it("scopes the graph once the branch selection settles, not on every j/k step", async () => {
-    const wrapper = await openShell();
-    await header(wrapper, "remote").trigger("click");
-    await settle();
-    const local = wrapper
-      .get('[data-testid="branch-list-local"]')
-      .findAll('[data-testid="list-row"]');
-    const remote = wrapper
-      .get('[data-testid="branch-list-remote"]')
-      .findAll('[data-testid="list-row"]');
-    (local[0]?.element as HTMLElement).focus();
-    await local[0]!.trigger("keydown", { key: "j" });
-    await local[0]!.trigger("keydown", { key: "j" });
-    // The remote branch is marked at once; the graph is still unscoped.
-    expect(local[0]?.attributes("aria-selected")).toBe("false");
-    expect(remote[0]?.attributes("aria-selected")).toBe("true");
     expect(useGraphStore().filters.scope.kind).toBe("all");
     await new Promise((resolve) => setTimeout(resolve, 150));
     await settle();
@@ -1274,47 +1371,17 @@ describe("Sidebar", () => {
       name: "origin/main",
       fullName: "refs/remotes/origin/main",
     });
-    expect(remote[0]?.attributes("aria-selected")).toBe("true");
+    // Selecting scopes the graph with the panel still open.
+    expect(panel(wrapper).exists()).toBe(true);
     wrapper.unmount();
   });
 
-  it("gives the repos and worktrees lists a tab stop and arrow navigation", async () => {
-    const wrapper = await openShell();
-    const repoRow = wrapper.get('[data-testid="repo-list"] [data-testid="list-row"]');
-    expect(repoRow.attributes("tabindex")).toBe("0");
-    expect(repoRow.attributes("aria-selected")).toBe("true");
-
-    const rows = wrapper.get('[data-testid="worktree-list"]').findAll('[data-testid="list-row"]');
-    // Folder names with the branch's lane dot and the tree icon.
-    expect(rows.map((row) => row.text())).toEqual(["r", "claude-auth"]);
-    expect(rows[0]?.find("[data-lane]").exists()).toBe(true);
-    expect(rows[0]?.find("svg.lucide-list-tree").exists()).toBe(true);
-    expect(rows.map((row) => row.attributes("tabindex"))).toEqual(["0", "-1"]);
-    await rows[0]!.trigger("keydown", { key: "ArrowDown" });
-    await rows[0]!.trigger("keydown", { key: "ArrowDown" });
-    expect(rows.map((row) => row.attributes("aria-selected"))).toEqual(["false", "true"]);
-    expect(document.activeElement).toBe(rows[1]?.element);
-    await rows[1]!.trigger("keydown", { key: "k" });
-    expect(rows[0]?.attributes("aria-selected")).toBe("true");
-    // A right click opens the worktree's menu, without the actions that ask in a dialog.
-    await rows[1]!.trigger("contextmenu", { clientX: 20, clientY: 40 });
-    const menu = wrapper.get('[role="menu"]');
-    expect(menu.text()).toContain("Open in editor");
-    expect(menu.find('[data-testid="menu-remove"]').exists()).toBe(false);
-    expect(menu.find('[data-testid="menu-lock"]').exists()).toBe(false);
-    // Escape closes it and the row takes the focus back, so the list keeps its keys.
-    await menu.trigger("keydown", { key: "Escape" });
-    await flushPromises();
-    expect(wrapper.find('[role="menu"]').exists()).toBe(false);
-    expect(document.activeElement).toBe(rows[1]?.element);
-    wrapper.unmount();
-  });
-
-  it("lists the open project in the Repositories section, worktrees under their repository, and shows one with Enter", async () => {
+  it("lists the project's repositories in their panel, worktrees under their repository, and shows one with Enter", async () => {
     const wrapper = await openShell();
     await useIndexStore().load();
     await settle();
-    const list = wrapper.get('[data-testid="repo-list"]');
+    const shown = await open(wrapper, "repos");
+    const list = shown.get('[data-testid="repo-list"]');
     const rows = list.findAll('[data-testid="list-row"]');
     expect(rows.map((row) => row.text())).toEqual([
       "rmain",
@@ -1323,16 +1390,11 @@ describe("Sidebar", () => {
     ]);
     expect(rows[1]?.classes()).toContain("repo-list-nested");
     expect(rows.map((row) => row.attributes("aria-selected"))).toEqual(["true", "false", "false"]);
-    expect(rows.map((row) => row.attributes("tabindex"))).toEqual(["0", "-1", "-1"]);
-
-    await wrapper.get('[data-testid="sidebar"] input').setValue("oth");
-    const filtered = list.findAll('[data-testid="list-row"]');
-    expect(filtered.map((row) => row.text())).toEqual(["otherdevelop"]);
-    await wrapper.get('[data-testid="sidebar"] input').setValue("zzz");
-    expect(count(wrapper, "repos")).toBe("0 of 3");
-    expect(wrapper.find('[data-testid="repo-list"]').exists()).toBe(false);
-    await wrapper.get('[data-testid="sidebar"] input').setValue("");
-
+    await shown.get('[data-testid="sidebar-filter"]').setValue("oth");
+    expect(list.findAll('[data-testid="list-row"]').map((row) => row.text())).toEqual([
+      "otherdevelop",
+    ]);
+    await shown.get('[data-testid="sidebar-filter"]').setValue("");
     const again = wrapper.get('[data-testid="repo-list"]').findAll('[data-testid="list-row"]');
     (again[0]?.element as HTMLElement).focus();
     await again[0]!.trigger("keydown", { key: "j" });
@@ -1341,120 +1403,48 @@ describe("Sidebar", () => {
     await again[2]!.trigger("keydown", { key: "Enter" });
     await settle();
     expect(useRepoStore().repo?.root).toBe("/other");
+    expect(panel(wrapper).exists()).toBe(false);
     wrapper.unmount();
   });
 
-  it("opens a remote branch row's menu with the remote's actions, and Enter checks nothing out twice", async () => {
+  it("opens a remote branch row's menu with the remote's actions", async () => {
     const writeText = vi.fn(() => Promise.resolve());
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
     const wrapper = await openShell();
-    await header(wrapper, "remote").trigger("click");
-    await settle();
-    const rows = [
-      wrapper.get('[data-testid="branch-list-local"] [data-testid="list-row"]'),
-      wrapper.get('[data-testid="branch-list-remote"] [data-testid="list-row"]'),
-    ];
-    await rows[1]!.trigger("contextmenu");
+    const shown = await open(wrapper, "remote");
+    const row = shown.get('[data-testid="branch-list-remote"] [data-testid="list-row"]');
+    await row.trigger("contextmenu");
     await settle();
     const menu = wrapper.get('[role="menu"]');
     const labels = menu.findAll('[role="menuitem"]').map((item) => item.text());
-    expect(labels[0]).toContain("Checkout");
     expect(labels).toEqual(
       expect.arrayContaining([
-        expect.stringContaining("Create branch here…"),
-        expect.stringContaining("Merge into main"),
-        expect.stringContaining("Rebase main onto this"),
         expect.stringContaining("Pull into main"),
         expect.stringContaining("Fetch origin"),
-        expect.stringContaining("Compare with…"),
-        expect.stringContaining("Copy branch name"),
         expect.stringContaining("Delete on origin…"),
       ]),
     );
-    // origin/main is a remote branch: no rename, upstream or push; its local branch, main, is
-    // the current one, so there is nothing to check out.
     expect(menu.find('[data-testid="menu-rename"]').exists()).toBe(false);
     expect(menu.get('[data-testid="menu-checkout"]').attributes("aria-disabled")).toBe("true");
     await menu.get('[data-testid="menu-copy-name"]').trigger("click");
     await settle();
-    expect(wrapper.find('[role="menu"]').exists()).toBe(false);
     expect(writeText).toHaveBeenCalledWith("origin/main");
-    expect(useToastsStore().toasts.at(-1)?.key).toBe("branches.nameCopied");
-    // Enter on the current branch, or on the remote branch it tracks, does nothing.
-    for (const row of [rows[0]!, rows[1]!]) {
-      (row.element as HTMLElement).focus();
-      await row.trigger("keydown", { key: "Enter" });
-      await settle();
-    }
-    expect(useToastsStore().toasts).toHaveLength(1);
+    // The menu's action leaves the panel open.
+    expect(panel(wrapper).exists()).toBe(true);
     wrapper.unmount();
   });
 
-  it("folds and opens a section from its header, and remembers it", async () => {
+  it("opens the worktrees dashboard from the Worktrees panel, which closes", async () => {
     const wrapper = await openShell();
-    expect(header(wrapper, "local").attributes("aria-expanded")).toBe("true");
-    await header(wrapper, "local").trigger("click");
-    await settle();
-    expect(header(wrapper, "local").attributes("aria-expanded")).toBe("false");
-    expect(wrapper.find('[data-testid="branch-list-local"]').exists()).toBe(false);
-    expect(useSettingsStore().values.sidebarFolded).toEqual(["remote", "tags", "local"]);
-    await header(wrapper, "remote").trigger("click");
-    await settle();
-    expect(wrapper.find('[data-testid="branch-list-remote"]').exists()).toBe(true);
-    expect(useSettingsStore().values.sidebarFolded).toEqual(["tags", "local"]);
-    wrapper.unmount();
-  });
-
-  it("opens the sections the filter matches and folds the others, until it is cleared", async () => {
-    const wrapper = await openShell();
-    const filter = wrapper.get('[data-testid="sidebar"] input');
-    await filter.setValue("origin");
-    await settle();
-    expect(header(wrapper, "remote").attributes("aria-expanded")).toBe("true");
-    expect(count(wrapper, "remote")).toBe("1 of 1");
-    expect(header(wrapper, "local").attributes("aria-expanded")).toBe("false");
-    expect(count(wrapper, "local")).toBe("0 of 1");
-    expect(header(wrapper, "worktrees").attributes("aria-expanded")).toBe("false");
-    // A header pressed while filtering opens its section for the filter's time.
-    await header(wrapper, "local").trigger("click");
-    await settle();
-    expect(header(wrapper, "local").attributes("aria-expanded")).toBe("true");
-    await filter.setValue("");
-    await settle();
-    expect(header(wrapper, "remote").attributes("aria-expanded")).toBe("false");
-    expect(header(wrapper, "local").attributes("aria-expanded")).toBe("true");
-    expect(count(wrapper, "local")).toBe("1");
-    expect(useSettingsStore().values.sidebarFolded).toEqual(["remote", "tags"]);
-    wrapper.unmount();
-  });
-
-  it("reveals a section from the rail: opened, and its first row focused", async () => {
-    const wrapper = await openShell();
-    await header(wrapper, "worktrees").trigger("click");
-    await settle();
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "b", ctrlKey: true }));
-    await settle();
-    await wrapper.get('[data-testid="rail-worktrees"]').trigger("click");
-    await settle();
-    expect(header(wrapper, "worktrees").attributes("aria-expanded")).toBe("true");
-    const first = wrapper.get('[data-testid="worktree-list"] [data-testid="list-row"]');
-    expect(document.activeElement).toBe(first.element);
-    // The rail of a project of several repositories has the Repositories icon too.
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "b", ctrlKey: true }));
-    await settle();
-    expect(
-      wrapper.findAll('[data-testid="sidebar-rail"] button').map((b) => b.attributes("aria-label")),
-    ).toEqual(["Repositories", "Branches", "Worktrees"]);
-    wrapper.unmount();
-  });
-
-  it("opens and closes the worktrees dashboard from the Worktrees header", async () => {
-    const wrapper = await openShell();
+    await open(wrapper, "worktrees");
     const dashboard = wrapper.get('[data-testid="sidebar-dashboard"]');
     expect(dashboard.attributes("aria-label")).toBe("Show worktrees");
+    expect(dashboard.attributes("aria-pressed")).toBe("false");
     await dashboard.trigger("click");
     await settle();
     expect(useShellStore().layoutMode).toBe("worktrees");
+    expect(panel(wrapper).exists()).toBe(false);
+    await open(wrapper, "worktrees");
     expect(wrapper.get('[data-testid="sidebar-dashboard"]').attributes("aria-pressed")).toBe(
       "true",
     );
@@ -1464,31 +1454,28 @@ describe("Sidebar", () => {
     wrapper.unmount();
   });
 
-  it("keeps the keys of a worktree row's menu in the menu, on the list's first row too", async () => {
+  it("lists the worktrees with their lane dots, and keeps a row menu's keys in the menu", async () => {
     const wrapper = await openShell();
-    const rows = wrapper.get('[data-testid="worktree-list"]').findAll('[data-testid="list-row"]');
+    const shown = await open(wrapper, "worktrees");
+    const rows = shown.get('[data-testid="worktree-list"]').findAll('[data-testid="list-row"]');
+    expect(rows.map((row) => row.text())).toEqual(["r", "claude-auth"]);
+    expect(rows[0]?.find("[data-lane]").exists()).toBe(true);
+    expect(rows[0]?.find("svg.lucide-list-tree").exists()).toBe(true);
     await rows[0]!.trigger("contextmenu", { clientX: 20, clientY: 40 });
     await settle();
     const menu = wrapper.get('[role="menu"]');
+    expect(menu.text()).toContain("Open in editor");
+    expect(menu.find('[data-testid="menu-remove"]').exists()).toBe(false);
     const item = menu.get('[role="menuitem"]');
     (item.element as HTMLElement).focus();
     for (const key of ["ArrowUp", "k"]) await item.trigger("keydown", { key });
     await settle();
     expect(menu.element.contains(document.activeElement)).toBe(true);
-    const branch = wrapper.get('[data-testid="branch-list-local"] [data-testid="list-row"]');
-    expect(branch.attributes("aria-selected")).toBe("false");
-    wrapper.unmount();
-  });
-
-  it("counts the worktrees of a folded Worktrees section", async () => {
-    backend();
-    await useSettingsStore().update("sidebarFolded", ["remote", "tags", "worktrees"]);
-    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
-    await settle();
-    await useProjectsStore().open(1);
-    await settle();
-    expect(header(wrapper, "worktrees").attributes("aria-expanded")).toBe("false");
-    expect(count(wrapper, "worktrees")).toBe("2");
+    // Escape closes the menu alone, its row taking the focus back.
+    await menu.trigger("keydown", { key: "Escape" });
+    await flushPromises();
+    expect(wrapper.find('[role="menu"]').exists()).toBe(false);
+    expect(panel(wrapper).exists()).toBe(true);
     wrapper.unmount();
   });
 
@@ -1503,164 +1490,55 @@ describe("Sidebar", () => {
     await settle();
     void useProjectsStore().open(1);
     await settle();
-    const skeletons = (id: string) =>
-      wrapper.findAll(`[data-section="${id}"] [data-testid="skeleton-row"]`).length;
-    const counted = (id: string) =>
-      wrapper.find(`[data-section="${id}"] [data-testid="section-count"]`).exists();
     expect(useRepoStore().state.kind).toBe("opening");
-    expect([skeletons("local"), skeletons("worktrees")]).toEqual([6, 2]);
-    // A section being read shows no count, rather than a 0 it does not mean.
-    expect([counted("local"), counted("worktrees")]).toEqual([false, false]);
-    expect(wrapper.get('[data-testid="sidebar"]').text()).not.toContain("No repository open");
+    const skeletons = () =>
+      wrapper.findAll('[data-testid="sidebar-panel"] [data-testid="skeleton-row"]');
+    await open(wrapper, "local");
+    expect(skeletons()).toHaveLength(6);
+    // A panel being read shows no count, rather than a 0 it does not mean.
+    expect(count(wrapper)).toBe("");
+    await open(wrapper, "worktrees");
+    expect(skeletons()).toHaveLength(2);
     openRepository();
     await settle();
-    expect([skeletons("local"), skeletons("worktrees")]).toEqual([0, 2]);
-    expect([counted("local"), counted("worktrees")]).toEqual([true, false]);
-    expect(wrapper.get('[data-testid="sidebar"]').text()).not.toContain("No linked worktrees");
+    expect(skeletons()).toHaveLength(2);
+    expect(count(wrapper)).toBe("");
     listWorktrees();
     await settle();
-    expect(skeletons("worktrees")).toBe(0);
-    expect(count(wrapper, "worktrees")).toBe("2");
+    expect(skeletons()).toHaveLength(0);
+    expect(count(wrapper)).toBe("2");
     wrapper.unmount();
   });
 
-  it("says when the worktrees cannot be listed, with git's output a click away", async () => {
-    backend({ failWorktrees: true });
-    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
-    await settle();
-    await useProjectsStore().open(1);
-    await settle();
-    const error = wrapper.get('[data-section="worktrees"] [data-testid="worktrees-error"]');
+  it("says when the worktrees cannot be listed, with git's output a click away and the alert on the rail", async () => {
+    const wrapper = await openShell({ failWorktrees: true });
+    expect(wrapper.find('[data-testid="rail-worktrees-alert"]').exists()).toBe(true);
+    expect(icon(wrapper, "worktrees").attributes("data-tooltip")).toBe(
+      "Worktrees · Couldn't list the worktrees",
+    );
+    const shown = await open(wrapper, "worktrees");
+    const error = shown.get('[data-testid="worktrees-error"]');
     expect(error.text()).toContain("Couldn't list the worktrees.");
     await error.get('[data-testid="error-banner-toggle"]').trigger("click");
     expect(error.get('[data-testid="error-banner-output"]').text()).toBe(
       "fatal: unable to read worktrees",
     );
-    expect(wrapper.get('[data-section="worktrees"]').text()).not.toContain("No linked worktrees");
-    // The header says so in place of a count, and still does with the section folded.
-    await header(wrapper, "worktrees").trigger("click");
-    await settle();
-    const alert = wrapper.get('[data-section="worktrees"] [data-testid="section-alert"]');
-    expect(alert.attributes("aria-label")).toBe("Couldn't list the worktrees");
-    expect(wrapper.find('[data-section="worktrees"] [data-testid="section-count"]').exists()).toBe(
-      false,
-    );
+    expect(shown.text()).not.toContain("No linked worktrees");
+    expect(count(wrapper)).toBe("");
     wrapper.unmount();
   });
 
-  it("keeps a section folded or opened by hand while the filter changes, and says what matches nothing", async () => {
+  it("leaves the Repositories icon out for a project of one", async () => {
+    const wrapper = await openShell({ loneProject: true });
+    expect(rail(wrapper)).toEqual(["Branches", "Remote branches", "Tags", "Worktrees"]);
+    wrapper.unmount();
+  });
+
+  it("leaves no native tooltip in the shell: every hint is the app's", async () => {
     const wrapper = await openShell();
-    const filter = wrapper.get('[data-testid="sidebar"] input');
-    await filter.setValue("origin");
-    await settle();
-    await header(wrapper, "remote").trigger("click");
-    await settle();
-    expect(header(wrapper, "remote").attributes("aria-expanded")).toBe("false");
-    for (const text of ["zzz", "origin/m"]) {
-      await filter.setValue(text);
-      await settle();
-      expect(header(wrapper, "remote").attributes("aria-expanded")).toBe("false");
-    }
-    // The local branches, opened while nothing in them matches, say so.
-    await header(wrapper, "local").trigger("click");
-    await settle();
-    expect(wrapper.get('[data-section="local"] [data-testid="section-no-matches"]').text()).toBe(
-      "Nothing matches the filter.",
-    );
-    wrapper.unmount();
-  });
-
-  it("goes past an open section the filter leaves empty", async () => {
-    const wrapper = await openShell();
-    await useIndexStore().load();
-    await settle();
-    await wrapper.get('[data-testid="sidebar"] input').setValue("auth");
-    await settle();
-    await header(wrapper, "local").trigger("click");
-    await settle();
-    expect(header(wrapper, "local").attributes("aria-expanded")).toBe("true");
-    const repoRow = wrapper.get('[data-testid="repo-list"] [data-testid="list-row"]');
-    (repoRow.element as HTMLElement).focus();
-    await repoRow.trigger("keydown", { key: "j" });
-    await repoRow.trigger("keydown", { key: "j" });
-    const worktree = wrapper.get('[data-testid="worktree-list"] [data-testid="list-row"]');
-    expect(worktree.text()).toBe("claude-auth");
-    expect(document.activeElement).toBe(worktree.element);
-    wrapper.unmount();
-  });
-
-  it("leaves the focus on a section's header when a fold takes the focused row", async () => {
-    const wrapper = await openShell();
-    const row = wrapper.get('[data-testid="branch-list-local"] [data-testid="list-row"]');
-    (row.element as HTMLElement).focus();
-    await header(wrapper, "local").trigger("click");
-    await settle();
-    expect(document.activeElement).toBe(header(wrapper, "local").element);
-    wrapper.unmount();
-  });
-
-  it("disables the rail at Home, where no sidebar shows, and opens the next project on its commits", async () => {
-    backend();
-    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
-    await settle();
-    const icons = wrapper.get('[data-testid="sidebar-rail"]').findAll("button");
-    expect(icons.map((icon) => icon.attributes("disabled"))).toEqual(["", ""]);
-    await icons[0]!.trigger("click");
-    expect(useShellStore().sidebarReveal).toBeNull();
-    await useProjectsStore().open(1);
-    await settle();
-    expect(wrapper.find('[data-testid="sidebar"]').exists()).toBe(true);
-    expect(document.activeElement?.closest('[data-testid="sidebar"]') ?? null).toBeNull();
-    wrapper.unmount();
-  });
-
-  it("leaves the Repositories section and its rail icon out for a project of one", async () => {
-    backend({ loneProject: true });
-    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
-    await settle();
-    await useProjectsStore().open(1);
-    await settle();
-    expect(
-      wrapper.findAll('[data-testid="sidebar-section"]').map((s) => s.attributes("data-section")),
-    ).toEqual(["local", "remote", "worktrees"]);
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "b", ctrlKey: true }));
-    await settle();
-    expect(
-      wrapper.findAll('[data-testid="sidebar-rail"] button').map((b) => b.attributes("aria-label")),
-    ).toEqual(["Branches", "Worktrees"]);
-    wrapper.unmount();
-  });
-
-  it("leaves the focus on the Repositories section when a repository shown from it brings the dashboard back", async () => {
-    const wrapper = await openShell();
-    await useIndexStore().load();
-    const toggle = wrapper.get('[data-testid="sidebar-dashboard"]');
-    (toggle.element as HTMLElement).focus();
-    await toggle.trigger("click");
-    await settle();
-    // The toggle hands the focus to the dashboard's rows.
-    expect(document.activeElement?.closest('[data-testid="worktree-table"]')).not.toBeNull();
-    const other = wrapper.get('[data-testid="repo-list"] [data-path="/other"]');
-    (other.element as HTMLElement).focus();
-    await other.trigger("keydown", { key: "Enter" });
-    await settle();
-    await settle();
-    expect(useRepoStore().repo?.root).toBe("/other");
-    expect(wrapper.find('[data-testid="worktrees-layout"]').exists()).toBe(true);
-    expect(document.activeElement).toBe(
-      wrapper.get('[data-testid="repo-list"] [data-path="/other"]').element,
-    );
-    wrapper.unmount();
-  });
-
-  it("disables the dashboard toggle while no repository is open", async () => {
-    backend({ failOpen: true });
-    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
-    await settle();
-    await useProjectsStore().open(1);
-    await settle();
-    expect(useRepoStore().state.kind).toBe("error");
-    expect(wrapper.get('[data-testid="sidebar-dashboard"]').attributes("disabled")).toBe("");
+    await open(wrapper, "local");
+    expect(wrapper.findAll("[title], svg title")).toHaveLength(0);
+    expect(wrapper.findAll("[data-tooltip]").length).toBeGreaterThan(0);
     wrapper.unmount();
   });
 });

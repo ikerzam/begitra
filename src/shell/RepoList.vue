@@ -1,15 +1,15 @@
 <script setup lang="ts">
-// The Repositories section of the sidebar: the open project's repositories and worktrees in its
-// order, each worktree under its repository when both are members, filtered by the sidebar; the
-// one the project shows is selected, a missing one is flagged, and ↵ or a click shows the focused
-// one. At its first or last row the move goes on to the next section (`edge`).
+// The sidebar's Repositories panel: the open project's repositories and worktrees in its order,
+// each worktree under its repository when both are members, filtered by the panel; the one the
+// project shows is selected, a missing one is flagged, and ↵ or a click shows the focused one and
+// says the row was activated (`activated`), which closes the panel.
 
 import { FolderGit2, ListTree } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ListRow from "@/components/ListRow.vue";
-import { isListKeydown, rowStep, useListNavigation } from "@/shortcuts/useListNavigation";
+import { isListKeydown, useListNavigation } from "@/shortcuts/useListNavigation";
 import { useProjectsStore } from "@/stores/projects";
 
 import { sameFolder } from "./format";
@@ -17,8 +17,8 @@ import type { RepoRow } from "./useSidebarSections";
 
 const props = defineProps<{ rows: RepoRow[] }>();
 const emit = defineEmits<{
-  /** A move past the first (-1) or the last (1) row, for the next section. */
-  edge: [direction: 1 | -1];
+  /** A row was activated (↵ or a click): the panel closes. */
+  activated: [];
 }>();
 
 const { t } = useI18n();
@@ -53,29 +53,16 @@ const navigation = useListNavigation({
 
 function onKeydown(event: KeyboardEvent): void {
   if (!isListKeydown(event)) return;
-  const step = rowStep(event);
-  const index = selectedRow.value;
-  if (step !== 0 && (step === 1 ? index === rowCount.value - 1 : index <= 0)) {
-    event.preventDefault();
-    emit("edge", step);
-    return;
-  }
   navigation.onKeydown(event);
 }
 
 function open(row: RepoRow): void {
   if (row.missing && !projects.isShown(row.path)) return;
   void projects.show(row.path);
+  emit("activated");
 }
 
-/** Selects and focuses the first or the last row (the sidebar entering the list); false when empty. */
-function selectEdge(edge: "first" | "last"): boolean {
-  if (rowCount.value === 0) return false;
-  navigation.select(edge === "first" ? 0 : rowCount.value - 1);
-  return true;
-}
-
-defineExpose({ focus: navigation.focus, selectEdge });
+defineExpose({ focus: navigation.focus });
 </script>
 
 <template>

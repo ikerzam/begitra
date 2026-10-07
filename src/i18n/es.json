@@ -152,7 +152,7 @@
     "worktreesUnlisted": "No se pudieron listar los worktrees",
     "notFound": "no encontrado",
     "mainWorktree": "worktree principal",
-    "expand": "Expandir la barra lateral",
+    "label": "Barra lateral",
     "filter": "Filtrar",
     "repositories": "Repositorios",
     "remoteBranches": "Ramas remotas",

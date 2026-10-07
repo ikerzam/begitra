@@ -10,7 +10,7 @@ import { defineComponent, h, nextTick } from "vue";
 
 import type { CleanupCandidate, Ref, Worktree } from "@/ipc/schemas";
 import PaletteOverlay from "@/palette/PaletteOverlay.vue";
-import Sidebar from "@/shell/Sidebar.vue";
+import SidebarPanel from "@/shell/SidebarPanel.vue";
 import ToastHost from "@/shell/ToastHost.vue";
 import { ShortcutRegistry, setShortcutRegistry } from "@/shortcuts/registry";
 import { installShortcuts } from "@/shortcuts/useShortcut";
@@ -97,7 +97,7 @@ const Screen = defineComponent({
     const shell = useShellStore();
     return () =>
       h("div", [
-        h(Sidebar),
+        h(SidebarPanel, { id: "local" }),
         h(BranchDialogs),
         h(ToastHost),
         shell.paletteOpen ? h(PaletteOverlay) : null,
