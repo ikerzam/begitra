@@ -240,6 +240,17 @@ pub const REDIRECTING_VARS: [&str; 9] = [
     "GIT_CEILING_DIRECTORIES",
 ];
 
+/// Environment variables that change how git reads every pathspec. Inherited from a hook or
+/// an alias they are always removed, as the redirecting ones: each call says itself how its
+/// paths are read (`--literal-pathspecs`, `./` for `check-ignore`, which refuses literal
+/// magic, so an inherited `GIT_LITERAL_PATHSPECS` would fail every such call).
+pub const PATHSPEC_VARS: [&str; 4] = [
+    "GIT_LITERAL_PATHSPECS",
+    "GIT_GLOB_PATHSPECS",
+    "GIT_NOGLOB_PATHSPECS",
+    "GIT_ICASE_PATHSPECS",
+];
+
 /// The command `git <args>` in `cwd`, with the redirecting variables removed and stdin closed.
 /// On Windows the process gets no console, so a GUI caller never flashes a black window.
 pub fn command(cwd: &Path, args: &[&str]) -> Command {
@@ -249,8 +260,8 @@ pub fn command(cwd: &Path, args: &[&str]) -> Command {
     command
 }
 
-/// Stdin closed, the inherited redirecting variables removed (one the caller set on the
-/// command, a merge check's own object folder, stays), no console window on Windows, and on
+/// Stdin closed, the inherited redirecting and pathspec variables removed (one the caller set
+/// on the command, a merge check's own object folder, stays), no console window on Windows, and on
 /// Unix a process group of its own so that a cancel can stop what git started.
 fn isolate(command: &mut Command) {
     command.stdin(Stdio::null());
@@ -259,7 +270,7 @@ fn isolate(command: &mut Command) {
         .filter(|(_, value)| value.is_some())
         .map(|(key, _)| key.to_owned())
         .collect();
-    for var in REDIRECTING_VARS {
+    for var in REDIRECTING_VARS.iter().chain(PATHSPEC_VARS.iter()) {
         if !set.iter().any(|key| key == var) {
             command.env_remove(var);
         }
@@ -1365,8 +1376,8 @@ mod tests {
             .filter(|(_, value)| value.is_none())
             .map(|(key, _)| key.to_string_lossy().into_owned())
             .collect();
-        for var in REDIRECTING_VARS {
-            assert!(removed.contains(&var.to_owned()), "{var} is not removed");
+        for var in REDIRECTING_VARS.iter().chain(PATHSPEC_VARS.iter()) {
+            assert!(removed.contains(&(*var).to_owned()), "{var} is not removed");
         }
         assert_eq!(command.get_current_dir(), Some(Path::new(".")));
     }
