@@ -71,6 +71,8 @@ interface ActionOptions {
   several?: boolean;
   /** The last undo of a commit can be redone. */
   canRedo?: boolean;
+  /** The last discard's toast stands with its Undo. */
+  canUndoDiscard?: boolean;
 }
 
 function actions(options: ActionOptions | boolean = {}): PaletteActions & { calls: string[] } {
@@ -82,6 +84,7 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
     hasReviewNotes = false,
     several = false,
     canRedo = false,
+    canUndoDiscard = false,
   } = typeof options === "boolean" ? { hasRepository: options } : options;
   const calls: string[] = [];
   const record = (name: string) => () => {
@@ -195,6 +198,10 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
     canRedoUndone: () => canRedo,
     redoUndoneCommit: () => {
       calls.push("redoUndoneCommit");
+    },
+    canUndoDiscard: () => canUndoDiscard,
+    undoDiscard: () => {
+      calls.push("undoDiscard");
     },
     sync: (action) => {
       calls.push(`sync:${action}`);
@@ -381,6 +388,13 @@ describe("usePalette", () => {
     expect(ids.indexOf("redo-undone-commit")).toBe(ids.indexOf("undo-last-commit") + 1);
     await palette.rows.value.find((r) => r.command.id === "redo-undone-commit")?.command.run();
     expect(acts.calls).toEqual(["redoUndoneCommit"]);
+  });
+
+  it("offers Undo discard only while a discard's toast stands with it, and runs it", async () => {
+    expect(setup().palette.rows.value.map((r) => r.command.id)).not.toContain("undo-discard");
+    const { palette, acts } = setup({ canUndoDiscard: true });
+    await palette.rows.value.find((r) => r.command.id === "undo-discard")?.command.run();
+    expect(acts.calls).toEqual(["undoDiscard"]);
   });
 
   it("offers to copy the review notes only when the target has some, and runs it", async () => {

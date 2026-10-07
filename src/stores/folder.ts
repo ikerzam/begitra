@@ -320,6 +320,8 @@ export const useFolderStore = defineStore("folder", () => {
   function drop(gone: Member): void {
     members.delete(gone.root);
     queue.delete(gone.root);
+    // Its discard's Undo goes with it, the copy forgotten.
+    gone.view.dropUndo();
     void release(gone);
     gone.scope.stop();
   }

@@ -1,0 +1,18 @@
+[
+  {
+    "copy": "3",
+    "failure": null
+  },
+  {
+    "copy": null,
+    "failure": null
+  },
+  {
+    "copy": "4",
+    "failure": {
+      "code": "git.cli_failed",
+      "message": "git restore failed",
+      "detail": "error: unable to unlink old 'b.txt': Permission denied"
+    }
+  }
+]

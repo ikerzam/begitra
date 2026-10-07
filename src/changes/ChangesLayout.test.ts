@@ -28,6 +28,7 @@ import { changedFile } from "@/test/changes";
 import { mountWithI18n } from "@/test/mount";
 
 import ChangesLayout from "./ChangesLayout.vue";
+import { NO_COPY_GUARD_MS } from "./useDiscardDialog";
 
 const unstagedFiles = () => [
   changedFile("src/a.ts"),
@@ -384,7 +385,7 @@ describe("ChangesLayout", () => {
     expect(dialog.text()).toContain(
       "The unstaged changes to src/a.ts, src/b.ts and src/new.md are lost, and new.md is deleted: it is not tracked yet.",
     );
-    expect(dialog.text()).toContain("Discarded changes cannot be recovered.");
+    expect(dialog.text()).toContain("Undo in the notification brings them back.");
     expect(wrapper.get('[data-testid="dialog-confirm"]').text()).toBe("Discard 3 files");
     await wrapper.get('[data-testid="dialog-cancel"]').trigger("click");
     await nextTick();
@@ -411,6 +412,52 @@ describe("ChangesLayout", () => {
       untracked: ["src/new.md"],
     });
     expect(wrapper.findAll('[data-list="unstaged"]')).toHaveLength(2);
+    wrapper.unmount();
+  });
+
+  it("asks again, saying the discard is final, when no copy can be kept", async () => {
+    const { wrapper, calls } = await mountScreen({ discardNoCopy: "discard.too_large" });
+    await wrapper.get('[data-testid="discard-all"]').trigger("click");
+    await nextTick();
+    expect(wrapper.get('[role="dialog"]').text()).toContain(
+      "Undo in the notification brings them back.",
+    );
+    await wrapper.get('[data-testid="dialog-confirm"]').trigger("click");
+    await settled();
+    const again = wrapper.get('[role="dialog"]');
+    expect(again.text()).toContain("Discard without Undo?");
+    expect(again.text()).toContain(
+      "Begitra keeps no copy of more than 256 MB. Discarded changes cannot be recovered.",
+    );
+    expect(wrapper.get('[data-testid="dialog-confirm"]').text()).toBe("Discard without Undo");
+    expect(wrapper.find('[data-testid="changes-failed"]').exists()).toBe(false);
+    expect(wrapper.findAll('[data-list="unstaged"]')).toHaveLength(3);
+    // A press in its first moments (a double click on the first one) does nothing.
+    await wrapper.get('[data-testid="dialog-confirm"]').trigger("click");
+    await settled();
+    expect(of(calls, "discard_paths")).toHaveLength(1);
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, NO_COPY_GUARD_MS));
+    await wrapper.get('[data-testid="dialog-confirm"]').trigger("click");
+    await settled();
+    expect(of(calls, "discard_paths").map((call) => call.args["keepCopy"])).toEqual([true, false]);
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+    expect(wrapper.findAll('[data-list="unstaged"]')).toHaveLength(0);
+    wrapper.unmount();
+  });
+
+  it("shows the system's words when a copy failed, and says why a link refuses one", async () => {
+    const { wrapper } = await mountScreen({ discardNoCopy: "discard.copy_failed" });
+    await wrapper.get('[data-testid="discard-all"]').trigger("click");
+    await nextTick();
+    await wrapper.get('[data-testid="dialog-confirm"]').trigger("click");
+    await settled();
+    expect(wrapper.get('[role="dialog"]').text()).toContain(
+      "Begitra couldn't keep a copy of them. Discarded changes cannot be recovered.",
+    );
+    expect(wrapper.get('[data-testid="discard-reason"]').text()).toBe(
+      "There is not enough space on the disk. (os error 112)",
+    );
     wrapper.unmount();
   });
 

@@ -32,6 +32,7 @@ import { useProjectsStore, type ProjectMember } from "@/stores/projects";
 import { useSettingsStore } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
 import { useTabsStore } from "@/stores/tabs";
+import { useToastsStore } from "@/stores/toasts";
 import { useWorktreesStore } from "@/stores/worktrees";
 import { shortcutRegistry } from "@/shortcuts/registry";
 
@@ -54,6 +55,7 @@ export function usePaletteActions(): PaletteActions {
   const remotes = useRemotesStore();
   const cleanup = useCleanupStore();
   const branches = useBranchesStore();
+  const toasts = useToastsStore();
   const sequencer = useSequencerStore();
   const stash = useStashStore();
   const projects = useProjectsStore();
@@ -138,6 +140,8 @@ export function usePaletteActions(): PaletteActions {
     undoLastCommit: () => void branches.undoLastCommit(),
     canRedoUndone: () => branches.canRedo,
     redoUndoneCommit: () => void branches.redoUndone(),
+    canUndoDiscard: () => toasts.actionIn("discard") !== undefined,
+    undoDiscard: () => toasts.actSlot("discard"),
     network: (action) => {
       const branch = repo.currentBranch?.name;
       if (branch) remotes.ask({ kind: action, branch });

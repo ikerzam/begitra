@@ -1,0 +1,21 @@
+[
+  {
+    "restored": [
+      "apps/web/src/map/tile-cache.ts"
+    ],
+    "changed": [
+      "apps/web/src/map/use-tiles.ts"
+    ],
+    "failed": []
+  },
+  {
+    "restored": [],
+    "changed": [],
+    "failed": [
+      {
+        "path": "bin/latest",
+        "reason": "A required privilege is not held by the client. (os error 1314)"
+      }
+    ]
+  }
+]

@@ -3,7 +3,7 @@
 // commit box under it, then the viewer. j and k move the selected file through both lists from
 // anywhere on the screen; s, u and Backspace act on the picked lines when there are any, else on
 // the selected file; ⌘↵ commits. Discards confirm once in the discard dialog, naming the files or
-// the lines and that nothing can be recovered.
+// the lines and that Undo in the notification brings them back.
 
 import { computed, nextTick, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
@@ -32,7 +32,7 @@ const lists = ref<{ focus(): void; moveFile(step: 1 | -1): boolean } | null>(nul
 const viewer = ref<{ actOnSelection(action: "stage" | "unstage" | "discard"): boolean } | null>(
   null,
 );
-const discard = useDiscardDialog();
+const discard = useDiscardDialog({ refocus: () => lists.value?.focus() });
 const ignore = useIgnoreDialog({ refocus: () => lists.value?.focus() });
 const pushing = useCommitAndPush();
 const listsWidth = computed(() => `${shell.paneSizes.files}px`);
@@ -116,9 +116,15 @@ defineExpose({
       :confirm-label="discard.dialog.value.confirm"
       variant="destructive"
       data-testid="discard-dialog"
-      @confirm="discard.confirm()"
+      @confirm="void discard.confirm()"
       @cancel="discard.cancel()"
-    />
+    >
+      <pre
+        v-if="discard.dialog.value.output"
+        class="rounded-sm border border-line bg-app px-2 py-1 font-mono text-code break-all whitespace-pre-wrap text-fg-secondary"
+        data-testid="discard-reason"
+        >{{ discard.dialog.value.output }}</pre>
+    </Dialog>
     <IgnoreDialog
       v-if="ignore.pending.value"
       v-model:rule="ignore.rule.value"

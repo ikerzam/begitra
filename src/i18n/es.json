@@ -193,7 +193,8 @@
       "stage": "Preparar",
       "unstage": "Quitar de preparados",
       "discard": "Descartar",
-      "ignore": "Ignorar"
+      "ignore": "Ignorar",
+      "undoDiscard": "Deshacer el descarte"
     },
     "graph": "grafo",
     "changesFailed": "No se pudo leer el árbol de trabajo",
@@ -271,7 +272,8 @@
     "readingRepositories": "Leyendo {n} repositorio | Leyendo {n} repositorios",
     "lookingUp": "Buscando {name}",
     "pushingTag": "Subiendo {tag} a {remote}",
-    "deletingOnRemote": "Borrando {name} en {remote}"
+    "deletingOnRemote": "Borrando {name} en {remote}",
+    "bringingBack": "Recuperando los cambios descartados"
   },
   "home": {
     "title": "Proyectos",
@@ -609,7 +611,8 @@
       "pin-project": "Fijar el proyecto",
       "unpin-project": "Desfijar el proyecto",
       "go-to-projects": "Ir a los proyectos",
-      "add-folder": "Añadir carpeta…"
+      "add-folder": "Añadir carpeta…",
+      "undo-discard": "Deshacer el descarte"
     },
     "repos": "Repos"
   },
@@ -864,7 +867,19 @@
       "confirmHunk": "Descartar el hunk",
       "and": "y",
       "andMore": "{names} y {n} más",
-      "bodyUntrackedClause": ", y {names} se borra: aún no está en seguimiento. | , y {names} se borran: aún no están en seguimiento."
+      "bodyUntrackedClause": ", y {names} se borra: aún no está en seguimiento. | , y {names} se borran: aún no están en seguimiento.",
+      "noCopyTooLarge": "Begitra no guarda copia de más de 256 MB.",
+      "noCopyNotAFile": "Begitra no guarda copia de {path}, que no es un fichero.",
+      "noCopyFailed": "Begitra no ha podido guardar una copia.",
+      "noCopyBehindLink": "Begitra no guarda copia de {path}: una carpeta de su ruta es un enlace o una unión, que puede llevar fuera del árbol de trabajo.",
+      "undoableChanges": "Deshacer, en el aviso, los recupera.",
+      "undoableFiles": "Deshacer, en el aviso, lo recupera. | Deshacer, en el aviso, los recupera.",
+      "undoableHunk": "Deshacer, en el aviso, lo recupera.",
+      "undoableLines": "Deshacer, en el aviso, la recupera. | Deshacer, en el aviso, las recupera.",
+      "noCopyTitle": "¿Descartar sin Deshacer?",
+      "noCopyTitleIn": "¿Descartar en {repository} sin Deshacer?",
+      "noCopyConfirm": "Descartar sin Deshacer",
+      "nothingDiscarded": "No se ha descartado nada."
     },
     "ignoreDialog": {
       "title": "Ignorar {name}",
@@ -892,7 +907,22 @@
       "addedNotIgnored": "Añadido {line} a {file}, pero git sigue sin ignorar {name}",
       "alreadyNotIgnored": "{line} ya está en {file}, pero git sigue sin ignorar {name}"
     },
-    "commitTo": "Commit en"
+    "commitTo": "Commit en",
+    "discarded": {
+      "files": "{n} fichero descartado | {n} ficheros descartados",
+      "hunk": "Hunk descartado",
+      "lines": "{n} línea descartada | {n} líneas descartadas",
+      "partly": "Git se detuvo a medias. Deshacer recupera lo que descartó."
+    },
+    "undoDiscard": {
+      "action": "Deshacer",
+      "restored": "{n} fichero recuperado | {n} ficheros recuperados",
+      "changed": "{names} ha cambiado desde el descarte y se queda como está | {names} han cambiado desde el descarte y se quedan como están",
+      "failed": "No se ha podido recuperar {n} fichero | No se han podido recuperar {n} ficheros",
+      "changedMore": "{names} y {more} más han cambiado desde el descarte y se quedan como están",
+      "gone": "Los cambios descartados ya no se guardan: su copia se fue con su aviso.",
+      "failedWhole": "No se han podido recuperar los cambios descartados"
+    }
   },
   "branches": {
     "busy": "Otro cambio del repositorio sigue en marcha. Vuelve a intentarlo cuando acabe.",

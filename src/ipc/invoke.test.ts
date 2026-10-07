@@ -154,10 +154,14 @@ describe("checkArgs", () => {
               },
             ],
           },
+          keepCopy: false,
           opId: "op",
         }),
       ),
     ).toMatch(/^selection: /);
+    expect(
+      refused(() => checkArgs("undo_discard", { repo: "/r", copy: "../1", opId: "op" })),
+    ).toMatch(/^copy: /);
   });
 });
 

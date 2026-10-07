@@ -627,6 +627,27 @@ export const IgnoreOutcomeSchema = v.object({
 export type IgnoreOutcome = v.InferOutput<typeof IgnoreOutcomeSchema>;
 
 /**
+ * What a discard kept for its Undo: the copy's id, null when it kept none; and git's error when
+ * it failed after it changed some of the files, which the copy holds.
+ */
+export const DiscardCopySchema = v.object({
+  copy: v.nullable(v.string()),
+  failure: v.nullable(AppErrorSchema),
+});
+export type DiscardCopy = v.InferOutput<typeof DiscardCopySchema>;
+
+/** What an Undo of a discard did, path by path. */
+export const UndoOutcomeSchema = v.object({
+  /** Written back as they were before the discard. */
+  restored: v.array(v.string()),
+  /** Changed since the discard, left as they are. */
+  changed: v.array(v.string()),
+  /** Not written back, with the system's words; their copy stays for another Undo. */
+  failed: v.array(v.object({ path: v.string(), reason: v.string() })),
+});
+export type UndoOutcome = v.InferOutput<typeof UndoOutcomeSchema>;
+
+/**
  * Why a local branch can go: its tip is in the main branch (or its upstream); it is in the main
  * branch with no commits of its own (an agent's new branch); its upstream is gone and merging it
  * would change nothing; its upstream is gone and main lacks some of it; its upstream is gone and
@@ -944,6 +965,8 @@ const repoPath = v.pipe(
 );
 /** One to 10,000 repository paths. */
 const repoPaths = v.pipe(v.array(repoPath), v.minLength(1), v.maxLength(10_000));
+/** A discard's copy, as the backend numbers them. */
+const copyId = v.pipe(v.string(), v.regex(/^\d{1,20}$/));
 /** A commit message with a subject, at most 100,000 characters. */
 const commitMessage = v.pipe(
   v.string(),
@@ -1056,8 +1079,11 @@ export const commandArgs = {
     repo: path,
     tracked: v.array(repoPath),
     untracked: v.array(repoPath),
+    keepCopy: v.boolean(),
     opId,
   }),
+  undo_discard: v.object({ repo: path, copy: copyId, opId }),
+  forget_discard: v.object({ copy: copyId, opId }),
   ignore_path: v.object({
     repo: path,
     path: repoPath,
@@ -1075,6 +1101,7 @@ export const commandArgs = {
         "no selected line",
       ),
     ),
+    keepCopy: v.boolean(),
     opId,
   }),
   commit: v.object({

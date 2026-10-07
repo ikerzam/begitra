@@ -28,6 +28,7 @@ import type {
   PatchSelection,
   RepoChanged,
   SelectionTarget,
+  UndoOutcome,
 } from "@/ipc/schemas";
 import type { StreamHandle } from "@/ipc/stream";
 import { arm } from "@/motion/motion";
@@ -44,6 +45,7 @@ import {
   requestedPaths,
   unspellable,
 } from "./reloads";
+import { useToastsStore } from "./toasts";
 
 export type ChangeList = "unstaged" | "staged";
 
@@ -62,7 +64,35 @@ export interface CommitDraft {
   signoff: boolean;
 }
 
-export type WriteKind = "stage" | "unstage" | "discard" | "ignore" | "commit";
+export type WriteKind = "stage" | "unstage" | "discard" | "undoDiscard" | "ignore" | "commit";
+
+/**
+ * What a discard did: it discarded, keeping the copy its Undo writes back (null when asked to
+ * keep none); a copy could not be kept, so nothing was discarded and the caller asks again; or
+ * git failed (its output in the banner), keeping the copy of what it changed before it stopped.
+ */
+export type DiscardOutcome =
+  | { kind: "discarded"; copy: string | null }
+  | { kind: "noCopy"; error: AppError }
+  | { kind: "failed"; copy: string | null };
+
+/** The codes of a discard refused because no copy could be kept: nothing was discarded. */
+const NO_COPY = new Set([
+  "discard.too_large",
+  "discard.not_a_file",
+  "discard.behind_link",
+  "discard.copy_failed",
+]);
+
+/** The toast slot of the last discard's Undo: one stands at a time, across the models. */
+const DISCARD_SLOT = "discard";
+
+/** The toast of a discard: its message and count, and the files it touched. */
+interface Discarded {
+  key: string;
+  n: number;
+  files: number;
+}
 
 /** What the last failed write was doing, for the status bar and the banner. */
 export interface FailedWrite {
@@ -78,6 +108,7 @@ const writeLabels: Record<WriteKind, string> = {
   stage: "operations.staging",
   unstage: "operations.unstaging",
   discard: "operations.discarding",
+  undoDiscard: "operations.bringingBack",
   ignore: "operations.ignoring",
   commit: "operations.committing",
 };
@@ -123,6 +154,13 @@ interface QueuedWrite {
   run: (root: string) => Promise<unknown>;
   /** A file write's move; null for a line action or a commit, which keep the lists inert. */
   move: Move | null;
+  /**
+   * Whether a failure is one its caller answers, which changed nothing: no banner, and the
+   * writes asked after it still run.
+   */
+  quiet: ((error: AppError) => boolean) | null;
+  /** The selection when the write was asked, for a refusal to give back. */
+  selectedBefore: { list: ChangeList; path: string } | null;
   settle: (done: boolean) => void;
 }
 
@@ -219,6 +257,14 @@ export interface ChangesModelOptions {
 /** The changes of the repository `options.root` names, with every action on them. */
 export function createChangesModel(options: ChangesModelOptions) {
   const operations = useOperationsStore();
+  const toasts = useToastsStore();
+  /**
+   * The toasts of this model's last discard: its Undo (or its Try again) and what an Undo left
+   * to read, with the repository they name; they go when that repository stops being the
+   * model's.
+   */
+  let undoToasts: number[] = [];
+  let undoRoot: string | null = null;
 
   /** The lists as shown: what git said last, with the pending moves laid over it. */
   const unstaged = shallowRef<ChangeSetState>(emptyList());
@@ -564,13 +610,33 @@ export function createChangesModel(options: ChangesModelOptions) {
     counts.value = null;
   }
 
-  /** Forgets the lists and what belongs to their repository: the draft, the commit context. */
+  /**
+   * Forgets the lists and what belongs to their repository: the draft, the commit context, and
+   * the last discard's Undo with its copy.
+   */
   function reset(): void {
     clearLists();
     draft.value = { subject: "", body: "", amend: false, signoff: false };
     context.value = null;
     loadedRoot = null;
+    dropUndo();
   }
+
+  /** Takes this model's Undo toasts away; the copy they held is forgotten with them. */
+  function dropUndo(): void {
+    const shown = undoToasts;
+    undoToasts = [];
+    undoRoot = null;
+    for (const id of shown) toasts.dismiss(id);
+  }
+
+  // A closed repository, or another one, takes the Undo of a discard made in the last one.
+  watch(
+    () => options.root(),
+    (root) => {
+      if (undoRoot !== null && root !== undoRoot) dropUndo();
+    },
+  );
 
   /** Streams both lists again. */
   function load(): void {
@@ -631,7 +697,7 @@ export function createChangesModel(options: ChangesModelOptions) {
   /**
    * Asks for a write: it runs after the writes asked before it. A file write's `move` shows at
    * once and the selection goes to the row that took the file's place; resolves with whether git
-   * did the write.
+   * did the write. A failure `quiet` claims shows no banner.
    */
   function enqueue(
     kind: WriteKind,
@@ -640,9 +706,11 @@ export function createChangesModel(options: ChangesModelOptions) {
     reload: Record<ChangeList, Reload>,
     run: (root: string) => Promise<unknown>,
     move: Move | null,
+    quiet: ((error: AppError) => boolean) | null = null,
   ): Promise<boolean> {
     const root = options.root();
     if (!root) return Promise.resolve(false);
+    const selectedBefore = selected.value;
     return new Promise<boolean>((settle) => {
       if (move !== null) {
         const place = anchorOf(selected.value);
@@ -653,7 +721,10 @@ export function createChangesModel(options: ChangesModelOptions) {
         anchor = place;
         settleSelection(true);
       }
-      queued.value = [...queued.value, { kind, files, path, root, reload, run, move, settle }];
+      queued.value = [
+        ...queued.value,
+        { kind, files, path, root, reload, run, move, quiet, selectedBefore, settle },
+      ];
       void pump();
     });
   }
@@ -709,12 +780,17 @@ export function createChangesModel(options: ChangesModelOptions) {
     const opId = newOpId("changes-write");
     operations.start(opId, label);
     let done = false;
+    let quiet = false;
     try {
       await write.run(write.root);
       done = true;
     } catch (failure) {
-      actionError.value = toAppError(failure);
-      failed.value = { kind: write.kind, files: write.files, path: write.path };
+      const error = toAppError(failure);
+      quiet = write.quiet?.(error) === true;
+      if (!quiet) {
+        actionError.value = error;
+        failed.value = { kind: write.kind, files: write.files, path: write.path };
+      }
     } finally {
       operations.finish(opId);
       busy.value = null;
@@ -731,6 +807,13 @@ export function createChangesModel(options: ChangesModelOptions) {
         unstaged: write.reload.unstaged.kind === "none" ? null : readsStarted.unstaged + 1,
         staged: write.reload.staged.kind === "none" ? null : readsStarted.staged + 1,
       };
+    } else if (quiet) {
+      // A refusal that changed nothing: its move goes, the selection comes back, and the writes
+      // asked after it run.
+      moves = moves.filter((move) => move !== write.move);
+      show("unstaged");
+      show("staged");
+      if (write.move !== null) selected.value = write.selectedBefore;
     } else if (!done) {
       const dropped = queued.value;
       queued.value = [];
@@ -771,23 +854,251 @@ export function createChangesModel(options: ChangesModelOptions) {
     );
   }
 
-  /** Discards unstaged files: added ones are untracked and go, the rest return to the index. */
-  function discard(files: FileChange[]): Promise<boolean> {
+  /**
+   * Discards unstaged files: added ones are untracked and go, the rest return to the index. With
+   * `keepCopy`, the files are copied first (ADR-0020) and a toast offers Undo; a copy that cannot
+   * be kept discards nothing, for the caller to ask again without one.
+   */
+  async function discard(files: FileChange[], keepCopy = true): Promise<DiscardOutcome> {
     const untracked = files.filter((file) => file.status === "added").map((file) => file.path);
     const tracked = files.filter((file) => file.status !== "added").map((file) => file.path);
-    if (untracked.length + tracked.length === 0) return Promise.resolve(false);
-    return enqueue(
+    const root = options.root();
+    if (untracked.length + tracked.length === 0 || root === null) {
+      return { kind: "failed", copy: null };
+    }
+    let copy = null as string | null;
+    let refusal = null as AppError | null;
+    const done = await enqueue(
       "discard",
       files.length,
       files.length === 1 ? (files[0]?.path ?? null) : null,
       { unstaged: atPaths(pathsOf(files)), staged: nothing },
-      (root) => ipc.discardPaths(root, tracked, untracked),
+      async (root) => {
+        const result = await ipc.discardPaths(root, tracked, untracked, keepCopy);
+        copy = result.copy;
+        // git stopped part-way: its error in the banner, and Undo for what it changed.
+        if (result.failure) throw toAppError(result.failure);
+      },
       predict(
         "unstaged",
         null,
         files.map((file) => file.path),
       ),
+      (error) => {
+        if (!NO_COPY.has(error.code)) return false;
+        refusal = error;
+        return true;
+      },
     );
+    const toast = { key: "changes.discarded.files", n: files.length, files: files.length };
+    return discarded(root, done, copy, refusal, toast);
+  }
+
+  /**
+   * Discards the hunk or the lines `selectedKeys` picks in `file`, as `discard` does files: a
+   * copy first unless `keepCopy` is false, and the toast with Undo.
+   */
+  async function discardSelection(
+    file: FileChange,
+    selectedKeys: Set<string>,
+    what: "hunk" | "lines",
+    keepCopy = true,
+  ): Promise<DiscardOutcome> {
+    const selection = selectionOf(file, selectedKeys);
+    const root = options.root();
+    if (root === null) return { kind: "failed", copy: null };
+    let copy = null as string | null;
+    let refusal = null as AppError | null;
+    const done = await enqueue(
+      "discard",
+      1,
+      file.path,
+      { unstaged: atPaths(pathsOf([file])), staged: nothing },
+      async (root) => {
+        const result = await ipc.applySelection(root, "discard", selection, keepCopy);
+        copy = result.copy;
+        if (result.failure) throw toAppError(result.failure);
+      },
+      null,
+      (error) => {
+        if (!NO_COPY.has(error.code)) return false;
+        refusal = error;
+        return true;
+      },
+    );
+    const toast =
+      what === "hunk"
+        ? { key: "changes.discarded.hunk", n: 1, files: 1 }
+        : { key: "changes.discarded.lines", n: selectedKeys.size, files: 1 };
+    return discarded(root, done, copy, refusal, toast);
+  }
+
+  /**
+   * What a discard did, with the toast that offers its Undo when it kept a copy: what went, or,
+   * when git stopped part-way, that Undo brings back what it discarded.
+   */
+  function discarded(
+    root: string,
+    done: boolean,
+    copy: string | null,
+    refusal: AppError | null,
+    toast: Discarded,
+  ): DiscardOutcome {
+    if (refusal !== null) return { kind: "noCopy", error: refusal };
+    if (copy !== null && options.root() !== root) {
+      // Another repository opened while git ran: this one's Undo has no place to stand.
+      forgetDiscard(copy);
+    } else if (copy !== null) {
+      offerUndo(copy, root, done ? toast : { ...toast, key: "changes.discarded.partly" });
+    }
+    return done ? { kind: "discarded", copy } : { kind: "failed", copy };
+  }
+
+  /**
+   * The toast of a discard that kept a copy: what went, and Undo while it stands. One stands at
+   * a time; the copy goes when the toast goes without its Undo.
+   */
+  function offerUndo(copy: string, root: string, toast: Discarded): void {
+    dropUndo();
+    undoRoot = root;
+    undoToasts = [
+      toasts.push({
+        kind: "success",
+        message: "",
+        key: toast.key,
+        params: { n: toast.n },
+        actionKey: "changes.undoDiscard.action",
+        onAction: () => void undoDiscard(copy, root, toast),
+        onDismiss: () => forgetDiscard(copy),
+        sticky: true,
+        slot: DISCARD_SLOT,
+      }),
+    ];
+  }
+
+  /** Removes a copy no Undo will ask for; one left behind goes with the next discard's. */
+  function forgetDiscard(copy: string): void {
+    ipc.forgetDiscard(copy).catch(() => undefined);
+  }
+
+  /**
+   * Writes back what the discard kept as `copy` in `root`, through the write queue, then reads
+   * the unstaged list again whole and says what came back in toasts, a failure included (the
+   * banner stays away: the toast that asked holds the answer). Null when nothing came back.
+   */
+  async function undoDiscard(
+    copy: string,
+    root: string,
+    toast: Discarded,
+  ): Promise<UndoOutcome | null> {
+    if (options.root() !== root) {
+      // The toast's repository is not this model's any more: nothing to write back here.
+      forgetDiscard(copy);
+      return null;
+    }
+    let outcome = null as UndoOutcome | null;
+    let failure = null as AppError | null;
+    const done = await enqueue(
+      "undoDiscard",
+      toast.files,
+      null,
+      { unstaged: { kind: "full" }, staged: nothing },
+      async (written) => {
+        outcome = await ipc.undoDiscard(written, copy);
+      },
+      null,
+      (error) => {
+        failure = error;
+        return true;
+      },
+    );
+    if (failure !== null) {
+      reportUndoFailure(copy, root, toast, failure);
+      return null;
+    }
+    if (!done || outcome === null) {
+      // The Undo never ran (a write before it failed): it stands again.
+      if (options.root() === root) offerUndo(copy, root, toast);
+      else forgetDiscard(copy);
+      return null;
+    }
+    reportUndo(copy, root, toast, outcome);
+    return outcome;
+  }
+
+  /**
+   * The toasts after an Undo: how many files came back; the files changed since the discard,
+   * which stay as they are (three named, then how many more); and the files that could not be
+   * written, whose copy stays for another try.
+   */
+  function reportUndo(copy: string, root: string, toast: Discarded, outcome: UndoOutcome): void {
+    const shown: number[] = [];
+    if (outcome.restored.length > 0) {
+      toasts.push({
+        kind: "success",
+        message: "",
+        key: "changes.undoDiscard.restored",
+        params: { n: outcome.restored.length },
+      });
+    }
+    const changed = outcome.changed;
+    if (changed.length > 0) {
+      const named = changed.slice(0, 3).join(", ");
+      const more = changed.length - 3;
+      shown.push(
+        toasts.push({
+          kind: "info",
+          message: "",
+          key: more > 0 ? "changes.undoDiscard.changedMore" : "changes.undoDiscard.changed",
+          params: { n: changed.length, names: named, more },
+          // Undo did not bring these back: the toast waits to be read.
+          sticky: true,
+        }),
+      );
+    }
+    const failed = outcome.failed;
+    if (failed.length > 0) {
+      shown.push(
+        toasts.push({
+          kind: "error",
+          message: "",
+          key: "changes.undoDiscard.failed",
+          params: { n: failed.length },
+          output: failed.map((failure) => `${failure.path}: ${failure.reason}`).join("\n"),
+          actionKey: "changes.tryAgain",
+          onAction: () => void undoDiscard(copy, root, toast),
+          onDismiss: () => forgetDiscard(copy),
+          slot: DISCARD_SLOT,
+        }),
+      );
+    }
+    undoRoot = shown.length > 0 ? root : null;
+    undoToasts = shown;
+  }
+
+  /**
+   * An Undo that failed whole (its copy gone, the timeout): an error toast in the Undo's place,
+   * with git's or the system's words under it and Try again while the copy stands.
+   */
+  function reportUndoFailure(copy: string, root: string, toast: Discarded, error: AppError): void {
+    const gone = error.code === "discard.copy_gone";
+    undoRoot = root;
+    undoToasts = [
+      toasts.push({
+        kind: "error",
+        message: "",
+        key: gone ? "changes.undoDiscard.gone" : "changes.undoDiscard.failedWhole",
+        ...(gone
+          ? {}
+          : {
+              output: error.detail ?? error.message,
+              actionKey: "changes.tryAgain",
+              onAction: () => void undoDiscard(copy, root, toast),
+              onDismiss: () => forgetDiscard(copy),
+            }),
+        slot: DISCARD_SLOT,
+      }),
+    ];
   }
 
   /**
@@ -815,21 +1126,24 @@ export function createChangesModel(options: ChangesModelOptions) {
     return done ? outcome : null;
   }
 
-  /** Applies the selected lines of `file` (every changed line when `selectedKeys` is null). */
+  /**
+   * Stages or unstages the selected lines of `file` (every changed line when `selectedKeys` is
+   * null); a discard of lines is `discardSelection`'s, which keeps a copy.
+   */
   function applySelection(
-    target: SelectionTarget,
+    target: Exclude<SelectionTarget, "discard">,
     file: FileChange,
     selectedKeys: Set<string> | null,
   ): Promise<boolean> {
     const selection = selectedKeys ? selectionOf(file, selectedKeys) : wholeSelection(file);
     const moved = atPaths(pathsOf([file]));
-    const reload = { unstaged: moved, staged: target === "discard" ? nothing : moved };
+    const reload = { unstaged: moved, staged: moved };
     return enqueue(
       target,
       1,
       file.path,
       reload,
-      (root) => ipc.applySelection(root, target, selection),
+      (root) => ipc.applySelection(root, target, selection, false),
       null,
     );
   }
@@ -842,7 +1156,7 @@ export function createChangesModel(options: ChangesModelOptions) {
     return unstage(staged.value.files.map((file) => file.path));
   }
 
-  function discardAll(): Promise<boolean> {
+  function discardAll(): Promise<DiscardOutcome> {
     return discard(unstaged.value.files);
   }
 
@@ -989,6 +1303,8 @@ export function createChangesModel(options: ChangesModelOptions) {
     stage,
     unstage,
     discard,
+    discardSelection,
+    dropUndo,
     ignore,
     applySelection,
     stageAll,

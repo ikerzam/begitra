@@ -35,6 +35,7 @@ import type {
   Remote,
   RepoSummary,
   SelectionTarget,
+  UndoOutcome,
   WalkFilter,
   WalkScope,
   Worktree,
@@ -164,6 +165,22 @@ export interface FakeBackendOptions {
   ignoreKeptBy?: KeptBy;
   /** `commit` rejects with `git.cli_failed` (a hook's output). */
   failCommit?: boolean;
+  /**
+   * A discard that asks for a copy rejects with this code and discards nothing, as when the
+   * files are past what a copy holds, a folder, or a disk that refuses the copy.
+   */
+  discardNoCopy?:
+    "discard.too_large" | "discard.not_a_file" | "discard.behind_link" | "discard.copy_failed";
+  /**
+   * A discard that asks for a copy discards only its first path, as git does when it stops on a
+   * file another program holds: the copy of that path comes with git's error.
+   */
+  discardStopsPartWay?: boolean;
+  /**
+   * What `undo_discard` answers for the paths the copy holds; by default every path comes
+   * back. A path it does not answer as restored stays discarded.
+   */
+  undoOutcome?: (paths: string[]) => UndoOutcome;
   /**
    * Holds each staging write and each commit until the test lets it go: what the lists show
    * before git answers.
@@ -491,6 +508,29 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
   };
   let unstaged: FileChange[] = [...(options.changes?.unstaged ?? [])];
   let staged: FileChange[] = [...(options.changes?.staged ?? [])];
+  /** The copy discards keep, as the backend does: one at a time, the last sealed. */
+  let copy: { id: string; repo: string; paths: string[]; files: FileChange[] } | null = null;
+  let copies = 0;
+  /** Keeps the copy of a discard of `paths` in `repo`; `files` are the rows it took away. */
+  const keepCopy = (repo: string, paths: string[], files: FileChange[]): string => {
+    copies += 1;
+    copy = { id: String(copies), repo, paths, files };
+    return copy.id;
+  };
+  const noCopy = () => {
+    const code = options.discardNoCopy ?? "discard.copy_failed";
+    // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+    return Promise.reject({
+      code,
+      message: "No copy of the discarded files could be kept",
+      detail:
+        code === "discard.not_a_file"
+          ? "vendor/tool/"
+          : code === "discard.too_large"
+            ? "300000000 bytes"
+            : "There is not enough space on the disk. (os error 112)",
+    });
+  };
   const byRepo = new Map(
     Object.entries(options.changesByRepo ?? {}).map(([root, lists]) => [
       root,
@@ -1006,18 +1046,67 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
         }
         case "discard_paths": {
           if (options.failStaging) return stagingFailure();
-          const gone = [...(args["tracked"] as string[]), ...(args["untracked"] as string[])];
+          const kept = args["keepCopy"] === true;
+          if (kept && options.discardNoCopy) return noCopy();
+          const named = [...(args["tracked"] as string[]), ...(args["untracked"] as string[])];
+          // git stops after the first path when asked to.
+          const partWay = kept && options.discardStopsPartWay === true;
+          const gone = partWay ? named.slice(0, 1) : named;
+          const repo = args["repo"] as string;
           const discard = () => {
-            const own = byRepo.get(args["repo"] as string);
-            if (own) {
-              own.unstaged = own.unstaged.filter((file) => !gone.includes(file.path));
-              return null;
-            }
-            unstaged = unstaged.filter((file) => !gone.includes(file.path));
-            return null;
+            const own = byRepo.get(repo);
+            const before = own ? own.unstaged : unstaged;
+            const after = before.filter((file) => !gone.includes(file.path));
+            if (own) own.unstaged = after;
+            else unstaged = after;
+            const taken = before.filter((file) => gone.includes(file.path));
+            return {
+              copy: kept ? keepCopy(repo, gone, taken) : null,
+              failure: partWay
+                ? {
+                    code: "git.cli_failed",
+                    message: "git restore failed",
+                    detail: `error: unable to unlink old '${named[1] ?? ""}': Permission denied`,
+                  }
+                : null,
+            };
           };
           return options.writeGate ? options.writeGate.hold(cmd, discard) : discard();
         }
+        case "undo_discard": {
+          const repo = args["repo"] as string;
+          if (copy === null || copy.id !== args["copy"] || copy.repo !== repo) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({
+              code: "discard.copy_gone",
+              message: "The copy of this discard is gone",
+            });
+          }
+          const held = copy;
+          const undo = () => {
+            const outcome: UndoOutcome = options.undoOutcome?.(held.paths) ?? {
+              restored: held.paths,
+              changed: [],
+              failed: [],
+            };
+            const back = held.files.filter((file) => outcome.restored.includes(file.path));
+            const own = byRepo.get(repo);
+            const list = own ? own.unstaged : unstaged;
+            const merged = [
+              ...list,
+              ...back.filter((file) => !list.some((f) => f.path === file.path)),
+            ];
+            if (own) own.unstaged = merged;
+            else unstaged = merged;
+            if (outcome.failed.length === 0) copy = null;
+            else held.paths = outcome.failed.map((failure) => failure.path);
+            return outcome;
+          };
+          return options.writeGate ? options.writeGate.hold(cmd, undo) : undo();
+        }
+        case "forget_discard":
+          if (copy?.id === args["copy"]) copy = null;
+          return null;
         case "ignore_path": {
           if (options.failIgnore) {
             // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
@@ -1063,6 +1152,9 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
           const selection = args["selection"] as PatchSelection;
           const target = args["target"] as SelectionTarget;
           const paths = [selection.path];
+          const kept = args["keepCopy"] === true && target === "discard";
+          if (kept && options.discardNoCopy) return noCopy();
+          const taken = unstaged.filter((file) => file.path === selection.path);
           const apply = () => {
             if (selectsWhole(selection)) {
               if (target === "stage") [unstaged, staged] = move(paths, unstaged, staged);
@@ -1082,7 +1174,8 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
                 unstaged = [...unstaged, file];
               }
             }
-            return null;
+            const repo = args["repo"] as string;
+            return { copy: kept ? keepCopy(repo, paths, taken) : null, failure: null };
           };
           return options.writeGate ? options.writeGate.hold(cmd, apply) : apply();
         }

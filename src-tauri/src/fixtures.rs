@@ -34,9 +34,10 @@ use crate::commands::projects::ProjectOpen;
 use crate::commands::remotes::NetworkEvent;
 use crate::commands::review::AnnotationWrite;
 use crate::commands::scan::ScanMessage;
-use crate::commands::staging::CommitResult;
+use crate::commands::staging::{CommitResult, DiscardCopy};
 use crate::commands::system::{app_info_from, pong};
 use crate::commands::walk::WalkPage;
+use crate::discards::{UndoFailure, UndoOutcome};
 use crate::error::{codes, AppError};
 use crate::events::{RepoChangeKind, RepoChanged};
 
@@ -1133,6 +1134,45 @@ fn write_fixtures() {
         &CommitResult {
             hash: "9f3e2c1a7b5d4e6f8a0b1c2d3e4f5a6b7c8d9e0f".to_owned(),
         },
+    );
+    write(
+        "discard-copies",
+        &[
+            DiscardCopy {
+                copy: Some("3".to_owned()),
+                failure: None,
+            },
+            DiscardCopy {
+                copy: None,
+                failure: None,
+            },
+            DiscardCopy {
+                copy: Some("4".to_owned()),
+                failure: Some(
+                    AppError::new(codes::GIT_CLI_FAILED, "git restore failed")
+                        .with_detail("error: unable to unlink old 'b.txt': Permission denied"),
+                ),
+            },
+        ],
+    );
+    write(
+        "undo-outcomes",
+        &[
+            UndoOutcome {
+                restored: vec!["apps/web/src/map/tile-cache.ts".to_owned()],
+                changed: vec!["apps/web/src/map/use-tiles.ts".to_owned()],
+                failed: Vec::new(),
+            },
+            UndoOutcome {
+                restored: Vec::new(),
+                changed: Vec::new(),
+                failed: vec![UndoFailure {
+                    path: "bin/latest".to_owned(),
+                    reason: "A required privilege is not held by the client. (os error 1314)"
+                        .to_owned(),
+                }],
+            },
+        ],
     );
     write(
         "commit-contexts",

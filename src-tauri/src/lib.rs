@@ -190,6 +190,8 @@ pub fn run() {
             commands::staging::stage_paths,
             commands::staging::unstage_paths,
             commands::staging::discard_paths,
+            commands::staging::undo_discard,
+            commands::staging::forget_discard,
             commands::staging::ignore_path,
             commands::staging::apply_selection,
             commands::staging::commit,

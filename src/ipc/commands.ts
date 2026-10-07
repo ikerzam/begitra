@@ -49,6 +49,8 @@ import {
   WalkPageSchema,
   WorktreeSchema,
   IgnoreOutcomeSchema,
+  DiscardCopySchema,
+  UndoOutcomeSchema,
   type AnnotationWrite,
   type BlobAt,
   type CommitRequest,
@@ -151,14 +153,29 @@ export function unstagePaths(repo: string, paths: string[], opId = newOpId("unst
   return call("unstage_paths", { repo, paths, opId }, v.null());
 }
 
-/** Discards the unstaged changes of tracked paths and removes untracked ones. */
+/**
+ * Discards the unstaged changes of tracked paths and removes untracked ones. With `keepCopy`,
+ * the paths are copied first for the discard's Undo (ADR-0020), and a copy that cannot be kept
+ * refuses the discard (`discard.too_large`, `discard.not_a_file`, `discard.copy_failed`).
+ */
 export function discardPaths(
   repo: string,
   tracked: string[],
   untracked: string[],
+  keepCopy: boolean,
   opId = newOpId("discard"),
 ) {
-  return call("discard_paths", { repo, tracked, untracked, opId }, v.null());
+  return call("discard_paths", { repo, tracked, untracked, keepCopy, opId }, DiscardCopySchema);
+}
+
+/** Writes back what a discard kept as `copy`: each path that still holds what it left. */
+export function undoDiscard(repo: string, copy: string, opId = newOpId("undo-discard")) {
+  return call("undo_discard", { repo, copy, opId }, UndoOutcomeSchema);
+}
+
+/** Removes the copy a discard kept; a copy already gone is fine. */
+export function forgetDiscard(copy: string, opId = newOpId("forget-discard")) {
+  return call("forget_discard", { copy, opId }, v.null());
 }
 
 /**
@@ -175,14 +192,18 @@ export function ignorePath(
   return call("ignore_path", { repo, path, rule, place, opId }, IgnoreOutcomeSchema);
 }
 
-/** Applies a selection of hunks and lines to the index or the working tree. */
+/**
+ * Applies a selection of hunks and lines to the index or the working tree; a discard with
+ * `keepCopy` copies the file first, as `discardPaths` does.
+ */
 export function applySelection(
   repo: string,
   target: SelectionTarget,
   selection: PatchSelection,
+  keepCopy: boolean,
   opId = newOpId("apply-selection"),
 ) {
-  return call("apply_selection", { repo, target, selection, opId }, v.null());
+  return call("apply_selection", { repo, target, selection, keepCopy, opId }, DiscardCopySchema);
 }
 
 /** Commits the index; hooks run; the call cannot be cancelled. */

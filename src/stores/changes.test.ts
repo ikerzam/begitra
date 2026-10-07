@@ -28,6 +28,7 @@ import {
 import { useOperationsStore } from "./operations";
 import { useRepoStore } from "./repo";
 import { memoryStorage, useSettingsStore } from "./settings";
+import { useToastsStore } from "./toasts";
 
 const unstagedFiles = () => [
   changedFile("src/a.ts"),
@@ -176,6 +177,233 @@ describe("changes store", () => {
     });
     expect(changes.unstaged.files).toHaveLength(0);
     expect(changes.selected).toEqual({ list: "staged", path: "src/c.ts" });
+  });
+
+  it("keeps a copy of a discard and offers its Undo, which brings the files back", async () => {
+    const { changes, calls } = await openChanges();
+    const outcome = await changes.discard(changes.unstaged.files);
+    await settled();
+    expect(outcome).toEqual({ kind: "discarded", copy: "1" });
+    expect(of(calls, "discard_paths")[0]?.args).toMatchObject({ keepCopy: true });
+    const toasts = useToastsStore();
+    const offer = toasts.toasts.at(-1)!;
+    expect(offer).toMatchObject({
+      key: "changes.discarded.files",
+      params: { n: 3 },
+      actionKey: "changes.undoDiscard.action",
+      sticky: true,
+      slot: "discard",
+    });
+
+    toasts.act(offer.id);
+    await changes.settled();
+    await settled();
+    expect(of(calls, "undo_discard")[0]?.args).toMatchObject({ repo: "/r", copy: "1" });
+    expect(shown(changes).unstaged).toEqual(["src/a.ts", "src/b.ts", "src/new.md"]);
+    expect(toasts.toasts.at(-1)).toMatchObject({
+      kind: "success",
+      key: "changes.undoDiscard.restored",
+      params: { n: 3 },
+    });
+    expect(of(calls, "forget_discard")).toHaveLength(0);
+  });
+
+  it("forgets a copy when its toast goes, and a new discard's toast replaces the last", async () => {
+    const { changes, calls } = await openChanges();
+    await changes.discard([changes.unstaged.files[0]!]);
+    await changes.discard([changes.unstaged.files[0]!]);
+    await settled();
+    const toasts = useToastsStore();
+    const offers = toasts.toasts.filter((toast) => toast.slot === "discard");
+    expect(offers).toHaveLength(1);
+    expect(of(calls, "forget_discard").map((call) => call.args["copy"])).toEqual(["1"]);
+    toasts.dismiss(offers[0]!.id);
+    await settled();
+    expect(of(calls, "forget_discard").map((call) => call.args["copy"])).toEqual(["1", "2"]);
+  });
+
+  it("names a file changed since the discard, which stays as it is", async () => {
+    const { changes } = await openChanges({
+      undoOutcome: (paths) => ({
+        restored: paths.slice(1),
+        changed: paths.slice(0, 1),
+        failed: [],
+      }),
+    });
+    await changes.discard(changes.unstaged.files.slice(0, 2));
+    await settled();
+    const toasts = useToastsStore();
+    toasts.act(toasts.toasts.at(-1)!.id);
+    await changes.settled();
+    await settled();
+    expect(toasts.toasts.map((toast) => toast.key)).toEqual([
+      "changes.undoDiscard.restored",
+      "changes.undoDiscard.changed",
+    ]);
+    expect(toasts.toasts.at(-1)).toMatchObject({
+      kind: "info",
+      params: { n: 1, names: "src/a.ts" },
+      sticky: true,
+    });
+    expect(shown(changes).unstaged).toEqual(["src/b.ts", "src/new.md"]);
+  });
+
+  it("keeps the copy of a path Undo could not write and offers it again", async () => {
+    const reason = "Access is denied. (os error 5)";
+    const { changes, calls } = await openChanges({
+      undoOutcome: (paths) => ({
+        restored: [],
+        changed: [],
+        failed: paths.map((path) => ({ path, reason })),
+      }),
+    });
+    await changes.discard([changes.unstaged.files[0]!]);
+    await settled();
+    const toasts = useToastsStore();
+    toasts.act(toasts.toasts.at(-1)!.id);
+    await changes.settled();
+    await settled();
+    const again = toasts.toasts.at(-1)!;
+    expect(again).toMatchObject({
+      kind: "error",
+      key: "changes.undoDiscard.failed",
+      params: { n: 1 },
+      output: `src/a.ts: ${reason}`,
+      actionKey: "changes.tryAgain",
+      slot: "discard",
+    });
+    expect(of(calls, "forget_discard")).toHaveLength(0);
+    toasts.act(again.id);
+    await changes.settled();
+    await settled();
+    expect(of(calls, "undo_discard")).toHaveLength(2);
+  });
+
+  it("discards nothing without a copy, shows no banner, and discards without one when asked", async () => {
+    const { changes, calls } = await openChanges({ discardNoCopy: "discard.too_large" });
+    const files = changes.unstaged.files;
+    const refused = await changes.discard(files);
+    await settled();
+    expect(refused).toMatchObject({ kind: "noCopy", error: { code: "discard.too_large" } });
+    expect(shown(changes).unstaged).toEqual(["src/a.ts", "src/b.ts", "src/new.md"]);
+    expect(changes.actionError).toBeNull();
+    expect(changes.failed).toBeNull();
+
+    const done = await changes.discard(files, false);
+    await settled();
+    expect(done).toEqual({ kind: "discarded", copy: null });
+    expect(of(calls, "discard_paths").at(-1)?.args).toMatchObject({ keepCopy: false });
+    expect(shown(changes).unstaged).toEqual([]);
+    expect(useToastsStore().toasts.filter((toast) => toast.slot === "discard")).toEqual([]);
+  });
+
+  it("keeps a copy of discarded lines and counts them in the toast", async () => {
+    const { changes, calls } = await openChanges();
+    const file = changes.unstaged.files[0]!;
+    const keys = new Set([lineKey(0, 1), lineKey(0, 2)]);
+    const outcome = await changes.discardSelection(file, keys, "lines");
+    await settled();
+    expect(outcome).toEqual({ kind: "discarded", copy: "1" });
+    expect(of(calls, "apply_selection")[0]?.args).toMatchObject({
+      target: "discard",
+      keepCopy: true,
+    });
+    expect(useToastsStore().toasts.at(-1)).toMatchObject({
+      key: "changes.discarded.lines",
+      params: { n: 2 },
+    });
+    await changes.applySelection("stage", file, keys);
+    expect(of(calls, "apply_selection")[1]?.args).toMatchObject({ keepCopy: false });
+  });
+
+  it("drops the Undo when another repository opens", async () => {
+    const { changes, calls } = await openChanges({ rootIsPath: true });
+    await changes.discard([changes.unstaged.files[0]!]);
+    await settled();
+    await useRepoStore().open("/other");
+    await settled();
+    expect(useToastsStore().toasts.filter((toast) => toast.slot === "discard")).toEqual([]);
+    expect(of(calls, "forget_discard").map((call) => call.args["copy"])).toEqual(["1"]);
+  });
+
+  it("keeps the copy of what git discarded before it stopped, beside its error", async () => {
+    const { changes, calls } = await openChanges({ discardStopsPartWay: true });
+    const outcome = await changes.discard(changes.unstaged.files.slice(0, 2));
+    await settled();
+    expect(outcome).toEqual({ kind: "failed", copy: "1" });
+    expect(changes.actionError?.code).toBe("git.cli_failed");
+    expect(shown(changes).unstaged).toEqual(["src/b.ts", "src/new.md"]);
+    const toasts = useToastsStore();
+    const offer = toasts.toasts.at(-1)!;
+    expect(offer).toMatchObject({ key: "changes.discarded.partly", slot: "discard" });
+    toasts.act(offer.id);
+    await changes.settled();
+    await settled();
+    expect(of(calls, "undo_discard")).toHaveLength(1);
+    expect(shown(changes).unstaged).toEqual(["src/a.ts", "src/b.ts", "src/new.md"]);
+  });
+
+  it("drops the Undo when the repository closes", async () => {
+    const { changes, calls } = await openChanges();
+    await changes.discard([changes.unstaged.files[0]!]);
+    await settled();
+    await useRepoStore().close();
+    await settled();
+    expect(useToastsStore().toasts.filter((toast) => toast.slot === "discard")).toEqual([]);
+    expect(of(calls, "forget_discard").map((call) => call.args["copy"])).toEqual(["1"]);
+  });
+
+  it("says in the Undo's place when its copy is gone, with no banner", async () => {
+    const { changes } = await openChanges();
+    await changes.discard([changes.unstaged.files[0]!]);
+    await settled();
+    // The backend lost the copy (another discard sealed meanwhile, say).
+    await ipc.forgetDiscard("1");
+    const toasts = useToastsStore();
+    toasts.act(toasts.toasts.at(-1)!.id);
+    await changes.settled();
+    await settled();
+    expect(changes.actionError).toBeNull();
+    expect(toasts.toasts.at(-1)).toMatchObject({
+      kind: "error",
+      key: "changes.undoDiscard.gone",
+      slot: "discard",
+    });
+    expect(toasts.toasts.at(-1)?.onAction).toBeUndefined();
+  });
+
+  it("runs the writes asked after a discard no copy could be kept for", async () => {
+    const { changes, calls } = await openChanges({ discardNoCopy: "discard.too_large" });
+    changes.select("unstaged", "src/a.ts");
+    const refused = changes.discard([changes.unstaged.files[0]!]);
+    const staged = changes.stage(["src/b.ts"]);
+    expect(await refused).toMatchObject({ kind: "noCopy" });
+    expect(await staged).toBe(true);
+    await changes.settled();
+    await settled();
+    expect(of(calls, "stage_paths")).toHaveLength(1);
+    expect(shown(changes).unstaged).toEqual(["src/a.ts", "src/new.md"]);
+    expect(changes.selected).toEqual({ list: "unstaged", path: "src/a.ts" });
+  });
+
+  it("names three files changed since the discard and counts the rest", async () => {
+    const { changes } = await openChanges({
+      undoOutcome: (paths) => ({ restored: [], changed: paths, failed: [] }),
+      changes: {
+        unstaged: ["a", "b", "c", "d", "e"].map((name) => changedFile(`src/${name}.ts`)),
+        staged: [],
+      },
+    });
+    await changes.discard(changes.unstaged.files);
+    await settled();
+    const toasts = useToastsStore();
+    toasts.act(toasts.toasts.at(-1)!.id);
+    await changes.settled();
+    await settled();
+    expect(toasts.toasts.at(-1)).toMatchObject({
+      key: "changes.undoDiscard.changedMore",
+      params: { n: 5, names: "src/a.ts, src/b.ts, src/c.ts", more: 2 },
+    });
   });
 
   it("ignores an untracked file and reads the unstaged list again whole", async () => {

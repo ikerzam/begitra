@@ -41,7 +41,7 @@ const overview = useOverviewStore();
 const dialogs = useProjectDialogsStore();
 const shell = useShellStore();
 const format = useDiscoveryFormat();
-const discard = useDiscardDialog();
+const discard = useDiscardDialog({ refocus: () => keys.focusActive() });
 const ignore = useIgnoreDialog({ refocus: () => keys.focusActive() });
 const viewer = ref<{ actOnSelection(action: "stage" | "unstage" | "discard"): boolean } | null>(
   null,
@@ -226,9 +226,15 @@ watch(
       :confirm-label="discard.dialog.value.confirm"
       variant="destructive"
       data-testid="discard-dialog"
-      @confirm="discard.confirm()"
+      @confirm="void discard.confirm()"
       @cancel="discard.cancel()"
-    />
+    >
+      <pre
+        v-if="discard.dialog.value.output"
+        class="rounded-sm border border-line bg-app px-2 py-1 font-mono text-code break-all whitespace-pre-wrap text-fg-secondary"
+        data-testid="discard-reason"
+        >{{ discard.dialog.value.output }}</pre>
+    </Dialog>
     <IgnoreDialog
       v-if="ignore.pending.value"
       v-model:rule="ignore.rule.value"

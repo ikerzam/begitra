@@ -89,6 +89,10 @@ export interface PaletteActions {
   canRedoUndone: () => boolean;
   /** Moves HEAD back to the commit the last undo took it from. */
   redoUndoneCommit: () => void;
+  /** Whether the last discard's toast stands with its Undo (or its Try again). */
+  canUndoDiscard: () => boolean;
+  /** The Undo of the last discard's toast. */
+  undoDiscard: () => void;
   /** Opens the dialog of the branches that can go against the main branch. */
   cleanUpBranches: () => void;
   openRemotes: () => Promise<void>;
@@ -442,6 +446,12 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       labelKey: "palette.commandsById.redo-undone-commit",
       enabled: () => withRepo() && actions.canRedoUndone(),
       run: actions.redoUndoneCommit,
+    },
+    {
+      id: "undo-discard",
+      labelKey: "palette.commandsById.undo-discard",
+      enabled: () => actions.canUndoDiscard(),
+      run: actions.undoDiscard,
     },
     {
       id: "push-now",
