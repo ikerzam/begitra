@@ -5,6 +5,7 @@
 import type { Channel } from "@tauri-apps/api/core";
 import { mockIPC } from "@tauri-apps/api/mocks";
 
+import { ignoreLine } from "@/changes/ignore";
 import { comparePaths, covers } from "@/stores/reloads";
 
 import type {
@@ -19,7 +20,10 @@ import type {
   DiffTarget,
   FileChange,
   Hunk,
+  IgnorePlace,
+  IgnoreRule,
   IndexEntry,
+  KeptBy,
   KeptReason,
   MergePreview,
   OperationSides,
@@ -36,6 +40,8 @@ import type {
   Worktree,
   WorktreeAdd,
 } from "@/ipc/schemas";
+
+import { changedFile } from "./changes";
 
 export interface Call {
   cmd: string;
@@ -152,6 +158,10 @@ export interface FakeBackendOptions {
   notRepositories?: string[];
   /** Every staging write rejects with `git.cli_failed` (a stale hunk). */
   failStaging?: boolean;
+  /** `ignore_path` rejects with `ignore.write_failed`. */
+  failIgnore?: boolean;
+  /** The rule `ignore_path` reports as still keeping the file, which then stays listed. */
+  ignoreKeptBy?: KeptBy;
   /** `commit` rejects with `git.cli_failed` (a hook's output). */
   failCommit?: boolean;
   /**
@@ -1007,6 +1017,46 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
             return null;
           };
           return options.writeGate ? options.writeGate.hold(cmd, discard) : discard();
+        }
+        case "ignore_path": {
+          if (options.failIgnore) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({
+              code: "ignore.write_failed",
+              message: "/r/.gitignore could not be written: Access is denied.",
+              detail: "Access is denied.",
+            });
+          }
+          const path = args["path"] as string;
+          const rule = args["rule"] as IgnoreRule;
+          const place = args["place"] as IgnorePlace;
+          const line = ignoreLine(path, rule) ?? "";
+          const repo = args["repo"] as string;
+          const file = place === "gitignore" ? `${repo}/.gitignore` : `${repo}/.git/info/exclude`;
+          if (options.ignoreKeptBy) {
+            return { line, file, written: true, ignored: false, keptBy: options.ignoreKeptBy };
+          }
+          const folder = path.replace(/\/$/, "").split("/").slice(0, -1).join("/");
+          const extension = line.slice(1);
+          const matches = (candidate: FileChange) =>
+            candidate.status === "added" &&
+            (rule === "file"
+              ? candidate.path === path
+              : rule === "extension"
+                ? candidate.path.endsWith(extension)
+                : candidate.path.startsWith(`${folder}/`));
+          // A shared rule's new `.gitignore` shows as an untracked file of its own.
+          const after = (list: FileChange[]) => {
+            const kept = list.filter((candidate) => !matches(candidate));
+            const fresh =
+              place === "gitignore" && !kept.some((candidate) => candidate.path === ".gitignore");
+            return fresh ? [...kept, changedFile(".gitignore", { status: "added" })] : kept;
+          };
+          // A folder view's repository has lists of its own.
+          const own = byRepo.get(repo);
+          if (own) own.unstaged = after(own.unstaged);
+          else unstaged = after(unstaged);
+          return { line, file, written: true, ignored: true, keptBy: null };
         }
         case "apply_selection": {
           if (options.failStaging) return stagingFailure();

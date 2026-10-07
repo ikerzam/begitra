@@ -414,6 +414,153 @@ describe("ChangesLayout", () => {
     wrapper.unmount();
   });
 
+  it("ignores an untracked file from its row's menu: what, where, the line, then the toast", async () => {
+    const { wrapper, calls } = await mountScreen();
+    const menuOn = async (path: string) => {
+      await wrapper.get(`[data-list="unstaged"][data-path="${path}"]`).trigger("contextmenu");
+      await nextTick();
+    };
+    // A tracked file's menu has no Ignore…: a rule would not untrack it.
+    await menuOn("src/a.ts");
+    expect(wrapper.find('[data-testid="menu-ignore"]').exists()).toBe(false);
+    press("Escape");
+    await nextTick();
+    await menuOn("src/new.md");
+    const item = wrapper.get('[data-testid="menu-ignore"]');
+    expect(item.text()).toContain("Ignore…");
+    await item.trigger("click");
+    await nextTick();
+
+    const dialog = wrapper.get('[data-testid="ignore-dialog"]');
+    expect(dialog.get("h2").text()).toBe("Ignore new.md");
+    // Each option: its label, then its hint.
+    const options = (group: string) =>
+      wrapper
+        .findAll(`[data-testid="${group}"] label`)
+        .map((label) => label.findAll("span:not([aria-hidden]) > span").map((span) => span.text()));
+    expect(options("ignore-rules")).toEqual([
+      ["This file", "src/new.md only"],
+      ["Files ending in .md", "in every folder"],
+      ["The folder src/", "and everything in it"],
+    ]);
+    expect(options("ignore-places")).toEqual([
+      [".gitignore", "shared with everyone who clones the repository"],
+      [".git/info/exclude", "this clone and its worktrees only"],
+    ]);
+    // The file and .gitignore at first; the line follows the choice.
+    expect(wrapper.get('[data-testid="ignore-line"]').text()).toBe("/src/new.md");
+    await wrapper.get('[data-testid="radio-extension"] input').setValue(true);
+    expect(wrapper.get('[data-testid="ignore-line"]').text()).toBe("*.md");
+
+    await wrapper.get('[data-testid="dialog-confirm"]').trigger("click");
+    await settled();
+    expect(of(calls, "ignore_path")[0]?.args).toMatchObject({
+      path: "src/new.md",
+      rule: "extension",
+      place: "gitignore",
+    });
+    expect(wrapper.find('[data-testid="ignore-dialog"]').exists()).toBe(false);
+    const paths = wrapper
+      .findAll('[data-list="unstaged"]')
+      .map((row) => row.attributes("data-path"));
+    expect(paths).not.toContain("src/new.md");
+    expect(paths).toContain(".gitignore");
+    expect(useToastsStore().toasts.at(-1)).toMatchObject({
+      kind: "success",
+      message: "Added *.md to .gitignore",
+    });
+    // The row left with the reload; the lists keep the focus, on the row selected now.
+    const lists = wrapper.get('[data-testid="change-lists"]').element;
+    expect(lists.contains(document.activeElement)).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("names the rule that still keeps a file the new line should ignore", async () => {
+    const { wrapper } = await mountScreen({
+      ignoreKeptBy: { source: "src/.gitignore", line: 1, pattern: "!new.md" },
+    });
+    await wrapper.get('[data-list="unstaged"][data-path="src/new.md"]').trigger("contextmenu");
+    await nextTick();
+    await wrapper.get('[data-testid="menu-ignore"]').trigger("click");
+    await nextTick();
+    // The keyboard alone: the focus starts on the first group's radio, and Enter ignores.
+    const radio = wrapper.get('[data-testid="radio-file"] input');
+    expect(document.activeElement).toBe(radio.element);
+    await radio.trigger("keydown", { key: "Enter" });
+    await settled();
+    expect(useToastsStore().toasts.at(-1)).toMatchObject({
+      kind: "error",
+      message:
+        "Added /src/new.md to .gitignore, but git still doesn't ignore new.md: !new.md in src/.gitignore, line 1, takes it back",
+    });
+    expect(wrapper.find('[data-list="unstaged"][data-path="src/new.md"]').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("writes nothing on a held Enter, and gives the focus back to the row on Escape", async () => {
+    const { wrapper, calls } = await mountScreen();
+    const row = wrapper.get('[data-list="unstaged"][data-path="src/new.md"]');
+    await row.trigger("contextmenu");
+    await nextTick();
+    await wrapper.get('[data-testid="menu-ignore"]').trigger("click");
+    await nextTick();
+    // The repeats of the Enter that chose "Ignore…" land on the first radio: none confirms.
+    const radio = wrapper.get('[data-testid="radio-file"] input');
+    await radio.trigger("keydown", { key: "Enter", repeat: true });
+    await settled();
+    expect(of(calls, "ignore_path")).toHaveLength(0);
+    expect(wrapper.find('[data-testid="ignore-dialog"]').exists()).toBe(true);
+    await radio.trigger("keydown", { key: "Escape" });
+    await nextTick();
+    expect(wrapper.find('[data-testid="ignore-dialog"]').exists()).toBe(false);
+    expect(
+      wrapper.get('[data-testid="change-lists"]').element.contains(document.activeElement),
+    ).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("shows a failed ignore in the banner with the system's words, the row back", async () => {
+    const { wrapper } = await mountScreen({ failIgnore: true });
+    await wrapper.get('[data-list="unstaged"][data-path="src/new.md"]').trigger("contextmenu");
+    await nextTick();
+    await wrapper.get('[data-testid="menu-ignore"]').trigger("click");
+    await nextTick();
+    await wrapper.get('[data-testid="dialog-confirm"]').trigger("click");
+    await settled();
+    const banner = wrapper.get('[data-testid="changes-failed"]');
+    expect(banner.text()).toContain("Couldn't write the ignore file. The lists were reloaded.");
+    expect(banner.text()).toContain("Access is denied.");
+    expect(banner.text()).not.toContain("git output");
+    expect(wrapper.find('[data-list="unstaged"][data-path="src/new.md"]').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("ignores a folder git lists whole as the folder itself", async () => {
+    const { wrapper, calls } = await mountScreen({
+      changes: {
+        unstaged: [...unstagedFiles(), changedFile("vendor/tool/", { status: "added" })],
+        staged: stagedFiles(),
+      },
+    });
+    await wrapper.get('[data-list="unstaged"][data-path="vendor/tool/"]').trigger("contextmenu");
+    await nextTick();
+    await wrapper.get('[data-testid="menu-ignore"]').trigger("click");
+    await nextTick();
+    expect(wrapper.get('[data-testid="ignore-dialog"] h2').text()).toBe("Ignore tool");
+    const labels = wrapper
+      .findAll('[data-testid="ignore-rules"] label')
+      .map((label) => label.findAll("span:not([aria-hidden]) > span").map((span) => span.text()));
+    expect(labels).toEqual([
+      ["This folder", "vendor/tool/ and everything in it"],
+      ["The folder vendor/", "and everything in it"],
+    ]);
+    expect(wrapper.get('[data-testid="ignore-line"]').text()).toBe("/vendor/tool/");
+    await wrapper.get('[data-testid="dialog-confirm"]').trigger("click");
+    await settled();
+    expect(of(calls, "ignore_path")[0]?.args).toMatchObject({ path: "vendor/tool/", rule: "file" });
+    wrapper.unmount();
+  });
+
   it("confirms a hunk discard with its range and applies it in reverse", async () => {
     const { wrapper, calls } = await mountScreen();
     await wrapper.get('[data-testid="hunk-discard"]').trigger("click");

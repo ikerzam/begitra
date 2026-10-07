@@ -34,6 +34,7 @@ const emit = defineEmits<{
   /** A press, a click or the focus in the lists: the selection is here now. */
   activate: [];
   discard: [files: FileChange[]];
+  ignore: [file: FileChange];
   /** The row keys went past the first (-1) or the last (1) row. */
   edge: [direction: 1 | -1];
 }>();
@@ -132,6 +133,7 @@ defineExpose({
           embedded
           :show-selection="props.active"
           @discard="(files) => emit('discard', files)"
+          @ignore="(file) => emit('ignore', file)"
           @edge="(direction) => emit('edge', direction)"
         />
       </ChangesScope>

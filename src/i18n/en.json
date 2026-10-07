@@ -192,7 +192,8 @@
     "writeKinds": {
       "stage": "Stage",
       "unstage": "Unstage",
-      "discard": "Discard"
+      "discard": "Discard",
+      "ignore": "Ignore"
     },
     "graph": "graph",
     "changesFailed": "Couldn't read the working tree",
@@ -225,6 +226,7 @@
     "staging": "Staging",
     "unstaging": "Unstaging",
     "discarding": "Discarding",
+    "ignoring": "Ignoring",
     "committing": "Committing",
     "switching": "Switching branch",
     "stashing": "Stashing",
@@ -637,6 +639,8 @@
     "notConflicted": "{path} is no longer conflicted: nothing was written.",
     "conflictGone": "The conflict of {path} can't be brought back: git no longer holds its sides.",
     "submoduleConflict": "{path} is a submodule: check out the commit you want inside it, then mark it resolved.",
+    "ignoreInvalidPath": "Begitra can't write an ignore rule for that path.",
+    "ignoreWriteFailed": "Couldn't write the ignore file.",
     "generic": "{message}"
   },
   "repoRow": {
@@ -797,6 +801,7 @@
     "stage": "Stage",
     "unstage": "Unstage",
     "discard": "Discard…",
+    "ignore": "Ignore…",
     "stageAll": "Stage all",
     "unstageAll": "Unstage all",
     "discardAll": "Discard all…",
@@ -855,6 +860,32 @@
       "and": "and",
       "andMore": "{names} and {n} more",
       "bodyUntrackedClause": ", and {names} is deleted: it is not tracked yet. | , and {names} are deleted: they are not tracked yet."
+    },
+    "ignoreDialog": {
+      "title": "Ignore {name}",
+      "titleIn": "Ignore {name} in {repository}",
+      "what": "What",
+      "where": "Where",
+      "line": "Adds the line",
+      "file": "This file",
+      "fileHint": "{path} only",
+      "thisFolder": "This folder",
+      "thisFolderHint": "{path} and everything in it",
+      "extension": "Files ending in {extension}",
+      "extensionHint": "in every folder",
+      "folder": "The folder {folder}",
+      "folderHint": "and everything in it",
+      "gitignoreHint": "shared with everyone who clones the repository",
+      "excludeHint": "this clone and its worktrees only",
+      "confirm": "Ignore"
+    },
+    "ignoreToast": {
+      "added": "Added {line} to {file}",
+      "already": "{line} is already in {file}",
+      "addedKept": "Added {line} to {file}, but git still doesn't ignore {name}: {pattern} in {source}, line {at}, takes it back",
+      "alreadyKept": "{line} is already in {file}, but git still doesn't ignore {name}: {pattern} in {source}, line {at}, takes it back",
+      "addedNotIgnored": "Added {line} to {file}, but git still doesn't ignore {name}",
+      "alreadyNotIgnored": "{line} is already in {file}, but git still doesn't ignore {name}"
     },
     "commitTo": "Commit to"
   },

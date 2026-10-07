@@ -22,6 +22,9 @@ import type {
   DiffPage,
   DiffTarget,
   FileChange,
+  IgnoreOutcome,
+  IgnorePlace,
+  IgnoreRule,
   PatchSelection,
   RepoChanged,
   SelectionTarget,
@@ -59,7 +62,7 @@ export interface CommitDraft {
   signoff: boolean;
 }
 
-export type WriteKind = "stage" | "unstage" | "discard" | "commit";
+export type WriteKind = "stage" | "unstage" | "discard" | "ignore" | "commit";
 
 /** What the last failed write was doing, for the status bar and the banner. */
 export interface FailedWrite {
@@ -75,6 +78,7 @@ const writeLabels: Record<WriteKind, string> = {
   stage: "operations.staging",
   unstage: "operations.unstaging",
   discard: "operations.discarding",
+  ignore: "operations.ignoring",
   commit: "operations.committing",
 };
 
@@ -786,6 +790,31 @@ export function createChangesModel(options: ChangesModelOptions) {
     );
   }
 
+  /**
+   * Writes an ignore rule for the untracked `path` (ADR-0020), then reads the unstaged list
+   * again whole: a rule by extension or folder takes other files away, and a new `.gitignore`
+   * comes in. The row leaves at once, as a discarded one does, so the selection moves to the
+   * row after it. The outcome, or null when the write failed (its error in the banner).
+   */
+  async function ignore(
+    path: string,
+    rule: IgnoreRule,
+    place: IgnorePlace,
+  ): Promise<IgnoreOutcome | null> {
+    let outcome: IgnoreOutcome | null = null;
+    const done = await enqueue(
+      "ignore",
+      1,
+      path,
+      { unstaged: { kind: "full" }, staged: nothing },
+      async (root) => {
+        outcome = await ipc.ignorePath(root, path, rule, place);
+      },
+      predict("unstaged", null, [path]),
+    );
+    return done ? outcome : null;
+  }
+
   /** Applies the selected lines of `file` (every changed line when `selectedKeys` is null). */
   function applySelection(
     target: SelectionTarget,
@@ -960,6 +989,7 @@ export function createChangesModel(options: ChangesModelOptions) {
     stage,
     unstage,
     discard,
+    ignore,
     applySelection,
     stageAll,
     unstageAll,

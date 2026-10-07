@@ -325,6 +325,7 @@ defineExpose({ actOnSelection, selectedCount });
       <ErrorBanner
         :message="failedMessage"
         :output="changes.actionError.detail ?? changes.actionError.message"
+        :plain-output="changes.actionError.code.startsWith('ignore.')"
         :action="t('changes.reload')"
         open
         @action="reload"

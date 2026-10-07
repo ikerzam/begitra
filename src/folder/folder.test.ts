@@ -14,6 +14,7 @@ import { useProjectsStore } from "@/stores/projects";
 import { useRepoStore } from "@/stores/repo";
 import { memoryStorage, useSettingsStore } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
+import { useToastsStore } from "@/stores/toasts";
 import { fakeBackend, settled, type Call, type FakeBackendOptions } from "@/test/backend";
 import { changedFile } from "@/test/changes";
 import { folderProjectOf } from "@/test/entries";
@@ -375,6 +376,34 @@ describe("the folder view's Changes", () => {
     );
     expect(clean.wrapper.find('[data-testid="commit-box"]').exists()).toBe(false);
     clean.wrapper.unmount();
+  });
+
+  it("ignores a section's untracked file in its repository, naming it in the dialog and the toast", async () => {
+    const { wrapper, calls } = await mountFolder({
+      changesByRepo: {
+        ...folderChanges,
+        "/code/web": {
+          unstaged: [changedFile("tiles.ts"), changedFile("debug.log", { status: "added" })],
+          staged: [],
+        },
+      },
+    });
+    await row(wrapper, "/code/web", "debug.log").trigger("contextmenu");
+    await nextTick();
+    await wrapper.get('[data-testid="menu-ignore"]').trigger("click");
+    await nextTick();
+    expect(wrapper.get('[data-testid="ignore-dialog"] h2').text()).toBe("Ignore debug.log in web");
+    await wrapper.get('[data-testid="dialog-confirm"]').trigger("click");
+    for (let i = 0; i < 3; i += 1) await settled();
+    expect(calls.filter((call) => call.cmd === "ignore_path").at(-1)?.args).toMatchObject({
+      repo: "/code/web",
+      path: "debug.log",
+      rule: "file",
+      place: "gitignore",
+    });
+    expect(useToastsStore().toasts.at(-1)?.message).toBe("Added /debug.log to web/.gitignore");
+    expect(wrapper.find('[data-root="/code/web"] [data-path="debug.log"]').exists()).toBe(false);
+    wrapper.unmount();
   });
 });
 

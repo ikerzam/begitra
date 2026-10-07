@@ -192,7 +192,8 @@
     "writeKinds": {
       "stage": "Preparar",
       "unstage": "Quitar de preparados",
-      "discard": "Descartar"
+      "discard": "Descartar",
+      "ignore": "Ignorar"
     },
     "graph": "grafo",
     "changesFailed": "No se pudo leer el árbol de trabajo",
@@ -225,6 +226,7 @@
     "staging": "Preparando",
     "unstaging": "Quitando de preparados",
     "discarding": "Descartando",
+    "ignoring": "Ignorando",
     "committing": "Creando el commit",
     "switching": "Cambiando de rama",
     "stashing": "Guardando en el stash",
@@ -637,6 +639,8 @@
     "notConflicted": "{path} ya no tiene conflicto: no se escribió nada.",
     "conflictGone": "El conflicto de {path} no se puede recuperar: git ya no guarda sus lados.",
     "submoduleConflict": "{path} es un submódulo: haz checkout del commit que quieras dentro de él y márcalo como resuelto.",
+    "ignoreInvalidPath": "Begitra no puede escribir una regla de ignorar para esa ruta.",
+    "ignoreWriteFailed": "No se pudo escribir el fichero de reglas de ignorar.",
     "generic": "{message}"
   },
   "repoRow": {
@@ -797,6 +801,7 @@
     "stage": "Preparar",
     "unstage": "Quitar de preparados",
     "discard": "Descartar…",
+    "ignore": "Ignorar…",
     "stageAll": "Preparar todo",
     "unstageAll": "Quitar todo de preparados",
     "discardAll": "Descartar todo…",
@@ -855,6 +860,32 @@
       "and": "y",
       "andMore": "{names} y {n} más",
       "bodyUntrackedClause": ", y {names} se borra: aún no está en seguimiento. | , y {names} se borran: aún no están en seguimiento."
+    },
+    "ignoreDialog": {
+      "title": "Ignorar {name}",
+      "titleIn": "Ignorar {name} en {repository}",
+      "what": "Qué",
+      "where": "Dónde",
+      "line": "Añade la línea",
+      "file": "Este fichero",
+      "fileHint": "solo {path}",
+      "thisFolder": "Esta carpeta",
+      "thisFolderHint": "{path} y todo lo que contiene",
+      "extension": "Los ficheros acabados en {extension}",
+      "extensionHint": "en todas las carpetas",
+      "folder": "La carpeta {folder}",
+      "folderHint": "y todo lo que contiene",
+      "gitignoreHint": "compartido con quien clone el repositorio",
+      "excludeHint": "solo este clon y sus worktrees",
+      "confirm": "Ignorar"
+    },
+    "ignoreToast": {
+      "added": "Añadido {line} a {file}",
+      "already": "{line} ya está en {file}",
+      "addedKept": "Añadido {line} a {file}, pero git sigue sin ignorar {name}: {pattern} en {source}, línea {at}, lo vuelve a incluir",
+      "alreadyKept": "{line} ya está en {file}, pero git sigue sin ignorar {name}: {pattern} en {source}, línea {at}, lo vuelve a incluir",
+      "addedNotIgnored": "Añadido {line} a {file}, pero git sigue sin ignorar {name}",
+      "alreadyNotIgnored": "{line} ya está en {file}, pero git sigue sin ignorar {name}"
     },
     "commitTo": "Commit en"
   },

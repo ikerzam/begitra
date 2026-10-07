@@ -46,6 +46,10 @@ export function errorText(
       return { key: "errors.conflictGone", params };
     case "conflict.submodule":
       return { key: "errors.submoduleConflict", params };
+    case "ignore.invalid_path":
+      return { key: "errors.ignoreInvalidPath", params };
+    case "ignore.write_failed":
+      return { key: "errors.ignoreWriteFailed", params };
     case "external.spawn_failed":
       return { key: "errors.spawnFailed", params };
     case "external.not_found":

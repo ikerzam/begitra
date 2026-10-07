@@ -18,9 +18,11 @@ import { paneLimits, useShellStore } from "@/stores/shell";
 import ChangeLists from "./ChangeLists.vue";
 import ChangesViewer from "./ChangesViewer.vue";
 import CommitBox from "./CommitBox.vue";
+import IgnoreDialog from "./IgnoreDialog.vue";
 import type { DiscardRequest } from "./discard";
 import { useCommitAndPush } from "./useCommitAndPush";
 import { useDiscardDialog } from "./useDiscardDialog";
+import { useIgnoreDialog } from "./useIgnoreDialog";
 
 const { t } = useI18n();
 const shell = useShellStore();
@@ -31,6 +33,7 @@ const viewer = ref<{ actOnSelection(action: "stage" | "unstage" | "discard"): bo
   null,
 );
 const discard = useDiscardDialog();
+const ignore = useIgnoreDialog({ refocus: () => lists.value?.focus() });
 const pushing = useCommitAndPush();
 const listsWidth = computed(() => `${shell.paneSizes.files}px`);
 
@@ -40,7 +43,7 @@ function askDiscard(request: DiscardRequest): void {
 
 /** s, u, Backspace: the picked lines first, else the selected file of the matching list. */
 function actOnSelected(action: "stage" | "unstage" | "discard"): void {
-  if (changes.blocking || discard.pending.value !== null) return;
+  if (changes.blocking || discard.pending.value !== null || ignore.pending.value !== null) return;
   if (viewer.value?.actOnSelection(action)) return;
   const current = changes.selected;
   const file = changes.selectedFile;
@@ -90,7 +93,11 @@ defineExpose({
       :style="{ width: listsWidth }"
       data-testid="changes-panel"
     >
-      <ChangeLists ref="lists" @discard="(files) => askDiscard({ kind: 'files', files })" />
+      <ChangeLists
+        ref="lists"
+        @discard="(files) => askDiscard({ kind: 'files', files })"
+        @ignore="(file) => ignore.ask(changes, file)"
+      />
       <CommitBox @push-left="lists?.focus()" />
     </div>
     <PaneResizer
@@ -111,6 +118,17 @@ defineExpose({
       data-testid="discard-dialog"
       @confirm="discard.confirm()"
       @cancel="discard.cancel()"
+    />
+    <IgnoreDialog
+      v-if="ignore.pending.value"
+      v-model:rule="ignore.rule.value"
+      v-model:place="ignore.place.value"
+      :path="ignore.path.value"
+      :repository="ignore.repository.value"
+      :rules="ignore.rules.value"
+      :line="ignore.line.value"
+      @confirm="ignore.confirm()"
+      @cancel="ignore.cancel()"
     />
   </div>
 </template>

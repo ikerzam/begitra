@@ -13,7 +13,9 @@ import { useI18n } from "vue-i18n";
 import ChangesScope from "@/changes/ChangesScope.vue";
 import ChangesViewer from "@/changes/ChangesViewer.vue";
 import CommitBox from "@/changes/CommitBox.vue";
+import IgnoreDialog from "@/changes/IgnoreDialog.vue";
 import { useDiscardDialog } from "@/changes/useDiscardDialog";
+import { useIgnoreDialog } from "@/changes/useIgnoreDialog";
 import Button from "@/components/Button.vue";
 import Dialog from "@/components/Dialog.vue";
 import EmptyState from "@/components/EmptyState.vue";
@@ -40,6 +42,7 @@ const dialogs = useProjectDialogsStore();
 const shell = useShellStore();
 const format = useDiscoveryFormat();
 const discard = useDiscardDialog();
+const ignore = useIgnoreDialog({ refocus: () => keys.focusActive() });
 const viewer = ref<{ actOnSelection(action: "stage" | "unstage" | "discard"): boolean } | null>(
   null,
 );
@@ -173,6 +176,7 @@ watch(
           @open="() => void folder.openRepository(section.root)"
           @activate="folder.activate(section.root)"
           @discard="(files) => discard.ask(section.view, { kind: 'files', files }, section.name)"
+          @ignore="(file) => ignore.ask(section.view, file, section.name)"
           @edge="(direction) => keys.enterNext(section.root, direction)"
         />
         <FolderGroup v-if="folder.state !== 'loading'" />
@@ -224,6 +228,17 @@ watch(
       data-testid="discard-dialog"
       @confirm="discard.confirm()"
       @cancel="discard.cancel()"
+    />
+    <IgnoreDialog
+      v-if="ignore.pending.value"
+      v-model:rule="ignore.rule.value"
+      v-model:place="ignore.place.value"
+      :path="ignore.path.value"
+      :repository="ignore.repository.value"
+      :rules="ignore.rules.value"
+      :line="ignore.line.value"
+      @confirm="ignore.confirm()"
+      @cancel="ignore.cancel()"
     />
   </div>
 </template>

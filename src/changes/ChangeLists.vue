@@ -21,6 +21,7 @@ import {
   Plus,
   Terminal,
   Undo2,
+  EyeOff,
 } from "@lucide/vue";
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -68,6 +69,8 @@ const props = withDefaults(
 const emit = defineEmits<{
   /** "Discard…" on rows, or "Discard all…": the layout confirms. */
   discard: [files: FileChange[]];
+  /** "Ignore…" on an untracked row: the layout asks what and where. */
+  ignore: [file: FileChange];
   /** The row keys went past the first (-1) or the last (1) row of an embedded list. */
   edge: [direction: 1 | -1];
 }>();
@@ -291,7 +294,9 @@ function closeMenu(): void {
   navigation.focus();
 }
 
-function menuAction(action: "stage" | "unstage" | "discard" | "editor" | "copy" | "history"): void {
+function menuAction(
+  action: "stage" | "unstage" | "discard" | "ignore" | "editor" | "copy" | "history",
+): void {
   const current = menu.value;
   if (!current) return;
   const history = menuHistory.value;
@@ -301,6 +306,7 @@ function menuAction(action: "stage" | "unstage" | "discard" | "editor" | "copy" 
   else if (action === "unstage") void changes.unstage([current.file.path]);
   else if (action === "editor") void opener.openFile(current.file);
   else if (action === "copy") void copyPath(current.file.path);
+  else if (action === "ignore") emit("ignore", current.file);
   // In a folder view's section, the section's repository shows first.
   else if (action === "history") {
     if (history !== null) void graph.showHistory(history, changes.root);
@@ -575,6 +581,14 @@ defineExpose({ focus: navigation.focus, moveFile, selectEdge });
         :disabled="changes.blocking"
         data-testid="menu-discard"
         @select="menuAction('discard')"
+      />
+      <ContextMenuItem
+        v-if="menu.list === 'unstaged' && menu.file.status === 'added'"
+        :label="t('changes.ignore')"
+        :icon="EyeOff"
+        :disabled="changes.blocking"
+        data-testid="menu-ignore"
+        @select="menuAction('ignore')"
       />
       <ContextMenuSeparator />
       <ContextMenuItem

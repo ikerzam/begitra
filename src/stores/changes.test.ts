@@ -178,6 +178,39 @@ describe("changes store", () => {
     expect(changes.selected).toEqual({ list: "staged", path: "src/c.ts" });
   });
 
+  it("ignores an untracked file and reads the unstaged list again whole", async () => {
+    const { changes, calls } = await openChanges();
+    const outcome = await changes.ignore("src/new.md", "extension", "gitignore");
+    await settled();
+    expect(of(calls, "ignore_path")[0]?.args).toMatchObject({
+      repo: "/r",
+      path: "src/new.md",
+      rule: "extension",
+      place: "gitignore",
+    });
+    expect(outcome).toEqual({
+      line: "*.md",
+      file: "/r/.gitignore",
+      written: true,
+      ignored: true,
+      keptBy: null,
+    });
+    const paths = changes.unstaged.files.map((file) => file.path);
+    expect(paths).not.toContain("src/new.md");
+    // The shared rule's new file comes in as an untracked file of its own.
+    expect(paths).toContain(".gitignore");
+  });
+
+  it("answers no outcome and names the failed write when the rule cannot be written", async () => {
+    const { changes } = await openChanges({ failIgnore: true });
+    const outcome = await changes.ignore("src/new.md", "file", "exclude");
+    await settled();
+    expect(outcome).toBeNull();
+    expect(changes.actionError?.code).toBe("ignore.write_failed");
+    expect(changes.failed).toEqual({ kind: "ignore", files: 1, path: "src/new.md" });
+    expect(changes.unstaged.files.map((file) => file.path)).toContain("src/new.md");
+  });
+
   it("applies the selected lines and, without a set, the whole file", async () => {
     const { changes, calls } = await openChanges();
     const file = changes.unstaged.files[0]!;
