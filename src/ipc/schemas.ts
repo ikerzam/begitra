@@ -876,6 +876,8 @@ export const AppInfoSchema = v.object({
   version: v.string(),
   logFile: v.nullable(v.string()),
   logDir: v.nullable(v.string()),
+  /** The agent server beside the app's executable; null when it is not there. */
+  agentServer: v.nullable(v.string()),
 });
 export type AppInfo = v.InferOutput<typeof AppInfoSchema>;
 

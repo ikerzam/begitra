@@ -1178,10 +1178,13 @@ fn write_fixtures() {
         &[
             // A POSIX path: `Path::parent` splits on `\` only on Windows, so a Windows path
             // here would make the fixture different on every other platform.
-            app_info_from(Some(PathBuf::from(
-                "/home/iker/.local/share/dev.begitra.app/logs/begitra-2026-09-22.log",
-            ))),
-            app_info_from(None),
+            app_info_from(
+                Some(PathBuf::from(
+                    "/home/iker/.local/share/dev.begitra.app/logs/begitra-2026-09-22.log",
+                )),
+                Some(PathBuf::from("/opt/begitra/begitra-mcp")),
+            ),
+            app_info_from(None, None),
         ],
     );
     write(

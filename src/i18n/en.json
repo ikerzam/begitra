@@ -1343,6 +1343,14 @@
         "overviewFocus": "Project overview"
       }
     },
+    "agents": {
+      "title": "Agents",
+      "sentence": "Connect Claude Code to Begitra: it reads your reviews, resolves the notes it addresses and leaves notes of its own. Run this command once in a terminal.",
+      "command": "Command that registers Begitra with Claude Code",
+      "copy": "Copy",
+      "copied": "Command copied: run it in a terminal",
+      "missing": "The agent server is not beside the app: this build did not make it."
+    },
     "about": {
       "title": "About",
       "version": "Version",

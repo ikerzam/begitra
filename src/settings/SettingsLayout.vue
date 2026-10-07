@@ -18,6 +18,7 @@ import GitField from "./GitField.vue";
 import ScanFoldersField from "./ScanFoldersField.vue";
 import SettingsField from "./SettingsField.vue";
 import AboutSettings from "./AboutSettings.vue";
+import AgentsSettings from "./AgentsSettings.vue";
 import AppearanceSettings from "./AppearanceSettings.vue";
 import SettingsSection from "./SettingsSection.vue";
 import ShortcutsPanel from "./ShortcutsPanel.vue";
@@ -157,7 +158,11 @@ defineExpose({
         <AboutSettings />
         <hr class="border-line" />
       </div>
-      <ShortcutsPanel />
+      <div class="flex flex-col gap-4">
+        <ShortcutsPanel />
+        <hr class="border-line" />
+        <AgentsSettings />
+      </div>
     </div>
   </div>
 </template>

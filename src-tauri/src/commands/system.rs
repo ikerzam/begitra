@@ -38,7 +38,8 @@ pub fn ping(message: String) -> Pong {
     pong(message)
 }
 
-/// What the About section shows: the version and where the log is written.
+/// What the About and Agents sections show: the version, where the log is written and where
+/// the agent server is.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppInfo {
@@ -48,10 +49,20 @@ pub struct AppInfo {
     pub log_file: Option<PathBuf>,
     /// Its folder, for "Open logs folder".
     pub log_dir: Option<PathBuf>,
+    /// The agent server beside the app's executable (the installers put it there); `None`
+    /// when it is not there, as in a development build that did not build it.
+    pub agent_server: Option<PathBuf>,
 }
 
-/// Builds the reply from the log file, when one was attached.
-pub fn app_info_from(log_file: Option<PathBuf>) -> AppInfo {
+/// The agent server's file name.
+const AGENT_SERVER: &str = if cfg!(windows) {
+    "begitra-mcp.exe"
+} else {
+    "begitra-mcp"
+};
+
+/// Builds the reply from the log file, when one was attached, and the agent server found.
+pub fn app_info_from(log_file: Option<PathBuf>, agent_server: Option<PathBuf>) -> AppInfo {
     let log_dir = log_file
         .as_ref()
         .and_then(|file| file.parent().map(Path::to_path_buf));
@@ -59,14 +70,24 @@ pub fn app_info_from(log_file: Option<PathBuf>) -> AppInfo {
         version: env!("CARGO_PKG_VERSION").to_owned(),
         log_file,
         log_dir,
+        agent_server,
     }
 }
 
-/// The version and the log file's location.
+/// The agent server beside the executable `exe`, when it is there.
+pub fn agent_server_beside(exe: &Path) -> Option<PathBuf> {
+    let server = exe.parent()?.join(AGENT_SERVER);
+    server.is_file().then_some(server)
+}
+
+/// The version, the log file's location and the agent server's.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state))]
 pub fn app_info(state: State<'_, AppState>) -> AppInfo {
-    app_info_from(state.log_file())
+    let agent_server = std::env::current_exe()
+        .ok()
+        .and_then(|exe| agent_server_beside(&exe));
+    app_info_from(state.log_file(), agent_server)
 }
 
 /// Requests cancellation of an operation in flight; returns whether it was known.
@@ -94,12 +115,27 @@ pub fn debug_emit_repo_changed(app: AppHandle, payload: RepoChanged) -> Result<(
 mod tests {
     #[test]
     fn app_info_names_the_folder_of_the_file_and_stays_bare_without_one() {
-        let info = app_info_from(Some(PathBuf::from("/logs/begitra-2026-09-22.log")));
+        let info = app_info_from(Some(PathBuf::from("/logs/begitra-2026-09-22.log")), None);
         assert_eq!(info.version, env!("CARGO_PKG_VERSION"));
         assert_eq!(info.log_dir, Some(PathBuf::from("/logs")));
-        let bare = app_info_from(None);
+        let bare = app_info_from(None, None);
         assert_eq!(bare.log_file, None);
         assert_eq!(bare.log_dir, None);
+    }
+
+    #[test]
+    fn the_agent_server_is_found_beside_the_executable_only() {
+        let dir = tempfile::tempdir().expect("temporary folder");
+        let exe = dir.path().join(if cfg!(windows) {
+            "begitra.exe"
+        } else {
+            "begitra"
+        });
+        std::fs::write(&exe, b"app").expect("app");
+        assert_eq!(agent_server_beside(&exe), None);
+        let server = dir.path().join(AGENT_SERVER);
+        std::fs::write(&server, b"server").expect("server");
+        assert_eq!(agent_server_beside(&exe), Some(server));
     }
 
     use super::*;

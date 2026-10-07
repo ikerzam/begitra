@@ -60,6 +60,7 @@ describe("SettingsLayout", () => {
       "Diff",
       "About",
       "Shortcuts",
+      "Agents",
     ]);
     // Skeleton rows until the projects are read; the empty sentence only then.
     expect(wrapper.find('[data-testid="scan-folders-loading"]').exists()).toBe(true);
@@ -110,6 +111,33 @@ describe("SettingsLayout", () => {
     expect(wrapper.text()).toContain(
       "Shortcuts follow the platform: ⌘ is Ctrl on Windows and Linux.",
     );
+  });
+
+  it("shows the command that registers the agent server, copies it, and says when there is none", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    const wrapper = await mountSettings();
+    const section = wrapper.get('[data-testid="agents-settings"]');
+    const command = section.get<HTMLInputElement>('[data-testid="agents-command"]');
+    // The registry here is Windows': the path in double quotes.
+    expect(command.element.value).toBe(
+      'claude mcp add --scope user begitra -- "/opt/begitra/begitra-mcp"',
+    );
+    expect(command.element.readOnly).toBe(true);
+    expect(section.get('[data-testid="agents-path"]').text()).toBe("/opt/begitra/begitra-mcp");
+    await section.get('[data-testid="agents-copy"]').trigger("click");
+    await settled();
+    expect(writeText).toHaveBeenCalledWith(command.element.value);
+    vi.unstubAllGlobals();
+    wrapper.unmount();
+
+    setActivePinia(createPinia());
+    await useSettingsStore().init(memoryStorage(), "windows");
+    const bare = await mountSettings({ noAgentServer: true });
+    const empty = bare.get('[data-testid="agents-settings"]');
+    expect(empty.find('[data-testid="agents-command"]').exists()).toBe(false);
+    expect(empty.get('[data-testid="agents-missing"]').text()).toContain("not beside the app");
+    bare.unmount();
   });
 
   it("lists the folder projects' folders with their counts, and removes one after its confirmation", async () => {

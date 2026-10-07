@@ -100,6 +100,8 @@ export interface FakeBackendOptions {
   failDiff?: boolean;
   /** Annotation writes reject. */
   failAnnotations?: boolean;
+  /** No agent server beside the app (a development build that did not build it). */
+  noAgentServer?: boolean;
   /** The annotations the index holds at start, per target key. */
   annotations?: Record<string, Annotation[]>;
   /** Commits a range scope lists. Default 3. */
@@ -1499,6 +1501,7 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
             version: "0.1.0",
             logFile: "/home/iker/.local/share/dev.begitra.app/logs/begitra-2026-09-22.log",
             logDir: "/home/iker/.local/share/dev.begitra.app/logs",
+            agentServer: options.noAgentServer ? null : "/opt/begitra/begitra-mcp",
           };
         case "close_repository":
         case "close_walk":
