@@ -237,12 +237,20 @@ function onEscape(event: KeyboardEvent): void {
 
 let uninstall: (() => void) | undefined;
 const onResize = () => shell.setWindowWidth(window.innerWidth);
+// The window coming back (focused, or shown again) reads the review's notes again: an agent
+// may have resolved or written some meanwhile.
+const onFocus = () => reviewStore.refreshAnnotations();
+const onVisibility = () => {
+  if (document.visibilityState === "visible") reviewStore.refreshAnnotations();
+};
 
 onMounted(() => {
   uninstall = installShortcuts(window);
   onResize();
   window.addEventListener("resize", onResize);
   window.addEventListener("keydown", onEscape);
+  window.addEventListener("focus", onFocus);
+  document.addEventListener("visibilitychange", onVisibility);
   void launch();
 });
 
@@ -250,6 +258,8 @@ onBeforeUnmount(() => {
   uninstall?.();
   window.removeEventListener("resize", onResize);
   window.removeEventListener("keydown", onEscape);
+  window.removeEventListener("focus", onFocus);
+  document.removeEventListener("visibilitychange", onVisibility);
 });
 
 /**

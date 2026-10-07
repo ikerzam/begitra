@@ -2,7 +2,7 @@ import { clearMocks } from "@tauri-apps/api/mocks";
 import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { FileChange, Hunk, Ref } from "@/ipc/schemas";
+import type { Annotation, FileChange, Hunk, Ref } from "@/ipc/schemas";
 import { fakeBackend, fakeCommit, settled } from "@/test/backend";
 import * as ipc from "@/ipc/commands";
 import { changedFile, repoChange } from "@/test/changes";
@@ -535,6 +535,75 @@ describe("review store", () => {
     expect(calls.filter((c) => c.cmd === "delete_annotation").at(-1)?.args).toMatchObject({
       annotation: { path: "src/lib.ts", kind: "note" },
     });
+  });
+
+  it("shows a note's resolution, reopens it, and reads what an agent wrote on a refresh", async () => {
+    const hash = fakeCommit(0).hash;
+    const annotations: Record<string, Annotation[]> = {
+      [hash]: [
+        { path: "src/lib.ts", hunk: "", kind: "note", value: "Check eviction.", updatedAt: 1 },
+        {
+          path: "src/lib.ts",
+          hunk: "",
+          kind: "resolved",
+          value: "Evicts the oldest tile.",
+          updatedAt: 2,
+        },
+        { path: "src/00.rs", hunk: "", kind: "note", value: "Ask about the retry.", updatedAt: 3 },
+      ],
+    };
+    const calls = fakeBackend({ annotations });
+    await openRepository();
+    const review = useReviewStore();
+    await settled();
+    expect(review.resolutions.get("src/lib.ts")).toEqual({
+      reply: "Evicts the oldest tile.",
+      at: 2,
+    });
+    expect(review.resolutions.has("src/00.rs")).toBe(false);
+
+    // Reopen takes the resolution off, here and in the store.
+    review.reopenNote("src/lib.ts");
+    expect(review.resolutions.has("src/lib.ts")).toBe(false);
+    await settled();
+    expect(calls.filter((c) => c.cmd === "delete_annotation").at(-1)?.args).toMatchObject({
+      annotation: { path: "src/lib.ts", hunk: "", kind: "resolved" },
+    });
+    expect(review.notes.get("src/lib.ts")).toBe("Check eviction.");
+
+    // An agent resolves the other note meanwhile: a refresh shows it, and what shows stays
+    // while the read is in flight.
+    annotations[hash]!.push({
+      path: "src/00.rs",
+      hunk: "",
+      kind: "resolved",
+      value: "Retries twice, then gives up.",
+      updatedAt: 4,
+    });
+    review.refreshAnnotations();
+    expect(review.notes.size).toBe(2);
+    await settled();
+    expect(review.resolutions.get("src/00.rs")?.reply).toBe("Retries twice, then gives up.");
+
+    // Another text is another note: its resolution goes, here and in the store.
+    review.setNote("src/00.rs", "Ask about the backoff.");
+    expect(review.resolutions.has("src/00.rs")).toBe(false);
+    await settled();
+    review.refreshAnnotations();
+    await settled();
+    expect(review.resolutions.has("src/00.rs")).toBe(false);
+    // The same text again keeps a resolution.
+    annotations[hash]!.push({
+      path: "src/00.rs",
+      hunk: "",
+      kind: "resolved",
+      value: "Backs off exponentially.",
+      updatedAt: 5,
+    });
+    review.refreshAnnotations();
+    await settled();
+    review.setNote("src/00.rs", " Ask about the backoff. ");
+    expect(review.resolutions.get("src/00.rs")?.reply).toBe("Backs off exponentially.");
   });
 
   it("remembers the viewer options and recomputes the diff without whitespace", async () => {

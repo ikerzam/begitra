@@ -19,5 +19,12 @@
     "kind": "note",
     "value": "Check eviction when the worker pool is saturated.",
     "updatedAt": 1700000002
+  },
+  {
+    "path": "src/a.ts",
+    "hunk": "",
+    "kind": "resolved",
+    "value": "Evicts the oldest tile once the pool is full.",
+    "updatedAt": 1700000003
   }
 ]

@@ -21,7 +21,7 @@ pub use cancel::Cancel;
 pub use error::{IndexError, IndexResult};
 pub use index::Index;
 pub use types::{
-    Annotation, AnnotationKey, AnnotationKind, FolderScanEnd, Found, IndexEntry, Member,
-    MemberOrigin, Operation, Project, ProjectEdit, ProjectKind, RepoKind, RepoSummary, ScanEvent,
-    ScanOptions, Upserted, Upstream,
+    Annotation, AnnotationKey, AnnotationKind, AnnotationTarget, FolderScanEnd, Found, IndexEntry,
+    Member, MemberOrigin, Operation, Project, ProjectEdit, ProjectKind, RepoKind, RepoSummary,
+    Resolution, ScanEvent, ScanOptions, Upserted, Upstream,
 };

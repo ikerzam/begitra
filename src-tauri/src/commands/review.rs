@@ -10,8 +10,10 @@ use std::time::Duration;
 
 use git_core::engine::GitEngine;
 use git_core::error::GitError;
+use git_core::spelling::normalise;
 use git_core::types::{BlobAt, BlobContent};
-use repo_index::{Annotation, AnnotationKey, AnnotationKind};
+use repo_index::annotations::{MAX_KEY_BYTES, MAX_NOTE_CHARS, MAX_PATH_BYTES};
+use repo_index::{Annotation, AnnotationKey, AnnotationKind, Index, Resolution};
 use serde::{Deserialize, Serialize};
 use syntax::{Highlight, Symbol};
 use tauri::State;
@@ -199,13 +201,8 @@ pub struct AnnotationWrite {
     pub value: String,
 }
 
-/// Longest note kept, in characters.
-const MAX_NOTE_CHARS: usize = 10_000;
-/// Longest path, hunk key and target kept, in bytes: they form the key of every row.
-const MAX_PATH_BYTES: usize = 4_096;
-const MAX_KEY_BYTES: usize = 512;
-
-/// Checks a write and normalises it: a mark's value is always `1`.
+/// Checks a write and normalises it: a mark's value is always `1`, a note is not empty, a
+/// note and a resolution's reply are at most `MAX_NOTE_CHARS`.
 fn validate(target: &str, write: &mut AnnotationWrite) -> Result<(), AppError> {
     if write.path.is_empty() {
         return Err(AppError::invalid_argument("path", "empty"));
@@ -241,12 +238,41 @@ fn validate(target: &str, write: &mut AnnotationWrite) -> Result<(), AppError> {
                 ));
             }
         }
+        AnnotationKind::Resolved => {
+            if write.value.chars().count() > MAX_NOTE_CHARS {
+                return Err(AppError::invalid_argument(
+                    "value",
+                    format!("longer than {MAX_NOTE_CHARS} characters"),
+                ));
+            }
+        }
     }
     Ok(())
 }
 
-fn normalise(path: &Path) -> PathBuf {
-    path.components().collect()
+/// Writes `annotation` for `target` of the repository `repo` (normalised): a resolution
+/// through [`Index::resolve_note`], which needs the file's note.
+fn write_annotation(
+    index: &Index,
+    repo: &Path,
+    target: &str,
+    annotation: &AnnotationWrite,
+    now: i64,
+) -> Result<(), AppError> {
+    let key = AnnotationKey {
+        repo,
+        target,
+        path: &annotation.path,
+        hunk: &annotation.hunk,
+        kind: annotation.kind,
+    };
+    if key.kind != AnnotationKind::Resolved {
+        return Ok(index.set_annotation(&key, &annotation.value, now)?);
+    }
+    match index.resolve_note(&key, &annotation.value, now, None)? {
+        Resolution::Resolved | Resolution::Changed => Ok(()),
+        Resolution::NoNote => Err(AppError::invalid_argument("path", "no note to resolve")),
+    }
 }
 
 /// The marks and notes of `target` in the repository at `repo`.
@@ -265,7 +291,7 @@ pub async fn list_annotations(
     .map_err(|join| AppError::internal(format!("index task failed: {join}")))?
 }
 
-/// Writes or replaces one mark or note.
+/// Writes or replaces one mark, note or resolution; a resolution needs the file's note.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state, annotation), fields(path = %annotation.path, kind = ?annotation.kind))]
 pub async fn set_annotation(
@@ -278,20 +304,13 @@ pub async fn set_annotation(
     let app = state.inner().clone();
     tokio::task::spawn_blocking(move || {
         let repo = normalise(&repo);
-        let key = AnnotationKey {
-            repo: &repo,
-            target: &target,
-            path: &annotation.path,
-            hunk: &annotation.hunk,
-            kind: annotation.kind,
-        };
-        app.with_index(|index| Ok(index.set_annotation(&key, &annotation.value, now())?))
+        app.with_index(|index| write_annotation(index, &repo, &target, &annotation, now()))
     })
     .await
     .map_err(|join| AppError::internal(format!("index task failed: {join}")))?
 }
 
-/// Removes one mark or note; returns whether it existed.
+/// Removes one mark, note (with its resolution) or resolution; returns whether it existed.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state, annotation), fields(path = %annotation.path, kind = ?annotation.kind))]
 pub async fn delete_annotation(
@@ -474,6 +493,46 @@ mod tests {
             .expect("read")
             .expect("text");
         assert!(state.cached_highlight(&engine.repo().root, &key).is_none());
+    }
+
+    fn write(kind: AnnotationKind, value: &str) -> AnnotationWrite {
+        AnnotationWrite {
+            path: "src/a.ts".to_owned(),
+            hunk: String::new(),
+            kind,
+            value: value.to_owned(),
+        }
+    }
+
+    #[test]
+    fn a_resolution_needs_the_file_s_note_and_a_reply_of_bounded_length() {
+        let index = Index::in_memory().expect("index");
+        let repo = Path::new("/r");
+        let resolved = write(AnnotationKind::Resolved, "Evicts the oldest tile.");
+        let error = write_annotation(&index, repo, "worktree", &resolved, 1)
+            .expect_err("no note to resolve");
+        assert_eq!(error.code, crate::error::codes::IPC_INVALID_ARGUMENT);
+        write_annotation(
+            &index,
+            repo,
+            "worktree",
+            &write(AnnotationKind::Note, "Check it"),
+            2,
+        )
+        .expect("note");
+        write_annotation(&index, repo, "worktree", &resolved, 3).expect("resolved");
+        let kinds: Vec<AnnotationKind> = index
+            .list_annotations(repo, "worktree")
+            .expect("list")
+            .into_iter()
+            .map(|annotation| annotation.kind)
+            .collect();
+        assert_eq!(kinds, [AnnotationKind::Note, AnnotationKind::Resolved]);
+
+        let mut long = write(AnnotationKind::Resolved, &"x".repeat(MAX_NOTE_CHARS + 1));
+        assert!(validate("worktree", &mut long).is_err());
+        let mut empty = write(AnnotationKind::Resolved, "");
+        assert!(validate("worktree", &mut empty).is_ok());
     }
 
     #[test]

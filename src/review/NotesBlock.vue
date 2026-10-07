@@ -1,9 +1,11 @@
 <script setup lang="ts">
 // The Notes block of the review rail: one note per file of the target (path in mono, the
 // text), "Add note" for the open file, "Copy as Markdown" for them all, and an inline editor
-// to write, change or delete one.
+// to write, change or delete one. A note an agent resolved has its text dimmed, "Resolved"
+// under it and the agent's reply as a quote, and Reopen beside edit and delete
+// (`Review / Notes / Resolved`).
 
-import { Copy, Pencil, Plus, Trash2 } from "@lucide/vue";
+import { CircleCheck, Copy, Pencil, Plus, RotateCcw, Trash2 } from "@lucide/vue";
 import { computed, nextTick, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -24,7 +26,7 @@ const editor = ref<{ $el: HTMLTextAreaElement } | null>(null);
 
 const notes = computed(() =>
   [...review.notes.entries()]
-    .map(([path, text]) => ({ path, text }))
+    .map(([path, text]) => ({ path, text, resolution: review.resolutions.get(path) }))
     .sort((a, b) => a.path.localeCompare(b.path)),
 );
 const openPath = computed(() => review.selectedPath);
@@ -112,9 +114,19 @@ function onKeydown(event: KeyboardEvent): void {
       data-testid="note"
     >
       <div class="flex items-center gap-2">
-        <span class="min-w-0 flex-1 truncate font-mono text-mono-sm text-fg-secondary">
+        <span
+          class="min-w-0 flex-1 truncate font-mono text-mono-sm"
+          :class="note.resolution ? 'text-fg-muted' : 'text-fg-secondary'"
+        >
           {{ note.path }}
         </span>
+        <IconButton
+          v-if="note.resolution"
+          :label="t('review.reopenNote')"
+          :icon="RotateCcw"
+          data-testid="reopen-note"
+          @click="review.reopenNote(note.path)"
+        />
         <IconButton
           :label="t('review.editNote')"
           :icon="Pencil"
@@ -127,7 +139,28 @@ function onKeydown(event: KeyboardEvent): void {
           @click="remove(note.path)"
         />
       </div>
-      <p class="text-md whitespace-pre-wrap text-fg select-text">{{ note.text }}</p>
+      <p
+        class="text-md whitespace-pre-wrap select-text"
+        :class="note.resolution ? 'text-fg-muted' : 'text-fg'"
+      >
+        {{ note.text }}
+      </p>
+      <template v-if="note.resolution">
+        <span
+          class="flex items-center gap-1 text-sm font-medium text-reviewed"
+          data-testid="note-resolved"
+        >
+          <CircleCheck :size="14" :stroke-width="1.5" aria-hidden="true" />
+          {{ t("review.noteResolvedTag") }}
+        </span>
+        <p
+          v-if="note.resolution.reply !== ''"
+          class="border-l-2 border-line-strong pl-2 text-sm whitespace-pre-wrap text-fg-secondary select-text"
+          data-testid="note-reply"
+        >
+          {{ note.resolution.reply }}
+        </p>
+      </template>
     </div>
   </div>
 </template>

@@ -489,9 +489,13 @@
     "saveNote": "Save",
     "editNote": "Edit note",
     "deleteNote": "Delete note",
+    "noteResolvedTag": "Resolved",
+    "reopenNote": "Reopen note",
     "copyNotes": "Copy notes as Markdown",
     "notesHeading": "Review notes: {target}",
     "notesCopied": "Review notes copied as Markdown",
+    "noteResolved": "**Resolved**",
+    "noteResolvedReply": "**Resolved:** {reply}",
     "target": {
       "worktree": "Working tree",
       "index": "Staged changes",

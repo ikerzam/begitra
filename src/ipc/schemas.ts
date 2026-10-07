@@ -422,7 +422,8 @@ export const SymbolSchema = v.object({
 });
 export type Symbol = v.InferOutput<typeof SymbolSchema>;
 
-export const AnnotationKindSchema = v.picklist(["reviewed", "note"]);
+/** A mark, a note, or a note's resolution (its reply as the value), which an agent writes. */
+export const AnnotationKindSchema = v.picklist(["reviewed", "note", "resolved"]);
 export type AnnotationKind = v.InferOutput<typeof AnnotationKindSchema>;
 
 export const AnnotationSchema = v.object({

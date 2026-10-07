@@ -22,6 +22,14 @@ pub enum IndexError {
     /// The scan was cancelled.
     #[error("the scan was cancelled")]
     Cancelled,
+    /// The database's schema is another build's: a second process does not migrate it.
+    #[error("the index's schema is version {found}, this build reads version {expected}")]
+    Version {
+        /// The file's version.
+        found: u32,
+        /// This build's.
+        expected: u32,
+    },
 }
 
 impl IndexError {
@@ -31,6 +39,7 @@ impl IndexError {
             IndexError::Sqlite(_) | IndexError::Migration(_) => "index.database",
             IndexError::Folder { .. } => "index.folder",
             IndexError::Cancelled => "op.cancelled",
+            IndexError::Version { .. } => "index.version",
         }
     }
 }

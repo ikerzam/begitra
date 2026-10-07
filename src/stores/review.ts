@@ -2,7 +2,9 @@
 // picker, the palette and the graph's pins chose), its change set, the file filters and the
 // open file, the viewer options, and the review state persisted per repository and target
 // through the annotations commands: files and hunks marked reviewed, each mark holding the
-// content it was given for, and one note per file.
+// content it was given for, one note per file, and a note's resolution (an agent's reply,
+// written through the agent server). The shell reads them again when the window comes back
+// (`refreshAnnotations`), so what an agent wrote meanwhile shows.
 
 import { defineStore } from "pinia";
 import { computed, ref, shallowRef, watch } from "vue";
@@ -54,6 +56,12 @@ export interface ReviewChangeSet {
   totalFiles: number;
   loading: boolean;
   error?: AppError;
+}
+
+/** A note's resolution: the reply and when it was written, Unix seconds. */
+export interface NoteResolution {
+  reply: string;
+  at: number;
 }
 
 /** The stable key a target's marks and notes are stored under. */
@@ -226,6 +234,8 @@ export const useReviewStore = defineStore("review", () => {
    */
   const marks = ref(new Map<string, Map<string, string>>());
   const notes = ref(new Map<string, string>());
+  /** The resolution of a note by its path: the reply (possibly empty) and when, Unix seconds. */
+  const resolutions = ref(new Map<string, NoteResolution>());
   /** Two pinned commits of the graph (its chips). */
   const diffBase = ref<string | null>(null);
   const rangeEnd = ref<string | null>(null);
@@ -727,15 +737,25 @@ export const useReviewStore = defineStore("review", () => {
     persistMark(path, hunkId, on, () => replaceMarks(path, before));
   }
 
+  /**
+   * Writes, replaces or (with no text) deletes the note on `path`. Another text is another
+   * note: the old one's resolution goes, as the store drops it.
+   */
   function setNote(path: string, text: string | null): void {
     const root = repo.repo?.root;
     const current = key.value;
     const before = notes.value.get(path);
+    const resolutionBefore = resolutions.value.get(path);
     const next = new Map(notes.value);
     const trimmed = text?.trim() ?? "";
     if (trimmed === "") next.delete(path);
     else next.set(path, trimmed);
     notes.value = next;
+    if (trimmed !== before && resolutionBefore) {
+      const unresolved = new Map(resolutions.value);
+      unresolved.delete(path);
+      resolutions.value = unresolved;
+    }
     localWrites += 1;
     if (!root || !current) return;
     const revert = () => {
@@ -743,6 +763,11 @@ export const useReviewStore = defineStore("review", () => {
       if (before === undefined) restored.delete(path);
       else restored.set(path, before);
       notes.value = restored;
+      if (resolutionBefore) {
+        const resolved = new Map(resolutions.value);
+        resolved.set(path, resolutionBefore);
+        resolutions.value = resolved;
+      }
     };
     const write = { path, hunk: "", kind: "note" as const, value: trimmed };
     const call =
@@ -752,13 +777,40 @@ export const useReviewStore = defineStore("review", () => {
     void call.catch(revert);
   }
 
-  /** Loads the marks and notes of the current target. */
-  async function loadAnnotations(retry = true): Promise<void> {
+  /** Removes the resolution of the note on `path`, which shows open again. */
+  function reopenNote(path: string): void {
+    const before = resolutions.value.get(path);
+    if (!before) return;
+    const next = new Map(resolutions.value);
+    next.delete(path);
+    resolutions.value = next;
+    localWrites += 1;
+    const root = repo.repo?.root;
+    const current = key.value;
+    if (!root || !current) return;
+    void ipc
+      .deleteAnnotation(root, current, { path, hunk: "", kind: "resolved", value: "" })
+      .catch(() => {
+        const restored = new Map(resolutions.value);
+        restored.set(path, before);
+        resolutions.value = restored;
+      });
+  }
+
+  /**
+   * Loads the marks, notes and resolutions of the current target. A target's first load
+   * empties what showed before; `refresh` (the window gaining the focus) keeps it until the
+   * new list replaces it, so nothing flickers.
+   */
+  async function loadAnnotations(retry = true, refresh = false): Promise<void> {
     annotationsSerial += 1;
     const serial = annotationsSerial;
     const writesBefore = localWrites;
-    marks.value = new Map();
-    notes.value = new Map();
+    if (!refresh) {
+      marks.value = new Map();
+      notes.value = new Map();
+      resolutions.value = new Map();
+    }
     const root = repo.repo?.root;
     const current = key.value;
     if (!root || !current) return;
@@ -768,25 +820,39 @@ export const useReviewStore = defineStore("review", () => {
       if (localWrites !== writesBefore) {
         // A mark or note was written while the list was in flight: read once more so the
         // list holds it, rather than overwriting the local state with a stale one.
-        if (retry) await loadAnnotations(false);
+        if (retry) await loadAnnotations(false, refresh);
         return;
       }
       const nextMarks = new Map<string, Map<string, string>>();
       const nextNotes = new Map<string, string>();
+      const nextResolutions = new Map<string, NoteResolution>();
       for (const annotation of listed) {
         if (annotation.kind === "reviewed") {
           const set = nextMarks.get(annotation.path) ?? new Map<string, string>();
           set.set(annotation.hunk, annotation.value);
           nextMarks.set(annotation.path, set);
-        } else if (annotation.hunk === "") {
+        } else if (annotation.hunk !== "") {
+          // Notes and resolutions on hunks are written by nothing.
+        } else if (annotation.kind === "note") {
           nextNotes.set(annotation.path, annotation.value);
+        } else {
+          nextResolutions.set(annotation.path, {
+            reply: annotation.value,
+            at: annotation.updatedAt,
+          });
         }
       }
       marks.value = nextMarks;
       notes.value = nextNotes;
+      resolutions.value = nextResolutions;
     } catch {
-      // The marks stay empty for this target; writes still go through.
+      // The marks stay as they were for this target; writes still go through.
     }
+  }
+
+  /** Reads the marks and notes again, keeping what shows: an agent may have written. */
+  function refreshAnnotations(): void {
+    void loadAnnotations(true, true);
   }
 
   function setDiffBase(hash: string | null): void {
@@ -845,6 +911,7 @@ export const useReviewStore = defineStore("review", () => {
     files,
     marks,
     notes,
+    resolutions,
     reviewedFiles,
     reviewedCount,
     changedFiles,
@@ -876,7 +943,9 @@ export const useReviewStore = defineStore("review", () => {
     toggleReviewed,
     toggleHunkReviewed,
     setNote,
+    reopenNote,
     loadAnnotations,
+    refreshAnnotations,
     setDiffBase,
     setRangeEnd,
     clearPins,

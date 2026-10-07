@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
-use crate::error::IndexResult;
+use crate::error::{IndexError, IndexResult};
 use crate::migrations;
 use crate::projects;
 use crate::types::{Found, IndexEntry, Operation, RepoKind, RepoSummary, Upserted, Upstream};
@@ -27,6 +27,42 @@ impl Index {
         connection.pragma_update(None, "synchronous", "NORMAL")?;
         connection.pragma_update(None, "foreign_keys", "ON")?;
         Self::prepare(connection)
+    }
+
+    /// Opens the database the app keeps at `path` for a second process beside it (the agent
+    /// server): never created (a missing file fails to open) and never migrated, with the
+    /// app's settings. Fails with [`IndexError::Version`] when its schema is not this build's,
+    /// rather than migrate a file the app reads, or write a schema it does not know.
+    pub fn open_existing(path: &Path) -> IndexResult<Self> {
+        let connection = Connection::open_with_flags(
+            path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        connection.busy_timeout(std::time::Duration::from_secs(5))?;
+        connection.pragma_update(None, "synchronous", "NORMAL")?;
+        connection.pragma_update(None, "foreign_keys", "ON")?;
+        let mut connection = connection;
+        connection.set_transaction_behavior(rusqlite::TransactionBehavior::Immediate);
+        let index = Self { connection };
+        index.check_version()?;
+        Ok(index)
+    }
+
+    /// Fails with [`IndexError::Version`] unless the schema is this build's: a long-lived
+    /// second process checks before each use, since an app of another version may have
+    /// migrated the file meanwhile.
+    pub fn check_version(&self) -> IndexResult<()> {
+        let found: u32 = self
+            .connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))?;
+        if found == migrations::CURRENT_VERSION {
+            Ok(())
+        } else {
+            Err(IndexError::Version {
+                found,
+                expected: migrations::CURRENT_VERSION,
+            })
+        }
     }
 
     /// A private in-memory database, for tests and for running without an app data folder.
@@ -275,6 +311,32 @@ fn entry_from_row(row: &Row<'_>) -> rusqlite::Result<IndexEntry> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_second_process_opens_the_file_as_it_is_or_not_at_all() {
+        let dir = tempfile::tempdir().expect("temporary folder");
+        let missing = dir.path().join("missing.sqlite");
+        assert!(Index::open_existing(&missing).is_err());
+        assert!(!missing.exists(), "the file was created");
+
+        let path = dir.path().join("index.sqlite");
+        drop(Index::open(&path).expect("the app's index"));
+        let index = Index::open_existing(&path).expect("this build's schema");
+        index.check_version().expect("still this build's");
+
+        // An app of another version migrates the file: the open process notices.
+        let other = Connection::open(&path).expect("another connection");
+        other
+            .pragma_update(None, "user_version", migrations::CURRENT_VERSION + 1)
+            .expect("bump");
+        let error = index.check_version().expect_err("another schema");
+        assert_eq!(error.code(), "index.version");
+        assert!(matches!(
+            Index::open_existing(&path),
+            Err(IndexError::Version { found, expected })
+                if found == migrations::CURRENT_VERSION + 1 && expected == migrations::CURRENT_VERSION
+        ));
+    }
 
     fn found(path: &str, kind: RepoKind, parent: Option<&str>) -> Found {
         Found {

@@ -38,6 +38,33 @@ describe("NotesBlock", () => {
     });
   });
 
+  it("shows a resolved note dimmed with its reply, and Reopen takes the resolution off", async () => {
+    const review = useReviewStore();
+    review.setNote("src/auth.ts", "Refresh the token before it expires.");
+    review.setNote("src/cache.ts", "Check eviction.");
+    review.resolutions = new Map([
+      ["src/auth.ts", { reply: "Refreshes the token 60 s before it expires.", at: 2 }],
+    ]);
+    const wrapper = mountWithI18n(NotesBlock);
+    const notes = wrapper.findAll("[data-testid='note']");
+    expect(notes).toHaveLength(2);
+    const [resolved, open] = notes;
+    expect(resolved!.get("[data-testid='note-resolved']").text()).toBe("Resolved");
+    expect(resolved!.get("[data-testid='note-reply']").text()).toBe(
+      "Refreshes the token 60 s before it expires.",
+    );
+    expect(open!.find("[data-testid='note-resolved']").exists()).toBe(false);
+    expect(open!.find("[data-testid='reopen-note']").exists()).toBe(false);
+    await resolved!.get("[data-testid='reopen-note']").trigger("click");
+    expect(review.resolutions.has("src/auth.ts")).toBe(false);
+    expect(wrapper.find("[data-testid='note-resolved']").exists()).toBe(false);
+    // A resolution without a reply shows no quote.
+    review.resolutions = new Map([["src/cache.ts", { reply: "", at: 3 }]]);
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find("[data-testid='note-resolved']").exists()).toBe(true);
+    expect(wrapper.find("[data-testid='note-reply']").exists()).toBe(false);
+  });
+
   it("says so when the webview offers no clipboard", async () => {
     vi.stubGlobal("navigator", {});
     useReviewStore().setNote("src/cache.ts", "Check eviction.");

@@ -489,9 +489,13 @@
     "saveNote": "Guardar",
     "editNote": "Editar nota",
     "deleteNote": "Borrar nota",
+    "noteResolvedTag": "Resuelta",
+    "reopenNote": "Reabrir la nota",
     "copyNotes": "Copiar las notas como Markdown",
     "notesHeading": "Notas de la revisión: {target}",
     "notesCopied": "Notas de la revisión copiadas como Markdown",
+    "noteResolved": "**Resuelta**",
+    "noteResolvedReply": "**Resuelta:** {reply}",
     "target": {
       "worktree": "Árbol de trabajo",
       "index": "Cambios preparados",

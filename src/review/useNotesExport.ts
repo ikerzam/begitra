@@ -27,7 +27,9 @@ export function useNotesExport() {
   async function copyNotes(): Promise<void> {
     if (!canCopy.value) return;
     const title = t("review.notesHeading", { target: label() });
-    if (await copyText(notesMarkdown(title, review.notes))) {
+    const resolved = (reply: string) =>
+      reply === "" ? t("review.noteResolved") : t("review.noteResolvedReply", { reply });
+    if (await copyText(notesMarkdown(title, review.notes, review.resolutions, resolved))) {
       toasts.push({ kind: "success", message: t("review.notesCopied") });
     } else {
       toasts.push({ kind: "error", message: t("graph.clipboardUnavailable") });

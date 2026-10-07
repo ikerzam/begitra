@@ -434,6 +434,12 @@ function stashGone(args: Record<string, unknown>): Promise<never> {
   });
 }
 
+/** Removes the resolution of the note at `path` and `hunk` from a target's annotations. */
+function dropResolution(list: Annotation[], path: string, hunk: string): void {
+  const at = list.findIndex((a) => a.path === path && a.hunk === hunk && a.kind === "resolved");
+  if (at >= 0) list.splice(at, 1);
+}
+
 export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
   const calls: Call[] = [];
   const total = options.commits ?? 30;
@@ -782,6 +788,10 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
             value: write.value ?? "",
             updatedAt: 1,
           };
+          // As the store: another text is another note, which loses the old one's resolution.
+          if (write.kind === "note" && list[index]?.value !== stored.value) {
+            dropResolution(list, stored.path, stored.hunk);
+          }
           if (index >= 0) list[index] = stored;
           else list.push(stored);
           return null;
@@ -798,6 +808,7 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
             (a) => a.path === write.path && a.hunk === write.hunk && a.kind === write.kind,
           );
           if (index >= 0) list.splice(index, 1);
+          if (write.kind === "note") dropResolution(list, write.path, write.hunk ?? "");
           return index >= 0;
         }
         case "compare": {

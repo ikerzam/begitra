@@ -12,6 +12,9 @@ pub enum AnnotationKind {
     Reviewed,
     /// A note on the file; the value is its text.
     Note,
+    /// The note on the same key was resolved; the value is the reply, possibly empty. It
+    /// belongs to one text of the note: another text, or the note's deletion, removes it.
+    Resolved,
 }
 
 impl AnnotationKind {
@@ -20,6 +23,7 @@ impl AnnotationKind {
         match self {
             AnnotationKind::Reviewed => "reviewed",
             AnnotationKind::Note => "note",
+            AnnotationKind::Resolved => "resolved",
         }
     }
 
@@ -28,12 +32,13 @@ impl AnnotationKind {
         match text {
             "reviewed" => Some(AnnotationKind::Reviewed),
             "note" => Some(AnnotationKind::Note),
+            "resolved" => Some(AnnotationKind::Resolved),
             _ => None,
         }
     }
 }
 
-/// One mark or note of a review target.
+/// One mark, note or resolution of a review target.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Annotation {
@@ -41,18 +46,48 @@ pub struct Annotation {
     pub path: String,
     /// The hunk's key, or empty for the whole file.
     pub hunk: String,
-    /// A mark or a note.
+    /// A mark, a note or a note's resolution.
     pub kind: AnnotationKind,
-    /// `1` for a mark, the text of a note.
+    /// `1` for a mark, the text of a note, the reply of a resolution.
     pub value: String,
     /// Unix time of the last write.
+    pub updated_at: i64,
+}
+
+/// What [`crate::Index::resolve_note`] did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Resolution {
+    /// The note is resolved.
+    Resolved,
+    /// The file has no note: nothing was written.
+    NoNote,
+    /// The note was written again since the time given: nothing was written.
+    Changed,
+}
+
+/// A review target of a repository that holds annotations, with what it holds.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnnotationTarget {
+    /// Stable key of the review target.
+    pub target: String,
+    /// Files marked reviewed as a whole.
+    pub files_reviewed: u32,
+    /// Hunks marked reviewed.
+    pub hunks_reviewed: u32,
+    /// Notes.
+    pub notes: u32,
+    /// Notes resolved.
+    pub resolved: u32,
+    /// Unix time of its last write.
     pub updated_at: i64,
 }
 
 /// What one annotation is keyed by.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AnnotationKey<'a> {
-    /// Working tree root of the repository.
+    /// Working tree root of the repository, as the app keys it: the root `git-core` opens, in
+    /// the spelling the app stores, rebuilt from its components (`git_core::spelling`).
     pub repo: &'a std::path::Path,
     /// Stable key of the review target.
     pub target: &'a str,

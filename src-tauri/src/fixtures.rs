@@ -1513,6 +1513,13 @@ fn write_fixtures() {
                 value: "Check eviction when the worker pool is saturated.".to_owned(),
                 updated_at: 1_700_000_002,
             },
+            Annotation {
+                path: "src/a.ts".to_owned(),
+                hunk: String::new(),
+                kind: AnnotationKind::Resolved,
+                value: "Evicts the oldest tile once the pool is full.".to_owned(),
+                updated_at: 1_700_000_003,
+            },
         ],
     );
     write(
