@@ -1,6 +1,7 @@
-// Shell layout state: layout mode, the sidebar's open panel (its rail is the sidebar), pane
-// sizes (persisted through the settings store), the narrow-window collapse of the review rail and
-// of the detail panel under the zoom, and the palette.
+// Shell layout state: the layout shown (a comparison's tab's, else the project's tab's), the
+// sidebar's open panel (its rail is the sidebar), pane sizes (persisted through the settings
+// store), the narrow-window collapse of the review rail and of the detail panel under the zoom,
+// and the palette.
 
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
@@ -12,7 +13,9 @@ import {
   type ColumnWidths,
   type LayoutMode,
   type PaneSizes,
+  type ProjectLayout,
 } from "./settings";
+import { useTabsStore } from "./tabs";
 
 /** The sections of the sidebar, each a panel of the rail, in the rail's order. */
 export const sidebarSectionIds = ["repos", "local", "remote", "tags", "worktrees"] as const;
@@ -82,6 +85,7 @@ const noFilters = (): Record<SidebarSectionId, string> => ({
 
 export const useShellStore = defineStore("shell", () => {
   const settings = useSettingsStore();
+  const tabs = useTabsStore();
   const windowWidth = ref(1440);
   const reviewRailPreference = ref<ReviewRailPreference>("auto");
   const paletteOpen = ref(false);
@@ -97,7 +101,10 @@ export const useShellStore = defineStore("shell", () => {
   /** Each panel's filter, kept while it is closed; cleared when another repository shows. */
   const sidebarFilters = ref<Record<SidebarSectionId, string>>(noFilters());
 
-  const layoutMode = computed<LayoutMode>(() => settings.values.layoutMode);
+  /** The layout shown: the comparison while its tab shows, else the project's tab's. */
+  const layoutMode = computed<LayoutMode>(() =>
+    tabs.activePair ? "compare" : settings.values.layoutMode,
+  );
   const narrow = computed(() => windowWidth.value < NARROW_BREAKPOINT);
   const paneSizes = computed<PaneSizes>(() => settings.values.paneSizes);
   const columnWidths = computed<ColumnWidths>(() => settings.values.columnWidths);
@@ -136,7 +143,9 @@ export const useShellStore = defineStore("shell", () => {
     return windowWidth.value < REVIEW_RAIL_BREAKPOINT;
   });
 
-  function setLayoutMode(mode: LayoutMode): Promise<void> {
+  /** Shows the project's tab with `mode`; the comparison's tab, if one showed, stays. */
+  function setLayoutMode(mode: ProjectLayout): Promise<void> {
+    tabs.showProject();
     return settings.update("layoutMode", mode);
   }
 

@@ -37,6 +37,15 @@ describe("keysOf", () => {
     expect(keysOf(key({ key: "Control", ctrlKey: true }), "windows")).toBeNull();
     expect(keysOf(key({ key: ",", ctrlKey: true }), "windows")).toBe("mod+,");
   });
+
+  it("writes Control as ctrl on macOS, where ⌘ is mod", () => {
+    expect(keysOf(key({ key: "Tab", ctrlKey: true }), "macos")).toBe("ctrl+tab");
+    expect(keysOf(key({ key: "Tab", ctrlKey: true, shiftKey: true }), "macos")).toBe(
+      "shift+ctrl+tab",
+    );
+    expect(keysOf(key({ key: "w", ctrlKey: true, metaKey: true }), "macos")).toBe("ctrl+mod+w");
+    expect(keysOf(key({ key: "Tab", ctrlKey: true }), "windows")).toBe("mod+tab");
+  });
 });
 
 describe("settings screen store", () => {
@@ -111,6 +120,26 @@ describe("settings screen store", () => {
     expect(registry.binding("open-terminal")?.keys).toBe("mod+t");
     expect(settings.values.shortcuts).toEqual({});
     expect(screen.isOverridden(row("openTerminal"))).toBe(false);
+  });
+
+  it("knows a chord written another way: taken by its binding, and no override of its own", async () => {
+    fakeBackend();
+    const screen = useSettingsScreenStore();
+    const settings = useSettingsStore();
+    const registry = shortcutRegistry();
+    // On Windows the capture writes Ctrl Tab as `mod+tab`; next-tab holds it as `ctrl+tab`.
+    screen.startCapture(row("openTerminal"));
+    screen.captured(key({ key: "Tab", ctrlKey: true }));
+    expect(screen.refusal).toEqual({ kind: "taken", by: "next-tab" });
+    screen.cancelCapture();
+    screen.startCapture(row("nextPreviousTab"));
+    screen.captured(key({ key: "Tab", ctrlKey: true }));
+    screen.captured(key({ key: "Tab", ctrlKey: true, shiftKey: true }));
+    await settled();
+    expect(screen.capturing).toBeNull();
+    expect(settings.values.shortcuts).toEqual({});
+    expect(registry.binding("next-tab")?.keys).toBe("ctrl+tab");
+    expect(registry.hint("previous-tab")).toBe("Ctrl Shift Tab");
   });
 
   it("captures the two keys of a next/previous row in turn, for every id of each group", async () => {

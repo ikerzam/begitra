@@ -46,7 +46,7 @@ async function mountComparison(
   fakeBackend(options);
   await useRepoStore().open("/r");
   await settled();
-  await useCompareStore().open(a, b);
+  useCompareStore().open(a, b);
   await settled();
   const wrapper = mountWithI18n(CompareLayout, { attachTo: document.body });
   await flushPromises();
@@ -106,7 +106,7 @@ describe("CompareLayout", () => {
     const shell = useShellStore();
     const picker = usePickerStore();
     await wrapper.get('[data-testid="compare-endpoint-b"]').trigger("click");
-    expect(picker.mode).toEqual({ kind: "compare", side: "b", other: main });
+    expect(picker.mode).toEqual({ kind: "compare", side: "b", other: main, inTab: true });
     picker.close();
     const openInReview = wrapper.get('[data-testid="open-in-review"]');
     expect(openInReview.attributes("aria-label")).toBe("Open in review");

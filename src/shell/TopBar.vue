@@ -10,7 +10,7 @@ import { useI18n } from "vue-i18n";
 import IconButton from "@/components/IconButton.vue";
 import Kbd from "@/components/Kbd.vue";
 import { useShortcutHint } from "@/shortcuts/useShortcut";
-import type { LayoutMode } from "@/stores/settings";
+import type { LayoutMode, ProjectLayout } from "@/stores/settings";
 
 import SyncButtons from "@/remotes/SyncButtons.vue";
 
@@ -27,7 +27,11 @@ const props = defineProps<{
   /** Whether Fetch, Pull and Push show: a repository is open and the Overview does not show. */
   showSync: boolean;
 }>();
-const emit = defineEmits<{ openFolder: []; openPalette: []; setLayoutMode: [mode: LayoutMode] }>();
+const emit = defineEmits<{
+  openFolder: [];
+  openPalette: [];
+  setLayoutMode: [mode: ProjectLayout];
+}>();
 
 const { t, n } = useI18n();
 const paletteHint = useShortcutHint("palette");

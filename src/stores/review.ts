@@ -213,6 +213,11 @@ export const useReviewStore = defineStore("review", () => {
   const shown = ref(new Map<string, Hunk>());
   /** The target chosen explicitly; null follows the graph selection. */
   const chosenTarget = ref<ReviewTarget | null>(null);
+  /**
+   * The comparison's range while its tab shows: its files read it before the chosen target,
+   * which it leaves as it was for review focus.
+   */
+  const comparisonTarget = ref<ReviewTarget | null>(null);
   /** The change set streamed for the chosen target (or for the commit with other options). */
   const ownChangeSet = shallowRef<ReviewChangeSet | null>(null);
   /**
@@ -255,6 +260,7 @@ export const useReviewStore = defineStore("review", () => {
   const wholeFile = computed(() => settings.values.diffWholeFile);
 
   const target = computed<ReviewTarget | null>(() => {
+    if (comparisonTarget.value) return comparisonTarget.value;
     if (chosenTarget.value) return chosenTarget.value;
     const hash = repo.selectedCommit?.hash;
     return hash ? { kind: "commit", hash } : null;
@@ -262,7 +268,9 @@ export const useReviewStore = defineStore("review", () => {
   const key = computed(() => (target.value ? targetKey(target.value) : null));
 
   /** Whether the store streams its own change set rather than reading the graph's detail. */
-  const ownStream = computed(() => chosenTarget.value !== null || ignoreWhitespace.value);
+  const ownStream = computed(
+    () => comparisonTarget.value !== null || chosenTarget.value !== null || ignoreWhitespace.value,
+  );
 
   const changeSet = computed<ReviewChangeSet | null>(() => {
     if (ownStream.value) return ownChangeSet.value;
@@ -547,6 +555,18 @@ export const useReviewStore = defineStore("review", () => {
   function setTarget(next: ReviewTarget | null): void {
     const before = key.value;
     chosenTarget.value = next;
+    retarget(before);
+  }
+
+  /** The comparison's range while its tab shows; null when it leaves. */
+  function setComparisonTarget(next: ReviewTarget | null): void {
+    const before = key.value;
+    comparisonTarget.value = next;
+    retarget(before);
+  }
+
+  /** Another target: a new key starts with no file open, and the own stream follows it. */
+  function retarget(before: string | null): void {
     if (key.value !== before) {
       selectedPath.value = null;
       revealed.value = new Set();
@@ -608,7 +628,7 @@ export const useReviewStore = defineStore("review", () => {
     await settings.update("diffIgnoreWhitespace", next);
     // With a chosen target the stream restarts here; a followed commit restarts through the
     // watcher below when the own stream switches on.
-    if (chosenTarget.value) restartOwn();
+    if (comparisonTarget.value || chosenTarget.value) restartOwn();
     else if (!ownStream.value) {
       stopStream();
       ownChangeSet.value = null;
@@ -808,7 +828,7 @@ export const useReviewStore = defineStore("review", () => {
   watch(
     () => [repo.selectedCommit?.hash, ownStream.value] as const,
     ([, own]) => {
-      if (own && chosenTarget.value === null) restartOwn();
+      if (own && chosenTarget.value === null && comparisonTarget.value === null) restartOwn();
     },
   );
 
@@ -818,6 +838,8 @@ export const useReviewStore = defineStore("review", () => {
     revealed,
     target,
     chosenTarget,
+    comparisonTarget,
+    setComparisonTarget,
     key,
     changeSet,
     files,

@@ -168,7 +168,7 @@ defineExpose({ focus: navigation.focus });
       :x="menu.x"
       :y="menu.y"
       :dialogs="false"
-      @compare="withMenuRow((path) => void worktrees.compareWithMain(path))"
+      @compare="withMenuRow((path) => worktrees.compareWithMain(path))"
       @open-terminal="withMenuRow((path) => void external.openTerminal(path))"
       @open-editor="withMenuRow((path) => void external.openEditor(path))"
       @close="closeMenu"

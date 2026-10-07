@@ -25,6 +25,9 @@ export type PickerMode =
       side: CompareSide;
       /** The endpoint of the other side, named in the title. */
       other: CompareEndpoint;
+      /** An endpoint control's pick: the comparison shown changes in its tab, rather than
+       * opening another. */
+      inTab?: boolean;
     };
 
 /** What a row of the picker stands for. */
@@ -93,9 +96,13 @@ export const usePickerStore = defineStore("picker", () => {
     }
     const chosen = endpointOf(choice);
     if (!chosen) return;
+    if (current.inTab) {
+      compare.setEndpoint(current.side, chosen);
+      return;
+    }
     const a = current.side === "a" ? chosen : current.other;
     const b = current.side === "b" ? chosen : current.other;
-    await compare.open(a, b);
+    compare.open(a, b);
   }
 
   /** A branch action on the chosen ref: a local branch is checked out by name, the rest detached. */

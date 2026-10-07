@@ -9,6 +9,7 @@ import { useRepoStore } from "./repo";
 import { useReviewStore } from "./review";
 import { memoryStorage, useSettingsStore, type CompareEndpoint } from "./settings";
 import { useShellStore } from "./shell";
+import { useTabsStore } from "./tabs";
 
 const main: CompareEndpoint = { kind: "revision", rev: "refs/heads/main", label: "main" };
 const feature: CompareEndpoint = {
@@ -40,17 +41,18 @@ describe("compare store", () => {
     const compare = useCompareStore();
     const review = useReviewStore();
     const shell = useShellStore();
-    const settings = useSettingsStore();
-    await compare.open(main, feature);
+    compare.open(main, feature);
     await settled();
     expect(shell.layoutMode).toBe("compare");
-    expect(settings.values.compare).toEqual({ a: main, b: feature });
-    expect(review.chosenTarget).toEqual({
+    expect(useTabsStore().activePair).toEqual({ a: main, b: feature });
+    // Its files are the comparison's target; review focus keeps its own.
+    expect(review.comparisonTarget).toEqual({
       kind: "range",
       from: main.rev,
       to: feature.rev,
       threeDot: true,
     });
+    expect(review.chosenTarget).toBeNull();
     expect(compare.comparison?.onlyInA).toBe(4);
     expect(compare.comparison?.onlyInB).toBe(3);
     expect(compare.same).toBe(false);
@@ -89,12 +91,13 @@ describe("compare store", () => {
     await openRepository();
     const compare = useCompareStore();
     const review = useReviewStore();
-    await compare.open(main, feature);
+    compare.open(main, feature);
     await settled();
-    await compare.swap();
+    compare.swap();
     await settled();
     expect(compare.endpoints).toEqual({ a: feature, b: main });
-    expect(review.chosenTarget).toEqual({
+    expect(useTabsStore().comparisons).toHaveLength(1);
+    expect(review.comparisonTarget).toEqual({
       kind: "range",
       from: feature.rev,
       to: main.rev,
@@ -108,7 +111,7 @@ describe("compare store", () => {
     const calls = fakeBackend();
     await openRepository();
     const compare = useCompareStore();
-    await compare.open(main, { ...main, rev: main.rev });
+    compare.open(main, { ...main, rev: main.rev });
     await settled();
     expect(compare.same).toBe(true);
     expect(compare.comparison?.onlyInA).toBe(0);
@@ -123,14 +126,14 @@ describe("compare store", () => {
     fakeBackend({ failCompare: true });
     await openRepository();
     const compare = useCompareStore();
-    await compare.open(main, feature);
+    compare.open(main, feature);
     await settled();
     expect(compare.endpoints).toEqual({ a: main, b: feature });
     expect(compare.comparisonError?.code).toBe("refs.unrelated_histories");
     expect(compare.comparison).toBeNull();
     clearMocks();
     fakeBackend({ failPreview: true });
-    await compare.swap();
+    compare.swap();
     await settled();
     expect(compare.comparisonError).toBeNull();
     expect(compare.comparison?.onlyInA).toBe(4);
@@ -144,7 +147,8 @@ describe("compare store", () => {
     const compare = useCompareStore();
     const review = useReviewStore();
     const shell = useShellStore();
-    await compare.open(main, feature);
+    const tabs = useTabsStore();
+    compare.open(main, feature);
     await settled();
     const before = calls.filter((c) => c.cmd === "compare").length;
     compare.onRepoChanged(["status"]);
@@ -156,16 +160,43 @@ describe("compare store", () => {
     await compare.openCommit(fakeCommit(2).hash);
     expect(shell.layoutMode).toBe("review");
     expect(review.chosenTarget).toEqual({ kind: "commit", hash: fakeCommit(2).hash });
+    expect(review.comparisonTarget).toBeNull();
     expect(repo.selectedCommit?.hash).toBe(fakeCommit(2).hash);
-    // Leaving the layout stops the work; coming back recomputes.
-    await shell.setLayoutMode("compare");
+    // The project's tab stops the work; the comparison's tab, shown again, recomputes, and
+    // review focus still has its commit once the project's tab shows again.
+    expect(tabs.comparisons).toHaveLength(1);
+    tabs.step(1);
     await settled();
     expect(calls.filter((c) => c.cmd === "compare")).toHaveLength(before + 2);
+    expect(review.target).toEqual({
+      kind: "range",
+      from: main.rev,
+      to: feature.rev,
+      threeDot: true,
+    });
+    await shell.setLayoutMode("review");
+    await settled();
+    expect(review.target).toEqual({ kind: "commit", hash: fakeCommit(2).hash });
+  });
+
+  it("opens the comparison in review focus on its range, its marks kept, its tab staying", async () => {
+    fakeBackend();
+    await openRepository();
+    const compare = useCompareStore();
+    const review = useReviewStore();
+    const shell = useShellStore();
+    compare.open(main, feature);
+    await settled();
+    await compare.openInReview();
+    await settled();
+    expect(shell.layoutMode).toBe("review");
     expect(review.chosenTarget).toEqual({
       kind: "range",
       from: main.rev,
       to: feature.rev,
       threeDot: true,
     });
+    expect(review.key).toBe(`${main.rev}...${feature.rev}`);
+    expect(useTabsStore().comparisons).toHaveLength(1);
   });
 });

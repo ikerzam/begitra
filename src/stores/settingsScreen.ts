@@ -9,7 +9,7 @@ import { computed, ref } from "vue";
 import * as ipc from "@/ipc/commands";
 import { toAppError, type AppError } from "@/ipc/errors";
 import type { AppInfo } from "@/ipc/schemas";
-import type { Platform } from "@/shortcuts/platform";
+import { sameKeys, type Platform } from "@/shortcuts/platform";
 import { shortcutRegistry, type ShortcutBinding } from "@/shortcuts/registry";
 
 import { useSettingsStore } from "./settings";
@@ -47,6 +47,8 @@ export const shortcutRows: readonly ShortcutRow[] = [
   { key: "toggleSidebar", groups: [["toggle-sidebar"]] },
   { key: "diffFrom", groups: [["diff-from"]] },
   { key: "compareWith", groups: [["compare-with"]] },
+  { key: "nextPreviousTab", groups: [["next-tab"], ["previous-tab"]] },
+  { key: "closeTab", groups: [["close-tab"]] },
   {
     key: "nextPreviousCommitOrFile",
     groups: [
@@ -82,13 +84,17 @@ export const shortcutRows: readonly ShortcutRow[] = [
 export type CaptureRefusal =
   { kind: "plain" } | { kind: "taken"; by: string } | { kind: "modifier-only" };
 
-/** The keys a keydown names, in the registry's notation; null for a lone modifier. */
+/**
+ * The keys a keydown names, in the registry's notation; null for a lone modifier. Control is
+ * `mod` on Windows and Linux, and `ctrl` on macOS, where `mod` is ⌘.
+ */
 export function keysOf(event: KeyboardEvent, platform: string): string | null {
   const key = event.key.toLowerCase();
   if (["control", "shift", "alt", "meta", "os"].includes(key)) return null;
   const parts: string[] = [];
   if (event.altKey) parts.push("alt");
   if (event.shiftKey) parts.push("shift");
+  if (platform === "macos" && event.ctrlKey) parts.push("ctrl");
   if (platform === "macos" ? event.metaKey : event.ctrlKey) parts.push("mod");
   parts.push(key === " " ? " " : key);
   return parts.join("+");
@@ -225,12 +231,12 @@ export const useSettingsScreenStore = defineStore("settingsScreen", () => {
     refusal.value = null;
   }
 
-  /** The id whose binding holds `keys`, other than the ones being changed. */
+  /** The id whose binding presses `keys`, other than the ones being changed. */
   function takenBy(keys: string, own: string[]): string | null {
     const registry = shortcutRegistry();
     for (const binding of registry.list()) {
       if (own.includes(binding.id)) continue;
-      if (binding.keys === keys) return binding.id;
+      if (sameKeys(binding.keys, keys, registry.platform)) return binding.id;
     }
     return null;
   }
@@ -260,10 +266,14 @@ export const useSettingsScreenStore = defineStore("settingsScreen", () => {
       return;
     }
     const overrides = { ...settings.values.shortcuts };
+    const registry = shortcutRegistry();
     for (const id of group) {
-      shortcutRegistry().rebind(id, keys);
-      if (shortcutRegistry().defaultKeys(id) === keys) delete overrides[id];
-      else overrides[id] = keys;
+      // A chord that presses the default's keys is the default, however it is written.
+      const fallback = registry.defaultKeys(id);
+      const bound = fallback && sameKeys(fallback, keys, registry.platform) ? fallback : keys;
+      registry.rebind(id, bound);
+      if (bound === fallback) delete overrides[id];
+      else overrides[id] = bound;
     }
     refusal.value = null;
     const next = current.group + 1;

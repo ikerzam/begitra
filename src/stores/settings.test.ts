@@ -188,6 +188,38 @@ describe("settings store", () => {
     expect(project.legacy?.layoutMode).toBe("project");
   });
 
+  it("opens the comparison a window was closed on as the open project's first tab, once", async () => {
+    const main = { kind: "revision", rev: "refs/heads/main", label: "main" };
+    const fix = { kind: "revision", rev: "refs/heads/claude/fix-auth", label: "claude/fix-auth" };
+    const store = useSettingsStore();
+    const storage = memoryStorage({
+      layoutMode: "compare",
+      compare: { a: main, b: fix },
+      activeProject: 3,
+    });
+    await store.init(storage, "windows");
+    expect(store.values.layoutMode).toBe("graph");
+    expect(store.values.tabs).toEqual({ "3": { comparisons: [{ a: main, b: fix }], active: 1 } });
+    // Written through at once, and the single comparison leaves the file.
+    expect(storage.data.get("layoutMode")).toBe("graph");
+    expect(storage.data.get("tabs")).toEqual(store.values.tabs);
+    expect(storage.data.has("compare")).toBe(false);
+
+    // A comparison stored beside another layout had been left: it goes, and no tab opens.
+    setActivePinia(createPinia());
+    const left = useSettingsStore();
+    const leftStorage = memoryStorage({
+      layoutMode: "review",
+      compare: { a: main, b: fix },
+      activeProject: 3,
+    });
+    await left.init(leftStorage, "windows");
+    expect(left.values.layoutMode).toBe("review");
+    expect(left.values.tabs).toEqual({});
+    expect(leftStorage.data.has("compare")).toBe(false);
+    expect(leftStorage.saved).toBe(1);
+  });
+
   it("overlays stored values and ignores invalid ones", async () => {
     const store = useSettingsStore();
     await store.init(

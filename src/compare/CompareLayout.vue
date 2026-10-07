@@ -97,7 +97,7 @@ const filesWidth = computed(() => `${shell.paneSizes.files}px`);
 function pick(side: CompareSide): void {
   const pair = endpoints.value;
   if (!pair) return;
-  picker.open({ kind: "compare", side, other: side === "a" ? pair.b : pair.a });
+  picker.open({ kind: "compare", side, other: side === "a" ? pair.b : pair.a, inTab: true });
 }
 
 /** Selects the merge base in the graph when the history lists it. */

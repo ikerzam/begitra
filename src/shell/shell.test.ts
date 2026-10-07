@@ -6,6 +6,8 @@ import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CommitNode, IndexEntry, Project, Repo } from "@/ipc/schemas";
+import { useCompareStore } from "@/stores/compare";
+import { usePickerStore } from "@/stores/picker";
 import { ShortcutRegistry, setShortcutRegistry, shortcutRegistry } from "@/shortcuts/registry";
 import { useGraphStore } from "@/stores/graph";
 import { useIndexStore } from "@/stores/index";
@@ -15,8 +17,9 @@ import { useProjectsStore } from "@/stores/projects";
 import { useRemotesStore } from "@/stores/remotes";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
-import { memoryStorage, useSettingsStore } from "@/stores/settings";
+import { memoryStorage, useSettingsStore, type CompareEndpoint } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
+import { useTabsStore } from "@/stores/tabs";
 import { useToastsStore } from "@/stores/toasts";
 import { mountWithI18n } from "@/test/mount";
 
@@ -870,12 +873,13 @@ describe("AppShell", () => {
       "origin/main is already part of",
     );
     expect(wrapper.get('[data-testid="status-hints"]').text()).toContain("commits");
-    expect(useSettingsStore().values.compare?.b.label).toBe("origin/main");
-    // ⌘1 leaves to the graph; the endpoints stay for the next launch.
+    expect(useTabsStore().activePair?.b.label).toBe("origin/main");
+    // ⌘1 leaves for the graph in the project's tab; the comparison's tab stays in the row.
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "1", ctrlKey: true }));
     await settle();
     expect(wrapper.find('[data-testid="graph-focus"]').exists()).toBe(true);
-    expect(useSettingsStore().values.compare).not.toBeNull();
+    expect(useTabsStore().comparisons).toHaveLength(1);
+    expect(wrapper.find('[data-testid="tab-row"]').exists()).toBe(true);
     wrapper.unmount();
   });
 
@@ -1756,6 +1760,263 @@ describe("Sidebar rail and panels", () => {
     await open(wrapper, "local");
     expect(wrapper.findAll("[title], svg title")).toHaveLength(0);
     expect(wrapper.findAll("[data-tooltip]").length).toBeGreaterThan(0);
+    wrapper.unmount();
+  });
+});
+
+describe("Tabs", () => {
+  const main: CompareEndpoint = { kind: "revision", rev: "refs/heads/main", label: "main" };
+  const upstream: CompareEndpoint = {
+    kind: "revision",
+    rev: "refs/remotes/origin/main",
+    label: "origin/main",
+  };
+  const older: CompareEndpoint = { kind: "revision", rev: commit(2).hash, label: "c2" };
+
+  async function openShell() {
+    const calls = backend();
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    await settle();
+    await useProjectsStore().open(1);
+    await settle();
+    return { wrapper, calls };
+  }
+
+  async function compare(a: CompareEndpoint, b: CompareEndpoint) {
+    useCompareStore().open(a, b);
+    await settle();
+  }
+
+  const row = (wrapper: VueWrapper) => wrapper.find('[data-testid="tab-row"]');
+  const names = (wrapper: VueWrapper) =>
+    wrapper.findAll('[data-testid="tab-name"]').map((name) => name.text());
+  const tabs = (wrapper: VueWrapper) => wrapper.findAll('[data-testid="tab"]');
+  const shown = (wrapper: VueWrapper) =>
+    tabs(wrapper).findIndex((tab) => tab.attributes("aria-selected") === "true");
+  const press = (key: string, init: KeyboardEventInit = {}) => {
+    const event = new KeyboardEvent("keydown", { key, ctrlKey: true, cancelable: true, ...init });
+    window.dispatchEvent(event);
+    return event;
+  };
+
+  it("shows no row with the project's tab alone, and the row once a comparison opens", async () => {
+    const { wrapper } = await openShell();
+    expect(row(wrapper).exists()).toBe(false);
+    await compare(main, upstream);
+    expect(names(wrapper)).toEqual(["Graph", "main ↔ origin/main"]);
+    expect(shown(wrapper)).toBe(1);
+    expect(wrapper.find('[data-testid="compare-layout"]').exists()).toBe(true);
+    // The whole name is the tab's tooltip, whatever the row cuts.
+    expect(tabs(wrapper)[1]?.attributes("data-tooltip")).toBe("main ↔ origin/main");
+    wrapper.unmount();
+  });
+
+  it("comes back to a comparison after ⌘1, recomputed, and the project's tab as it was", async () => {
+    const { wrapper, calls } = await openShell();
+    useRepoStore().select(1);
+    await compare(main, upstream);
+    const compared = calls.filter((cmd) => cmd === "compare").length;
+    press("1");
+    await settle();
+    expect(wrapper.find('[data-testid="graph-focus"]').exists()).toBe(true);
+    expect(names(wrapper)).toEqual(["Graph", "main ↔ origin/main"]);
+    expect(shown(wrapper)).toBe(0);
+    expect(useRepoStore().selectedIndex).toBe(1);
+    await tabs(wrapper)[1]!.trigger("click");
+    await settle();
+    expect(wrapper.find('[data-testid="compare-layout"]').exists()).toBe(true);
+    expect(calls.filter((cmd) => cmd === "compare")).toHaveLength(compared + 1);
+    // The project's tab shows the commit it had selected.
+    await tabs(wrapper)[0]!.trigger("click");
+    await settle();
+    expect(wrapper.find('[data-testid="graph-focus"]').exists()).toBe(true);
+    expect(useRepoStore().selectedIndex).toBe(1);
+    wrapper.unmount();
+  });
+
+  it("goes round the row with Ctrl Tab, and back with Ctrl Shift Tab", async () => {
+    const { wrapper } = await openShell();
+    await compare(main, upstream);
+    await compare(main, older);
+    await tabs(wrapper)[0]!.trigger("click");
+    await settle();
+    // Each opens after the tab shown: the second after the first.
+    expect(names(wrapper)).toEqual(["Graph", "main ↔ origin/main", "main ↔ c2"]);
+    const seen: number[] = [];
+    for (let step = 0; step < 3; step += 1) {
+      press("Tab");
+      await settle();
+      seen.push(shown(wrapper));
+    }
+    expect(seen).toEqual([1, 2, 0]);
+    press("Tab", { shiftKey: true });
+    await settle();
+    expect(shown(wrapper)).toBe(2);
+    // The palette names the key.
+    expect(shortcutRegistry().hint("next-tab")).toBe("Ctrl Tab");
+    wrapper.unmount();
+  });
+
+  it("gives a comparison's first list the focus when its tab shows, once its rows arrive", async () => {
+    const { wrapper } = await openShell();
+    await compare(main, upstream);
+    await compare(main, older);
+    await tabs(wrapper)[0]!.trigger("click");
+    await settle();
+    const inSideA = () => document.activeElement?.closest('[data-testid="side-main"]') != null;
+    press("Tab");
+    await settle();
+    expect(shown(wrapper)).toBe(1);
+    expect(inSideA()).toBe(true);
+    // To the next comparison: the layout stays and its lists load again.
+    press("Tab");
+    await settle();
+    expect(shown(wrapper)).toBe(2);
+    expect(inSideA()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("closes the comparison shown with Ctrl W, the tab before it showing; the project's tab never", async () => {
+    const { wrapper } = await openShell();
+    await compare(main, upstream);
+    await compare(main, older);
+    expect(names(wrapper)).toEqual(["Graph", "main ↔ origin/main", "main ↔ c2"]);
+    press("w");
+    await settle();
+    expect(names(wrapper)).toEqual(["Graph", "main ↔ origin/main"]);
+    expect(shown(wrapper)).toBe(1);
+    press("w");
+    await settle();
+    expect(row(wrapper).exists()).toBe(false);
+    expect(wrapper.find('[data-testid="graph-focus"]').exists()).toBe(true);
+    // On the project's tab the key closes nothing, and never reaches the webview.
+    const event = press("w");
+    await settle();
+    expect(event.defaultPrevented).toBe(true);
+    expect(wrapper.find('[data-testid="graph-focus"]').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("closes a tab from its close control and with a middle click, without showing it", async () => {
+    const { wrapper } = await openShell();
+    await compare(main, upstream);
+    await compare(main, older);
+    await tabs(wrapper)[1]!.get('[data-testid="tab-close"]').trigger("click");
+    await settle();
+    expect(names(wrapper)).toEqual(["Graph", "main ↔ c2"]);
+    expect(shown(wrapper)).toBe(1);
+    await tabs(wrapper)[1]!.trigger("auxclick", { button: 1 });
+    await settle();
+    expect(row(wrapper).exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("does nothing with the tabs' keys behind the palette", async () => {
+    const { wrapper } = await openShell();
+    await compare(main, upstream);
+    press("k");
+    await settle();
+    press("Tab");
+    press("w");
+    await settle();
+    expect(names(wrapper)).toEqual(["Graph", "main ↔ origin/main"]);
+    expect(shown(wrapper)).toBe(1);
+    wrapper.unmount();
+  });
+
+  it("keeps review focus on its own target while a comparison shows", async () => {
+    const { wrapper } = await openShell();
+    const review = useReviewStore();
+    review.setTarget({ kind: "commit", hash: commit(1).hash });
+    press("2");
+    await settle();
+    await compare(main, upstream);
+    expect(review.target).toEqual({
+      kind: "range",
+      from: main.rev,
+      to: upstream.rev,
+      threeDot: true,
+    });
+    press("2");
+    await settle();
+    expect(wrapper.find('[data-testid="review-focus"]').exists()).toBe(true);
+    expect(review.target).toEqual({ kind: "commit", hash: commit(1).hash });
+    expect(names(wrapper)).toEqual(["Review", "main ↔ origin/main"]);
+    wrapper.unmount();
+  });
+
+  it("shows the project's tab from a top bar toggle, the comparison's tab staying", async () => {
+    const { wrapper } = await openShell();
+    await compare(main, upstream);
+    // No toggle is pressed while a comparison shows.
+    expect(wrapper.findAll('[data-testid="top-bar"] [aria-pressed="true"]')).toHaveLength(0);
+    await wrapper.get('[data-testid="mode-changes"]').trigger("click");
+    await settle();
+    expect(names(wrapper)).toEqual(["Changes", "main ↔ origin/main"]);
+    expect(shown(wrapper)).toBe(0);
+    wrapper.unmount();
+  });
+
+  it("renames a tab when its sides swap, and shows an open pair's tab rather than another", async () => {
+    const { wrapper } = await openShell();
+    await compare(main, upstream);
+    useCompareStore().swap();
+    await settle();
+    expect(names(wrapper)).toEqual(["Graph", "origin/main ↔ main"]);
+    press("1");
+    await settle();
+    await compare(upstream, main);
+    expect(names(wrapper)).toEqual(["Graph", "origin/main ↔ main"]);
+    expect(shown(wrapper)).toBe(1);
+    wrapper.unmount();
+  });
+
+  it("changes the comparison of its own tab from an endpoint control, and opens another from Compare with", async () => {
+    const { wrapper } = await openShell();
+    await compare(main, upstream);
+    const picker = usePickerStore();
+    picker.open({ kind: "compare", side: "b", other: main, inTab: true });
+    await picker.choose({ kind: "revision", rev: older.rev, label: "c2" });
+    await settle();
+    expect(names(wrapper)).toEqual(["Graph", "main ↔ c2"]);
+    picker.open({ kind: "compare", side: "b", other: main });
+    await picker.choose({ kind: "revision", rev: upstream.rev, label: "origin/main" });
+    await settle();
+    expect(names(wrapper)).toEqual(["Graph", "main ↔ c2", "main ↔ origin/main"]);
+    expect(shown(wrapper)).toBe(2);
+    wrapper.unmount();
+  });
+
+  it("moves between the tabs with the arrows on the row, which keeps the focus", async () => {
+    const { wrapper } = await openShell();
+    await compare(main, upstream);
+    const active = tabs(wrapper)[1]!;
+    expect(active.attributes("tabindex")).toBe("0");
+    expect(tabs(wrapper)[0]?.attributes("tabindex")).toBe("-1");
+    (active.element as HTMLElement).focus();
+    await active.trigger("keydown", { key: "ArrowLeft" });
+    await settle();
+    expect(shown(wrapper)).toBe(0);
+    expect(document.activeElement).toBe(tabs(wrapper)[0]?.element);
+    await tabs(wrapper)[0]!.trigger("keydown", { key: "ArrowLeft" });
+    await settle();
+    expect(shown(wrapper)).toBe(1);
+    expect(document.activeElement).toBe(tabs(wrapper)[1]?.element);
+    wrapper.unmount();
+  });
+
+  it("reopens on the comparison's tab the window was closed on", async () => {
+    backend();
+    const settings = useSettingsStore();
+    await settings.update("activeProject", 1);
+    await settings.update("tabs", {
+      "1": { comparisons: [{ a: main, b: upstream }], active: 1 },
+    });
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    await settle();
+    expect(wrapper.find('[data-testid="compare-layout"]').exists()).toBe(true);
+    expect(names(wrapper)).toEqual(["Graph", "main ↔ origin/main"]);
+    expect(shown(wrapper)).toBe(1);
     wrapper.unmount();
   });
 });

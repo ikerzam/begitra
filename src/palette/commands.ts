@@ -59,7 +59,13 @@ export interface PaletteActions {
   /** Opens the picker of "Compare with…" for the selected commit or the current branch. */
   compareWith: () => void;
   inComparison: () => boolean;
-  swapComparison: () => Promise<void>;
+  swapComparison: () => void;
+  /** Whether the open project has a comparison's tab beside its own. */
+  hasTabs: () => boolean;
+  nextTab: () => void;
+  previousTab: () => void;
+  /** Closes the comparison's tab shown. */
+  closeTab: () => void;
   openComparisonInReview: () => Promise<void>;
   showWorktrees: () => Promise<void>;
   /** Opens the Changes: the changes screen, or the folder view of a project of several. */
@@ -290,6 +296,27 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       labelKey: "palette.commandsById.compare-open-review",
       enabled: () => withRepo() && actions.inComparison(),
       run: actions.openComparisonInReview,
+    },
+    {
+      id: "next-tab",
+      labelKey: "palette.commandsById.next-tab",
+      shortcutId: "next-tab",
+      enabled: actions.hasTabs,
+      run: actions.nextTab,
+    },
+    {
+      id: "previous-tab",
+      labelKey: "palette.commandsById.previous-tab",
+      shortcutId: "previous-tab",
+      enabled: actions.hasTabs,
+      run: actions.previousTab,
+    },
+    {
+      id: "close-tab",
+      labelKey: "palette.commandsById.close-tab",
+      shortcutId: "close-tab",
+      enabled: actions.inComparison,
+      run: actions.closeTab,
     },
     {
       id: "settings",

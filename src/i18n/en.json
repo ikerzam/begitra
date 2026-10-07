@@ -542,6 +542,9 @@
       "compare-with": "Compare with…",
       "swap-comparison": "Swap comparison sides",
       "compare-open-review": "Open comparison in review",
+      "next-tab": "Next tab",
+      "previous-tab": "Previous tab",
+      "close-tab": "Close tab",
       "show-worktrees": "Show worktrees",
       "add-worktree": "Add worktree…",
       "prune-worktrees": "Prune worktrees",
@@ -654,6 +657,16 @@
     "mergeInto": "Merge into {branch}",
     "rebaseOnto": "Rebase {branch} onto",
     "createFrom": "Create a branch from"
+  },
+  "tabs": {
+    "label": "Tabs",
+    "graph": "Graph",
+    "review": "Review",
+    "changes": "Changes",
+    "overview": "Overview",
+    "worktrees": "Worktrees",
+    "settings": "Settings",
+    "comparison": "{a} ↔ {b}"
   },
   "compare": {
     "title": "Compare",
@@ -1278,6 +1291,8 @@
         "toggleSidebar": "Toggle sidebar panel",
         "diffFrom": "Diff from…",
         "compareWith": "Compare with…",
+        "nextPreviousTab": "Next / previous tab",
+        "closeTab": "Close tab",
         "nextPreviousCommitOrFile": "Next / previous commit or file",
         "nextPreviousHunk": "Next / previous hunk",
         "markReviewed": "Mark reviewed",

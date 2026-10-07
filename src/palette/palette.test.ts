@@ -213,10 +213,11 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
     sequencer: (action) => {
       calls.push(`sequencer:${action}`);
     },
-    swapComparison: () => {
-      calls.push("swapComparison");
-      return Promise.resolve();
-    },
+    swapComparison: record("swapComparison"),
+    hasTabs: () => false,
+    nextTab: record("nextTab"),
+    previousTab: record("previousTab"),
+    closeTab: record("closeTab"),
     openComparisonInReview: () => {
       calls.push("openComparisonInReview");
       return Promise.resolve();

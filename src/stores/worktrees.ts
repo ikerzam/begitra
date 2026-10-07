@@ -247,12 +247,12 @@ export const useWorktreesStore = defineStore("worktrees", () => {
   }
 
   /** The comparison of the main branch with the worktree. */
-  async function compareWithMain(path: string): Promise<void> {
+  function compareWithMain(path: string): void {
     const row = rows.value.find((entry) => entry.path === path);
     const main = mainBranch.value;
     const rev = row?.branch ?? row?.head;
     if (!row || !main || !rev) return;
-    await compare.open(
+    compare.open(
       { kind: "revision", rev: main, label: main },
       { kind: "worktree", rev, label: row.name },
     );

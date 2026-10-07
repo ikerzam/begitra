@@ -113,7 +113,23 @@ const tabStop = computed(() =>
   selectedIndex.value >= 0 ? selectedIndex.value : virtual.range.value.start,
 );
 
-defineExpose({ focus: navigation.focus });
+/* The comparison asks for the focus as it shows, before its first page: the first rows take it
+   when they arrive, unless something else took it meanwhile. */
+let focusWanted = false;
+function focus(): void {
+  focusWanted = commitCount.value === 0;
+  if (!focusWanted) navigation.focus();
+}
+watch(commitCount, (count) => {
+  if (!focusWanted || count === 0) return;
+  focusWanted = false;
+  void nextTick(() => {
+    const active = document.activeElement;
+    if (!active || active === document.body) navigation.focus();
+  });
+});
+
+defineExpose({ focus });
 </script>
 
 <template>

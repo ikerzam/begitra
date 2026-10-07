@@ -1,9 +1,9 @@
 <script setup lang="ts">
-// The window: top bar, the layout of the active mode, status bar, palette and toasts, plus
-// the global shortcuts, the window width the review rail collapse depends on, the drop
-// target, the watcher of the open repository, and the launch: the projects load, a settings
-// file of a version before projects takes its one-time step, and the open project reopens on
-// the repository it showed while the index loads beside it.
+// The window: top bar, the row of the open project's tabs, the layout of the tab shown, status
+// bar, palette and toasts, plus the global shortcuts, the window width the review rail collapse
+// depends on, the drop target, the watcher of the open repository, and the launch: the projects
+// load, a settings file of a version before projects takes its one-time step, and the open
+// project reopens on the repository it showed while the index loads beside it.
 
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
@@ -42,8 +42,8 @@ import { useFolderStore } from "@/stores/folder";
 import { useProjectsStore } from "@/stores/projects";
 import { useBulkStore } from "@/stores/bulk";
 import { useProjectDialogsStore } from "@/stores/projectDialogs";
-import { useSettingsStore } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
+import { useTabsStore } from "@/stores/tabs";
 import { useWorktreesStore } from "@/stores/worktrees";
 import { useSettingsScreenStore } from "@/stores/settingsScreen";
 import SettingsLayout from "@/settings/SettingsLayout.vue";
@@ -55,6 +55,7 @@ import ReviewFocusLayout from "./ReviewFocusLayout.vue";
 import SidebarPanel from "./SidebarPanel.vue";
 import SidebarRail from "./SidebarRail.vue";
 import StatusBar from "./StatusBar.vue";
+import TabRow from "./TabRow.vue";
 import TextMenu from "./TextMenu.vue";
 import ToastHost from "./ToastHost.vue";
 import TopBar from "./TopBar.vue";
@@ -66,9 +67,9 @@ import { useNativeMenu, type TextMenuRequest } from "./useNativeMenu";
 import { useZoom } from "./useZoom";
 
 const shell = useShellStore();
+const tabs = useTabsStore();
 const repo = useRepoStore();
 const index = useIndexStore();
-const settings = useSettingsStore();
 const folder = useFolderStore();
 const projects = useProjectsStore();
 const bulk = useBulkStore();
@@ -97,12 +98,7 @@ const changesLayout = ref<{ focusLists(): void } | null>(null);
 const projectLayout = ref<{ focus(): void } | null>(null);
 
 const reviewMode = computed(() => shell.layoutMode === "review" && repo.state.kind === "ready");
-const compareMode = computed(
-  () =>
-    shell.layoutMode === "compare" &&
-    repo.state.kind === "ready" &&
-    settings.values.compare !== null,
-);
+const compareMode = computed(() => shell.layoutMode === "compare" && repo.state.kind === "ready");
 const worktreesMode = computed(
   () => shell.layoutMode === "worktrees" && repo.state.kind === "ready",
 );
@@ -188,6 +184,20 @@ useShortcut("overview-focus", () => {
 useShortcut("diff-from", () => {
   if (repo.state.kind === "ready") picker.open({ kind: "diff-from" });
 });
+// The tabs' keys act on the window, never behind a dialog, a menu or the palette; ⌘W on the
+// project's tab closes nothing, and the webview never sees it.
+useShortcut(
+  "next-tab",
+  outsideOverlays(() => tabs.step(1)),
+);
+useShortcut(
+  "previous-tab",
+  outsideOverlays(() => tabs.step(-1)),
+);
+useShortcut(
+  "close-tab",
+  outsideOverlays(() => void tabs.closeActive()),
+);
 useShortcut("next-project-repo", () => void projects.openNeighbour(1));
 useShortcut("previous-project-repo", () => void projects.openNeighbour(-1));
 // Fetch and Pull as the top bar's buttons do, a toast saying why when they cannot; neither acts
@@ -246,6 +256,7 @@ async function launch(): Promise<void> {
   await settingsScreen.applyAtLaunch();
   void index.load();
   await projects.load();
+  tabs.prune(projects.projects.map((project) => project.id));
   await projects.migrateSettings();
   await projects.restore();
 }
@@ -297,19 +308,39 @@ watch(
   () => shell.sidebarPanel,
   (panel, previous) => {
     if (panel !== null || previous === null || shell.sidebarCloseReason !== "other") return;
-    void nextTick(() => {
-      const active = document.activeElement;
-      if (active && active !== document.body) return;
-      if (reviewMode.value) reviewLayout.value?.focusFiles();
-      else if (compareMode.value) compareLayout.value?.focusSides();
-      else if (worktreesMode.value) worktreesLayout.value?.focusRows();
-      else if (settingsMode.value) settingsLayout.value?.focus();
-      else if (changesMode.value) changesLayout.value?.focusLists();
-      else if (projectMode.value) projectLayout.value?.focus();
-      else graphLayout.value?.focusRows();
-    });
+    focusLayout();
   },
 );
+
+/**
+ * Another tab shown (a click, Ctrl Tab, ⌘W): the layout it shows takes the focus on its list
+ * when the one it replaced took the focus with it. Between two comparisons the layout stays, and
+ * so does the focus; ← and → keep it on the row.
+ */
+watch(
+  () => tabs.activeId,
+  () => focusLayout(),
+);
+
+/** The layout shown takes the focus on its list, on the next tick, when nothing holds it. */
+function focusLayout(): void {
+  void nextTick(() => {
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    if (reviewMode.value) reviewLayout.value?.focusFiles();
+    else if (compareMode.value) compareLayout.value?.focusSides();
+    else if (worktreesMode.value) worktreesLayout.value?.focusRows();
+    else if (settingsMode.value) settingsLayout.value?.focus();
+    else if (changesMode.value) changesLayout.value?.focusLists();
+    else if (projectMode.value) projectLayout.value?.focus();
+    else graphLayout.value?.focusRows();
+  });
+}
+
+/** The tab row holds the focus: its arrows move between the tabs and keep it there. */
+function rowHoldsFocus(): boolean {
+  return document.activeElement?.closest('[data-testid="tab-row"]') != null;
+}
 
 /** The commit rows take the focus on the next tick, when nothing else holds it. */
 function focusGraphRows(): void {
@@ -322,28 +353,46 @@ function focusGraphRows(): void {
 
 // Review focus starts on the files list, so j/k work at once (the status bar says so).
 watch(reviewMode, (on) => {
-  if (on) void nextTick(() => reviewLayout.value?.focusFiles());
+  if (!on) return;
+  void nextTick(() => {
+    if (!rowHoldsFocus()) reviewLayout.value?.focusFiles();
+  });
 });
 
 // The comparison starts on the "Only in A" list for the same reason.
 watch(compareMode, (on) => {
-  if (on) void nextTick(() => compareLayout.value?.focusSides());
+  if (!on) return;
+  void nextTick(() => {
+    if (!rowHoldsFocus()) compareLayout.value?.focusSides();
+  });
 });
 
 // The dashboard starts on its rows ("j/k worktrees"); the settings on their first field.
 watch(worktreesMode, (on) => {
-  if (on) void nextTick(() => worktreesLayout.value?.focusRows());
+  if (!on) return;
+  void nextTick(() => {
+    if (!rowHoldsFocus()) worktreesLayout.value?.focusRows();
+  });
 });
 watch(settingsMode, (on) => {
-  if (on) void nextTick(() => settingsLayout.value?.focus());
+  if (!on) return;
+  void nextTick(() => {
+    if (!rowHoldsFocus()) settingsLayout.value?.focus();
+  });
 });
 
 // The changes screen starts on its lists ("j/k files", "s stage"), and so does the folder view.
 watch(changesMode, (on) => {
-  if (on) void nextTick(() => changesLayout.value?.focusLists());
+  if (!on) return;
+  void nextTick(() => {
+    if (!rowHoldsFocus()) changesLayout.value?.focusLists();
+  });
 });
 watch(projectMode, (on) => {
-  if (on) void nextTick(() => projectLayout.value?.focus());
+  if (!on) return;
+  void nextTick(() => {
+    if (!rowHoldsFocus()) projectLayout.value?.focus();
+  });
 });
 
 /** Switches to review focus, on `file` when the detail tree chose one. */
@@ -375,6 +424,7 @@ function removeFromProject(): void {
       @open-palette="shell.openPalette()"
       @set-layout-mode="(mode) => void shell.setLayoutMode(mode)"
     />
+    <TabRow v-if="tabs.comparisons.length > 0" />
     <OperationBanner />
     <div class="relative flex min-h-0 flex-1">
       <SidebarRail v-if="sidebarAvailable" />

@@ -542,6 +542,9 @@
       "compare-with": "Comparar con…",
       "swap-comparison": "Intercambiar los lados de la comparación",
       "compare-open-review": "Abrir la comparación en revisión",
+      "next-tab": "Pestaña siguiente",
+      "previous-tab": "Pestaña anterior",
+      "close-tab": "Cerrar pestaña",
       "show-worktrees": "Mostrar los worktrees",
       "add-worktree": "Añadir worktree…",
       "prune-worktrees": "Limpiar los worktrees",
@@ -654,6 +657,16 @@
     "mergeInto": "Fusionar en {branch}",
     "rebaseOnto": "Rebasar {branch} sobre",
     "createFrom": "Crear una rama desde"
+  },
+  "tabs": {
+    "label": "Pestañas",
+    "graph": "Grafo",
+    "review": "Revisión",
+    "changes": "Cambios",
+    "overview": "Resumen",
+    "worktrees": "Worktrees",
+    "settings": "Ajustes",
+    "comparison": "{a} ↔ {b}"
   },
   "compare": {
     "title": "Comparar",
@@ -1278,6 +1291,8 @@
         "toggleSidebar": "Mostrar u ocultar el panel lateral",
         "diffFrom": "Diff desde…",
         "compareWith": "Comparar con…",
+        "nextPreviousTab": "Pestaña siguiente / anterior",
+        "closeTab": "Cerrar pestaña",
         "nextPreviousCommitOrFile": "Commit o fichero siguiente / anterior",
         "nextPreviousHunk": "Hunk siguiente / anterior",
         "markReviewed": "Marcar como revisado",

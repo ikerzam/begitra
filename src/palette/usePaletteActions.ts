@@ -31,6 +31,7 @@ import { useProjectDialogsStore } from "@/stores/projectDialogs";
 import { useProjectsStore, type ProjectMember } from "@/stores/projects";
 import { useSettingsStore } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
+import { useTabsStore } from "@/stores/tabs";
 import { useWorktreesStore } from "@/stores/worktrees";
 import { shortcutRegistry } from "@/shortcuts/registry";
 
@@ -59,6 +60,7 @@ export function usePaletteActions(): PaletteActions {
   const projectDialogs = useProjectDialogsStore();
   const syncActions = useSyncActions();
   const sidebarAvailable = useSidebarAvailable();
+  const tabs = useTabsStore();
 
   return {
     hasRepository: () => repo.state.kind === "ready",
@@ -123,6 +125,10 @@ export function usePaletteActions(): PaletteActions {
     compareWith: () => void shortcutRegistry().run("compare-with"),
     inComparison: () => shell.layoutMode === "compare",
     swapComparison: () => compare.swap(),
+    hasTabs: () => tabs.comparisons.length > 0,
+    nextTab: () => tabs.step(1),
+    previousTab: () => tabs.step(-1),
+    closeTab: () => void tabs.closeActive(),
     openComparisonInReview: () => compare.openInReview(),
     showWorktrees: () => worktrees.show(),
     showChanges: () => shell.setLayoutMode("changes"),

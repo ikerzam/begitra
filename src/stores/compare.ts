@@ -1,7 +1,8 @@
 // The comparison of two endpoints: the merge base with the counts of commits only
 // on each side, the merge preview, the two side lists streamed as range walks, and the file
-// summary, which is the review target `a...b` on the review's panel and viewer. The endpoints
-// persist in the settings with the layout, so a restart on the comparison recomputes it.
+// summary, which is the review's comparison target `a...b` on its panel and viewer. The endpoints
+// are the tab's shown (`tabs.ts`): each comparison has its tab, remembered with the project, and
+// showing it recomputes the comparison.
 
 import { defineStore } from "pinia";
 import { computed, ref, shallowRef, watch } from "vue";
@@ -15,8 +16,9 @@ import type { StreamHandle } from "@/ipc/stream";
 import { useOperationsStore } from "./operations";
 import { useRepoStore } from "./repo";
 import { useReviewStore } from "./review";
-import { useSettingsStore, type CompareEndpoint, type CompareEndpoints } from "./settings";
+import type { CompareEndpoint, CompareEndpoints } from "./settings";
 import { useShellStore } from "./shell";
+import { useTabsStore } from "./tabs";
 
 export type CompareSide = "a" | "b";
 
@@ -41,8 +43,8 @@ const PAGES_PER_REQUEST = 1;
 export const useCompareStore = defineStore("compare", () => {
   const repo = useRepoStore();
   const review = useReviewStore();
-  const settings = useSettingsStore();
   const shell = useShellStore();
+  const tabs = useTabsStore();
   const operations = useOperationsStore();
 
   const comparison = shallowRef<Comparison | null>(null);
@@ -57,12 +59,12 @@ export const useCompareStore = defineStore("compare", () => {
   let previewOpId: string | null = null;
   const handles: Record<CompareSide, StreamHandle | null> = { a: null, b: null };
 
-  const endpoints = computed<CompareEndpoints | null>(() => settings.values.compare);
+  const endpoints = computed<CompareEndpoints | null>(() => tabs.activePair);
   /** Both endpoints name the same commit: nothing to compare. */
   const same = computed(() => comparison.value?.relation === "same");
   /** The paths the preview reports as conflicting. */
   const conflicts = computed(() => new Set(preview.value?.conflicts ?? []));
-  const active = computed(() => shell.layoutMode === "compare" && endpoints.value !== null);
+  const active = computed(() => endpoints.value !== null);
 
   function stopAll(): void {
     serial += 1;
@@ -100,7 +102,7 @@ export const useCompareStore = defineStore("compare", () => {
     if (!pair || !root || repo.state.kind !== "ready") return;
     const mine = serial;
     const current = () => mine === serial;
-    review.setTarget(targetOf(pair));
+    review.setComparisonTarget(targetOf(pair));
     comparing.value = true;
     const opId = newOpId("compare");
     operations.start(opId, "operations.comparing");
@@ -213,44 +215,45 @@ export const useCompareStore = defineStore("compare", () => {
     void settle(side, handle, mine);
   }
 
-  /** Opens the comparison of `a` with `b` and shows the compare layout. */
-  async function open(a: CompareEndpoint, b: CompareEndpoint): Promise<void> {
-    // Both values apply at once; the promises only wait for the settings file.
-    await Promise.all([settings.update("compare", { a, b }), shell.setLayoutMode("compare")]);
+  /** Shows the comparison of `a` with `b`: its tab when one is open, else a new one. */
+  function open(a: CompareEndpoint, b: CompareEndpoint): void {
+    tabs.openComparison(a, b);
   }
 
-  /** Replaces one endpoint of the open comparison. */
-  async function setEndpoint(side: CompareSide, endpoint: CompareEndpoint): Promise<void> {
+  /** Replaces one endpoint of the comparison shown, in its tab. */
+  function setEndpoint(side: CompareSide, endpoint: CompareEndpoint): void {
     const pair = endpoints.value;
     if (!pair) return;
-    await open(side === "a" ? endpoint : pair.a, side === "b" ? endpoint : pair.b);
+    tabs.setPair(side === "a" ? endpoint : pair.a, side === "b" ? endpoint : pair.b);
   }
 
   /** Exchanges the endpoints: the counts trade places and the file summary flips. */
-  async function swap(): Promise<void> {
+  function swap(): void {
     const pair = endpoints.value;
-    if (!pair) return;
-    await open(pair.b, pair.a);
+    if (pair) tabs.setPair(pair.b, pair.a);
   }
 
   function reload(): void {
     load();
   }
 
-  /** Review focus on the same target: the marks and notes carry over. */
+  /** Review focus on the same target, in the project's tab: the marks and notes carry over,
+   * and the comparison's tab stays. */
   async function openInReview(): Promise<void> {
     const pair = endpoints.value;
     if (!pair) return;
+    const shown = shell.setLayoutMode("review");
     review.setTarget(targetOf(pair));
-    await shell.setLayoutMode("review");
+    await shown;
   }
 
   /** A side-list commit chosen with Enter: the graph selects it when it lists it, and review
-   * focus opens on it. */
+   * focus opens on it in the project's tab. */
   async function openCommit(hash: string): Promise<void> {
     selectCommit(hash);
+    const shown = shell.setLayoutMode("review");
     review.setTarget({ kind: "commit", hash });
-    await shell.setLayoutMode("review");
+    await shown;
   }
 
   /** Selects the commit in the graph when the loaded history lists it. */
@@ -265,13 +268,16 @@ export const useCompareStore = defineStore("compare", () => {
     if (active.value && kinds.includes("refs")) load();
   }
 
-  // Entering the layout with stored endpoints (a restart, or ⌘1 and back), or changing an
-  // endpoint while in it, recomputes; leaving it stops the streams.
+  // Showing a comparison's tab (a restart on it, a click, Ctrl Tab), or changing an endpoint in
+  // it, recomputes; the project's tab stops the streams and gives the review its own target back.
   watch(
     () => [active.value, repo.state.kind, endpoints.value] as const,
     ([on, state]) => {
       if (on && state === "ready") load();
-      else stopAll();
+      else {
+        stopAll();
+        if (!on) review.setComparisonTarget(null);
+      }
     },
     { immediate: true },
   );

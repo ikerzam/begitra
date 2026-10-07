@@ -16,8 +16,10 @@ import { PALETTE_THEMES, type PaletteThemeId } from "@/styles/themes";
 
 import { lineTemplates } from "./externalTemplates";
 
-export type LayoutMode =
-  "graph" | "review" | "compare" | "worktrees" | "settings" | "changes" | "overview";
+/** The layouts of the project's tab, which the top bar, ⌘1 to ⌘4 and the gear choose. */
+export type ProjectLayout = "graph" | "review" | "worktrees" | "settings" | "changes" | "overview";
+/** The layout shown: the project's tab's, or the comparison of a comparison's tab. */
+export type LayoutMode = ProjectLayout | "compare";
 export type TabWidth = 2 | 4 | 8;
 
 /** The filters a new review starts with (the settings' Diff section, "Hide by default"). */
@@ -56,10 +58,16 @@ export interface CompareEndpoint {
   label: string;
 }
 
-/** The two endpoints of the comparison the app was closed on. */
+/** The two endpoints of a comparison. */
 export interface CompareEndpoints {
   a: CompareEndpoint;
   b: CompareEndpoint;
+}
+
+/** A project's comparison tabs, and the tab it showed: 0 its own, n the n-th comparison. */
+export interface ProjectTabs {
+  comparisons: CompareEndpoints[];
+  active: number;
 }
 
 /** Widths in px of the resizable columns of the table with a header; the last takes the rest. */
@@ -83,7 +91,8 @@ export interface Settings {
   editorLineCommand: string;
   paneSizes: PaneSizes;
   columnWidths: ColumnWidths;
-  layoutMode: LayoutMode;
+  /** The layout of the project's tab. */
+  layoutMode: ProjectLayout;
   locale: Locale;
   /** Ids of the last commands run from the palette, most recent first. */
   paletteRecents: string[];
@@ -103,8 +112,8 @@ export interface Settings {
   diffIgnoreWhitespace: boolean;
   /** Show every unchanged line of a file in the diff viewer, not only the hunks' context. */
   diffWholeFile: boolean;
-  /** The comparison to restore with the compare layout; null when none was open. */
-  compare: CompareEndpoints | null;
+  /** Each project's comparison tabs, by project id. */
+  tabs: Record<string, ProjectTabs>;
   /** Where new worktrees go; null means a sibling folder of the repository. */
   worktreeFolder: string | null;
   /** The git executable the CLI runs; null means `git` on PATH. */
@@ -147,6 +156,7 @@ const endpoint = v.object({
   rev: v.pipe(v.string(), v.minLength(1), v.maxLength(200)),
   label: v.pipe(v.string(), v.minLength(1)),
 });
+const pair = v.object({ a: endpoint, b: endpoint });
 
 const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } = {
   terminalCommand: v.pipe(v.string(), v.minLength(1)),
@@ -156,15 +166,7 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   columnWidths: v.object({
     worktrees: v.object({ path: px, branch: px, state: px, ahead: px }),
   }),
-  layoutMode: v.picklist([
-    "graph",
-    "review",
-    "compare",
-    "worktrees",
-    "settings",
-    "changes",
-    "overview",
-  ]),
+  layoutMode: v.picklist(["graph", "review", "worktrees", "settings", "changes", "overview"]),
   locale: v.picklist(["en", "es"]),
   paletteRecents: v.array(v.string()),
   skipFolders: v.array(path),
@@ -175,7 +177,13 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   diffWrap: v.boolean(),
   diffIgnoreWhitespace: v.boolean(),
   diffWholeFile: v.boolean(),
-  compare: v.nullable(v.object({ a: endpoint, b: endpoint })),
+  tabs: v.record(
+    v.string(),
+    v.object({
+      comparisons: v.array(pair),
+      active: v.pipe(v.number(), v.integer(), v.minValue(0)),
+    }),
+  ),
   worktreeFolder: v.nullable(path),
   gitExecutable: v.nullable(path),
   tabWidth: v.picklist([2, 4, 8]),
@@ -263,7 +271,7 @@ export function defaultSettings(platform: Platform): Settings {
     diffWrap: false,
     diffIgnoreWhitespace: false,
     diffWholeFile: false,
-    compare: null,
+    tabs: {},
     worktreeFolder: null,
     gitExecutable: null,
     tabWidth: 4,
@@ -348,12 +356,37 @@ export const useSettingsStore = defineStore("settings", () => {
     });
     // The mapped layout is written through, so the file holds no retired layout past this read.
     if (oldLayout && !pending.has("layoutMode")) pending.set("layoutMode", oldLayout);
+    const comparison = await readComparison(backend, layout === "compare", next);
     legacy.value = await readLegacy(backend, oldLayout ? (layout as "project" | "folder") : null);
     for (const [key, value] of pending) (next as unknown as Record<string, unknown>)[key] = value;
     values.value = next;
     storage = backend;
     loaded.value = true;
     if (pending.size > 0) await flush();
+    else if (comparison) await backend.save();
+  }
+
+  /**
+   * A file holding one comparison (`compare`) beside the compare layout: the open project's first
+   * comparison tab, shown, and the project's tab in graph focus; the key goes from the file.
+   * A comparison stored with another layout had been left, and goes. True when the key was there.
+   */
+  async function readComparison(
+    backend: SettingsStorage,
+    shown: boolean,
+    next: Settings,
+  ): Promise<boolean> {
+    const stored = await backend.get<unknown>("compare");
+    if (shown && !pending.has("layoutMode")) pending.set("layoutMode", "graph");
+    if (stored === undefined) return false;
+    const parsed = v.safeParse(pair, stored);
+    const project = next.activeProject;
+    if (shown && parsed.success && project !== null && !(String(project) in next.tabs)) {
+      const tabs = { ...next.tabs, [String(project)]: { comparisons: [parsed.output], active: 1 } };
+      if (!pending.has("tabs")) pending.set("tabs", tabs);
+    }
+    await backend.delete("compare");
+    return true;
   }
 
   /** The keys of a version before projects, validated one by one; null when none is there. */

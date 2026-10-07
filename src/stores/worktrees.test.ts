@@ -336,7 +336,7 @@ describe("worktrees store", () => {
 
   it("opens the comparison of main with the worktree's branch", async () => {
     const { worktrees } = await openDashboard();
-    await worktrees.compareWithMain("/wt/claude-auth");
+    worktrees.compareWithMain("/wt/claude-auth");
     await settled();
     const compare = useCompareStore();
     expect(useShellStore().layoutMode).toBe("compare");

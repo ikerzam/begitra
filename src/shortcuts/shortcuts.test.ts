@@ -2,7 +2,7 @@ import { mount } from "@vue/test-utils";
 import { defineComponent, nextTick, ref } from "vue";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { detectPlatform, formatShortcut, matchesKeys, parseKeys } from "./platform";
+import { detectPlatform, formatShortcut, matchesKeys, parseKeys, sameKeys } from "./platform";
 import {
   ShortcutRegistry,
   defaultBindings,
@@ -68,6 +68,34 @@ describe("platform", () => {
     expect(matchesKeys("shift+mod+c", key("C", { ctrl: true, shift: true }), "windows")).toBe(true);
     expect(matchesKeys("j", key("j"), "linux")).toBe(true);
     expect(matchesKeys("j", key("j", { ctrl: true }), "linux")).toBe(false);
+  });
+
+  it("reads ctrl as Control on macOS, where mod is ⌘, and as Ctrl elsewhere", () => {
+    expect(formatShortcut("ctrl+tab", "windows")).toBe("Ctrl Tab");
+    expect(formatShortcut("shift+ctrl+tab", "linux")).toBe("Ctrl Shift Tab");
+    expect(formatShortcut("ctrl+tab", "macos")).toBe("⌃⇥");
+    expect(formatShortcut("shift+ctrl+tab", "macos")).toBe("⌃⇧⇥");
+    expect([...parseKeys("Shift+Ctrl+Tab").modifiers].sort()).toEqual(["ctrl", "shift"]);
+    expect(matchesKeys("ctrl+tab", key("Tab", { ctrl: true }), "windows")).toBe(true);
+    expect(matchesKeys("ctrl+tab", key("Tab", { ctrl: true }), "macos")).toBe(true);
+    expect(matchesKeys("ctrl+tab", key("Tab", { meta: true }), "macos")).toBe(false);
+    expect(matchesKeys("ctrl+tab", key("Tab", { ctrl: true, meta: true }), "macos")).toBe(false);
+    expect(matchesKeys("ctrl+tab", key("Tab", { meta: true }), "windows")).toBe(false);
+    expect(matchesKeys("ctrl+tab", key("Tab"), "windows")).toBe(false);
+    expect(matchesKeys("ctrl+tab", key("Tab", { ctrl: true, shift: true }), "windows")).toBe(false);
+    expect(matchesKeys("shift+ctrl+tab", key("Tab", { ctrl: true, shift: true }), "linux")).toBe(
+      true,
+    );
+    // ⌘ chords stay ⌘ on macOS: Control does not stand in for them.
+    expect(matchesKeys("mod+w", key("w", { ctrl: true }), "macos")).toBe(false);
+  });
+
+  it("tells chords apart by what they press, not by how they are written", () => {
+    expect(sameKeys("ctrl+tab", "mod+tab", "windows")).toBe(true);
+    expect(sameKeys("ctrl+tab", "mod+tab", "macos")).toBe(false);
+    expect(sameKeys("shift+mod+c", "Mod+Shift+C", "macos")).toBe(true);
+    expect(sameKeys("mod+c", "shift+mod+c", "windows")).toBe(false);
+    expect(sameKeys("mod+=", "mod+-", "linux")).toBe(false);
   });
 
   it("takes = and + as one key for the zoom, whatever Shift or the layout says", () => {
