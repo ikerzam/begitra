@@ -3,6 +3,7 @@
 // git's first line; the whole output stays one click away.
 
 import type { AppError } from "@/ipc/errors";
+import { DIVERGED_PULL } from "@/remotes/gitWords";
 
 import type { FailureReason } from "./run";
 
@@ -25,7 +26,7 @@ const patterns: [FailureReason, RegExp][] = [
     "rejected",
     /\[rejected\]|\[remote rejected\]|non-fast-forward|\(fetch first\)|pre-receive hook declined/,
   ],
-  ["diverged", /Not possible to fast-forward|Diverging branches can't be fast-forwarded/],
+  ["diverged", DIVERGED_PULL],
   ["local-changes", /would be overwritten|Please commit your changes or stash them/],
   ["branch-exists", /a branch named '.*' already exists/],
   [

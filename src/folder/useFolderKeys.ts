@@ -2,7 +2,7 @@
 // order, entering the next section on its first row (or the one before on its last) and
 // passing the closed sections and those that draw no row; s, u and Backspace act on the picked
 // lines, else on the selected file, in its repository, a discard confirming once; ⌘↵ commits
-// the box's repository, pushed as the box says, and ⇧⌘↵ commits and pushes it.
+// the box's repository, and ⇧⌘↵ commits and pushes it.
 
 import type { Ref } from "vue";
 
@@ -87,7 +87,7 @@ export function useFolderKeys(options: {
   useShortcut("discard-file", () => actOnSelected("discard"));
   useShortcut("commit", () => {
     const view = folder.active?.view;
-    if (view) void pushing.submit(view);
+    if (view) void view.commit();
   });
   useShortcut("commit-push", () => {
     const view = folder.active?.view;

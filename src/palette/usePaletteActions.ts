@@ -5,6 +5,7 @@ import { Folder, FolderGit2, Layers, ListTree } from "@lucide/vue";
 import { nextTick } from "vue";
 import { computed, type ComputedRef } from "vue";
 
+import { useSyncActions } from "@/remotes/useSyncActions";
 import { useDiscoveryFormat } from "@/discovery/useDiscoveryFormat";
 import { i18n, setLocale } from "@/i18n";
 import type { Project } from "@/ipc/schemas";
@@ -55,6 +56,7 @@ export function usePaletteActions(): PaletteActions {
   const stash = useStashStore();
   const projects = useProjectsStore();
   const projectDialogs = useProjectDialogsStore();
+  const syncActions = useSyncActions();
 
   return {
     hasRepository: () => repo.state.kind === "ready",
@@ -127,9 +129,7 @@ export function usePaletteActions(): PaletteActions {
       const branch = repo.currentBranch?.name;
       if (branch) remotes.ask({ kind: action, branch });
     },
-    fetchAll: async () => {
-      await remotes.fetch(null, false);
-    },
+    sync: (action) => syncActions.act(action),
     cleanUpBranches: () => void cleanup.open(),
     openRemotes: () => remotes.openSheet(),
     openStashes: () => stash.openSheet(),

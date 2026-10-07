@@ -72,7 +72,7 @@ describe("SettingsLayout", () => {
     expect(input(wrapper, "skip-folders").element.value).toBe(defaultSkipFolders.join(", "));
     expect(input(wrapper, "max-depth").element.value).toBe("2");
     const rows = wrapper.findAll('[data-testid="shortcut-rows"] li');
-    expect(rows).toHaveLength(27);
+    expect(rows).toHaveLength(29);
     expect(rows[0]?.text()).toContain("Command palette");
     const findRow = wrapper.get('[data-testid="shortcut-find"]');
     expect(findRow.text()).toContain("Find in the change");
@@ -96,6 +96,12 @@ describe("SettingsLayout", () => {
     const commitPush = wrapper.get('[data-testid="shortcut-commitPush"]');
     expect(commitPush.text()).toContain("Commit and push");
     expect(commitPush.find("kbd").text()).toBe("Ctrl Shift ↵");
+    // Push asks in its dialog; Pull and Fetch act at once.
+    expect(wrapper.get('[data-testid="shortcut-push"]').text()).toContain("Push…");
+    const pull = wrapper.get('[data-testid="shortcut-pull"]');
+    expect(pull.text()).toContain("Pull");
+    expect(pull.find("kbd").text()).toBe("Ctrl Shift L");
+    expect(wrapper.get('[data-testid="shortcut-fetch"]').find("kbd").text()).toBe("Ctrl Shift F");
     const zoom = wrapper.get('[data-testid="shortcut-zoom"]');
     expect(zoom.findAll("kbd").map((k) => k.text())).toEqual(["Ctrl =", "Ctrl -", "Ctrl 0"]);
     expect(wrapper.text()).toContain(

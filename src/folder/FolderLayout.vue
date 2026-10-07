@@ -182,6 +182,7 @@ watch(
           :target-name="folder.active.name"
           :target-branch="activeBranch"
           :target-lane="activeLane"
+          @push-left="keys.focusActive()"
         />
       </ChangesScope>
     </div>

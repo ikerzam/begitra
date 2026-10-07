@@ -11,6 +11,7 @@ import { useI18n } from "vue-i18n";
 import BranchDialogs from "@/branches/BranchDialogs.vue";
 import OperationBanner from "@/branches/OperationBanner.vue";
 import ChangesLayout from "@/changes/ChangesLayout.vue";
+import { useSyncActions } from "@/remotes/useSyncActions";
 import NetworkDialog from "@/remotes/NetworkDialog.vue";
 import RemoteRefDialog from "@/remotes/RemoteRefDialog.vue";
 import RemotesSheet from "@/remotes/RemotesSheet.vue";
@@ -27,7 +28,7 @@ import ProjectLayout from "@/project/ProjectLayout.vue";
 import RemoveMemberDialog from "@/project/RemoveMemberDialog.vue";
 import PickerOverlay from "@/picker/PickerOverlay.vue";
 import { shortHash } from "@/shell/format";
-import { isOverlayTarget, shortcutRegistry } from "@/shortcuts/registry";
+import { isOverlayTarget, outsideOverlays, shortcutRegistry } from "@/shortcuts/registry";
 import { installShortcuts, useShortcut } from "@/shortcuts/useShortcut";
 import { useChangesStore } from "@/stores/changes";
 import { useIndexStore } from "@/stores/index";
@@ -85,6 +86,7 @@ const sequencer = useSequencerStore();
 const operations = useOperationsStore();
 const { openFolder, addFolder } = useOpenFolder();
 const external = useExternal();
+const syncActions = useSyncActions();
 // A folder dropped on the window opens as Open folder… opens it.
 const { dragging } = useDragDrop((path) => void projects.openPath(path));
 useRepoWatcher();
@@ -195,6 +197,17 @@ useShortcut("diff-from", () => {
 });
 useShortcut("next-project-repo", () => void projects.openNeighbour(1));
 useShortcut("previous-project-repo", () => void projects.openNeighbour(-1));
+// Fetch and Pull as the top bar's buttons do, a toast saying why when they cannot; neither acts
+// behind a dialog or a menu, nor in the Overview, which shows no such buttons and whose own
+// toolbar fetches and pulls its repositories. ⇧⌘P opens the push dialog, where ↵ confirms,
+// rather than pushing at once: it is VS Code's command palette key, and a press from that habit
+// must not push.
+const syncKey = (action: "fetch" | "pull") =>
+  outsideOverlays(() => {
+    if (shell.layoutMode !== "overview") syncActions.act(action);
+  });
+useShortcut("fetch", syncKey("fetch"));
+useShortcut("pull", syncKey("pull"));
 useShortcut("push", () => {
   const branch = repo.currentBranch?.name;
   if (repo.state.kind === "ready" && branch) remotes.ask({ kind: "push", branch });
@@ -340,6 +353,7 @@ function removeFromProject(): void {
       :changed-count="changedCount"
       :can-show-changes="repo.state.kind === 'ready' || projects.multi"
       :can-show-overview="projects.multi"
+      :show-sync="repo.state.kind === 'ready' && repo.refsLoaded && shell.layoutMode !== 'overview'"
       @open-folder="() => void openFolder()"
       @open-palette="shell.openPalette()"
       @set-layout-mode="(mode) => void shell.setLayoutMode(mode)"

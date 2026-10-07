@@ -47,6 +47,8 @@ export const defaultBindings: readonly ShortcutBinding[] = [
   { id: "commit", keys: "mod+enter", scope: "changes" },
   { id: "commit-push", keys: "shift+mod+enter", scope: "changes" },
   { id: "push", keys: "shift+mod+p", scope: "global" },
+  { id: "pull", keys: "shift+mod+l", scope: "global" },
+  { id: "fetch", keys: "shift+mod+f", scope: "global" },
   { id: "mark-resolved", keys: "r", scope: "changes" },
   { id: "next-project-repo", keys: "alt+arrowdown", scope: "global" },
   { id: "previous-project-repo", keys: "alt+arrowup", scope: "global" },

@@ -18,6 +18,7 @@ const props = {
   changedCount: 5,
   canShowChanges: true,
   canShowOverview: true,
+  showSync: false,
 };
 
 beforeEach(async () => {
@@ -40,6 +41,27 @@ afterEach(() => {
 });
 
 describe("TopBar", () => {
+  it("shows Fetch, Pull and Push after the project switcher only while asked to", async () => {
+    const wrapper = mountWithI18n(TopBar, { props, attachTo: document.body });
+    expect(wrapper.find('[data-testid="sync-buttons"]').exists()).toBe(false);
+    await wrapper.setProps({ showSync: true });
+    const group = wrapper.get('[data-testid="sync-buttons"]');
+    expect(group.findAll("button").map((button) => button.attributes("aria-label"))).toEqual([
+      "Fetch",
+      "Pull",
+      "Push",
+    ]);
+    // After the switcher and a divider, before the palette trigger.
+    const switcher = wrapper.get('[data-testid="project-switcher"]').element;
+    const palette = wrapper.get('[data-testid="palette-trigger"]').element;
+    const after = (a: Element, b: Element) =>
+      (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    expect(after(switcher, group.element)).toBe(true);
+    expect(after(group.element, palette)).toBe(true);
+    expect(group.attributes("aria-label")).toBe("Sync with the remote");
+    wrapper.unmount();
+  });
+
   it("gives the layout buttons the app's tooltip with the shortcut hint, and no native title", () => {
     const wrapper = mountWithI18n(TopBar, { props, attachTo: document.body });
     const hints = ["settings", "graph", "review", "changes", "overview"].map((mode) => {

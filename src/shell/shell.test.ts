@@ -12,6 +12,7 @@ import { useIndexStore } from "@/stores/index";
 import { useOperationsStore } from "@/stores/operations";
 import { useProjectDialogsStore } from "@/stores/projectDialogs";
 import { useProjectsStore } from "@/stores/projects";
+import { useRemotesStore } from "@/stores/remotes";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
 import { memoryStorage, useSettingsStore } from "@/stores/settings";
@@ -412,6 +413,11 @@ function backend(
             fetchedAt: null,
           },
         ];
+      case "fetch":
+      case "pull":
+      case "push":
+        send([{ kind: "done" }]);
+        return null;
       case "list_worktrees": {
         if (options.failWorktrees) {
           // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
@@ -793,6 +799,37 @@ describe("AppShell", () => {
     await settle();
     expect(wrapper.findAll('[data-testid="graph-row"]')).toHaveLength(3);
     expect(document.activeElement).toBe(search);
+    wrapper.unmount();
+  });
+
+  it("fetches and pulls from the keyboard, and opens the push dialog on Ctrl Shift P", async () => {
+    const calls = backend();
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    useShellStore().setWindowWidth(1440);
+    await useRepoStore().open("/r");
+    await settle();
+    const press = (key: string) =>
+      window.dispatchEvent(new KeyboardEvent("keydown", { key, ctrlKey: true, shiftKey: true }));
+    press("F");
+    await settle();
+    expect(calls.filter((cmd) => cmd === "fetch")).toHaveLength(1);
+    press("L");
+    await settle();
+    expect(calls.filter((cmd) => cmd === "pull")).toHaveLength(1);
+    // VS Code's palette key asks first: the dialog opens and nothing is pushed.
+    press("P");
+    await settle();
+    expect(useRemotesStore().prompt).toEqual({ kind: "push", branch: "main" });
+    expect(calls).not.toContain("push");
+    // Behind the dialog, the fetch key does nothing.
+    press("F");
+    await settle();
+    expect(calls.filter((cmd) => cmd === "fetch")).toHaveLength(1);
+    document.activeElement?.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+    await settle();
+    expect(useRemotesStore().prompt).toBeNull();
     wrapper.unmount();
   });
 

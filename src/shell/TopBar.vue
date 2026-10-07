@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// The top bar: the project switcher, the palette trigger, and the layouts of the open project
-// (the settings, graph focus, review focus, the Changes with the count of the project's
-// changed files, and the Overview while the project holds more than one repository).
+// The top bar: the project switcher with Fetch, Pull and Push for the repository the graph
+// shows (while one is open, outside the Overview), the palette trigger, and the layouts of the
+// open project (the settings, graph focus, review focus, the Changes with the count of the
+// project's changed files, and the Overview while the project holds more than one repository).
 
 import { FileDiff, FilePen, GitGraph, LayoutDashboard, Search, Settings } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
@@ -10,6 +11,8 @@ import IconButton from "@/components/IconButton.vue";
 import Kbd from "@/components/Kbd.vue";
 import { useShortcutHint } from "@/shortcuts/useShortcut";
 import type { LayoutMode } from "@/stores/settings";
+
+import SyncButtons from "@/remotes/SyncButtons.vue";
 
 import ProjectSwitcher from "./ProjectSwitcher.vue";
 
@@ -21,6 +24,8 @@ const props = defineProps<{
   canShowChanges: boolean;
   /** Whether the open project holds more than one repository: the Overview is offered. */
   canShowOverview: boolean;
+  /** Whether Fetch, Pull and Push show: a repository is open and the Overview does not show. */
+  showSync: boolean;
 }>();
 const emit = defineEmits<{ openFolder: []; openPalette: []; setLayoutMode: [mode: LayoutMode] }>();
 
@@ -38,8 +43,14 @@ const overviewHint = useShortcutHint("overview-focus");
     class="flex h-bar-top shrink-0 items-center gap-4 border-b border-line px-3"
     data-testid="top-bar"
   >
-    <div class="switcher-slot flex min-w-0 flex-1 items-center">
-      <ProjectSwitcher @open-folder="emit('openFolder')" />
+    <!-- Without min-w-0 the slot keeps room for what it holds: the palette trigger gives way
+         first, and the switcher's name before the buttons. -->
+    <div class="flex flex-1 items-center gap-3">
+      <ProjectSwitcher class="switcher" @open-folder="emit('openFolder')" />
+      <template v-if="props.showSync">
+        <span class="h-4 w-px shrink-0 bg-line" aria-hidden="true" />
+        <SyncButtons />
+      </template>
     </div>
     <button
       type="button"
@@ -108,12 +119,13 @@ const overviewHint = useShortcutHint("overview-focus");
 <style scoped>
 /* The palette trigger is 480px wide; that width is not on the spacing scale. A window
    short of room (a narrow one at a high zoom) shrinks it before the project's name, which keeps
-   room for a few letters. */
+   room for a few letters beside its icon and chevron (88px), and never overlaps the buttons after
+   it. */
 .palette-trigger {
   width: 480px;
   min-width: 140px;
 }
-.switcher-slot {
-  min-width: 120px;
+.switcher {
+  min-width: 88px;
 }
 </style>

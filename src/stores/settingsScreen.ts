@@ -64,6 +64,8 @@ export const shortcutRows: readonly ShortcutRow[] = [
   { key: "commit", groups: [["commit"]] },
   { key: "commitPush", groups: [["commit-push"]] },
   { key: "push", groups: [["push"]] },
+  { key: "pull", groups: [["pull"]] },
+  { key: "fetch", groups: [["fetch"]] },
   { key: "markResolved", groups: [["mark-resolved"]] },
   { key: "openTerminal", groups: [["open-terminal"]] },
   { key: "openEditor", groups: [["open-editor"]] },

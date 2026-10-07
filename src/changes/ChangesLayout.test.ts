@@ -582,44 +582,90 @@ describe("ChangesLayout, commit and push", () => {
     forceWithLease: false,
   });
 
-  it("commits and pushes once with Ctrl Shift Enter, and with Ctrl Enter while Push after commit is pressed", async () => {
+  it("never pushes on a commit, and shows Push with the commits to send until it is pressed", async () => {
     const { wrapper, calls } = await mountScreen({ refs: [main()], remotes: [remote("origin")] });
     const subject = wrapper.get('[data-testid="commit-subject"]');
-    const toggle = wrapper.get('[data-testid="commit-push"]');
-    expect(toggle.attributes("aria-label")).toBe("Push after commit");
-    expect(toggle.attributes("aria-pressed")).toBe("false");
     expect(wrapper.get('[data-testid="commit-button"]').text()).toBe("Commit");
+    const push = wrapper.get('[data-testid="commit-push"]');
+    expect(push.text().replace(/\s+/g, " ")).toBe("Push 1");
+    expect(push.attributes("data-tooltip")).toBe("Push main to origin/main");
+    await subject.setValue("feat: thing");
+    await subject.trigger("keydown", { key: "Enter", ctrlKey: true });
+    await settled();
+    expect(of(calls, "commit")).toHaveLength(1);
+    expect(of(calls, "push")).toHaveLength(0);
+    await push.trigger("click");
+    await settled();
+    expect(of(calls, "push")[0]?.args["request"]).toEqual(pushRequest(false));
+    expect(lastToast()?.key).toBe("remotes.pushed");
+    // An amend reads as one, with no push in its label either.
+    await wrapper.get('[data-testid="commit-amend"]').trigger("click");
+    await nextTick();
+    expect(wrapper.get('[data-testid="commit-button"]').text()).toBe("Amend");
+    wrapper.unmount();
+  });
+
+  it("commits and pushes once with Ctrl Shift Enter", async () => {
+    const { wrapper, calls } = await mountScreen({ refs: [main()], remotes: [remote("origin")] });
+    const subject = wrapper.get('[data-testid="commit-subject"]');
     await subject.setValue("feat: thing");
     await commitPush(subject);
     await settled();
     expect(of(calls, "commit")).toHaveLength(1);
     expect(of(calls, "push")[0]?.args["request"]).toEqual(pushRequest(false));
     expect(lastToast()?.key).toBe("remotes.pushed");
-    expect(useSettingsStore().values.pushAfterCommit).toBe(false);
-    // Pressed, the toggle is remembered and the button and Ctrl Enter push too.
-    await toggle.trigger("click");
-    await nextTick();
-    expect(toggle.attributes("aria-pressed")).toBe("true");
-    expect(useSettingsStore().values.pushAfterCommit).toBe(true);
-    expect(wrapper.get('[data-testid="commit-button"]').text()).toBe("Commit and push");
-    await wrapper.get('[data-testid="commit-amend"]').trigger("click");
-    await nextTick();
-    expect(wrapper.get('[data-testid="commit-button"]').text()).toBe("Amend and push");
-    await subject.trigger("keydown", { key: "Enter", ctrlKey: true });
-    await settled();
-    expect(of(calls, "commit")).toHaveLength(2);
-    expect(of(calls, "commit")[1]?.args["request"]).toMatchObject({ amend: true });
-    expect(of(calls, "push")).toHaveLength(2);
     wrapper.unmount();
   });
 
-  it("publishes a branch without upstream to the only remote", async () => {
+  it("gives the focus to the lists when Push leaves with it, the branch level after its push", async () => {
+    const { wrapper } = await mountScreen({ refs: [main()], remotes: [remote("origin")] });
+    const push = wrapper.get('[data-testid="commit-push"]');
+    expect(push.attributes("aria-label")).toBe("Push, 1 commit to send");
+    expect(push.attributes("aria-description")).toBe("Push main to origin/main");
+    (push.element as HTMLElement).focus();
+    // The push lands: the refs listed again say main is level with origin/main.
+    const repo = useRepoStore();
+    repo.refs = repo.refs.map((ref) => (ref.name === "main" ? { ...ref, ahead: 0 } : ref));
+    await nextTick();
+    expect(wrapper.find('[data-testid="commit-push"]').exists()).toBe(false);
+    expect(document.activeElement).not.toBe(document.body);
+    expect(
+      wrapper.get('[data-testid="changes-panel"]').element.contains(document.activeElement),
+    ).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("shows no Push for a branch whose upstream is gone from its remote", async () => {
+    const { wrapper } = await mountScreen({
+      refs: [main({ ahead: null, behind: null })],
+      remotes: [remote("origin")],
+    });
+    expect(wrapper.find('[data-testid="commit-push"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("shows no Push on a branch level with its upstream", async () => {
+    const { wrapper } = await mountScreen({
+      refs: [main({ ahead: 0 })],
+      remotes: [remote("origin")],
+    });
+    expect(wrapper.find('[data-testid="commit-push"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("publishes a branch without upstream to the only remote, from the box and with the key", async () => {
     const { wrapper, calls } = await mountScreen({ remotes: [remote("origin")] });
+    const publish = wrapper.get('[data-testid="commit-push"]');
+    expect(publish.text()).toBe("Publish");
+    expect(publish.attributes("data-tooltip")).toBe("Publish main to origin");
+    await publish.trigger("click");
+    await settled();
+    expect(of(calls, "push")[0]?.args["request"]).toEqual(pushRequest(true));
     const subject = wrapper.get('[data-testid="commit-subject"]');
     await subject.setValue("feat: thing");
     await commitPush(subject);
     await settled();
-    expect(of(calls, "push")[0]?.args["request"]).toEqual(pushRequest(true));
+    expect(of(calls, "push")[1]?.args["request"]).toEqual(pushRequest(true));
     wrapper.unmount();
   });
 
@@ -637,7 +683,7 @@ describe("ChangesLayout, commit and push", () => {
     wrapper.unmount();
   });
 
-  it("refuses on a detached HEAD before committing, and leaves Ctrl Enter a plain commit", async () => {
+  it("refuses on a detached HEAD before committing, shows no Push, and leaves Ctrl Enter a plain commit", async () => {
     const head: GitRef = {
       ...main({ isCurrent: false }),
       name: "HEAD",
@@ -649,18 +695,7 @@ describe("ChangesLayout, commit and push", () => {
       remotes: [remote("origin")],
       detachedHead: true,
     });
-    await useSettingsStore().update("pushAfterCommit", true);
-    await nextTick();
-    const toggle = wrapper.get('[data-testid="commit-push"]');
-    expect(toggle.attributes("disabled")).toBeUndefined();
-    expect(toggle.attributes("aria-disabled")).toBe("true");
-    expect(toggle.attributes("aria-pressed")).toBe("true");
-    expect(toggle.attributes("data-tooltip")).toBe("A detached HEAD has no branch to push.");
-    expect(toggle.attributes("aria-description")).toBe("A detached HEAD has no branch to push.");
-    expect(wrapper.get('[data-testid="commit-button"]').text()).toBe("Commit");
-    // A press does nothing: the setting stays as it is.
-    await toggle.trigger("click");
-    expect(useSettingsStore().values.pushAfterCommit).toBe(true);
+    expect(wrapper.find('[data-testid="commit-push"]').exists()).toBe(false);
     const subject = wrapper.get('[data-testid="commit-subject"]');
     await subject.setValue("feat: thing");
     await commitPush(subject);
@@ -733,19 +768,17 @@ describe("ChangesLayout, commit and push", () => {
     wrapper.unmount();
   });
 
-  it("disables Push after commit while an amend would rewrite a commit the upstream holds", async () => {
-    const { wrapper } = await mountScreen({
+  it("refuses Ctrl Shift Enter while an amend would rewrite a commit the upstream holds", async () => {
+    const { wrapper, calls } = await mountScreen({
       refs: [main({ ahead: 0 })],
       remotes: [remote("origin")],
     });
-    const toggle = wrapper.get('[data-testid="commit-push"]');
-    expect(toggle.attributes("aria-disabled")).toBeUndefined();
     await wrapper.get('[data-testid="commit-amend"]').trigger("click");
     await nextTick();
-    expect(toggle.attributes("aria-disabled")).toBe("true");
-    expect(toggle.attributes("data-tooltip")).toBe(
-      "The commit you amend is on the remote already: pushing its replacement needs a forced push.",
-    );
+    await commitPush(wrapper.get('[data-testid="commit-subject"]'));
+    await settled();
+    expect(of(calls, "commit")).toHaveLength(0);
+    expect(lastToast()?.key).toBe("changes.pushRefused.amendPushed");
     wrapper.unmount();
   });
 });

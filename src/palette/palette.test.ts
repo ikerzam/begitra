@@ -13,7 +13,9 @@ const labels: Record<string, string> = {
   "palette.commandsById.create-branch": "Create branch…",
   "palette.commandsById.merge-into": "Merge into current branch…",
   "palette.commandsById.rebase-onto": "Rebase current branch onto…",
+  "palette.commandsById.push-now": "Push",
   "palette.commandsById.push": "Push…",
+  "palette.commandsById.pull-now": "Pull",
   "palette.commandsById.pull": "Pull…",
   "palette.commandsById.fetch-all": "Fetch all remotes",
   "palette.commandsById.clean-up-branches": "Clean up branches…",
@@ -190,9 +192,8 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
     redoUndoneCommit: () => {
       calls.push("redoUndoneCommit");
     },
-    fetchAll: () => {
-      calls.push("fetchAll");
-      return Promise.resolve();
+    sync: (action) => {
+      calls.push(`sync:${action}`);
     },
     cleanUpBranches: () => {
       calls.push("cleanUpBranches");
@@ -309,7 +310,9 @@ describe("usePalette", () => {
       "merge-into",
       "rebase-onto",
       "undo-last-commit",
+      "push-now",
       "push",
+      "pull-now",
       "pull",
       "fetch-all",
       "clean-up-branches",

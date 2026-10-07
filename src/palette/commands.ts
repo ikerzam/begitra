@@ -67,15 +67,16 @@ export interface PaletteActions {
   changesAll: (action: "stage" | "unstage" | "discard") => void;
   /** Opens the picker for a branch action on the chosen ref. */
   branchAction: (action: "checkout" | "merge" | "rebase" | "create") => void;
-  /** "Push…" and "Pull…" for the current branch. */
+  /** "Push…" and "Pull…" for the current branch: the dialogs. */
   network: (action: "push" | "pull") => void;
+  /** Fetch, Pull and Push as the graph's buttons do, a toast saying why when they cannot. */
+  sync: (action: "fetch" | "pull" | "push") => void;
   /** Moves HEAD back from its commit, the changes kept staged. */
   undoLastCommit: () => void;
   /** Whether the last undo can be redone in the open repository. */
   canRedoUndone: () => boolean;
   /** Moves HEAD back to the commit the last undo took it from. */
   redoUndoneCommit: () => void;
-  fetchAll: () => Promise<void>;
   /** Opens the dialog of the branches that can go against the main branch. */
   cleanUpBranches: () => void;
   openRemotes: () => Promise<void>;
@@ -403,11 +404,24 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       run: actions.redoUndoneCommit,
     },
     {
+      id: "push-now",
+      labelKey: "palette.commandsById.push-now",
+      enabled: withRepo,
+      run: () => actions.sync("push"),
+    },
+    {
       id: "push",
       labelKey: "palette.commandsById.push",
       shortcutId: "push",
       enabled: withRepo,
       run: () => actions.network("push"),
+    },
+    {
+      id: "pull-now",
+      labelKey: "palette.commandsById.pull-now",
+      shortcutId: "pull",
+      enabled: withRepo,
+      run: () => actions.sync("pull"),
     },
     {
       id: "pull",
@@ -418,8 +432,9 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
     {
       id: "fetch-all",
       labelKey: "palette.commandsById.fetch-all",
+      shortcutId: "fetch",
       enabled: withRepo,
-      run: actions.fetchAll,
+      run: () => actions.sync("fetch"),
     },
     {
       id: "clean-up-branches",

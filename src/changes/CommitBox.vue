@@ -1,16 +1,17 @@
 <script setup lang="ts">
 // The commit box under the lists: the subject with its count past 72 characters, the
 // description, "Amend last commit" (HEAD's message borrowed into an empty box, off on an unborn
-// branch), "Sign off" and "Push after commit" as icon toggles beside the author line git will use
-// (or the commit being amended), and "Commit" with ⌘↵, enabled only with a subject and something
-// to commit. "Push after commit" is a setting: pressed, the button reads "Commit and push" and
-// the commit is followed by a push; when the push cannot run (`pushPlan`) the toggle is
-// unavailable, its tooltip saying why, and the commit goes alone.
+// branch) and "Sign off" as icon toggles beside the author line git will use (or the commit being
+// amended), and "Commit" with ⌘↵, enabled only with a subject and something to commit. A commit
+// never pushes by itself: while the open repository's branch has commits to push, or no upstream
+// to push to, the last row starts with Push (Publish), the top bar's push, also on a clean tree.
+// A narrow column drops the ⌘↵ hint (the status bar keeps it) and then shortens Push's label, so
+// Commit stays inside the column. When Push leaves with the focus on it, the lists take the focus.
 // The draft lives in the store, so leaving the screen keeps it. In the folder view a line above
 // the fields reads "Commit to" with the repository and its branch.
 
 import { PencilLine, Signature, Upload } from "@lucide/vue";
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Button from "@/components/Button.vue";
@@ -19,13 +20,13 @@ import Input from "@/components/Input.vue";
 import Kbd from "@/components/Kbd.vue";
 import LaneDot from "@/components/LaneDot.vue";
 import Textarea from "@/components/Textarea.vue";
+import { useSync } from "@/remotes/useSync";
+import { useSyncTexts } from "@/remotes/useSyncTexts";
 import { shortHash } from "@/shell/format";
 import { useShortcutHint } from "@/shortcuts/useShortcut";
 import { useRepoStore } from "@/stores/repo";
-import { useSettingsStore } from "@/stores/settings";
 
 import { useChanges, useOpenRepositoryChanges } from "./useChanges";
-import { useCommitAndPush } from "./useCommitAndPush";
 
 const props = withDefaults(
   defineProps<{
@@ -38,6 +39,7 @@ const props = withDefaults(
   }>(),
   { targetName: "", targetBranch: "", targetLane: 0 },
 );
+const emit = defineEmits<{ pushLeft: [] }>();
 
 /** Git wraps the subject at this width in its logs; the count shows past it. */
 const SUBJECT_WIDTH = 72;
@@ -45,8 +47,8 @@ const SUBJECT_WIDTH = 72;
 const { t, n } = useI18n();
 const changes = useChanges();
 const repo = useRepoStore();
-const settings = useSettingsStore();
-const pushing = useCommitAndPush();
+const sync = useSync();
+const syncTexts = useSyncTexts(sync);
 /** HEAD's hash is known for the open repository only (its refs are listed). */
 const openRepository = useOpenRepositoryChanges();
 const commitHint = useShortcutHint("commit");
@@ -81,20 +83,24 @@ const authorLine = computed(() => {
   return author;
 });
 
-/** Why the push cannot run, as the toggle's tooltip and description; empty when it can. */
-const pushRefusal = computed(() => {
-  const plan = pushing.planFor(changes);
-  return plan.kind === "refused" ? t(`changes.pushRefused.${plan.reason}`) : "";
-});
-const willPush = computed(() => pushing.willPush(changes));
-const buttonLabel = computed(() => {
-  if (changes.draft.amend)
-    return willPush.value ? t("changes.amendAndPush") : t("changes.amendButton");
-  return willPush.value ? t("changes.commitAndPush") : t("changes.commit");
-});
+/** The box's Push: the top bar's, for the box of the open repository only. */
+const push = computed(() =>
+  changes.root !== null && changes.root === repo.repo?.root ? syncTexts.boxPush.value : null,
+);
+const pushButton = ref<{ $el: HTMLElement } | null>(null);
+
+/* Before the DOM drops Push (pushed, the branch level), its focus goes to the lists: on a clean
+   tree nothing else in the box can take it. */
+watch(
+  push,
+  (now, before) => {
+    if (before && !now && pushButton.value?.$el === document.activeElement) emit("pushLeft");
+  },
+  { flush: "pre" },
+);
 
 function onSubmit(): void {
-  void pushing.submit(changes);
+  void changes.commit();
 }
 
 /** Enter alone in the subject stays put: the commit key is ⌘↵ (the registry runs it). */
@@ -151,8 +157,8 @@ function onSubjectKeydown(event: KeyboardEvent): void {
       />
     </div>
     <!-- The toggles before the author line, pressed while on, since they carry no words: Amend
-         and Sign off change the commit the line names, Push after commit what follows it. Commit
-         has the last row, so the author line keeps its width in the 280px column. -->
+         and Sign off change the commit the line names. Commit has the last row, so the author
+         line keeps its width in the 280px column. -->
     <div class="flex items-center gap-3">
       <div class="flex shrink-0 items-center gap-1">
         <IconButton
@@ -171,15 +177,6 @@ function onSubjectKeydown(event: KeyboardEvent): void {
           data-testid="commit-signoff"
           @click="changes.setDraft({ signoff: !changes.draft.signoff })"
         />
-        <IconButton
-          :label="t('changes.pushAfterCommit')"
-          :icon="Upload"
-          :pressed="settings.values.pushAfterCommit"
-          :disabled="inert"
-          :unavailable="pushRefusal"
-          data-testid="commit-push"
-          @click="() => void settings.update('pushAfterCommit', !settings.values.pushAfterCommit)"
-        />
       </div>
       <span
         class="min-w-0 flex-1 truncate text-sm"
@@ -190,16 +187,50 @@ function onSubjectKeydown(event: KeyboardEvent): void {
         {{ authorLine }}
       </span>
     </div>
-    <div class="flex items-center justify-end gap-3">
-      <Kbd :keys="commitHint" />
-      <Button
-        type="submit"
-        variant="primary"
-        :disabled="!changes.canCommit"
-        data-testid="commit-button"
-      >
-        {{ buttonLabel }}
-      </Button>
+    <!-- The 8px row: Push, by choice after a commit (the box never pushes by itself), then the
+         commit key and Commit. Its container query drops the key in a narrow column. -->
+    <div class="commit-footer">
+      <div class="flex items-center gap-2">
+        <div v-if="push" class="flex min-w-0">
+          <Button
+            ref="pushButton"
+            :icon="Upload"
+            :tooltip="push.tooltip"
+            :unavailable="push.unavailable"
+            :aria-label="push.label"
+            :aria-description="push.unavailable || push.tooltip"
+            class="max-w-full"
+            data-testid="commit-push"
+            @click="() => void sync.runPush()"
+          >
+            <span class="min-w-0 truncate">{{ push.text }}</span>
+          </Button>
+        </div>
+        <span class="min-w-0 flex-1" />
+        <Kbd :keys="commitHint" class="commit-key" />
+        <Button
+          type="submit"
+          variant="primary"
+          :disabled="!changes.canCommit"
+          data-testid="commit-button"
+        >
+          {{ changes.draft.amend ? t("changes.amendButton") : t("changes.commit") }}
+        </Button>
+      </div>
     </div>
   </form>
 </template>
+
+<style scoped>
+/* Below this width the row cannot hold Push with a count, the key and a long Commit ("Corregir")
+   side by side: the key goes first, the status bar still saying ⌘↵. */
+.commit-footer {
+  container-type: inline-size;
+}
+
+@container (max-width: 254px) {
+  .commit-key {
+    display: none;
+  }
+}
+</style>

@@ -134,8 +134,6 @@ export interface Settings {
   branchSort: BranchSort;
   /** An icon of each file's kind in the file lists. */
   fileIcons: boolean;
-  /** The commit box pushes the branch once its commit is made. */
-  pushAfterCommit: boolean;
   /** The sidebar's folded sections. */
   sidebarFolded: SidebarSectionId[];
 }
@@ -200,7 +198,6 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   zoom: v.picklist(zoomLevels),
   branchSort: v.picklist(["recent", "name"]),
   fileIcons: v.boolean(),
-  pushAfterCommit: v.boolean(),
   sidebarFolded: v.array(v.picklist(sidebarSectionIds)),
 };
 
@@ -291,7 +288,6 @@ export function defaultSettings(platform: Platform): Settings {
     zoom: 100,
     branchSort: "recent",
     fileIcons: true,
-    pushAfterCommit: false,
     sidebarFolded: ["remote", "tags"],
   };
 }

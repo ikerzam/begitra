@@ -154,6 +154,46 @@ describe("the folder view's Changes", () => {
     wrapper.unmount();
   });
 
+  it("shows Push in the box of the open repository only", async () => {
+    const { wrapper } = await mountFolder({
+      rootIsPath: true,
+      remotes: [
+        {
+          name: "origin",
+          fetchUrl: "https://x/api.git",
+          pushUrl: "https://x/api.git",
+          fetchedAt: null,
+        },
+      ],
+      refs: [
+        {
+          name: "main",
+          fullName: "refs/heads/main",
+          kind: "local-branch",
+          target: "a".repeat(40),
+          isCurrent: true,
+          upstream: "origin/main",
+          ahead: 1,
+          behind: 0,
+          worktree: "/code/api",
+          message: null,
+          committedAt: 1_700_000_000,
+        },
+      ],
+    });
+    await useRepoStore().open("/code/api");
+    for (let i = 0; i < 4; i += 1) await settled();
+    expect(target(wrapper)).toEqual(["Commit to", "api", "main"]);
+    expect(wrapper.get('[data-testid="commit-push"]').text().replace(/\s+/g, " ")).toBe("Push 1");
+    // The box follows the selection into web's section, which is not the open repository.
+    await row(wrapper, "/code/web", "tiles.ts").trigger("click");
+    await flushPromises();
+    await nextTick();
+    expect(target(wrapper)).toEqual(["Commit to", "web", "feat/tiles"]);
+    expect(wrapper.find('[data-testid="commit-push"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
   it("carries j and k across the sections, and the box follows the selection", async () => {
     const { wrapper } = await mountFolder();
     const last = row(wrapper, "/code/api", "src/b.ts");

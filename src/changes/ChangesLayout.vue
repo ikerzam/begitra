@@ -57,7 +57,7 @@ useShortcut("previous-file", () => lists.value?.moveFile(-1));
 useShortcut("stage-file", () => actOnSelected("stage"));
 useShortcut("unstage-file", () => actOnSelected("unstage"));
 useShortcut("discard-file", () => actOnSelected("discard"));
-useShortcut("commit", () => void pushing.submit(changes));
+useShortcut("commit", () => void changes.commit());
 useShortcut("commit-push", () => void pushing.commitAndPush(changes));
 // r marks the selected file resolved while it is one of the operation's conflicts.
 useShortcut("mark-resolved", () => {
@@ -91,7 +91,7 @@ defineExpose({
       data-testid="changes-panel"
     >
       <ChangeLists ref="lists" @discard="(files) => askDiscard({ kind: 'files', files })" />
-      <CommitBox />
+      <CommitBox @push-left="lists?.focus()" />
     </div>
     <PaneResizer
       :size="shell.paneSizes.files"

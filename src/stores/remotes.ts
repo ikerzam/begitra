@@ -14,6 +14,7 @@ import { newOpId } from "@/ipc/invoke";
 import type { NetworkEvent, PullRequest, PushRequest, Remote } from "@/ipc/schemas";
 import type { StreamHandle } from "@/ipc/stream";
 import { arm } from "@/motion/motion";
+import { isDivergedPull } from "@/remotes/gitWords";
 import { baseName, shellWord, shortHash } from "@/shell/format";
 
 import { useBulkStore } from "./bulk";
@@ -54,7 +55,6 @@ export interface PushOptions {
 export function isRejectedPush(output: string): boolean {
   return /\[rejected\]/.test(output) && /fetch first|non-fast-forward/.test(output);
 }
-
 /** The upstream of a branch split into its remote and branch (`origin/main`). */
 export function splitUpstream(upstream: string | null): { remote: string; branch: string } | null {
   if (!upstream) return null;
@@ -304,18 +304,35 @@ export const useRemotesStore = defineStore("remotes", () => {
     return true;
   }
 
+  /**
+   * Pulls as `request` says. A fast-forward-only pull that git refuses because the branch
+   * diverged says so and offers "Pull…", the dialog where a merge or a rebase is chosen, on that
+   * branch in the repository the pull ran in.
+   */
   async function pull(request: PullRequest): Promise<boolean> {
     // Refused while another command runs, the dialog stays open for a second try.
     if (refusedWhileBusy()) return false;
     dismiss();
+    const root = repo.repo?.root;
     const branch = repo.currentBranch?.name ?? "HEAD";
+    const upstream = repo.currentBranch?.upstream ?? "";
+    const explain = (error: AppError): Explained | null =>
+      request.ffOnly && isDivergedPull(error.detail ?? error.message)
+        ? {
+            key: "remotes.pullDiverged",
+            params: { branch, upstream },
+            actionKey: "remotes.pullAction",
+            onAction: inRepository(root, () => ask({ kind: "pull", branch })),
+          }
+        : null;
     const result = await network(
       request.rebase ? "operations.pullingRebase" : "operations.pulling",
       {
         branch,
-        remote: request.remote ?? splitUpstream(repo.currentBranch?.upstream ?? null)?.remote ?? "",
+        remote: request.remote ?? splitUpstream(upstream || null)?.remote ?? "",
       },
       (root, onEvent, opId) => ipc.pull(root, request, onEvent, opId),
+      explain,
     );
     if (!result) {
       // git may have refused and still left the merge or the rebase in progress; its fetch may
