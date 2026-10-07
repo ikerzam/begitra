@@ -46,7 +46,7 @@ function actionOf(toast: ToastEntry): string {
 
 <template>
   <div
-    class="pointer-events-none absolute right-4 bottom-6 left-4 z-50 flex flex-col items-end gap-2"
+    class="toast-host pointer-events-none absolute right-4 left-4 z-50 flex flex-col items-end gap-2"
     data-testid="toast-host"
   >
     <div
@@ -75,6 +75,11 @@ function actionOf(toast: ToastEntry): string {
 </template>
 
 <style scoped>
+/* 16px above the status bar, as the frames place a toast. */
+.toast-host {
+  bottom: calc(var(--bar-status) + var(--space-4));
+}
+
 /* The raw output block of a toast: 480px wide like the palette and the command box of the top
    bar, at most 240px tall before it scrolls; neither is on the spacing scale. */
 .toast-output {
