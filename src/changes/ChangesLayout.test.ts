@@ -114,6 +114,14 @@ describe("ChangesLayout", () => {
     expect(hunk.get('[data-testid="hunk-stage"]').text()).toBe("Stage hunk");
     expect(hunk.get('[data-testid="hunk-discard"]').text()).toBe("Discard hunk…");
     expect(wrapper.get('[data-testid="file-action"]').text()).toBe("Discard file…");
+    // The overview ruler beside the rows: they fit, so each tick stands beside its line.
+    const ticks = wrapper
+      .findAll('[data-testid="overview-ruler"] [data-kind]')
+      .map((tick) => [tick.attributes("data-kind"), tick.attributes("style")]);
+    expect(ticks).toEqual([
+      ["removed", "top: 48px; height: 20px;"],
+      ["added", "top: 68px; height: 40px;"],
+    ]);
     wrapper.unmount();
   });
 

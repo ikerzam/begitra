@@ -190,6 +190,87 @@ describe("DiffView", () => {
     wrapper.unmount();
   });
 
+  it("draws the changes and the find's matches on the overview ruler, which scrolls the rows", async () => {
+    fakeBackend();
+    await useSettingsStore().init(memoryStorage(), "windows");
+    await useRepoStore().open("/r");
+    await settled();
+    const lines = Array.from({ length: 300 }, (_, i) =>
+      line(i + 1, i === 99 ? "removed" : i === 249 ? "added" : "context", [], `line ${i + 1}`),
+    );
+    const open = file([lines]);
+    const wrapper = await mountView({ file: open });
+    const ruler = wrapper.get('[data-testid="overview-ruler"]');
+    const ticks = () =>
+      ruler
+        .findAll("[data-kind]")
+        .map((tick) => [tick.attributes("data-kind"), tick.attributes("style")]);
+    // 6,028px of rows on the 200px body: line 100 starts at 2,008px, line 250 at 5,008px.
+    expect(ticks()).toEqual([
+      ["removed", "top: 66px; height: 2px;"],
+      ["added", "top: 166px; height: 2px;"],
+    ]);
+    const slider = () => ruler.get('[data-testid="overview-ruler-slider"]').attributes("style");
+    expect(slider()).toBe("top: 0px; height: 32px;");
+
+    // A click below the slider brings its place to the middle of the view.
+    const press = new MouseEvent("pointerdown", { bubbles: true, cancelable: true, clientY: 100 });
+    Object.defineProperty(press, "pointerId", { value: 1 });
+    ruler.element.dispatchEvent(press);
+    ruler.element.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));
+    await nextTick();
+    const body = wrapper.get('[data-testid="diff-body"]').element;
+    expect(body.scrollTop).toBe(3014 - 100);
+    expect(slider()).toBe("top: 84px; height: 32px;");
+    // The wheel over the ruler scrolls the rows.
+    ruler.element.dispatchEvent(
+      new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: 120 }),
+    );
+    await nextTick();
+    expect(body.scrollTop).toBe(3014 - 100 + 120);
+
+    // The find's matches across the middle, the current one across all of it.
+    const find = useFindStore();
+    find.attach({
+      files: () => [{ key: open.path, path: open.path, hunks: open.hunks }],
+      open: () => undefined,
+      shownKey: () => open.path,
+    });
+    find.show("line 25");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await flushPromises();
+    await nextTick();
+    // "line 25" and "line 250" to "line 259": eleven lines, the first current.
+    expect(find.count).toBe(11);
+    const kinds = ruler.findAll("[data-kind]").map((tick) => tick.attributes("data-kind"));
+    expect(kinds).toEqual(["removed", "added", "match", "match", "current"]);
+    find.close();
+    await nextTick();
+    expect(ruler.findAll('[data-kind="match"]')).toHaveLength(0);
+    wrapper.unmount();
+  });
+
+  it("puts the ticks of a file that fits beside their lines, with no slider", async () => {
+    fakeBackend();
+    await useSettingsStore().init(memoryStorage(), "windows");
+    await useRepoStore().open("/r");
+    await settled();
+    const wrapper = await mountView({
+      file: file([[line(1), line(2, "removed"), line(3, "added"), line(4)]]),
+    });
+    const ruler = wrapper.get('[data-testid="overview-ruler"]');
+    const ticks = ruler
+      .findAll("[data-kind]")
+      .map((tick) => [tick.attributes("data-kind"), tick.attributes("style")]);
+    expect(ticks).toEqual([
+      ["removed", "top: 48px; height: 20px;"],
+      ["added", "top: 68px; height: 20px;"],
+    ]);
+    expect(ruler.find('[data-testid="overview-ruler-slider"]').exists()).toBe(false);
+    expect(ruler.attributes("aria-hidden")).toBe("true");
+    wrapper.unmount();
+  });
+
   it("brings a match past the text column into view sideways, without wrap", async () => {
     fakeBackend();
     await useSettingsStore().init(memoryStorage(), "windows");
@@ -644,6 +725,20 @@ describe("DiffView", () => {
       wrapper.unmount();
     });
 
+    it("moves the ruler's ticks to their places when Whole file's lines arrive", async () => {
+      const wrapper = await mountWorktreeFile([[line(101), line(102, "added")]], 102, [101]);
+      const added = () =>
+        wrapper.get('[data-testid="overview-ruler"] [data-kind="added"]').attributes("style");
+      // The folded lines are one 28px row above the hunk: the rows fit, the tick by its line.
+      expect(added()).toBe("top: 76px; height: 20px;");
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "e", bubbles: true }));
+      await flushPromises();
+      await nextTick();
+      // A hundred lines above it make 2,068px of rows: its tick is the ruler's last 2px.
+      expect(added()).toBe("top: 198px; height: 2px;");
+      wrapper.unmount();
+    });
+
     it("shows the whole file with e, the header's toggle pressed, and keeps it", async () => {
       const wrapper = await mountWorktreeFile(
         [
@@ -847,9 +942,11 @@ describe("DiffView", () => {
     // gutters): 301 × 7.2 − 690.
     await wheel(body.element, { deltaX: 99999 });
     expect(offset()).toBe("1478px");
-    // The strip sits under the rows, not over them, out of the tab order.
+    // The strip sits under the rows, not over them, out of the tab order, and leaves the
+    // corner under the overview ruler empty.
     const strip = wrapper.get('[data-testid="diff-side-scroll"]');
     expect(body.find('[data-testid="diff-side-scroll"]').exists()).toBe(false);
+    expect(strip.classes()).toContain("mr-3");
     expect(strip.attributes("tabindex")).toBe("-1");
     expect(strip.attributes("aria-hidden")).toBe("true");
     // Only the text moves: every line's text carries the shift, the numbers are outside it.
