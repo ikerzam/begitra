@@ -20,8 +20,11 @@ const props = withDefaults(
      * (`aria-disabled`), its tooltip and description say why, and a press does nothing.
      */
     unavailable?: string;
-    /** 24px square by default; `lg` is the 32px hit area of the sidebar rail. */
-    size?: "md" | "lg";
+    /**
+     * 24px square by default; `control` is the 28px of the controls beside it (a filter bar's
+     * toggle among its selects); `lg` is the 32px hit area of the sidebar rail.
+     */
+    size?: "md" | "control" | "lg";
     /** The tooltip's text where it differs from the accessible name; the label by default. */
     tooltip?: string;
     /** A shortcut hint shown as `kbd` in the tooltip after its text. */
@@ -80,7 +83,13 @@ function onClick(event: MouseEvent): void {
     :aria-description="props.unavailable || props.description || props.keys || undefined"
     class="inline-flex shrink-0 items-center justify-center rounded-sm disabled:text-fg-disabled"
     :class="[
-      props.count > 0 ? 'h-5 min-w-5 gap-1 px-1' : props.size === 'lg' ? 'size-6' : 'size-5',
+      props.count > 0
+        ? 'h-5 min-w-5 gap-1 px-1'
+        : props.size === 'lg'
+          ? 'size-6'
+          : props.size === 'control'
+            ? 'size-control'
+            : 'size-5',
       props.unavailable ? '' : 'enabled:active:bg-active',
       stateClass,
     ]"

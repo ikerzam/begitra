@@ -16,7 +16,7 @@ use git_core::error::GitError;
 use git_core::git2_engine::index_snapshot::IndexSnapshot;
 use git_core::git2_engine::Git2Engine;
 use git_core::types::{
-    BlobAt, DiffOptions, DiffTarget, PatchSelection, Prompts, PushRequest, SelectedHunk,
+    BlobAt, DiffOptions, DiffTarget, PatchSelection, Prompts, PushRequest, RefKind, SelectedHunk,
     SelectedLine, SelectionTarget, StatusOptions, WalkFilter, WalkOptions, WalkOrder, WalkScope,
     WorkingTreeBase, WorktreeAdd, WorktreeBranch,
 };
@@ -182,11 +182,26 @@ fn open(c: &mut Criterion) {
     group.finish();
 }
 
+/// The repositories of the benchmarks that grow with the branches: those of [`present`], and
+/// the clone of the synthetic one whose 2,000 branches each track one on `origin`
+/// ([`repos::ensure_tracked_branches`]).
+fn branch_targets() -> Vec<(String, PathBuf)> {
+    let mut targets: Vec<(String, PathBuf)> = present()
+        .into_iter()
+        .map(|target| (target.name.to_owned(), target.path))
+        .collect();
+    match repos::ensure_tracked_branches(2_000) {
+        Ok(path) => targets.push(("synthetic-tracked".to_owned(), path)),
+        Err(error) => eprintln!("synthetic-tracked: {error}"),
+    }
+    targets
+}
+
 fn refs(c: &mut Criterion) {
     let mut group = c.benchmark_group("refs");
-    for target in present() {
-        let engine = engine(&target.path);
-        group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+    for (name, path) in branch_targets() {
+        let engine = engine(&path);
+        group.bench_with_input(BenchmarkId::from_parameter(&name), &engine, |b, e| {
             b.iter(|| e.refs(&Cancel::never()).expect("refs"));
         });
     }
@@ -196,14 +211,14 @@ fn refs(c: &mut Criterion) {
 fn walk_first_page(c: &mut Criterion) {
     let mut group = c.benchmark_group("walk_first_page");
     group.sample_size(10);
-    for target in present() {
-        let engine = engine(&target.path);
+    for (name, path) in branch_targets() {
+        let engine = engine(&path);
         let options = WalkOptions {
             page_size: 500,
             order: WalkOrder::Lazy,
             filter: None,
         };
-        group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+        group.bench_with_input(BenchmarkId::from_parameter(&name), &engine, |b, e| {
             b.iter(|| {
                 let mut walk = e
                     .walk(&WalkScope::All, &options, &Cancel::never())
@@ -474,6 +489,99 @@ fn compare(c: &mut Criterion) {
                 |()| e.compare(&a, &b_rev, &Cancel::never()).expect("compare"),
                 BatchSize::PerIteration,
             );
+        });
+    }
+    group.finish();
+}
+
+/// The scope of a pattern that matches every branch (`**`), as the graph sends it: the full
+/// names of the local branches, then the remote ones, the first 2,000 (the most the IPC takes;
+/// the clone with 2,000 tracked branches reaches it).
+fn refs_scope(engine: &Git2Engine) -> WalkScope {
+    let refs = engine.refs(&Cancel::never()).expect("refs");
+    let names: Vec<String> = [RefKind::LocalBranch, RefKind::RemoteBranch]
+        .iter()
+        .flat_map(|kind| refs.iter().filter(move |entry| entry.kind == *kind))
+        .map(|entry| entry.full_name.clone())
+        .take(2_000)
+        .collect();
+    WalkScope::Refs { names }
+}
+
+/// The first page of a pattern's walk, at the scope's cap on the tracked clone: under the
+/// first page's budget, as the all-branches walk.
+fn walk_refs_first_page(c: &mut Criterion) {
+    let mut group = c.benchmark_group("walk_refs_first_page");
+    group.sample_size(10);
+    for (name, path) in branch_targets() {
+        let engine = engine(&path);
+        let scope = refs_scope(&engine);
+        let options = WalkOptions {
+            page_size: 500,
+            order: WalkOrder::Lazy,
+            filter: None,
+        };
+        group.bench_with_input(BenchmarkId::from_parameter(&name), &engine, |b, e| {
+            b.iter(|| {
+                let mut walk = e.walk(&scope, &options, &Cancel::never()).expect("walk");
+                walk.next_page(&Cancel::never()).expect("page")
+            });
+        });
+    }
+    group.finish();
+}
+
+/// The first page without the remote branches no local branch tracks, which reads every local
+/// branch's upstream before it seeds: as the all-branches walk, plus one configuration
+/// snapshot, on 2,000 tracked branches too.
+fn walk_local_first_page(c: &mut Criterion) {
+    let mut group = c.benchmark_group("walk_local_first_page");
+    group.sample_size(10);
+    for (name, path) in branch_targets() {
+        let engine = engine(&path);
+        let options = WalkOptions {
+            page_size: 500,
+            order: WalkOrder::Lazy,
+            filter: None,
+        };
+        group.bench_with_input(BenchmarkId::from_parameter(&name), &engine, |b, e| {
+            b.iter(|| {
+                let mut walk = e
+                    .walk(&WalkScope::Local, &options, &Cancel::never())
+                    .expect("walk");
+                walk.next_page(&Cancel::never()).expect("page")
+            });
+        });
+    }
+    group.finish();
+}
+
+/// The count of a pattern's walk at the scope's cap, off the first-paint path.
+fn count_refs(c: &mut Criterion) {
+    let mut group = c.benchmark_group("count_refs");
+    group.sample_size(10);
+    for (name, path) in branch_targets() {
+        let engine = engine(&path);
+        let scope = refs_scope(&engine);
+        group.bench_with_input(BenchmarkId::from_parameter(&name), &engine, |b, e| {
+            b.iter(|| e.count_commits(&scope, &Cancel::never()).expect("count"));
+        });
+    }
+    group.finish();
+}
+
+/// The count of all branches, the yardstick of `count_refs`: past the cap both count 100,000
+/// commits, which costs what it costs whatever the seeds.
+fn count_all(c: &mut Criterion) {
+    let mut group = c.benchmark_group("count_all");
+    group.sample_size(10);
+    for (name, path) in branch_targets() {
+        let engine = engine(&path);
+        group.bench_with_input(BenchmarkId::from_parameter(&name), &engine, |b, e| {
+            b.iter(|| {
+                e.count_commits(&WalkScope::All, &Cancel::never())
+                    .expect("count")
+            });
         });
     }
     group.finish();
@@ -1119,6 +1227,10 @@ criterion_group!(
     walk_first_page,
     walk_first_page_date_topo,
     walk_first_page_filtered,
+    walk_refs_first_page,
+    walk_local_first_page,
+    count_refs,
+    count_all,
     path_history,
     walk_ten_pages,
     status,

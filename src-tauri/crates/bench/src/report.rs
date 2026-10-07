@@ -12,6 +12,12 @@ pub fn budget(id: &str) -> Option<Duration> {
     let ms = match (group, repo) {
         // Refs are on the open-to-first-paint path, so they share its budget.
         ("open", _) | ("walk_first_page", _) | ("refs", _) => 300,
+        // A pattern's 2,000 branches and the branches without the untracked remote ones paint
+        // as all branches do.
+        ("walk_refs_first_page", _) | ("walk_local_first_page", _) => 300,
+        // The count line follows the first page; past the cap a count reads its 100,000
+        // commits whatever the scope, so the pattern's count is recorded beside all branches'.
+        ("count_refs", _) | ("count_all", _) => return None,
         ("walk_ten_pages", _) => 3_000,
         // A filter is an explicit action: first results within a second.
         ("walk_first_page_filtered", _) | ("path_history", _) => 1_000,

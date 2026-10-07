@@ -80,7 +80,8 @@ pub(super) fn start(
         stderr,
     };
     if seeds.is_empty() {
-        // Nothing to list (an unborn repository): git would list HEAD instead.
+        // Nothing to list (an unborn repository, or no name of the scope resolves): git
+        // would read no revision and print nothing, so no process is needed.
         return Ok(Box::new(CliWalk::empty(repo, command_text)));
     }
     let mut child = cli::command(&engine.repo().root, &argv)

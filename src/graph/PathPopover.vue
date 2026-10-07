@@ -31,7 +31,8 @@ function apply(): void {
 }
 
 function onKeydown(event: KeyboardEvent): void {
-  if (event.key === "Enter") {
+  // Enter on Cancel or Apply is the button's own.
+  if (event.key === "Enter" && !(event.target instanceof HTMLButtonElement)) {
     event.preventDefault();
     apply();
   } else if (event.key === "Escape") {

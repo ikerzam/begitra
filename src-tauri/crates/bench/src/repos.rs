@@ -233,6 +233,106 @@ pub fn ensure_squashed_branches(count: usize) -> Result<PathBuf, Error> {
     Ok(path)
 }
 
+/// A clone of the synthetic repository for the benchmarks that grow with the tracked branches,
+/// made by [`ensure_tracked_branches`].
+pub fn synthetic_tracked() -> PathBuf {
+    repos_dir().join("synthetic-tracked")
+}
+
+/// Makes sure [`synthetic_tracked`] exists and returns it: a clone of the synthetic repository
+/// without a checkout where `count` local branches `agent/NNNN`, spread over `main`'s
+/// first-parent history, each track `origin/agent/NNNN` up to three commits behind: a project
+/// after agents pushed every branch with `-u`. The refs are packed, as after a `git gc`, and the
+/// configuration holds one `[branch]` section per branch, so reading the upstreams one branch
+/// at a time costs what it costs there. Built in a sibling folder and renamed once complete.
+pub fn ensure_tracked_branches(count: usize) -> Result<PathBuf, Error> {
+    let path = synthetic_tracked();
+    if is_repository(&path) {
+        return Ok(path);
+    }
+    let source = synthetic();
+    if !is_repository(&source) {
+        return Err(Error::Usage(format!(
+            "{} is missing, run `cargo run -p bench --release -- generate`",
+            source.display()
+        )));
+    }
+    let building = repos_dir().join("synthetic-tracked.building");
+    let _ = std::fs::remove_dir_all(&building);
+    git(
+        &repos_dir(),
+        &[
+            "clone",
+            "--quiet",
+            "--local",
+            "--no-checkout",
+            "--",
+            &source.to_string_lossy(),
+            &building.to_string_lossy(),
+        ],
+        &[],
+    )?;
+    let history = git(
+        &building,
+        &["rev-list", "--first-parent", "refs/heads/main"],
+        &[],
+    )?;
+    let commits: Vec<&str> = history.lines().collect();
+    let step = (commits.len() / count.max(1)).max(1);
+    let mut updates = String::new();
+    let mut sections = String::new();
+    for index in 0..count {
+        let name = format!("agent/{index:04}");
+        let at = |offset: usize| {
+            commits
+                .get((index * step + offset).min(commits.len().saturating_sub(1)))
+                .copied()
+                .ok_or_else(|| Error::Usage("main has no history".to_owned()))
+        };
+        let tip = at(0)?;
+        // First-parent order runs newest first: further on is older, so behind the branch.
+        let pushed = at(index % 4)?;
+        updates.push_str(&format!(
+            "create refs/heads/{name} {tip}\ncreate refs/remotes/origin/{name} {pushed}\n"
+        ));
+        sections.push_str(&format!(
+            "[branch \"{name}\"]\n\tremote = origin\n\tmerge = refs/heads/{name}\n"
+        ));
+    }
+    let updated = git_core::cli::run_git_with_input(
+        &building,
+        &["update-ref", "--stdin"],
+        updates.into_bytes(),
+        &git_core::engine::Cancel::never(),
+    )
+    .map_err(|error| Error::Usage(format!("git update-ref: {error}")))?;
+    if updated.status != Some(0) {
+        return Err(Error::Usage(format!(
+            "git update-ref: {}",
+            updated.stderr.trim()
+        )));
+    }
+    let config = building.join(".git").join("config");
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&config)
+        .map_err(|source| Error::Io {
+            context: format!("open {}", config.display()),
+            source,
+        })?;
+    std::io::Write::write_all(&mut file, sections.as_bytes()).map_err(|source| Error::Io {
+        context: format!("append to {}", config.display()),
+        source,
+    })?;
+    drop(file);
+    git(&building, &["pack-refs", "--all"], &[])?;
+    std::fs::rename(&building, &path).map_err(|source| Error::Io {
+        context: format!("rename {} to {}", building.display(), path.display()),
+        source,
+    })?;
+    Ok(path)
+}
+
 /// Whether `path` is a git working tree with at least one commit.
 pub fn is_repository(path: &Path) -> bool {
     git2::Repository::open(path)

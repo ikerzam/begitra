@@ -1406,3 +1406,333 @@ fn range_walks_and_counts_equal_git_rev_list_without_reading_the_excluded_histor
         "{edges:?}"
     );
 }
+
+/// `git log <flags> --format=%H <revs…>`.
+fn git_log_of(f: &Fixture, flags: &[&str], revs: &[&str]) -> Vec<String> {
+    let mut args = vec!["log"];
+    args.extend_from_slice(flags);
+    args.push("--format=%H");
+    args.extend_from_slice(revs);
+    f.git(&args).lines().map(str::to_owned).collect()
+}
+
+fn refs_scope(names: &[&str]) -> WalkScope {
+    WalkScope::Refs {
+        names: names.iter().map(|name| (*name).to_owned()).collect(),
+    }
+}
+
+#[test]
+fn several_refs_walk_and_count_what_any_of_them_reaches_like_git() {
+    let f = Fixture::basic().with_remote();
+    let engine = open(&f);
+    // A name that does not resolve is left out; one named twice walks once.
+    let scope = refs_scope(&["develop", "origin/develop", "v1", "gone/branch", "develop"]);
+    let revs = ["develop", "origin/develop", "v1"];
+    let expected = git_log_of(&f, &["--date-order"], &revs);
+    assert!(expected.len() > 4, "{expected:?}");
+    for page_size in PAGE_SIZES {
+        let nodes = walk_all(&engine, &scope, page_size, WalkOrder::DateTopo);
+        assert_eq!(hashes(&nodes), expected, "page size {page_size}");
+    }
+    let lazy = walk_all(&engine, &scope, 500, WalkOrder::Lazy);
+    assert_eq!(hashes(&lazy), git_log_of(&f, &[], &revs));
+    let count = engine
+        .count_commits(&scope, &Cancel::never())
+        .expect("count");
+    let mut args = vec!["rev-list", "--count"];
+    args.extend_from_slice(&revs);
+    let expected_count: u32 = f.git(&args).parse().expect("number");
+    assert_eq!((count.count, count.capped), (expected_count, false));
+}
+
+#[test]
+fn several_refs_none_of_which_resolves_walk_and_count_nothing() {
+    let f = Fixture::basic();
+    let engine = open(&f);
+    for scope in [
+        refs_scope(&[]),
+        refs_scope(&["gone/branch", "nope"]),
+        refs_scope(&["refs/heads/gone/branch", "refs/remotes/origin/gone"]),
+    ] {
+        assert!(
+            walk_all(&engine, &scope, 500, WalkOrder::DateTopo).is_empty(),
+            "{scope:?}"
+        );
+        let count = engine
+            .count_commits(&scope, &Cancel::never())
+            .expect("count");
+        assert_eq!((count.count, count.capped), (0, false), "{scope:?}");
+    }
+}
+
+#[test]
+fn several_refs_with_a_path_filter_equal_git_rev_list() {
+    let f = Fixture::basic().with_remote();
+    let engine = open(&f);
+    let nodes = walk_filtered(
+        &engine,
+        &refs_scope(&["develop", "origin/develop", "nope"]),
+        &filtered(WalkFilter {
+            paths: vec!["src".to_owned()],
+            ..WalkFilter::default()
+        }),
+    );
+    let expected: Vec<String> = f
+        .git(&["rev-list", "develop", "origin/develop", "--", "src"])
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    assert!(!expected.is_empty());
+    assert_eq!(hashes(&nodes), expected);
+}
+
+#[test]
+fn the_local_scope_leaves_out_the_remote_branches_no_branch_tracks_like_git() {
+    let mut f = Fixture::basic().with_remote().with_stash();
+    // A branch that lives on the remote alone.
+    f.git(&["checkout", "-q", "-b", "experiment"]);
+    f.write("experiment.txt", "experiment\n");
+    f.commit("e1: experiment");
+    f.git(&["push", "-q", "origin", "experiment"]);
+    f.git(&["checkout", "-q", "main"]);
+    f.git(&["branch", "-q", "-D", "experiment"]);
+    let engine = open(&f);
+    // Every ref but the remote branches no local branch tracks, in the order the engine seeds
+    // them (by name, HEAD last): git takes its revisions in the order given, which decides
+    // between commits of the same time.
+    let upstreams = ["refs/remotes/origin/main", "refs/remotes/origin/develop"];
+    let names = f.git(&["for-each-ref", "--format=%(refname)"]);
+    let mut revs: Vec<&str> = names
+        .lines()
+        .filter(|name| !name.starts_with("refs/remotes/") || upstreams.contains(name))
+        .collect();
+    revs.push("HEAD");
+    let expected = git_log_of(&f, &["--date-order"], &revs);
+    let everything = git_log_of(&f, &["--date-order"], &["--all"]);
+    assert!(
+        everything.len() > expected.len(),
+        "the remote-only branch adds its commit"
+    );
+    for page_size in PAGE_SIZES {
+        let nodes = walk_all(&engine, &WalkScope::Local, page_size, WalkOrder::DateTopo);
+        assert_eq!(hashes(&nodes), expected, "page size {page_size}");
+    }
+    let count = engine
+        .count_commits(&WalkScope::Local, &Cancel::never())
+        .expect("count");
+    let mut args = vec!["rev-list", "--count"];
+    args.extend_from_slice(&revs);
+    let expected_count: u32 = f.git(&args).parse().expect("number");
+    assert_eq!((count.count, count.capped), (expected_count, false));
+}
+
+/// The local scope keeps exactly the upstreams git names, whatever the shape: a local
+/// upstream (remote `.`), an upstream of another name, a gone one, a remote that does not
+/// exist, a configuration section of a deleted branch. Both orders, the count and the path
+/// filter's walk equal git's over the same revisions.
+#[test]
+fn the_local_scope_keeps_the_upstreams_git_names_in_every_walk() {
+    let mut f = Fixture::basic().with_remote();
+    // Remote-only branches: one tracked by a local branch of another name, one tracked by none,
+    // one whose tracking local branch is gone with its configuration left behind.
+    for name in ["elsewhere", "experiment", "orphan"] {
+        f.git(&["checkout", "-q", "-b", name, "main"]);
+        f.write(&format!("src/{name}.txt"), "remote only\n");
+        f.commit(&format!("{name}: remote only"));
+        f.git(&["push", "-q", "origin", name]);
+        f.git(&["checkout", "-q", "main"]);
+        f.git(&["branch", "-q", "-D", name]);
+    }
+    f.git(&["branch", "-q", "--track", "topic", "origin/elsewhere"]);
+    f.git(&["branch", "-q", "--track", "local-upstream", "develop"]);
+    f.git(&["branch", "-q", "nowhere", "main"]);
+    f.git(&["config", "branch.nowhere.remote", "nowhere"]);
+    f.git(&["config", "branch.nowhere.merge", "refs/heads/main"]);
+    f.git(&["branch", "-q", "--track", "gone", "origin/develop"]);
+    f.git(&["config", "branch.gone.merge", "refs/heads/gone-from-origin"]);
+    f.git(&["config", "branch.deleted.remote", "origin"]);
+    f.git(&["config", "branch.deleted.merge", "refs/heads/orphan"]);
+    let upstreams_shown = f.git(&["for-each-ref", "--format=%(upstream)", "refs/heads/"]);
+    let upstreams: Vec<&str> = upstreams_shown.lines().filter(|u| !u.is_empty()).collect();
+    assert!(
+        upstreams.contains(&"refs/remotes/origin/elsewhere"),
+        "{upstreams:?}"
+    );
+    assert!(
+        !upstreams.contains(&"refs/remotes/origin/orphan"),
+        "{upstreams:?}"
+    );
+    let names = f.git(&["for-each-ref", "--format=%(refname)"]);
+    let mut revs: Vec<&str> = names
+        .lines()
+        .filter(|name| !name.starts_with("refs/remotes/") || upstreams.contains(name))
+        .collect();
+    revs.push("HEAD");
+    let engine = open(&f);
+    for page_size in PAGE_SIZES {
+        let nodes = walk_all(&engine, &WalkScope::Local, page_size, WalkOrder::DateTopo);
+        assert_eq!(
+            hashes(&nodes),
+            git_log_of(&f, &["--date-order"], &revs),
+            "page size {page_size}"
+        );
+    }
+    let lazy = walk_all(&engine, &WalkScope::Local, 500, WalkOrder::Lazy);
+    assert_eq!(hashes(&lazy), git_log_of(&f, &[], &revs));
+    let count = engine
+        .count_commits(&WalkScope::Local, &Cancel::never())
+        .expect("count");
+    let mut args = vec!["rev-list", "--count"];
+    args.extend_from_slice(&revs);
+    let expected_count: u32 = f.git(&args).parse().expect("number");
+    assert_eq!((count.count, count.capped), (expected_count, false));
+    let nodes = walk_filtered(
+        &engine,
+        &WalkScope::Local,
+        &filtered(WalkFilter {
+            paths: vec!["src".to_owned()],
+            ..WalkFilter::default()
+        }),
+    );
+    let mut args = vec!["rev-list"];
+    args.extend_from_slice(&revs);
+    args.extend_from_slice(&["--", "src"]);
+    let expected: Vec<String> = f.git(&args).lines().map(str::to_owned).collect();
+    assert!(!expected.is_empty());
+    assert_eq!(hashes(&nodes), expected);
+}
+
+/// Full names, as the graph sends them, walk and count as git does; two tips of the same date
+/// come in the order of the names, as git takes its revisions, in both orders.
+#[test]
+fn several_full_names_seed_in_their_order_like_git() {
+    let mut f = Fixture::basic().with_remote();
+    f.git(&["checkout", "-q", "-b", "tie-a", "main"]);
+    f.write("tie-a.txt", "a\n");
+    f.commit("tie a");
+    // The same committer date: no tick between the two commits.
+    f.git(&["checkout", "-q", "-b", "tie-b", "main"]);
+    f.write("tie-b.txt", "b\n");
+    f.git(&["add", "-A"]);
+    f.git(&["commit", "-q", "-m", "tie b"]);
+    f.git(&["checkout", "-q", "main"]);
+    let engine = open(&f);
+    let full = [
+        "refs/heads/develop",
+        "refs/remotes/origin/develop",
+        "refs/tags/v1",
+    ];
+    let walked = walk_all(&engine, &refs_scope(&full), 500, WalkOrder::DateTopo);
+    assert_eq!(hashes(&walked), git_log_of(&f, &["--date-order"], &full));
+    let count = engine
+        .count_commits(&refs_scope(&full), &Cancel::never())
+        .expect("count");
+    let mut args = vec!["rev-list", "--count"];
+    args.extend_from_slice(&full);
+    let expected_count: u32 = f.git(&args).parse().expect("number");
+    assert_eq!((count.count, count.capped), (expected_count, false));
+    let forward = ["refs/heads/tie-a", "refs/heads/tie-b"];
+    let backward = ["refs/heads/tie-b", "refs/heads/tie-a"];
+    assert_ne!(
+        git_log_of(&f, &[], &forward),
+        git_log_of(&f, &[], &backward),
+        "the tie is decided by the order of the names"
+    );
+    for names in [forward, backward] {
+        for (order, flags) in [
+            (WalkOrder::DateTopo, &["--date-order"][..]),
+            (WalkOrder::Lazy, &[][..]),
+        ] {
+            let nodes = walk_all(&engine, &refs_scope(&names), 500, order);
+            assert_eq!(
+                hashes(&nodes),
+                git_log_of(&f, flags, &names),
+                "{names:?} {order:?}"
+            );
+        }
+    }
+}
+
+/// A name of hex digits that names nothing (a deleted branch `1234`, `cafe`) is an unknown
+/// revision, as git reports it: several refs leave it out like any other unknown name, and one
+/// ref fails with `refs.not_found`, never `repo.corrupt_object` for a hash padded with zeros.
+#[test]
+fn several_refs_leave_out_a_hex_looking_name_that_names_nothing() {
+    let f = Fixture::basic();
+    let engine = open(&f);
+    let expected_count: u32 = f
+        .git(&["rev-list", "--count", "develop"])
+        .parse()
+        .expect("number");
+    let expected_src: Vec<String> = f
+        .git(&["rev-list", "develop", "--", "src"])
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    for name in ["1234", "cafe", "dead~1"] {
+        assert!(
+            !f.try_git(&["rev-parse", "--verify", "-q", name]).0,
+            "{name} names nothing"
+        );
+        let scope = refs_scope(&[name, "develop"]);
+        assert_eq!(
+            hashes(&walk_all(&engine, &scope, 500, WalkOrder::DateTopo)),
+            git_log_of(&f, &["--date-order"], &["develop"]),
+            "{name}"
+        );
+        let count = engine
+            .count_commits(&scope, &Cancel::never())
+            .expect("count");
+        assert_eq!(
+            (count.count, count.capped),
+            (expected_count, false),
+            "{name}"
+        );
+        let nodes = walk_filtered(
+            &engine,
+            &scope,
+            &filtered(WalkFilter {
+                paths: vec!["src".to_owned()],
+                ..WalkFilter::default()
+            }),
+        );
+        assert_eq!(hashes(&nodes), expected_src, "{name}");
+        let single = WalkScope::Ref {
+            name: name.to_owned(),
+        };
+        let error = match engine.walk(&single, &WalkOptions::default(), &Cancel::never()) {
+            Err(error) => error,
+            Ok(mut walk) => walk.next_page(&Cancel::never()).expect_err("must fail"),
+        };
+        assert_eq!(error.code(), "refs.not_found", "{name}: {error}");
+    }
+}
+
+/// A ref outside the scope cannot fail it: beside a tag whose commit is gone, `git log main`
+/// and `git rev-list --count main` succeed, and so do the walk and the count of `[main]`.
+#[test]
+fn several_refs_walk_and_count_beside_an_unrelated_broken_tag() {
+    let mut f = Fixture::basic();
+    f.git(&["checkout", "-q", "-b", "doomed"]);
+    f.write("doomed.txt", "doomed");
+    let doomed = f.commit("doomed");
+    f.git(&["checkout", "-q", "main"]);
+    f.git(&["tag", "-a", "lost", "-m", "tag of a lost commit", &doomed]);
+    f.git(&["branch", "-q", "-D", "doomed"]);
+    f.delete_object(&doomed);
+    let engine = open(&f);
+    let scope = refs_scope(&["main"]);
+    let count = engine
+        .count_commits(&scope, &Cancel::never())
+        .expect("count");
+    let expected: u32 = f
+        .git(&["rev-list", "--count", "main"])
+        .parse()
+        .expect("number");
+    assert_eq!((count.count, count.capped), (expected, false));
+    assert_eq!(
+        hashes(&walk_all(&engine, &scope, 500, WalkOrder::DateTopo)),
+        git_log_of(&f, &["--date-order"], &["main"])
+    );
+}

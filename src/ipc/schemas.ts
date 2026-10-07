@@ -137,9 +137,27 @@ export const WalkPageSchema = v.object({
 });
 export type WalkPage = v.InferOutput<typeof WalkPageSchema>;
 
+/** Most names of a scope of several refs (`MAX_SCOPE_NAMES` in the walk command). */
+export const MAX_SCOPE_NAMES = 2_000;
+
+/** Longest name of a scope of several refs, in bytes (`MAX_SCOPE_NAME_BYTES` there). */
+export const MAX_SCOPE_NAME_BYTES = 1_024;
+
+/** A name of a scope of several refs: a full ref name (or `HEAD`), as the command takes it. */
+const ScopeNameSchema = v.pipe(
+  v.string(),
+  v.maxBytes(MAX_SCOPE_NAME_BYTES),
+  v.check((name) => (name === "HEAD" || name.startsWith("refs/")) && !/\p{Cc}/u.test(name)),
+);
+
 export const WalkScopeSchema = v.variant("kind", [
   v.object({ kind: v.literal("all") }),
+  v.object({ kind: v.literal("local") }),
   v.object({ kind: v.literal("ref"), name: v.string() }),
+  v.object({
+    kind: v.literal("refs"),
+    names: v.pipe(v.array(ScopeNameSchema), v.maxLength(MAX_SCOPE_NAMES)),
+  }),
   v.object({ kind: v.literal("range"), exclude: v.string(), include: v.string() }),
 ]);
 export type WalkScope = v.InferOutput<typeof WalkScopeSchema>;

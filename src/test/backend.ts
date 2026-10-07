@@ -548,7 +548,9 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
         ? all.slice(0, options.refScopeCommits ?? 10)
         : scope.kind === "range"
           ? all.slice(0, options.rangeCommits ?? 3)
-          : all;
+          : scope.kind === "refs" && scope.names.length === 0
+            ? []
+            : all;
     if (filter.text) {
       const text = filter.text.toLowerCase();
       listed = listed.filter((c) => c.subject.toLowerCase().includes(text));

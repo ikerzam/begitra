@@ -31,6 +31,7 @@ export const defaultBindings: readonly ShortcutBinding[] = [
   { id: "close-tab", keys: "mod+w", scope: "global" },
   { id: "next-row", keys: "j", scope: "list" },
   { id: "previous-row", keys: "k", scope: "list" },
+  { id: "go-to-head", keys: "h", scope: "list" },
   { id: "next-hunk", keys: "n", scope: "review" },
   { id: "previous-hunk", keys: "p", scope: "review" },
   { id: "mark-reviewed", keys: "r", scope: "review" },

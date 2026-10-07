@@ -36,6 +36,40 @@ const MAX_FILTER_TEXT: usize = 200;
 /// Most paths of a path filter.
 const MAX_FILTER_PATHS: usize = 20;
 
+/// Most names of a scope of several refs (a pattern's branches); past it the graph walks the
+/// first ones in the branch order.
+const MAX_SCOPE_NAMES: usize = 2_000;
+
+/// Longest name of a scope of several refs, in bytes: libgit2's own limit on a ref name.
+const MAX_SCOPE_NAME_BYTES: usize = 1_024;
+
+/// Rejects a scope of several refs the frontend should never send: too many names, or a name
+/// that is no full ref name (outside `refs/` and not `HEAD`, overlong, with a control
+/// character), which could name a revision that searches the history or fail the whole scope.
+pub(crate) fn validate_scope(scope: &WalkScope) -> Result<(), AppError> {
+    let WalkScope::Refs { names } = scope else {
+        return Ok(());
+    };
+    if names.len() > MAX_SCOPE_NAMES {
+        return Err(AppError::invalid_argument(
+            "names",
+            format!("more than {MAX_SCOPE_NAMES} names"),
+        ));
+    }
+    let full_name = |name: &String| {
+        (name == "HEAD" || name.starts_with("refs/"))
+            && name.len() <= MAX_SCOPE_NAME_BYTES
+            && !name.chars().any(char::is_control)
+    };
+    if !names.iter().all(full_name) {
+        return Err(AppError::invalid_argument(
+            "names",
+            "a name that is no full ref name",
+        ));
+    }
+    Ok(())
+}
+
 /// Rejects filters the frontend should never send: overlong text, too many paths, a path
 /// that escapes the repository or an inverted date range.
 fn validate_filter(options: &WalkOptions) -> Result<(), AppError> {
@@ -153,7 +187,11 @@ pub fn pump<S: Sink<WalkPage>>(
 /// Starts a walk over `scope` and streams up to `max_pages` pages; the handle stays open for
 /// `walk_continue` until the walk is exhausted, closed, or idle for five minutes.
 #[tauri::command]
-#[tracing::instrument(level = "debug", skip(state, on_page))]
+#[tracing::instrument(
+    level = "debug",
+    skip(state, scope, on_page),
+    fields(scope = scope.kind(), names = scope.name_count())
+)]
 pub async fn walk_commits(
     state: State<'_, AppState>,
     repo: PathBuf,
@@ -166,6 +204,7 @@ pub async fn walk_commits(
     let app = state.inner().clone();
     let worker = app.clone();
     let (max_pages, timeout) = pages_and_timeout(max_pages);
+    validate_scope(&scope)?;
     validate_filter(&options)?;
     run_stream(
         app.ops(),
@@ -468,6 +507,40 @@ mod tests {
         WalkOptions {
             filter: Some(filter),
             ..WalkOptions::default()
+        }
+    }
+
+    #[test]
+    fn a_scope_of_several_refs_is_validated_before_the_walk_starts() {
+        let names = |count: usize| WalkScope::Refs {
+            names: (0..count)
+                .map(|n| format!("refs/heads/claude/{n}"))
+                .collect(),
+        };
+        assert!(validate_scope(&WalkScope::All).is_ok());
+        assert!(validate_scope(&names(0)).is_ok());
+        assert!(validate_scope(&names(2_000)).is_ok());
+        let error = validate_scope(&names(2_001)).expect_err("too many");
+        assert_eq!(error.code, codes::IPC_INVALID_ARGUMENT);
+        assert_eq!(error.message, "Invalid argument names");
+        let with = |name: String| WalkScope::Refs {
+            names: vec!["refs/heads/main".to_owned(), name],
+        };
+        assert!(validate_scope(&with("HEAD".to_owned())).is_ok());
+        assert!(validate_scope(&with(format!("refs/heads/{}", "x".repeat(1_013)))).is_ok());
+        for name in [
+            String::new(),
+            "main".to_owned(),
+            ":/m1".to_owned(),
+            "--all".to_owned(),
+            "refs/heads/a\0b".to_owned(),
+            "refs/heads/a\nb".to_owned(),
+            format!("refs/heads/{}", "x".repeat(1_014)),
+        ] {
+            let error = validate_scope(&with(name.clone())).expect_err(&name);
+            assert_eq!(error.code, codes::IPC_INVALID_ARGUMENT);
+            // The message never carries the name, which may be long.
+            assert!(!error.message.contains("xxxx"));
         }
     }
 

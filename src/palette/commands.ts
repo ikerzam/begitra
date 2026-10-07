@@ -60,6 +60,10 @@ export interface PaletteActions {
   compareWith: () => void;
   inComparison: () => boolean;
   swapComparison: () => void;
+  /** Whether graph focus shows, with a repository open. */
+  inGraph: () => boolean;
+  /** Go to HEAD in the graph. */
+  goToHead: () => void;
   /** Whether the open project has a comparison's tab beside its own. */
   hasTabs: () => boolean;
   nextTab: () => void;
@@ -296,6 +300,13 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       labelKey: "palette.commandsById.compare-open-review",
       enabled: () => withRepo() && actions.inComparison(),
       run: actions.openComparisonInReview,
+    },
+    {
+      id: "go-to-head",
+      labelKey: "palette.commandsById.go-to-head",
+      shortcutId: "go-to-head",
+      enabled: actions.inGraph,
+      run: actions.goToHead,
     },
     {
       id: "next-tab",

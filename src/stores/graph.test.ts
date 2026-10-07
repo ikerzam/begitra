@@ -8,6 +8,7 @@ import type { CommitNode, Ref, WalkFilter, WalkScope } from "@/ipc/schemas";
 import { useGraphStore } from "./graph";
 import { useRepoStore } from "./repo";
 import { useReviewStore } from "./review";
+import { useSettingsStore } from "./settings";
 import { useShellStore } from "./shell";
 
 const authorsOf = ["iker", "claude", "ane"] as const;
@@ -35,11 +36,32 @@ interface Call {
   args: Record<string, unknown>;
 }
 
-/** A backend whose walk honours the scope and the filter the way the engine does. */
-/** `refs` is read on every listing, so a test can move HEAD between two. */
-function mockBackend(refs: Ref[] = []): Call[] {
+/**
+ * A backend whose walk honours the scope and the filter the way the engine does. `refs` is read
+ * on every listing, so a test can move HEAD between two; with `pageSize`, the walk answers one
+ * page per request (as many as `walk_continue` asks for after it).
+ */
+function mockBackend(refs: Ref[] = [], pageSize = 1000): Call[] {
   const calls: Call[] = [];
   const all = Array.from({ length: 30 }, (_, i) => commit(i));
+  let walked: CommitNode[] = [];
+  const page = (index: number) => ({
+    walkId: "w",
+    index,
+    commits: walked.slice(index * pageSize, (index + 1) * pageSize),
+    done: (index + 1) * pageSize >= walked.length,
+  });
+  /** Pages `from` on, at most `max` of them, as the stream sends them. */
+  const pages = (from: number, max: number) => {
+    const messages: unknown[] = [];
+    for (let index = from; index < from + max; index += 1) {
+      const data = page(index);
+      messages.push({ kind: "page", seq: index - from, data });
+      if (data.done) break;
+    }
+    messages.push({ kind: "done" });
+    return messages;
+  };
   const send = (channel: Channel<unknown>, messages: unknown[]) => {
     queueMicrotask(() => {
       for (const message of messages) channel.onmessage(message);
@@ -69,12 +91,16 @@ function mockBackend(refs: Ref[] = []): Call[] {
           listed = listed.filter((c) => c.author.time >= (filter.since ?? 0));
         }
         if (filter.paths) listed = listed.filter((_c, i) => i % 2 === 0);
-        send(args["onPage"] as Channel<unknown>, [
-          { kind: "page", seq: 0, data: { walkId: "w", index: 0, commits: listed, done: true } },
-          { kind: "done" },
-        ]);
+        walked = listed;
+        send(args["onPage"] as Channel<unknown>, pages(0, args["maxPages"] as number));
         return null;
       }
+      case "walk_continue":
+        send(
+          args["onPage"] as Channel<unknown>,
+          pages(args["nextIndex"] as number, args["maxPages"] as number),
+        );
+        return null;
       case "count_commits": {
         const scope = args["scope"] as WalkScope;
         return { count: scope.kind === "ref" ? 10 : 30, capped: false };
@@ -252,6 +278,216 @@ describe("graph store", () => {
     await repo.refreshRefs();
     await settled();
     expect(walks()).toHaveLength(all);
+  });
+
+  it("walks the branches a pattern matches, again when the refs bring another", async () => {
+    const ref = (name: string, kind: Ref["kind"], fullName: string): Ref => ({
+      name,
+      fullName,
+      kind,
+      target: commit(0).hash,
+      isCurrent: false,
+      upstream: null,
+      ahead: null,
+      behind: null,
+      worktree: null,
+      message: null,
+      committedAt: null,
+    });
+    const refs = [
+      ref("main", "local-branch", "refs/heads/main"),
+      ref("claude/fix-auth", "local-branch", "refs/heads/claude/fix-auth"),
+      ref("origin/claude/tiles", "remote-branch", "refs/remotes/origin/claude/tiles"),
+      ref("claude/v1", "tag", "refs/tags/claude/v1"),
+    ];
+    const calls = mockBackend(refs);
+    const repo = useRepoStore();
+    const graph = useGraphStore();
+    await repo.open("/r");
+    await settled();
+    graph.setScope({ kind: "pattern", pattern: "claude/*" });
+    await settled();
+    const names = ["refs/heads/claude/fix-auth", "refs/remotes/origin/claude/tiles"];
+    expect(graph.walkScope).toEqual({ kind: "refs", names });
+    expect(graph.patternMatches).toEqual(names);
+    expect(graph.isActive).toBe(true);
+    const walks = () => calls.filter((c) => c.cmd === "walk_commits");
+    expect(walks().at(-1)?.args["scope"]).toEqual({ kind: "refs", names });
+    // An agent's new branch joins the walk once the refs are listed again.
+    refs.push(ref("claude/new", "local-branch", "refs/heads/claude/new"));
+    await repo.refreshRefs();
+    await settled();
+    expect(walks().at(-1)?.args["scope"]).toEqual({
+      kind: "refs",
+      names: [
+        "refs/heads/claude/fix-auth",
+        "refs/remotes/origin/claude/tiles",
+        "refs/heads/claude/new",
+      ],
+    });
+  });
+
+  it("walks without the remote branches once they are hidden, and remembers it", async () => {
+    const calls = mockBackend();
+    const repo = useRepoStore();
+    const graph = useGraphStore();
+    await repo.open("/r");
+    await settled();
+    const walks = () => calls.filter((c) => c.cmd === "walk_commits");
+    const before = walks().length;
+    graph.setHideRemotes(true);
+    await settled();
+    expect(graph.hideRemotes).toBe(true);
+    expect(useSettingsStore().values.graphHideRemotes).toBe(true);
+    expect(graph.walkScope).toEqual({ kind: "local" });
+    expect(walks()).toHaveLength(before + 1);
+    expect(walks().at(-1)?.args["scope"]).toEqual({ kind: "local" });
+    // A scope of one branch is the same walk either way.
+    graph.setScope({ kind: "current" });
+    await settled();
+    const scoped = walks().length;
+    graph.setHideRemotes(false);
+    await settled();
+    expect(walks()).toHaveLength(scoped);
+  });
+
+  it("opens a repository on the walk without the remote branches while they are hidden", async () => {
+    const calls = mockBackend();
+    await useSettingsStore().update("graphHideRemotes", true);
+    await useRepoStore().open("/r");
+    await settled();
+    const walks = calls.filter((c) => c.cmd === "walk_commits");
+    expect(walks).toHaveLength(1);
+    expect(walks[0]?.args["scope"]).toEqual({ kind: "local" });
+    expect(useGraphStore().walkScope).toEqual({ kind: "local" });
+  });
+
+  it("goes to HEAD's commit, or says the scope leaves it out", async () => {
+    const head: Ref = {
+      name: "HEAD",
+      fullName: "HEAD",
+      kind: "head",
+      target: commit(5).hash,
+      isCurrent: false,
+      upstream: null,
+      ahead: null,
+      behind: null,
+      worktree: null,
+      message: null,
+      committedAt: null,
+    };
+    const refs = [head];
+    mockBackend(refs);
+    const repo = useRepoStore();
+    const graph = useGraphStore();
+    await repo.open("/r");
+    await settled();
+    expect(await graph.goToHead()).toBe("selected");
+    expect(repo.selectedIndex).toBe(5);
+    // The current branch's walk (the first ten commits) leaves HEAD out once it moves on.
+    refs.splice(0, 1, { ...head, target: commit(20).hash });
+    await repo.refreshRefs();
+    graph.setScope({ kind: "current" });
+    await settled();
+    expect(await graph.goToHead()).toBe("outside");
+  });
+
+  it("names the remote branches its scope walks, whose badges draw while hidden", async () => {
+    const branch = (name: string, kind: "local-branch" | "remote-branch"): Ref => ({
+      name,
+      fullName: kind === "local-branch" ? `refs/heads/${name}` : `refs/remotes/${name}`,
+      kind,
+      target: commit(1).hash,
+      isCurrent: false,
+      upstream: null,
+      ahead: null,
+      behind: null,
+      worktree: null,
+      message: null,
+      committedAt: null,
+    });
+    mockBackend([
+      branch("claude/a", "local-branch"),
+      branch("origin/claude/b", "remote-branch"),
+      branch("origin/main", "remote-branch"),
+    ]);
+    const repo = useRepoStore();
+    const graph = useGraphStore();
+    await repo.open("/r");
+    await settled();
+    expect(graph.scopeRemotes).toEqual([]);
+    graph.setScope({ kind: "pattern", pattern: "claude/*" });
+    expect(graph.scopeRemotes).toEqual(["origin/claude/b"]);
+    graph.setScope({ kind: "ref", name: "origin/main", fullName: "refs/remotes/origin/main" });
+    expect(graph.scopeRemotes).toEqual(["origin/main"]);
+    graph.setScope({ kind: "ref", name: "claude/a", fullName: "refs/heads/claude/a" });
+    expect(graph.scopeRemotes).toEqual([]);
+  });
+
+  it("loads the pages down to HEAD's date, and no further", async () => {
+    const head: Ref = {
+      name: "HEAD",
+      fullName: "HEAD",
+      kind: "head",
+      target: commit(12).hash,
+      isCurrent: false,
+      upstream: null,
+      ahead: null,
+      behind: null,
+      worktree: null,
+      message: null,
+      committedAt: commit(12).committer.time,
+    };
+    const refs = [head];
+    const calls = mockBackend(refs, 2);
+    const repo = useRepoStore();
+    const graph = useGraphStore();
+    await repo.open("/r");
+    await settled();
+    const continued = () => calls.filter((c) => c.cmd === "walk_continue").length;
+    // A request lists four pages of two: commits 0 to 7 first.
+    expect(repo.commits).toHaveLength(8);
+    expect(await graph.goToHead()).toBe("selected");
+    expect(repo.selectedIndex).toBe(12);
+    expect(continued()).toBe(1);
+    // HEAD on a commit the walk never lists, dated as commit 12: the search stops once a request
+    // lists commits a day older (commit 15), not at the end of the history.
+    refs.splice(0, 1, { ...head, target: "f".repeat(40) });
+    await repo.refreshRefs();
+    await settled();
+    graph.setText("commit");
+    await settled();
+    expect(repo.commits).toHaveLength(8);
+    expect(await graph.goToHead()).toBe("outside");
+    expect(repo.commits).toHaveLength(16);
+  });
+
+  it("gives up when the history lists again before HEAD arrives", async () => {
+    const head: Ref = {
+      name: "HEAD",
+      fullName: "HEAD",
+      kind: "head",
+      target: commit(25).hash,
+      isCurrent: false,
+      upstream: null,
+      ahead: null,
+      behind: null,
+      worktree: null,
+      message: null,
+      committedAt: commit(25).committer.time,
+    };
+    mockBackend([head], 4);
+    const repo = useRepoStore();
+    const graph = useGraphStore();
+    await repo.open("/r");
+    await settled();
+    // Commit 25 is three requests away; another filter lists it at once, but this search is over.
+    const search = graph.goToHead();
+    graph.setText("commit 2");
+    expect(await search).toBe("none");
+    await settled();
+    expect(repo.commits.some((c) => c.hash === commit(25).hash)).toBe(true);
+    expect(repo.selectedCommit?.hash).not.toBe(commit(25).hash);
   });
 
   it("clear resets every control and restarts once", async () => {

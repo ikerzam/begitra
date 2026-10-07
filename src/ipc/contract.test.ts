@@ -174,4 +174,20 @@ describe("IPC contract", () => {
     expect(message.error.code).toBe("repo.corrupt_object");
     expect(message.error.detail).toContain("zlib");
   });
+
+  it("takes the names of a scope of several refs as the walk command does", () => {
+    const scope = (name: string) => v.safeParse(WalkScopeSchema, { kind: "refs", names: [name] });
+    expect(scope("refs/heads/claude/tiles").success).toBe(true);
+    expect(scope("HEAD").success).toBe(true);
+    expect(scope(`refs/heads/${"x".repeat(1_013)}`).success).toBe(true);
+    for (const name of [
+      "",
+      "main",
+      ":/m1",
+      "refs/heads/a\u0000b",
+      `refs/heads/${"x".repeat(1_014)}`,
+    ]) {
+      expect(scope(name).success, name.slice(0, 20)).toBe(false);
+    }
+  });
 });

@@ -16,7 +16,11 @@ const props = withDefaults(
 );
 
 /** `select` on click; `activate` on double click or Enter. Arrow and j/k moves belong to the list. */
-const emit = defineEmits<{ select: []; activate: [] }>();
+const emit = defineEmits<{
+  /** A click, with its event for the modifier keys; none from the keyboard. */
+  select: [event?: MouseEvent];
+  activate: [];
+}>();
 
 function onKeydown(event: KeyboardEvent): void {
   if (event.key === "Enter") {
@@ -37,7 +41,7 @@ function onKeydown(event: KeyboardEvent): void {
       props.selected ? 'border-accent bg-selected' : 'border-transparent hover:bg-hover',
       { 'pl-3': !$slots.lanes },
     ]"
-    @click="emit('select')"
+    @click="(event: MouseEvent) => emit('select', event)"
     @dblclick="emit('activate')"
     @keydown="onKeydown"
   >

@@ -8,14 +8,21 @@ import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import RefMenu from "@/branches/RefMenu.vue";
+import { useBranchActions } from "@/branches/useBranchActions";
 import Button from "@/components/Button.vue";
 import EmptyState from "@/components/EmptyState.vue";
 import ErrorBanner from "@/components/ErrorBanner.vue";
 import type { CommitNode, Ref as GitRef } from "@/ipc/schemas";
 import { errorText } from "@/shell/errorMessage";
 import { sameFolder, shortHash } from "@/shell/format";
-import { outsideOverlays } from "@/shortcuts/registry";
+import {
+  isEditableTarget,
+  isFloatingPanelTarget,
+  isOverlayTarget,
+  outsideOverlays,
+} from "@/shortcuts/registry";
 import { useShortcut } from "@/shortcuts/useShortcut";
+import { useCompareStore } from "@/stores/compare";
 import { useGraphStore } from "@/stores/graph";
 import { useProjectsStore } from "@/stores/projects";
 import { headTarget, useRepoStore } from "@/stores/repo";
@@ -39,14 +46,60 @@ const graph = useGraphStore();
 const toasts = useToastsStore();
 const projects = useProjectsStore();
 const actions = useCommitActions();
+const branchActions = useBranchActions();
+const compare = useCompareStore();
 const hover = useHoverCard();
-const rows = ref<{ focus(): void } | null>(null);
+const rows = ref<{
+  focus(): void;
+  revealSelected(focus: boolean, index?: number, align?: "nearest" | "center"): Promise<void>;
+} | null>(null);
 const filterBar = ref<{ focusSearch(): void } | null>(null);
 // ⌘F here is the history's search: graph focus has no diff to find in.
 useShortcut(
   "find",
   outsideOverlays(() => filterBar.value?.focusSearch()),
 );
+// `h` is a key of the commit rows; the palette's "Go to HEAD" (no key) runs from anywhere.
+useShortcut("go-to-head", (event) => {
+  const from = event.target instanceof Element ? event.target : document.activeElement;
+  if (event.key !== "" && !from?.closest('[data-testid="commit-rows"]')) return;
+  void goToHead();
+});
+
+/**
+ * Go to HEAD: its commit selected, centred and focused, the pages it is in loaded first; a
+ * scope or filters that leave it out say so, with "Show all" clearing them and going there.
+ * The focus stays where the user took it meanwhile (a field, a dialog, a floating panel).
+ */
+async function goToHead(): Promise<void> {
+  const found = await graph.goToHead();
+  if (found === "outside") {
+    toasts.push({
+      kind: "info",
+      message: headOutsideMessage(),
+      action: t("graph.showAll"),
+      onAction: () => {
+        graph.clear();
+        void goToHead();
+      },
+    });
+    return;
+  }
+  if (found !== "selected") return;
+  await nextTick();
+  const active = document.activeElement;
+  const elsewhere =
+    isEditableTarget(active) || isOverlayTarget(active) || isFloatingPanelTarget(active);
+  await rows.value?.revealSelected(!elsewhere, repo.selectedIndex, "center");
+}
+
+/** Why HEAD is not listed: the scope (all branches always holds it), the filters, or either. */
+function headOutsideMessage(): string {
+  if (!graph.isFiltered) return t("graph.headOutside");
+  return graph.filters.scope.kind === "all"
+    ? t("graph.headFiltered")
+    : t("graph.headOutsideFiltered");
+}
 /** "Clear filters" of the empty state, which takes the focus where the rows would. */
 const clearButton = ref<{ $el: HTMLElement } | null>(null);
 
@@ -70,6 +123,25 @@ const menuOnHead = computed(
 const hoverCommit = computed(() =>
   hover.target.value ? repo.commits[hover.target.value.index] : undefined,
 );
+
+/** The selected commit compared with the one at `index` (a Ctrl-click), in its own tab. */
+function compareWithSelected(index: number): void {
+  const selected = repo.selectedCommit;
+  const other = commitAt(index);
+  if (!selected || !other) return;
+  const endpoint = (commit: CommitNode) => ({
+    kind: "revision" as const,
+    rev: commit.hash,
+    label: shortHash(commit.hash),
+  });
+  compare.open(endpoint(selected), endpoint(other));
+}
+
+/** A branch's badge double-clicked: checked out, as ↵ on its row of the Branches panel. */
+function checkout(ref: GitRef): void {
+  if (ref.kind === "local-branch" && ref.isCurrent) return;
+  branchActions.run("checkout", ref);
+}
 
 function commitAt(index: number): CommitNode | undefined {
   return repo.commits[index];
@@ -212,7 +284,11 @@ defineExpose({ focus });
     @keydown.escape="hover.hide()"
   >
     <!-- A failed open has no filter bar: the banner takes the whole area. -->
-    <FilterBar v-if="repo.state.kind !== 'error'" ref="filterBar" />
+    <FilterBar
+      v-if="repo.state.kind !== 'error'"
+      ref="filterBar"
+      @go-to-head="() => void goToHead()"
+    />
 
     <div v-if="repo.state.kind === 'error'" class="p-5" data-testid="graph-error">
       <ErrorBanner
@@ -230,7 +306,11 @@ defineExpose({ focus });
       />
       <EmptyState
         v-if="showEmpty && graph.isActive"
-        :message="t('graph.noMatches')"
+        :message="
+          graph.filters.scope.kind === 'pattern' && graph.patternMatches.length === 0
+            ? t('graph.patternEmpty', { pattern: graph.filters.scope.pattern })
+            : t('graph.noMatches')
+        "
         data-testid="graph-empty"
       >
         <Button ref="clearButton" variant="secondary" @click="graph.clear()">{{
@@ -247,7 +327,11 @@ defineExpose({ focus });
         :loading="repo.streaming && !repo.reloading"
         :can-load-more="repo.canLoadMore"
         :flat="repo.walkFilter !== undefined"
+        :hide-remotes="graph.hideRemotes"
+        :scope-remotes="graph.scopeRemotes"
         @select="repo.select"
+        @compare="compareWithSelected"
+        @ref-activate="checkout"
         @activate="(index) => emit('activate', index)"
         @load-more="repo.loadMore()"
         @row-enter="hover.onRowEnter"

@@ -1,11 +1,12 @@
 <script setup lang="ts">
 // The filter bar of the graph: the repository selector while the open project holds more than
-// one repository, then search, scope, author, date range and path, each filled when active; the
-// pinned-commit chips; the count line and "Clear filters" (an icon) once something narrows the
+// one repository, then search, scope (with "Branches matching…" and its popover), the remote
+// branches toggle, author, date range and path, each filled when active; the pinned-commit chips;
+// Go to HEAD, then the count line and "Clear filters" (an icon) once something narrows the
 // history, at the end of the bar outside the controls' row, so a narrow panel scrolls the controls
-// and never "Clear filters".
+// and never those.
 
-import { Folder, FunnelX, Search, X } from "@lucide/vue";
+import { CloudOff, Folder, FunnelX, LocateFixed, Search, X } from "@lucide/vue";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -14,17 +15,23 @@ import IconButton from "@/components/IconButton.vue";
 import Input from "@/components/Input.vue";
 import Select from "@/components/Select.vue";
 import type { SelectOption } from "@/components/types";
+import { MAX_SCOPE_NAMES } from "@/ipc/schemas";
 import { formatCount, shortHash } from "@/shell/format";
+import { shortcutRegistry } from "@/shortcuts/registry";
 import { DATE_RANGES, useGraphStore, type DateRange, type GraphScope } from "@/stores/graph";
 import { useProjectsStore } from "@/stores/projects";
 
 import PathPopover from "./PathPopover.vue";
+import PatternPopover from "./PatternPopover.vue";
 import RepoSelect from "./RepoSelect.vue";
+
+/** Go to HEAD: the panel selects HEAD's commit and says when the scope leaves it out. */
+const emit = defineEmits<{ goToHead: [] }>();
 
 /** Delay between the last keystroke and the walk restart. */
 const SEARCH_DEBOUNCE_MS = 200;
 
-const { t, locale } = useI18n();
+const { t, n, locale } = useI18n();
 const graph = useGraphStore();
 const projects = useProjectsStore();
 
@@ -50,6 +57,9 @@ watch(
 onBeforeUnmount(() => clearTimeout(debounce));
 
 const REF_SCOPE = "ref:";
+const PATTERN_SCOPE = "pattern";
+/** "Branches matching…": opens the pattern's popover, the pattern scope's own entry above it. */
+const PATTERN_EDIT = "pattern-edit";
 
 const scopeOptions = computed<SelectOption[]>(() => {
   const options: SelectOption[] = [
@@ -58,6 +68,20 @@ const scopeOptions = computed<SelectOption[]>(() => {
   ];
   const scope = graph.filters.scope;
   if (scope.kind === "ref") options.push({ value: REF_SCOPE + scope.fullName, label: scope.name });
+  if (scope.kind === "pattern") {
+    options.push({
+      value: PATTERN_SCOPE,
+      label: scope.pattern,
+      hint:
+        graph.patternMatches.length > MAX_SCOPE_NAMES
+          ? t("graph.patternCapped", {
+              n: n(MAX_SCOPE_NAMES),
+              m: n(graph.patternMatches.length),
+            })
+          : n(graph.patternMatches.length),
+    });
+  }
+  options.push({ value: PATTERN_EDIT, label: t("graph.branchesMatching") });
   return options;
 });
 
@@ -67,6 +91,12 @@ const scopeValue = computed({
     return scope.kind === "ref" ? REF_SCOPE + scope.fullName : scope.kind;
   },
   set: (value: string) => {
+    // "Branches matching…" asks for its pattern first; the scope changes once it is applied.
+    if (value === PATTERN_EDIT) {
+      patternOpen.value = true;
+      return;
+    }
+    if (value === PATTERN_SCOPE) return;
     let scope: GraphScope = { kind: "all" };
     if (value === "current") scope = { kind: "current" };
     else if (value.startsWith(REF_SCOPE)) {
@@ -76,6 +106,25 @@ const scopeValue = computed({
     graph.setScope(scope);
   },
 });
+
+const patternOpen = ref(false);
+const scopeControl = ref<HTMLElement | null>(null);
+const currentPattern = computed(() =>
+  graph.filters.scope.kind === "pattern" ? graph.filters.scope.pattern : "",
+);
+
+/** A pattern applied scopes the graph to its branches; an empty one, to every branch. */
+function applyPattern(pattern: string): void {
+  graph.setScope(pattern === "" ? { kind: "all" } : { kind: "pattern", pattern });
+}
+
+/** Closing the popover unmounts its focused input: the focus returns to the scope's select. */
+function closePattern(): void {
+  patternOpen.value = false;
+  scopeControl.value?.querySelector<HTMLElement>("button")?.focus();
+}
+
+const headKeys = computed(() => shortcutRegistry().hint("go-to-head"));
 
 const authorOptions = computed<SelectOption[]>(() => {
   const options: SelectOption[] = [{ value: "", label: t("graph.anyone") }];
@@ -149,7 +198,7 @@ const countLine = computed(() => {
             :icon="Search"
           />
         </div>
-        <div class="graph-scope">
+        <div ref="scopeControl" class="graph-scope">
           <Select
             v-model="scopeValue"
             :options="scopeOptions"
@@ -157,7 +206,22 @@ const countLine = computed(() => {
             :active="graph.filters.scope.kind !== 'all'"
             data-testid="filter-scope"
           />
+          <PatternPopover
+            v-if="patternOpen"
+            :pattern="currentPattern"
+            :anchor="scopeControl"
+            @apply="applyPattern"
+            @close="closePattern"
+          />
         </div>
+        <IconButton
+          :label="t('graph.hideRemotes')"
+          :icon="CloudOff"
+          :pressed="graph.hideRemotes"
+          size="control"
+          data-testid="filter-remotes"
+          @click="graph.setHideRemotes(!graph.hideRemotes)"
+        />
         <div class="graph-author">
           <Select
             v-model="authorValue"
@@ -231,6 +295,14 @@ const countLine = computed(() => {
       <span class="filter-fade filter-fade-start" aria-hidden="true" />
       <span class="filter-fade filter-fade-end" aria-hidden="true" />
     </div>
+    <IconButton
+      :label="t('graph.goToHead')"
+      :icon="LocateFixed"
+      :keys="headKeys"
+      :class="{ 'mr-3': !countLine && !graph.isActive }"
+      data-testid="filter-go-to-head"
+      @click="emit('goToHead')"
+    />
     <span
       v-if="countLine"
       class="filter-count truncate text-sm text-fg-muted"

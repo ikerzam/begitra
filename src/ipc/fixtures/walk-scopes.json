@@ -3,8 +3,18 @@
     "kind": "all"
   },
   {
+    "kind": "local"
+  },
+  {
     "kind": "ref",
     "name": "main"
+  },
+  {
+    "kind": "refs",
+    "names": [
+      "refs/heads/claude/fix-auth",
+      "refs/remotes/origin/claude/tiles"
+    ]
   },
   {
     "kind": "range",

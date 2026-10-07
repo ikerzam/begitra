@@ -152,10 +152,23 @@ pub struct Page {
 pub enum WalkScope {
     /// Every commit reachable from any ref (branches, remotes, tags, stashes and HEAD).
     All,
+    /// [`WalkScope::All`] without the remote-tracking branches no local branch tracks: the
+    /// local branches, their upstreams, the tags, the stashes, the other refs and HEAD.
+    Local,
     /// Commits reachable from one ref or revision.
     Ref {
         /// Ref name or revision, resolved as `git rev-parse` would.
         name: String,
+    },
+    /// Commits reachable from any of several refs (a pattern's branches). The names are full
+    /// ref names, the IPC's contract; a short name or a revision resolves as `git rev-parse`
+    /// would, where a tag `x` wins over a branch `x`. A name that does not resolve is left out,
+    /// since the refs it was read from may have moved since, and with none left the walk is
+    /// empty; a name whose object cannot be read fails the walk with
+    /// [`GitError::CorruptObject`](crate::error::GitError::CorruptObject).
+    Refs {
+        /// Full ref names (`refs/heads/main`), seeded in this order.
+        names: Vec<String>,
     },
     /// Commits reachable from `include` and not from `exclude`, as `exclude..include`.
     Range {
@@ -164,6 +177,30 @@ pub enum WalkScope {
         /// Revision whose ancestors are walked.
         include: String,
     },
+}
+
+impl WalkScope {
+    /// The variant's name as the IPC spells it (`all`, `refs`…), for logs.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Local => "local",
+            Self::Ref { .. } => "ref",
+            Self::Refs { .. } => "refs",
+            Self::Range { .. } => "range",
+        }
+    }
+
+    /// How many names the scope carries, for logs: a scope of several refs can carry
+    /// thousands, which a log line should count rather than print.
+    pub fn name_count(&self) -> usize {
+        match self {
+            Self::All | Self::Local => 0,
+            Self::Ref { .. } => 1,
+            Self::Refs { names } => names.len(),
+            Self::Range { .. } => 2,
+        }
+    }
 }
 
 /// Ordering of a commit walk.

@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use git2::{BranchType, Oid, Repository};
 
+use super::full_oid;
 use super::sequencer::operation_of;
 use super::staging::{argv_chunks, judged, nul_list, root, FROM_STDIN, LITERAL};
 use super::walk::split_message;
@@ -331,16 +332,6 @@ fn state_lines(path: &Path) -> Vec<String> {
 /// The first line of a state file.
 fn first_line(path: &Path) -> Option<String> {
     state_lines(path).into_iter().next()
-}
-
-/// A full hash, else none (`Oid::from_str` would pad an abbreviation with zeros).
-fn full_oid(text: &str) -> Option<Oid> {
-    let full = matches!(text.len(), 40 | 64) && text.bytes().all(|byte| byte.is_ascii_hexdigit());
-    if full {
-        Oid::from_str(text).ok()
-    } else {
-        None
-    }
 }
 
 /// The commit a state file names on its first line, when that line is a full hash.

@@ -16,8 +16,10 @@
 //!   child was shown. The pre-walk runs in the first `next_page`, not in `start`, so its errors
 //!   surface like every other.
 //!
-//! Ties in the heap go to the commit inserted first, like git's `prio_queue`; seeds enter in
-//! ref name order with `HEAD` last, the order `git log --all` feeds its pending list.
+//! Ties in the heap go to the commit inserted first, like git's `prio_queue`. Seeds enter in
+//! the order git takes its revisions: for `All` and `Local` in ref name order with `HEAD` last,
+//! the order `git log --all` feeds its pending list; for `Refs` in the order of the names, as
+//! `git log <names…>` reads them.
 //!
 //! A `Range` scope takes its members from libgit2's revwalk (`push` the tips, `hide` the
 //! excluded revision) before the first page: its limit pass stops once every pending commit is
@@ -66,9 +68,9 @@ pub(super) fn start(
     cancel: &Cancel,
 ) -> GitResult<Box<dyn CommitWalk>> {
     let repo = engine.with_repo(super::reopen)?;
-    let refs = load_refs(&repo, cancel)?;
+    let refs = load_refs(&repo, cancel, seeds_from_refs(scope))?;
     let head = head_commit(&repo)?;
-    let (seeds, exclude) = resolve_scope(&repo, scope, &refs, head)?;
+    let (seeds, exclude) = resolve_scope(&repo, scope, &refs, head, cancel)?;
     let decorations = decorations(&refs, head);
     let filter = options
         .filter
@@ -460,9 +462,22 @@ pub(super) fn scope_of(
     scope: &WalkScope,
     cancel: &Cancel,
 ) -> GitResult<(Vec<Oid>, Option<Oid>)> {
-    let refs = load_refs(repo, cancel)?;
+    // The scopes that seed from every ref read them strictly; a scope of named refs reads them
+    // to find its names, leniently, so a damaged ref outside it does not fail it, as
+    // `git rev-list <names>` does not.
+    let refs = match scope {
+        WalkScope::All | WalkScope::Local => load_refs(repo, cancel, true)?,
+        WalkScope::Refs { .. } => load_refs(repo, cancel, false)?,
+        WalkScope::Ref { .. } | WalkScope::Range { .. } => Vec::new(),
+    };
     let head = head_commit(repo)?;
-    resolve_scope(repo, scope, &refs, head)
+    resolve_scope(repo, scope, &refs, head, cancel)
+}
+
+/// Whether `scope` seeds from the refs themselves (all of them, or all but the untracked
+/// remote branches), so a ref that cannot be read fails it as `git log --all` fails.
+fn seeds_from_refs(scope: &WalkScope) -> bool {
+    matches!(scope, WalkScope::All | WalkScope::Local)
 }
 
 /// A flat node (lane 0, no edges) for `commit`, with its decorations; the CLI walk and
@@ -492,7 +507,7 @@ pub(super) fn decorations_for(
     repo: &Repository,
     cancel: &Cancel,
 ) -> GitResult<HashMap<Oid, Vec<String>>> {
-    let refs = load_refs(repo, cancel)?;
+    let refs = load_refs(repo, cancel, false)?;
     let head = head_commit(repo)?;
     Ok(decorations(&refs, head))
 }
@@ -500,8 +515,9 @@ pub(super) fn decorations_for(
 /// Every ref under `refs/` that peels to a commit, sorted by full name.
 ///
 /// Dangling symbolic refs and tags of trees or blobs are skipped, as `git log --all` skips
-/// them; a ref whose target cannot be read fails with [`GitError::CorruptObject`].
-fn load_refs(repo: &Repository, cancel: &Cancel) -> GitResult<Vec<RefTarget>> {
+/// them. A ref whose target cannot be read fails with [`GitError::CorruptObject`] when `strict`
+/// (the refs are the walk's seeds), and is left out otherwise (they only decorate).
+fn load_refs(repo: &Repository, cancel: &Cancel, strict: bool) -> GitResult<Vec<RefTarget>> {
     let mut refs = Vec::new();
     for (index, reference) in repo.references()?.enumerate() {
         if index.is_multiple_of(CANCEL_EVERY) {
@@ -522,8 +538,8 @@ fn load_refs(repo: &Repository, cancel: &Cancel) -> GitResult<Vec<RefTarget>> {
             {
                 continue
             }
-            // A ref whose object is missing from the store is broken; `git log --all` warns
-            // and goes on without it.
+            // A ref whose object is missing from the store is left out, so the graph still
+            // shows the rest, where `git log --all` stops (`fatal: bad object`).
             Err(error)
                 if error.code() == ErrorCode::NotFound
                     && reference
@@ -531,6 +547,16 @@ fn load_refs(repo: &Repository, cancel: &Cancel) -> GitResult<Vec<RefTarget>> {
                         .is_some_and(|oid| super::object_missing(repo, oid)) =>
             {
                 tracing::warn!(reference = %name, "ignoring a broken ref: its object is missing");
+                continue;
+            }
+            // Outside the `All` and `Local` scopes a ref only decorates, and
+            // `git log --decorate <revs>` reports an unreadable one and goes on.
+            Err(error) if !strict => {
+                tracing::warn!(
+                    reference = %name,
+                    error = %error.message(),
+                    "leaving out a ref whose object cannot be read"
+                );
                 continue;
             }
             Err(error) => return Err(super::reference_error(repo, reference.target(), error)),
@@ -567,25 +593,86 @@ fn resolve_scope(
     scope: &WalkScope,
     refs: &[RefTarget],
     head: Option<Oid>,
+    cancel: &Cancel,
 ) -> GitResult<(Vec<Oid>, Option<Oid>)> {
     match scope {
-        WalkScope::All => {
-            let mut seeds = Vec::with_capacity(refs.len() + 1);
-            let mut unique = HashSet::with_capacity(refs.len() + 1);
-            for commit in refs.iter().map(|target| target.commit).chain(head) {
+        WalkScope::All => Ok((
+            unique_seeds(refs.iter().map(|target| target.commit).chain(head)),
+            None,
+        )),
+        WalkScope::Local => {
+            // The local branches' upstreams stay; the other remote-tracking branches go.
+            let upstreams = super::refs::upstreams(repo, cancel)?;
+            let tracked: HashSet<&str> = refs
+                .iter()
+                .filter_map(|target| upstreams.get(&target.name))
+                .map(String::as_str)
+                .collect();
+            let kept = refs.iter().filter(|target| {
+                !target.name.starts_with("refs/remotes/") || tracked.contains(target.name.as_str())
+            });
+            Ok((
+                unique_seeds(kept.map(|target| target.commit).chain(head)),
+                None,
+            ))
+        }
+        WalkScope::Ref { name } => Ok((vec![resolve_commit(repo, name)?], None)),
+        WalkScope::Refs { names } => {
+            let mut seeds = Vec::with_capacity(names.len());
+            let mut unique = HashSet::with_capacity(names.len());
+            for (index, name) in names.iter().enumerate() {
+                if index.is_multiple_of(CANCEL_EVERY) {
+                    cancel.check()?;
+                }
+                // A full name among the refs loaded already is theirs. A full name the ref
+                // store does not hold (a branch deleted since the listing) is left out after one
+                // lookup, where `git rev-parse`'s rules would try five more names under `refs/`
+                // that nobody holds (`refs/refs/heads/x`…), a few stats each. Anything else
+                // (HEAD, a ref the lenient load left out, a revision) resolves as `git
+                // rev-parse` would: a name that does not resolve is left out, a broken object
+                // still fails.
+                let loaded = refs
+                    .binary_search_by(|target| target.name.as_str().cmp(name))
+                    .ok()
+                    .and_then(|at| refs.get(at));
+                if let Some(target) = loaded {
+                    if unique.insert(target.commit) {
+                        seeds.push(target.commit);
+                    }
+                    continue;
+                }
+                if name.starts_with("refs/") && ref_is_absent(repo, name) {
+                    continue;
+                }
+                let commit = match resolve_commit(repo, name) {
+                    Ok(commit) => commit,
+                    Err(GitError::RefNotFound(_)) => continue,
+                    Err(error) => return Err(error),
+                };
                 if unique.insert(commit) {
                     seeds.push(commit);
                 }
             }
             Ok((seeds, None))
         }
-        WalkScope::Ref { name } => Ok((vec![resolve_commit(repo, name)?], None)),
         WalkScope::Range { exclude, include } => {
             let tip = resolve_commit(repo, include)?;
             let base = resolve_commit(repo, exclude)?;
             Ok((vec![tip], Some(base)))
         }
     }
+}
+
+/// Whether the ref store holds no ref of the full name `name`; any other answer (the ref, a
+/// name libgit2 refuses, a store it cannot read) leaves the name to `resolve_commit`.
+fn ref_is_absent(repo: &Repository, name: &str) -> bool {
+    matches!(repo.find_reference(name), Err(error) if error.code() == ErrorCode::NotFound)
+}
+
+/// `commits` in order, each once.
+fn unique_seeds(commits: impl Iterator<Item = Oid>) -> Vec<Oid> {
+    let mut unique = HashSet::new();
+    commits.filter(|commit| unique.insert(*commit)).collect()
 }
 
 /// Resolves `spec` as `git rev-parse` would and peels it to a commit.

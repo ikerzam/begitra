@@ -102,8 +102,10 @@ describe("CommitRows", () => {
     // Ten visible rows and ten of overscan below; the spacer holds the whole list.
     expect(rows).toHaveLength(20);
     expect(rows[0]?.text()).toContain("commit 0");
-    expect(rows[0]?.text()).toContain("main");
-    expect(rows[0]?.text()).toContain("origin/main");
+    // `main` and its upstream on one commit draw one badge, the remote's name after a divider.
+    const joined = rows[0]!.get('[data-kind="current"]');
+    expect(joined.text()).toContain("main");
+    expect(joined.get('[data-testid="ref-badge-remote"]').text()).toBe("origin");
     expect(rows[0]?.text()).not.toContain("HEAD");
     expect(rows[3]?.text()).toContain("v1");
     expect(rows[1]?.find('[data-testid="graph-row-hash"]').text()).toBe("1000000");
@@ -249,5 +251,63 @@ describe("CommitRows", () => {
       getContext.mockRestore();
       raf.mockRestore();
     }
+  });
+
+  it("checks a branch out from its badge's double click, and compares on a Ctrl-click", async () => {
+    const wrapper = await mountRows(10);
+    const rows = wrapper.findAll('[data-testid="graph-row"]');
+    // The joined badge is the branch's: its double click checks `main` out, the row's review
+    // stays shut.
+    await rows[0]!.get('[data-kind="current"]').trigger("dblclick");
+    expect(wrapper.emitted("refActivate")?.[0]?.[0]).toMatchObject({ name: "main" });
+    expect(wrapper.emitted("activate")).toBeUndefined();
+    // A tag has nothing to check out.
+    await rows[3]!.get('[data-kind="tag"]').trigger("dblclick");
+    expect(wrapper.emitted("refActivate")).toHaveLength(1);
+    // With row 0 selected, a Ctrl-click compares; a plain click selects.
+    await rows[2]!.trigger("click", { ctrlKey: true });
+    expect(wrapper.emitted("compare")).toEqual([[2]]);
+    expect(wrapper.emitted("select")).toBeUndefined();
+    await rows[2]!.trigger("click");
+    expect(wrapper.emitted("select")).toEqual([[2]]);
+    // Ctrl-click on the selected row itself selects it, with nothing to compare.
+    await rows[0]!.trigger("click", { ctrlKey: true });
+    expect(wrapper.emitted("compare")).toHaveLength(1);
+    wrapper.unmount();
+  });
+
+  it("draws no remote branch badge but an upstream's while the remote branches are hidden", async () => {
+    const elsewhere = commit(5).hash;
+    const extraRefs = [
+      ...refs.map((entry) =>
+        entry.name === "origin/main" ? { ...entry, target: elsewhere } : entry,
+      ),
+      {
+        ...refs[1]!,
+        name: "origin/experiment",
+        fullName: "refs/remotes/origin/experiment",
+        target: elsewhere,
+      },
+    ];
+    const commits = Array.from({ length: 10 }, (_, i) =>
+      commit(i, i === 0 ? ["HEAD", "main"] : i === 5 ? ["origin/main", "origin/experiment"] : []),
+    );
+    const wrapper = mountWithI18n(CommitRows, {
+      props: { commits, refs: extraRefs, selectedIndex: 0, hideRemotes: true },
+      attachTo: document.body,
+    });
+    const container = wrapper.get('[data-testid="commit-rows"]').element;
+    Object.defineProperty(container, "clientHeight", { value: VIEWPORT, configurable: true });
+    await wrapper.get('[data-testid="commit-rows"]').trigger("scroll");
+    const remotes = () =>
+      wrapper
+        .findAll('[data-testid="graph-row"]')[5]!
+        .findAll('[data-kind="remote"]')
+        .map((badge) => badge.text());
+    expect(remotes()).toEqual(["origin/main"]);
+    // A remote branch the scope names (a pattern's match) keeps its badge.
+    await wrapper.setProps({ scopeRemotes: ["origin/experiment"] });
+    expect(remotes()).toEqual(["origin/main", "origin/experiment"]);
+    wrapper.unmount();
   });
 });

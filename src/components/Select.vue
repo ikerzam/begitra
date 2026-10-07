@@ -43,6 +43,8 @@ const selectedIndex = computed(() =>
   props.options.findIndex((option) => option.value === model.value),
 );
 const selectedLabel = computed(() => props.options[selectedIndex.value]?.label ?? "");
+/** The chosen option's muted hint, after its label (a pattern's count of branches). */
+const selectedHint = computed(() => props.options[selectedIndex.value]?.hint ?? "");
 
 function enabled(index: number): boolean {
   const option = props.options[index];
@@ -209,6 +211,9 @@ function onKeydown(event: KeyboardEvent): void {
       @blur="hide"
     >
       <span class="truncate">{{ selectedLabel }}</span>
+      <span v-if="selectedHint" class="ml-2 shrink-0 text-sm text-fg-muted">{{
+        selectedHint
+      }}</span>
     </button>
     <component
       :is="open ? ChevronUp : ChevronDown"

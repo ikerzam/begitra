@@ -56,6 +56,7 @@ export const shortcutRows: readonly ShortcutRow[] = [
       ["previous-row", "previous-file"],
     ],
   },
+  { key: "goToHead", groups: [["go-to-head"]] },
   { key: "nextPreviousHunk", groups: [["next-hunk"], ["previous-hunk"]] },
   { key: "markReviewed", groups: [["mark-reviewed"]] },
   { key: "wholeFile", groups: [["toggle-whole-file"]] },

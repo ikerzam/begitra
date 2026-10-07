@@ -72,7 +72,7 @@ describe("SettingsLayout", () => {
     expect(input(wrapper, "skip-folders").element.value).toBe(defaultSkipFolders.join(", "));
     expect(input(wrapper, "max-depth").element.value).toBe("2");
     const rows = wrapper.findAll('[data-testid="shortcut-rows"] li');
-    expect(rows).toHaveLength(31);
+    expect(rows).toHaveLength(32);
     expect(rows[0]?.text()).toContain("Command palette");
     const tabPair = wrapper.get('[data-testid="shortcut-nextPreviousTab"]');
     expect(tabPair.findAll("kbd").map((k) => k.text())).toEqual(["Ctrl Tab", "Ctrl Shift Tab"]);

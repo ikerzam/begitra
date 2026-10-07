@@ -771,13 +771,24 @@ pub(crate) fn resolve_commit(repo: &Repository, revision: &str) -> GitResult<Oid
     }
 }
 
+/// A full hash, else none: `Oid::from_str` pads an abbreviation with zeros, naming an object
+/// that does not exist (a branch named `1234` that is gone is an unknown name, not damage).
+pub(super) fn full_oid(text: &str) -> Option<Oid> {
+    let full = matches!(text.len(), 40 | 64) && text.bytes().all(|byte| byte.is_ascii_hexdigit());
+    if full {
+        Oid::from_str(text).ok()
+    } else {
+        None
+    }
+}
+
 /// A `revparse_single` failure is corruption when the revision names a ref, a hash or an
 /// ancestor (`~N`, `^N`) whose object cannot be read; otherwise the revision itself is at
 /// fault. When the damaged object cannot be named but libgit2 reports an object store
 /// failure (a short hash of a truncated object), the revision stands in for the hash.
 fn classify_revision_error(repo: &Repository, revision: &str, error: git2::Error) -> GitError {
     let unreadable = ref_target(repo, revision)
-        .or_else(|| Oid::from_str(revision).ok())
+        .or_else(|| full_oid(revision))
         .and_then(|oid| unreadable_behind(repo, oid))
         .or_else(|| unreadable_ancestor(repo, revision));
     if let Some(oid) = unreadable {
@@ -850,7 +861,7 @@ fn unreadable_ancestor(repo: &Repository, revision: &str) -> Option<Oid> {
     let (base, suffix) = revision.split_at(split);
     let mut oid = match repo.revparse_single(base) {
         Ok(object) => object.peel_to_commit().ok()?.id(),
-        Err(_) => ref_target(repo, base).or_else(|| Oid::from_str(base).ok())?,
+        Err(_) => ref_target(repo, base).or_else(|| full_oid(base))?,
     };
     let mut chars = suffix.chars().peekable();
     while let Some(op) = chars.next() {

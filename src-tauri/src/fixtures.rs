@@ -1240,8 +1240,15 @@ fn write_fixtures() {
         "walk-scopes",
         &[
             WalkScope::All,
+            WalkScope::Local,
             WalkScope::Ref {
                 name: "main".to_owned(),
+            },
+            WalkScope::Refs {
+                names: vec![
+                    "refs/heads/claude/fix-auth".to_owned(),
+                    "refs/remotes/origin/claude/tiles".to_owned(),
+                ],
             },
             WalkScope::Range {
                 exclude: "v1.0".to_owned(),

@@ -207,13 +207,18 @@ pub async fn status(
 
 /// How many commits `scope` holds, at most `COUNT_CAP`.
 #[tauri::command]
-#[tracing::instrument(level = "debug", skip(state))]
+#[tracing::instrument(
+    level = "debug",
+    skip(state, scope),
+    fields(scope = scope.kind(), names = scope.name_count())
+)]
 pub async fn count_commits(
     state: State<'_, AppState>,
     repo: PathBuf,
     scope: WalkScope,
     op_id: String,
 ) -> Result<CommitCount, AppError> {
+    super::walk::validate_scope(&scope)?;
     let app = state.inner().clone();
     let worker = app.clone();
     run_blocking(app.ops(), &op_id, DEFAULT_TIMEOUT, move |cancel| {

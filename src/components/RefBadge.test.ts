@@ -78,4 +78,14 @@ describe("RefBadge", () => {
     expect(wrapper.get("svg").attributes("aria-label")).toBe("Activa en un worktree");
     expect(wrapper.attributes("data-tooltip")).toBe("Rama remota");
   });
+
+  it("draws a branch's upstream on the same commit after a divider, and says so", () => {
+    const wrapper = mountWithI18n(RefBadge, {
+      props: { kind: "local", label: "claude/fix-auth", remote: "origin" },
+    });
+    expect(wrapper.get('[data-testid="ref-badge-remote"]').text()).toBe("origin");
+    expect(wrapper.attributes("data-tooltip")).toBe("Local branch, with its upstream on origin");
+    const alone = mountWithI18n(RefBadge, { props: { kind: "local", label: "main" } });
+    expect(alone.find('[data-testid="ref-badge-remote"]').exists()).toBe(false);
+  });
 });

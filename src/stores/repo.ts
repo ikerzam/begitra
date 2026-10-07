@@ -23,6 +23,7 @@ import type { StreamHandle } from "@/ipc/stream";
 import { arm, type MotionList } from "@/motion/motion";
 
 import { useOperationsStore } from "./operations";
+import { useSettingsStore } from "./settings";
 
 export type RepoState =
   | { kind: "empty" }
@@ -96,6 +97,14 @@ function stashNumber(name: string): number | null {
 
 export const useRepoStore = defineStore("repo", () => {
   const operations = useOperationsStore();
+  const settings = useSettingsStore();
+
+  /**
+   * A repository's first walk: every branch, or the local ones and their upstreams while the
+   * remote branches are hidden, as the graph store's scope starts with the repository.
+   */
+  const firstScope = (): WalkScope =>
+    settings.values.graphHideRemotes ? { kind: "local" } : { kind: "all" };
 
   const state = ref<RepoState>({ kind: "empty" });
   const repo = ref<Repo | null>(null);
@@ -109,7 +118,7 @@ export const useRepoStore = defineStore("repo", () => {
   const commits = shallowRef<CommitNode[]>([]);
   const walk = ref<WalkPosition | null>(null);
   /** What the current walk lists; the graph store sets both through `restartWalk`. */
-  const walkScope = ref<WalkScope>({ kind: "all" });
+  const walkScope = ref<WalkScope>(firstScope());
   const walkFilter = ref<WalkFilter | undefined>(undefined);
   const streaming = ref(false);
   const walkError = ref<AppError | null>(null);
@@ -184,7 +193,7 @@ export const useRepoStore = defineStore("repo", () => {
     refsError.value = null;
     commits.value = [];
     walk.value = null;
-    walkScope.value = { kind: "all" };
+    walkScope.value = firstScope();
     walkFilter.value = undefined;
     streaming.value = false;
     walkError.value = null;

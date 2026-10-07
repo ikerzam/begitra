@@ -13,7 +13,10 @@ import { useGraphStore } from "@/stores/graph";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
 import { useShellStore } from "@/stores/shell";
+import { useTabsStore } from "@/stores/tabs";
 import { useToastsStore } from "@/stores/toasts";
+import { shortcutRegistry } from "@/shortcuts/registry";
+import type { Ref as GitRef } from "@/ipc/schemas";
 import BranchDialogs from "@/branches/BranchDialogs.vue";
 
 import GraphPanel from "./GraphPanel.vue";
@@ -422,6 +425,144 @@ describe("GraphPanel working tree row", () => {
     expect(useRepoStore().selectedIndex).toBe(0);
     await row.trigger("click");
     expect(useShellStore().layoutMode).toBe("changes");
+    wrapper.unmount();
+  });
+});
+
+describe("GraphPanel quick wins", () => {
+  const ref = (name: string, kind: GitRef["kind"], fullName: string, target: string): GitRef => ({
+    name,
+    fullName,
+    kind,
+    target,
+    isCurrent: kind === "head" || name === "main",
+    upstream: null,
+    ahead: null,
+    behind: null,
+    worktree: null,
+    message: null,
+    committedAt: null,
+  });
+  const refs = () => [
+    ref("main", "local-branch", "refs/heads/main", fakeCommit(0).hash),
+    ref("develop", "local-branch", "refs/heads/develop", fakeCommit(3).hash),
+    ref(
+      "origin/claude/tiles",
+      "remote-branch",
+      "refs/remotes/origin/claude/tiles",
+      fakeCommit(2).hash,
+    ),
+    ref("HEAD", "head", "HEAD", fakeCommit(0).hash),
+  ];
+
+  it("hides the remote branches from its toggle and walks a pattern's branches from its popover", async () => {
+    const calls = fakeBackend({ refs: refs() });
+    await openRepository();
+    const wrapper = await mountPanel();
+    const walks = () => calls.filter((c) => c.cmd === "walk_commits");
+    const toggle = wrapper.get('[data-testid="filter-remotes"]');
+    expect(toggle.attributes("aria-pressed")).toBe("false");
+    await toggle.trigger("click");
+    await settled();
+    expect(toggle.attributes("aria-pressed")).toBe("true");
+    expect(walks().at(-1)?.args["scope"]).toEqual({ kind: "local" });
+    const scope = wrapper.get('[data-testid="filter-scope"]');
+    await chooseOption(scope, "pattern-edit");
+    const popover = wrapper.get('[data-testid="pattern-popover"]');
+    await popover.get("input").setValue("*/tiles");
+    expect(popover.get('[data-testid="pattern-matched"]').text()).toBe(
+      "1 branch: 0 local, 1 remote",
+    );
+    await popover.get("input").setValue("dev*");
+    expect(popover.get('[data-testid="pattern-matched"]').text()).toBe(
+      "1 branch: 1 local, 0 remote",
+    );
+    await popover.get('[data-testid="pattern-apply"]').trigger("click");
+    await settled();
+    expect(walks().at(-1)?.args["scope"]).toEqual({ kind: "refs", names: ["refs/heads/develop"] });
+    expect(scope.text()).toContain("dev*");
+    expect(scope.text()).toContain("1");
+    // A pattern that matches nothing says so.
+    await chooseOption(scope, "pattern-edit");
+    // It opens on the pattern the scope holds.
+    expect(
+      (wrapper.get('[data-testid="pattern-popover"] input').element as HTMLInputElement).value,
+    ).toBe("dev*");
+    await wrapper.get('[data-testid="pattern-popover"] input').setValue("codex/*");
+    await wrapper.get('[data-testid="pattern-apply"]').trigger("click");
+    await settled();
+    expect(wrapper.text()).toContain("No branch matches “codex/*”.");
+    wrapper.unmount();
+  });
+
+  it("says when a pattern matches more branches than the graph walks", async () => {
+    const many = Array.from({ length: 2_001 }, (_, i) =>
+      ref(`claude/b${i}`, "local-branch", `refs/heads/claude/b${i}`, fakeCommit(1).hash),
+    );
+    const calls = fakeBackend({ refs: [...refs(), ...many] });
+    await openRepository();
+    const wrapper = await mountPanel();
+    const scope = wrapper.get('[data-testid="filter-scope"]');
+    await chooseOption(scope, "pattern-edit");
+    const popover = wrapper.get('[data-testid="pattern-popover"]');
+    await popover.get("input").setValue("claude/*");
+    expect(popover.get('[data-testid="pattern-matched"]').text()).toBe(
+      "2,002 branches: 2,001 local, 1 remote. The graph walks the first 2,000.",
+    );
+    await popover.get('[data-testid="pattern-apply"]').trigger("click");
+    await settled();
+    const walk = calls.filter((c) => c.cmd === "walk_commits").at(-1);
+    expect((walk?.args["scope"] as { names: string[] }).names).toHaveLength(2_000);
+    expect(scope.text()).toContain("2,000 of 2,002");
+    wrapper.unmount();
+  });
+
+  it("goes to HEAD from its button and from h, and says when the scope leaves it out", async () => {
+    fakeBackend({ refs: refs() });
+    const repo = await openRepository();
+    const wrapper = await mountPanel();
+    repo.select(4);
+    await wrapper.get('[data-testid="filter-go-to-head"]').trigger("click");
+    await settled();
+    expect(repo.selectedIndex).toBe(0);
+    repo.select(5);
+    // `h` from outside the rows is not theirs.
+    (document.activeElement as HTMLElement | null)?.blur();
+    shortcutRegistry().dispatch(new KeyboardEvent("keydown", { key: "h", cancelable: true }));
+    await settled();
+    expect(repo.selectedIndex).toBe(5);
+    wrapper.get<HTMLElement>('[data-testid="graph-row"][data-index="5"]').element.focus();
+    shortcutRegistry().dispatch(new KeyboardEvent("keydown", { key: "h", cancelable: true }));
+    await settled();
+    expect(repo.selectedIndex).toBe(0);
+    expect(document.activeElement?.getAttribute("data-index")).toBe("0");
+    // A pattern whose branches do not reach HEAD's commit.
+    useGraphStore().setScope({ kind: "pattern", pattern: "nothing/*" });
+    await settled();
+    await wrapper.get('[data-testid="filter-go-to-head"]').trigger("click");
+    await settled();
+    const toast = useToastsStore().toasts.at(-1);
+    expect(toast?.message).toBe("HEAD is not in this scope.");
+    expect(toast?.action).toBe("Show all");
+    toast?.onAction?.();
+    await settled();
+    expect(useGraphStore().filters.scope).toEqual({ kind: "all" });
+    expect(repo.selectedIndex).toBe(0);
+    wrapper.unmount();
+  });
+
+  it("compares the selected commit with a Ctrl-clicked one in its own tab", async () => {
+    fakeBackend({ refs: refs() });
+    const repo = await openRepository();
+    const wrapper = await mountPanel();
+    const rows = wrapper.findAll('[data-testid="graph-row"]');
+    await rows[2]!.trigger("click", { ctrlKey: true });
+    await settled();
+    expect(repo.selectedIndex).toBe(0);
+    expect(useTabsStore().activePair).toEqual({
+      a: { kind: "revision", rev: fakeCommit(0).hash, label: fakeCommit(0).hash.slice(0, 7) },
+      b: { kind: "revision", rev: fakeCommit(2).hash, label: fakeCommit(2).hash.slice(0, 7) },
+    });
     wrapper.unmount();
   });
 });

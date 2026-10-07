@@ -214,6 +214,8 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
       calls.push(`sequencer:${action}`);
     },
     swapComparison: record("swapComparison"),
+    inGraph: () => true,
+    goToHead: record("goToHead"),
     hasTabs: () => false,
     nextTab: record("nextTab"),
     previousTab: record("previousTab"),
@@ -305,6 +307,7 @@ describe("usePalette", () => {
       "toggle-whitespace",
       "toggle-whole-file",
       "compare-with",
+      "go-to-head",
       "settings",
       "show-worktrees",
       "add-worktree",

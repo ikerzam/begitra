@@ -125,6 +125,8 @@ export function usePaletteActions(): PaletteActions {
     compareWith: () => void shortcutRegistry().run("compare-with"),
     inComparison: () => shell.layoutMode === "compare",
     swapComparison: () => compare.swap(),
+    inGraph: () => shell.layoutMode === "graph" && repo.state.kind === "ready",
+    goToHead: () => void shortcutRegistry().run("go-to-head"),
     hasTabs: () => tabs.comparisons.length > 0,
     nextTab: () => tabs.step(1),
     previousTab: () => tabs.step(-1),

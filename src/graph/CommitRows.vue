@@ -15,7 +15,9 @@ import { relativeDate, shortHash } from "@/shell/format";
 import { useNow } from "@/shell/useNow";
 import { useListNavigation } from "@/shortcuts/useListNavigation";
 
-import { commitBadges, refsByName, type Badge } from "./badges";
+import { shortcutRegistry } from "@/shortcuts/registry";
+
+import { commitBadges, refsByName, upstreamNames, type Badge } from "./badges";
 import GraphCanvas from "./GraphCanvas.vue";
 import { ROW_HEIGHT } from "./useGraphGeometry";
 import { useVirtualRows } from "./useVirtualRows";
@@ -32,8 +34,22 @@ const props = withDefaults(
     skeletonRows?: number;
     /** A filtered walk: rows in one lane joined by a straight line. */
     flat?: boolean;
+    /**
+     * The remote branches are hidden: a remote branch draws only as an upstream or as one of
+     * `scopeRemotes`.
+     */
+    hideRemotes?: boolean;
+    /** The remote branches the scope names (short names), which draw while hidden. */
+    scopeRemotes?: readonly string[];
   }>(),
-  { loading: false, canLoadMore: false, skeletonRows: 8, flat: false },
+  {
+    loading: false,
+    canLoadMore: false,
+    skeletonRows: 8,
+    flat: false,
+    hideRemotes: false,
+    scopeRemotes: () => [],
+  },
 );
 
 const emit = defineEmits<{
@@ -48,6 +64,10 @@ const emit = defineEmits<{
   /** A context menu for a ref badge of a row, at viewport coordinates. */
   refMenu: [index: number, ref: GitRef, x: number, y: number];
   copyHash: [index: number];
+  /** Ctrl-click (⌘ on macOS) on a row: compare the selected commit with this one. */
+  compare: [index: number];
+  /** A double click on a branch's badge: check the branch out. */
+  refActivate: [ref: GitRef];
 }>();
 
 /** Rows left before the loaded end when the next pages are requested. */
@@ -90,9 +110,37 @@ const navigation = useListNavigation({
 });
 
 const badgesByName = computed(() => refsByName(props.refs));
+const badgeOptions = computed(() => ({
+  join: true,
+  hideRemotes: props.hideRemotes,
+  shown: new Set([...upstreamNames(props.refs), ...props.scopeRemotes]),
+}));
 
 function badges(commit: CommitNode): Badge[] {
-  return commitBadges(commit.refs, badgesByName.value, commit.hash);
+  return commitBadges(commit.refs, badgesByName.value, commit.hash, badgeOptions.value);
+}
+
+/**
+ * A click selects the row; with Ctrl (⌘ on macOS) and another commit selected, it compares the
+ * selected commit with the row's instead, the selection staying.
+ */
+function onRowSelect(index: number, event?: MouseEvent): void {
+  const compareKey =
+    event && (shortcutRegistry().platform === "macos" ? event.metaKey : event.ctrlKey);
+  if (compareKey && props.selectedIndex >= 0 && props.selectedIndex !== index) {
+    emit("compare", index);
+    return;
+  }
+  emit("select", index);
+}
+
+/** A double click on a branch's badge checks the branch out; the row's review stays shut. */
+function onBadgeActivate(badge: Badge, event: MouseEvent): void {
+  event.stopPropagation();
+  const ref = badge.ref;
+  if (ref && (ref.kind === "local-branch" || ref.kind === "remote-branch")) {
+    emit("refActivate", ref);
+  }
 }
 
 function date(commit: CommitNode): string {
@@ -101,9 +149,13 @@ function date(commit: CommitNode): string {
 }
 
 /** Scrolls a row (the selected one by default) into the viewport and focuses it once rendered. */
-async function revealSelected(focus: boolean, index = props.selectedIndex): Promise<void> {
+async function revealSelected(
+  focus: boolean,
+  index = props.selectedIndex,
+  align: "nearest" | "center" = "nearest",
+): Promise<void> {
   if (index < 0) return;
-  virtual.scrollToIndex(index);
+  virtual.scrollToIndex(index, align);
   await nextTick();
   const element = container.value?.querySelector<HTMLElement>(`[data-index="${index}"]`);
   if (focus) element?.focus({ preventScroll: true });
@@ -212,7 +264,7 @@ defineExpose({ focus: navigation.focus, revealSelected });
           :hash="shortHash(props.commits[index].hash)"
           :selected="index === props.selectedIndex"
           :tab-stop="index === tabStop"
-          @select="emit('select', index)"
+          @select="(event?: MouseEvent) => onRowSelect(index, event)"
           @activate="emit('activate', index)"
           @contextmenu="(event: MouseEvent) => onContextMenu(index, event)"
           @pointerenter="(event: PointerEvent) => onRowEnter(index, event)"
@@ -227,8 +279,10 @@ defineExpose({ focus: navigation.focus, revealSelected });
               :key="badge.key"
               :kind="badge.kind"
               :label="badge.label"
+              :remote="badge.upstream?.remote"
               :data-ref="badge.ref?.fullName"
               @contextmenu="(event: MouseEvent) => onBadgeMenu(index, badge, event)"
+              @dblclick="(event: MouseEvent) => onBadgeActivate(badge, event)"
             />
           </template>
         </GraphRow>

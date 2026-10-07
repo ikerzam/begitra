@@ -142,6 +142,8 @@ export interface Settings {
   branchSort: BranchSort;
   /** An icon of each file's kind in the file lists. */
   fileIcons: boolean;
+  /** The graph walks without the remote branches no local branch tracks. */
+  graphHideRemotes: boolean;
 }
 
 export type DiffLayout = "unified" | "side-by-side";
@@ -198,6 +200,7 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   zoom: v.picklist(zoomLevels),
   branchSort: v.picklist(["recent", "name"]),
   fileIcons: v.boolean(),
+  graphHideRemotes: v.boolean(),
 };
 
 export const settingsKeys = Object.keys(schemas) as (keyof Settings)[];
@@ -286,6 +289,7 @@ export function defaultSettings(platform: Platform): Settings {
     zoom: 100,
     branchSort: "recent",
     fileIcons: true,
+    graphHideRemotes: false,
   };
 }
 

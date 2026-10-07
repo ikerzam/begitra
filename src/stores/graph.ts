@@ -1,23 +1,36 @@
 // The commit graph's filters and counts: the text, scope, author, date range and path the bar
 // shows, turned into the walk scope and filter the repo store restarts with; the authors seen
 // in the loaded commits; the count of the scope for the "N of M commits" line; the two
-// commits pinned as chips (kept in the review store); and a file's history, the graph shown
-// filtered by its path.
+// commits pinned as chips (kept in the review store); a file's history, the graph shown
+// filtered by its path; the remote branches hidden from the all-branches walk; and Go to HEAD.
 
 import { defineStore } from "pinia";
 import { computed, nextTick, ref, watch } from "vue";
 
+import { patternNames } from "@/graph/scopeRefs";
 import * as ipc from "@/ipc/commands";
-import type { CommitCount, CommitNode, WalkFilter, WalkScope } from "@/ipc/schemas";
+import {
+  MAX_SCOPE_NAMES,
+  type CommitCount,
+  type CommitNode,
+  type WalkFilter,
+  type WalkScope,
+} from "@/ipc/schemas";
 import { sameFolder } from "@/shell/format";
 
 import { useProjectsStore } from "./projects";
+import { useRemotesStore } from "./remotes";
 import { useRepoStore } from "./repo";
 import { useReviewStore } from "./review";
+import { useSettingsStore } from "./settings";
 import { useShellStore } from "./shell";
 
 export type GraphScope =
-  { kind: "all" } | { kind: "current" } | { kind: "ref"; name: string; fullName: string };
+  | { kind: "all" }
+  | { kind: "current" }
+  | { kind: "ref"; name: string; fullName: string }
+  /** The branches a glob matches (`scopeRefs.ts`). */
+  | { kind: "pattern"; pattern: string };
 
 export type DateRange = "any" | "7d" | "30d" | "3m" | "1y";
 
@@ -60,10 +73,28 @@ function scopeKey(scope: WalkScope): string {
   return JSON.stringify(scope);
 }
 
+/**
+ * What Go to HEAD came to: HEAD's commit selected; HEAD left out by the scope or the filters; or
+ * nothing to say (HEAD unborn, a walk that failed, the history listed again meanwhile).
+ */
+export type HeadSearch = "selected" | "outside" | "none";
+
+/**
+ * How far past HEAD's commit date Go to HEAD reads the walk before HEAD counts as left out. The
+ * walk lists the newest commit dates first, so HEAD comes before every older commit unless dates
+ * are skewed; a day covers the clocks of most machines.
+ */
+const HEAD_SLACK_SECONDS = 86_400;
+
 export const useGraphStore = defineStore("graph", () => {
   const repo = useRepoStore();
   const review = useReviewStore();
   const shell = useShellStore();
+  const settings = useSettingsStore();
+  const remotes = useRemotesStore();
+
+  /** The remote branches no local branch tracks are left out of the all-branches walk. */
+  const hideRemotes = computed(() => settings.values.graphHideRemotes);
 
   const filters = ref<GraphFilters>(defaultFilters());
   /** Authors of the commits loaded since the repository opened, keyed by name. */
@@ -75,6 +106,8 @@ export const useGraphStore = defineStore("graph", () => {
   let countedVersion = -1;
   let countRequest = 0;
   let authorsSeenUpTo = 0;
+  /** Bumped by each Go to HEAD: a later one supersedes a search still loading pages. */
+  let headSearch = 0;
 
   /** Whether a filter narrows the scope (the count line and the empty state depend on it). */
   const isFiltered = computed(() => {
@@ -86,10 +119,39 @@ export const useGraphStore = defineStore("graph", () => {
   /** Loaded commits of the current walk; exact once the walk is done. */
   const matches = computed(() => repo.commits.length);
 
+  /** The full names of the branches the pattern scope matches, in the refs' order. */
+  const patternMatches = computed(() => {
+    const scope = filters.value.scope;
+    return scope.kind === "pattern" ? patternNames(scope.pattern, repo.refs, remotes.remotes) : [];
+  });
+
+  /**
+   * The remote branches the scope names (short names): a pattern's matches, the branch chosen in
+   * the sidebar. Their badges draw while the remote branches are hidden, so the rows they walk
+   * keep their names.
+   */
+  const scopeRemotes = computed<string[]>(() => {
+    const scope = filters.value.scope;
+    const names =
+      scope.kind === "pattern"
+        ? patternMatches.value
+        : scope.kind === "ref"
+          ? [scope.fullName]
+          : [];
+    return names
+      .filter((name) => name.startsWith("refs/remotes/"))
+      .map((name) => name.slice("refs/remotes/".length));
+  });
+
   function toWalkScope(scope: GraphScope): WalkScope {
     switch (scope.kind) {
       case "all":
-        return { kind: "all" };
+        return hideRemotes.value ? { kind: "local" } : { kind: "all" };
+      case "pattern":
+        return {
+          kind: "refs",
+          names: patternNames(scope.pattern, repo.refs, remotes.remotes).slice(0, MAX_SCOPE_NAMES),
+        };
       case "current":
         return { kind: "ref", name: repo.repo?.currentBranch ?? "HEAD" };
       case "ref":
@@ -128,6 +190,61 @@ export const useGraphStore = defineStore("graph", () => {
     if (filters.value.text === text) return;
     filters.value = { ...filters.value, text };
     apply();
+  }
+
+  /** Hides or shows the remote branches; the walk restarts when its scope is all branches. */
+  function setHideRemotes(hide: boolean): void {
+    if (hide === hideRemotes.value) return;
+    const before = scopeKey(walkScope.value);
+    void settings.update("graphHideRemotes", hide);
+    if (scopeKey(walkScope.value) !== before) apply();
+  }
+
+  /** HEAD's commit and its date: the refs listing's, else a loaded commit decorated HEAD. */
+  function headCommit(): { hash: string; time: number | null } | null {
+    const head = repo.refs.find((entry) => entry.kind === "head");
+    if (head) return { hash: head.target, time: head.committedAt };
+    const decorated = repo.commits.find((commit) => commit.refs.includes("HEAD"));
+    return decorated ? { hash: decorated.hash, time: decorated.committer.time } : null;
+  }
+
+  /**
+   * Selects HEAD's commit, asking for the walk's next pages until it arrives. HEAD is left out
+   * ("outside") once the walk ends without it or lists commits a day older than it. The search
+   * gives up ("none") when HEAD is unborn, the walk fails, the history lists again (another
+   * repository, scope or filters, a move) or a later Go to HEAD starts.
+   */
+  async function goToHead(): Promise<HeadSearch> {
+    const search = ++headSearch;
+    const head = headCommit();
+    if (!head) return "none";
+    const listing = () =>
+      JSON.stringify([repo.repo?.root, repo.historyVersion, walkScope.value, walkFilter.value]);
+    const started = listing();
+    for (;;) {
+      if (search !== headSearch || listing() !== started) return "none";
+      if (repo.state.kind !== "ready" || repo.walkError) return "none";
+      const index = repo.commits.findIndex((commit) => commit.hash === head.hash);
+      if (index >= 0) {
+        repo.select(index);
+        return "selected";
+      }
+      const last = repo.commits[repo.commits.length - 1];
+      if (head.time !== null && last && last.committer.time < head.time - HEAD_SLACK_SECONDS) {
+        return "outside";
+      }
+      if (repo.canLoadMore) repo.loadMore();
+      else if (!repo.streaming) return "outside";
+      await new Promise<void>((resolve) => {
+        const stop = watch(
+          () => [repo.commits.length, repo.streaming, listing()] as const,
+          () => {
+            stop();
+            resolve();
+          },
+        );
+      });
+    }
   }
 
   /** Records the scope; the walk restarts only when it lists something else. */
@@ -291,7 +408,9 @@ export const useGraphStore = defineStore("graph", () => {
     () =>
       [
         repo.repo?.root,
-        filters.value.scope.kind === "current" ? scopeKey(walkScope.value) : null,
+        filters.value.scope.kind === "current" || filters.value.scope.kind === "pattern"
+          ? scopeKey(walkScope.value)
+          : null,
       ] as const,
     ([root, key], [rootBefore, keyBefore]) => {
       if (root !== rootBefore || key === null || keyBefore === null || key === keyBefore) return;
@@ -324,6 +443,11 @@ export const useGraphStore = defineStore("graph", () => {
     authorList,
     walkScope,
     walkFilter,
+    hideRemotes,
+    patternMatches,
+    scopeRemotes,
+    setHideRemotes,
+    goToHead,
     diffBase,
     rangeEnd,
     setText,
