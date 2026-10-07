@@ -5,10 +5,14 @@
 //! read from the object store, so a missing or corrupt object surfaces as
 //! [`GitError::CorruptObject`] naming its hash instead of a panic or a silent gap.
 
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use git2::{ErrorCode, Object, ObjectType, Oid, Reference, ReferenceType, Repository};
+use git2::{
+    Config, Direction, ErrorCode, Object, ObjectType, Oid, Reference, ReferenceType, Remote,
+    Repository,
+};
 
 use super::{worktrees, Git2Engine};
 use crate::engine::Cancel;
@@ -250,25 +254,25 @@ const TRACKING_THREADS: usize = 8;
 
 /// The tracking information of every branch in `pending`, in order.
 ///
-/// Which branches track anything is read from one configuration snapshot (libgit2 stats the
-/// configuration files on every live read, which adds up over hundreds of branches); only
-/// those go through the upstream lookup and the ahead/behind walk (about 2 ms each on a long
-/// history), on [`TRACKING_THREADS`] threads with one `Repository` each when there are many
-/// (libgit2 objects are not shared between threads). Errors and cancellation propagate.
+/// The upstreams come from one configuration snapshot ([`upstreams`]); only the branches that
+/// have one go through the ahead/behind walk (about 2 ms each on a long history), on
+/// [`TRACKING_THREADS`] threads with one `Repository` each when there are many (libgit2 objects
+/// are not shared between threads). Errors and cancellation propagate.
 fn trackings(
     repo: &Repository,
     pending: &[(usize, String, Oid)],
     cancel: &Cancel,
 ) -> GitResult<Vec<Tracking>> {
-    let config = repo.config()?.snapshot()?;
-    let candidates: Vec<usize> = pending
+    let upstreams = upstreams(repo, cancel)?;
+    // The branches that have an upstream: (index in `pending`, the upstream's full name, tip).
+    let candidates: Vec<(usize, &str, Oid)> = pending
         .iter()
         .enumerate()
-        .filter(|(_, (_, full_name, _))| {
-            let short = full_name.strip_prefix(HEADS).unwrap_or(full_name);
-            config.get_entry(&format!("branch.{short}.merge")).is_ok()
+        .filter_map(|(index, (_, full_name, local))| {
+            upstreams
+                .get(full_name)
+                .map(|upstream| (index, upstream.as_str(), *local))
         })
-        .map(|(index, _)| index)
         .collect();
     let mut trackings: Vec<Tracking> = pending
         .iter()
@@ -281,20 +285,19 @@ fn trackings(
     let resolved = if candidates.len() < PARALLEL_TRACKING_FROM {
         candidates
             .iter()
-            .map(|&index| {
+            .map(|&(_, upstream, local)| {
                 cancel.check()?;
-                let (_, full_name, local) = &pending[index];
-                tracking(repo, full_name, *local)
+                tracking(repo, upstream, local)
             })
             .collect::<GitResult<Vec<_>>>()?
     } else {
         let work: Vec<(String, Oid)> = candidates
             .iter()
-            .map(|&index| (pending[index].1.clone(), pending[index].2))
+            .map(|&(_, upstream, local)| (upstream.to_owned(), local))
             .collect();
         parallel_trackings(repo, &work, cancel)?
     };
-    for (index, tracking) in candidates.into_iter().zip(resolved) {
+    for ((index, _, _), tracking) in candidates.into_iter().zip(resolved) {
         if let Some(slot) = trackings.get_mut(index) {
             *slot = tracking;
         }
@@ -302,12 +305,21 @@ fn trackings(
     Ok(trackings)
 }
 
-/// The upstream short name and the counts of `git rev-list --left-right --count`. The counts
-/// are `None` when the upstream ref is gone (deleted on the remote), like the `[gone]` marker
-/// of `git branch -vv`.
-fn tracking(repo: &Repository, full_name: &str, local: Oid) -> GitResult<Tracking> {
-    let (mut tracking, tip) = upstream_of(repo, full_name)?;
-    if let Some(tip) = tip {
+/// The short name of `upstream` (a full name) and the counts of `git rev-list --left-right
+/// --count` against the branch's tip `local`. The counts are `None` when the upstream ref is
+/// gone (deleted on the remote), like the `[gone]` marker of `git branch -vv`.
+fn tracking(repo: &Repository, upstream: &str, local: Oid) -> GitResult<Tracking> {
+    let mut tracking = Tracking {
+        upstream: Some(upstream_short_name(upstream).to_owned()),
+        ahead: None,
+        behind: None,
+    };
+    let upstream_ref = match repo.find_reference(upstream) {
+        Ok(reference) => reference,
+        Err(error) if error.code() == ErrorCode::NotFound => return Ok(tracking),
+        Err(error) => return Err(error.into()),
+    };
+    if let Some(tip) = resolve(repo, &upstream_ref)?.map(|target| target.peeled) {
         let (ahead, behind) = ahead_behind(repo, local, tip)?;
         tracking.ahead = Some(ahead);
         tracking.behind = Some(behind);
@@ -315,39 +327,105 @@ fn tracking(repo: &Repository, full_name: &str, local: Oid) -> GitResult<Trackin
     Ok(tracking)
 }
 
-/// The upstream short name of `full_name` and, when the upstream ref exists and points at a
-/// commit, its tip. No upstream gives `(none, None)`; a gone upstream (deleted on the remote,
-/// the `[gone]` marker of `git branch -vv`) keeps its name without a tip.
-fn upstream_of(repo: &Repository, full_name: &str) -> GitResult<(Tracking, Option<Oid>)> {
-    let none = Tracking {
-        upstream: None,
-        ahead: None,
-        behind: None,
-    };
-    let upstream = match repo.branch_upstream_name(full_name) {
-        Ok(buf) => match buf.as_str() {
-            Ok(name) => name.to_owned(),
-            Err(_) => return Ok((none, None)),
-        },
-        // A URL in `branch.<name>.remote` is no remote name libgit2 can look up; git shows
-        // no upstream for it either.
-        Err(error) if matches!(error.code(), ErrorCode::NotFound | ErrorCode::InvalidSpec) => {
-            return Ok((none, None))
+/// The upstream of each local branch that names one, by the branch's full name: the ref that
+/// `branch.<name>.merge` maps to through the first fetch refspec of `branch.<name>.remote` that
+/// takes it, or the merge ref itself for the remote `.`, as `git_branch_upstream_name` resolves
+/// it. One configuration snapshot and one lookup per remote serve every branch, because
+/// `git_branch_upstream_name` copies the whole configuration on each call, which grows with the
+/// square of the tracked branches. A remote that cannot be looked up (gone, or a URL) and a
+/// merge ref no fetch refspec takes give no upstream: git shows none either. The configuration
+/// may name branches the repository does not hold; callers look up the ones they list.
+pub(super) fn upstreams(repo: &Repository, cancel: &Cancel) -> GitResult<HashMap<String, String>> {
+    let config = repo.config()?.snapshot()?;
+    let mut branches = Vec::new();
+    let mut entries = config.entries(Some(r"^branch\..+\.merge$"))?;
+    while let Some(entry) = entries.next() {
+        let entry = entry?;
+        // A key that is not UTF-8 names no branch the refs listing shows.
+        let short = entry
+            .name()
+            .ok()
+            .and_then(|key| key.strip_prefix("branch."))
+            .and_then(|rest| rest.strip_suffix(".merge"));
+        if let Some(short) = short {
+            branches.push(short.to_owned());
         }
-        Err(error) => return Err(error.into()),
+    }
+    drop(entries);
+    // A branch merging several refs lists one key per ref.
+    branches.sort_unstable();
+    branches.dedup();
+    let mut remotes: HashMap<String, Option<Remote<'_>>> = HashMap::new();
+    let mut upstreams = HashMap::with_capacity(branches.len());
+    for short in branches {
+        cancel.check()?;
+        let remote = config_text(&config, &format!("branch.{short}.remote"))?;
+        let merge = config_text(&config, &format!("branch.{short}.merge"))?;
+        let (Some(remote), Some(merge)) = (remote, merge) else {
+            continue;
+        };
+        if remote.is_empty() || merge.is_empty() {
+            continue;
+        }
+        let upstream = if remote == "." {
+            Some(merge)
+        } else {
+            let found = match remotes.entry(remote) {
+                Entry::Occupied(entry) => entry.into_mut(),
+                Entry::Vacant(entry) => {
+                    let found = match repo.find_remote(entry.key()) {
+                        Ok(found) => Some(found),
+                        // A URL in `branch.<name>.remote` is no remote name libgit2 can look
+                        // up; git shows no upstream for it either.
+                        Err(error)
+                            if matches!(
+                                error.code(),
+                                ErrorCode::NotFound | ErrorCode::InvalidSpec
+                            ) =>
+                        {
+                            None
+                        }
+                        Err(error) => return Err(error.into()),
+                    };
+                    entry.insert(found)
+                }
+            };
+            match found {
+                Some(found) => tracking_ref(found, &merge)?,
+                None => None,
+            }
+        };
+        if let Some(upstream) = upstream {
+            upstreams.insert(format!("{HEADS}{short}"), upstream);
+        }
+    }
+    Ok(upstreams)
+}
+
+/// A value of the configuration snapshot as text; none when it is unset or not UTF-8 (a
+/// branch's upstream is then none, as `git_branch_upstream_name` leaves it).
+fn config_text(config: &Config, key: &str) -> GitResult<Option<String>> {
+    match config.get_bytes(key) {
+        Ok(bytes) => Ok(std::str::from_utf8(bytes).ok().map(str::to_owned)),
+        Err(error) if error.code() == ErrorCode::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// The tracking ref that `merge` maps to through the first fetch refspec of `remote` that takes
+/// it; none when no refspec takes it. A negative refspec (`^refs/heads/wip`) takes nothing and
+/// excludes nothing here, as in git's upstream (`%(upstream)` names `origin/wip/x` all the
+/// same), not as in libgit2's `git_branch_upstream_name`, which reports no upstream: libgit2
+/// keeps the caret in such a refspec's source, so `src_matches` never takes a name with it.
+fn tracking_ref(remote: &Remote<'_>, merge: &str) -> GitResult<Option<String>> {
+    let first = remote
+        .refspecs()
+        .find(|spec| spec.direction() == Direction::Fetch && spec.src_matches(merge));
+    let Some(spec) = first else {
+        return Ok(None);
     };
-    let gone = Tracking {
-        upstream: Some(upstream_short_name(&upstream).to_owned()),
-        ahead: None,
-        behind: None,
-    };
-    let upstream_ref = match repo.find_reference(&upstream) {
-        Ok(reference) => reference,
-        Err(error) if error.code() == ErrorCode::NotFound => return Ok((gone, None)),
-        Err(error) => return Err(error.into()),
-    };
-    let tip = resolve(repo, &upstream_ref)?.map(|target| target.peeled);
-    Ok((gone, tip))
+    let name = spec.transform(merge)?;
+    Ok(name.as_str().ok().map(str::to_owned))
 }
 
 /// The short name of an upstream's tracking ref as `git branch -vv` shows it: `origin/main`
@@ -386,9 +464,9 @@ fn parallel_trackings(
                 scope.spawn(move || -> GitResult<Vec<Tracking>> {
                     let repo = location.reopen()?;
                     let mut out = Vec::with_capacity(part.len());
-                    for (full_name, local) in part {
+                    for (upstream, local) in part {
                         cancel.check()?;
-                        out.push(tracking(&repo, full_name, *local)?);
+                        out.push(tracking(&repo, upstream, *local)?);
                     }
                     Ok(out)
                 })

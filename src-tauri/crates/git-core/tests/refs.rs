@@ -248,6 +248,70 @@ fn a_gone_upstream_keeps_its_name_without_counts() {
     assert_eq!((topic.ahead, topic.behind), (None, None));
 }
 
+/// Each branch's upstream is the one `git for-each-ref --format=%(upstream:short)` shows,
+/// however its remote maps the merge ref: a local upstream (remote `.`), a fetch refspec of
+/// another shape, a negative refspec that would exclude the ref (git's upstream ignores it),
+/// a remote that does not exist, a merge ref no refspec takes; a configuration section of a
+/// deleted branch changes nothing.
+#[test]
+fn upstreams_follow_each_remote_s_refspecs_like_git() {
+    let f = Fixture::basic().with_remote();
+    f.git(&["remote", "add", "fork", "https://example.invalid/fork.git"]);
+    f.git(&[
+        "config",
+        "--replace-all",
+        "remote.fork.fetch",
+        "+refs/heads/*:refs/remotes/mirror/fork/*",
+    ]);
+    f.git(&[
+        "config",
+        "--add",
+        "remote.origin.fetch",
+        "^refs/heads/wip/*",
+    ]);
+    let tip = f.git(&["rev-parse", "develop"]);
+    f.git(&["update-ref", "refs/remotes/mirror/fork/feature", &tip]);
+    f.git(&["update-ref", "refs/remotes/origin/wip/x", &tip]);
+    let setups = [
+        ("local", ".", "refs/heads/develop"),
+        ("forked", "fork", "refs/heads/feature"),
+        ("excluded", "origin", "refs/heads/wip/x"),
+        ("unknown-remote", "nowhere", "refs/heads/main"),
+        ("untaken", "fork", "refs/tags/v1"),
+        ("tracked", "origin", "refs/heads/develop"),
+    ];
+    for (name, remote, merge) in setups {
+        f.git(&["branch", "-q", name, "main"]);
+        f.git(&["config", &format!("branch.{name}.remote"), remote]);
+        f.git(&["config", &format!("branch.{name}.merge"), merge]);
+    }
+    f.git(&["config", "branch.deleted.remote", "origin"]);
+    f.git(&["config", "branch.deleted.merge", "refs/heads/main"]);
+    let refs = refs_at(&f.root);
+    let mut shown_any = 0;
+    for (name, _, _) in setups {
+        let full_name = format!("refs/heads/{name}");
+        let shown = f.git(&["for-each-ref", "--format=%(upstream:short)", &full_name]);
+        let listed = find(&refs, &full_name);
+        assert_eq!(listed.upstream.as_deref().unwrap_or(""), shown, "{name}");
+        if !shown.is_empty() {
+            shown_any += 1;
+            let counts = f.git(&[
+                "rev-list",
+                "--left-right",
+                "--count",
+                &format!("{name}...{shown}"),
+            ]);
+            assert_eq!(
+                counts,
+                format!("{}\t{}", listed.ahead.unwrap(), listed.behind.unwrap()),
+                "{name}"
+            );
+        }
+    }
+    assert_eq!(shown_any, 4, "local, forked, excluded and tracked have one");
+}
+
 #[test]
 fn carries_the_committer_time_of_each_ref_s_commit_like_log() {
     let mut f = Fixture::basic().with_remote().with_stash();
