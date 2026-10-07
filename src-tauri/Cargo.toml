@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/git-core", "crates/repo-index", "crates/syntax", "crates/bench", "crates/cli"]
+members = [".", "crates/git-core", "crates/repo-index", "crates/syntax", "crates/bench", "crates/cli", "crates/mcp"]
 resolver = "2"
 
 [workspace.package]

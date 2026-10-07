@@ -1,0 +1,31 @@
+[package]
+name = "begitra-mcp"
+description = "MCP server that lets agents read Begitra's reviews and write notes on them"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+git-core.workspace = true
+repo-index.workspace = true
+rusqlite.workspace = true
+rmcp = { version = "3.5", default-features = false, features = ["server", "transport-io", "macros"] }
+schemars = "1"
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["io-std"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lib]
+name = "begitra_mcp"
+path = "src/lib.rs"
+
+[[bin]]
+name = "begitra-mcp"
+path = "src/main.rs"
