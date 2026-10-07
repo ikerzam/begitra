@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// The worktrees dashboard, beside the shell's sidebar: the header with the count, "Prune" and
+// The worktrees dashboard, beside the sidebar's rail: the header with the count, "Prune" and
 // "Add worktree", the error banner when a write failed, the table (or the empty state when the
 // repository has no linked worktree), the confirmations and the row menu; the add dialog is the
 // shell's, since ⇧⌘W opens it over any layout. The store holds every decision; this file only
@@ -26,7 +26,7 @@ const { t, n } = useI18n();
 const repo = useRepoStore();
 const worktrees = useWorktreesStore();
 const external = useExternal();
-const table = ref<{ focus(): Promise<void>; sidebarRowFocused(): boolean } | null>(null);
+const table = ref<{ focus(): Promise<void>; sidebarPanelFocused(): boolean } | null>(null);
 const menu = ref<{ path: string; x: number; y: number } | null>(null);
 
 const lanes = computed<Record<string, number>>(() => {
@@ -95,9 +95,9 @@ function withMenuRow(action: (path: string) => void): void {
 }
 
 defineExpose({
-  /** Focuses the rows, unless a row of the sidebar's lists holds the focus. */
+  /** Focuses the rows, unless a sidebar panel holds the focus. */
   focusRows: () => {
-    if (!table.value?.sidebarRowFocused()) void table.value?.focus();
+    if (!table.value?.sidebarPanelFocused()) void table.value?.focus();
   },
 });
 </script>

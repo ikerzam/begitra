@@ -13,7 +13,7 @@ import { isListKeydown, useListNavigation } from "@/shortcuts/useListNavigation"
 import { useProjectsStore } from "@/stores/projects";
 
 import { sameFolder } from "./format";
-import type { RepoRow } from "./useSidebarSections";
+import type { RepoRow } from "./useSidebarSection";
 
 const props = defineProps<{ rows: RepoRow[] }>();
 const emit = defineEmits<{

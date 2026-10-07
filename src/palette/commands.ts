@@ -18,6 +18,8 @@ export interface PaletteCommand {
 /** Actions the shell exposes to the palette; the shell wires them to stores. */
 export interface PaletteActions {
   hasRepository: () => boolean;
+  /** Whether the sidebar's rail shows: a project or a repository is open. */
+  hasSidebar: () => boolean;
   /** Whether the open project is pinned; null without one. */
   projectPinned: () => boolean | null;
   /** Whether some folder project exists, whose folder "Scan folders" walks. */
@@ -138,7 +140,7 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       id: "toggle-sidebar",
       labelKey: "palette.commandsById.toggle-sidebar",
       shortcutId: "toggle-sidebar",
-      enabled: always,
+      enabled: actions.hasSidebar,
       run: actions.toggleSidebar,
     },
     ...["zoom-in", "zoom-out", "zoom-reset"].map((id) => ({

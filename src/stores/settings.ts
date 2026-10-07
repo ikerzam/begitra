@@ -41,7 +41,7 @@ export const themeNames: readonly ThemeName[] = [
 ];
 /** A font weight as a step from the design's: -1, 0, +1 and +2 hundreds. */
 export type FontWeight = "light" | "regular" | "medium" | "semibold";
-/** The order of the sidebar's ref sections: by the last commit, or by name. */
+/** The order of the branch, remote branch and tag lists: by the last commit, or by name. */
 export type BranchSort = "recent" | "name";
 /** The zoom levels of the window, in percent. */
 export const zoomLevels = [80, 90, 100, 110, 125, 150, 175, 200] as const;
@@ -129,15 +129,11 @@ export interface Settings {
   codeWeight: FontWeight;
   /** The window's zoom in percent: every size of the interface scales with it. */
   zoom: ZoomLevel;
-  /** The order of the sidebar's ref sections. */
+  /** The order of the ref lists. */
   branchSort: BranchSort;
   /** An icon of each file's kind in the file lists. */
   fileIcons: boolean;
 }
-
-/** The sections of the sidebar's column, in their order. */
-export const sidebarSectionIds = ["repos", "local", "remote", "tags", "worktrees"] as const;
-export type SidebarSectionId = (typeof sidebarSectionIds)[number];
 
 export type DiffLayout = "unified" | "side-by-side";
 

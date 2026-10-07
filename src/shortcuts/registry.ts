@@ -100,6 +100,14 @@ export function isOverlayTarget(target: unknown): boolean {
 }
 
 /**
+ * Whether a key event comes from a panel floating over the screen (a sidebar panel): its list
+ * has its own keys, and the single keys of the screen below (r, n, s…) must not act from there.
+ */
+export function isFloatingPanelTarget(target: unknown): boolean {
+  return target instanceof Element && target.closest("[data-floating-panel]") !== null;
+}
+
+/**
  * `handler`, run only while no dialog or menu holds the focus: a key the screen behind takes
  * (the find's) then does nothing, and still never reaches the webview.
  */
@@ -175,17 +183,21 @@ export class ShortcutRegistry {
 
   /**
    * Dispatches a keydown: the first binding whose keys match and that has a handler runs.
-   * Plain-key bindings (no modifier) are skipped while a text field has focus. Returns whether
-   * something handled the event (and called `preventDefault`).
+   * Plain-key bindings (no modifier) are skipped while a text field has focus, and a screen's
+   * bindings while a dialog, a menu or a floating panel has it. Returns whether something
+   * handled the event (and called `preventDefault`).
    */
   dispatch(event: KeyboardEvent): boolean {
     // A list that already moved on this key (j/k in a focused tree) keeps the event.
     if (event.defaultPrevented) return false;
     const editable = isEditableTarget(event.target as TargetLike);
     // The focused element too: a synthetic event dispatched on the window has no target.
+    const focused = typeof document !== "undefined" ? document.activeElement : null;
     const overlay =
       isOverlayTarget(event.target) ||
-      (typeof document !== "undefined" && isOverlayTarget(document.activeElement));
+      isOverlayTarget(focused) ||
+      isFloatingPanelTarget(event.target) ||
+      isFloatingPanelTarget(focused);
     for (const binding of this.bindings.values()) {
       const stack = this.handlers.get(binding.id);
       const handler = stack?.[stack.length - 1];

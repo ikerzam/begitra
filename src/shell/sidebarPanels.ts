@@ -4,7 +4,7 @@
 import { Cloud, FolderGit2, GitBranch, ListTree, Tag } from "@lucide/vue";
 import type { Component } from "vue";
 
-import type { SidebarSectionId } from "@/stores/settings";
+import type { SidebarSectionId } from "@/stores/shell";
 
 export interface SidebarPanelInfo {
   id: SidebarSectionId;

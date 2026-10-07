@@ -23,7 +23,7 @@ const props = withDefaults(
     selected?: boolean;
     /** Roving tab stop; defaults to the selected row. Lists without a selection pass it to the first row. */
     tabStop?: boolean;
-    /** Draw the icon after the lane dot too (the sidebar's Worktrees section shows both). */
+    /** Draw the icon after the lane dot too (the Worktrees panel shows both). */
     iconBeside?: boolean;
   }>(),
   {

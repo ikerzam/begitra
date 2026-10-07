@@ -1,7 +1,9 @@
 <script setup lang="ts">
 // The backdrop of every modal overlay (the palette, the picker, dialogs and sheets): the whole
 // window in --shadow-color. Only a press that starts on the scrim dismisses: a click whose press
-// began in the panel (a selection dragged past its edge) is dispatched to the scrim too.
+// began in the panel (a selection dragged past its edge) is dispatched to the scrim too. It is
+// marked `data-scrim`, so what closes on a press outside it (a sidebar panel) can tell a press on
+// a modal's backdrop, which belongs to the modal.
 
 const props = withDefaults(
   defineProps<{
@@ -29,6 +31,7 @@ function onPointerdown(event: PointerEvent): void {
 <template>
   <div
     class="fixed inset-0 flex justify-center bg-shadow"
+    data-scrim
     :class="props.align === 'center' ? 'items-center' : 'items-start'"
     @pointerdown="onPointerdown"
     @contextmenu.self.prevent

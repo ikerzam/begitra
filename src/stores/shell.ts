@@ -12,8 +12,18 @@ import {
   type ColumnWidths,
   type LayoutMode,
   type PaneSizes,
-  type SidebarSectionId,
 } from "./settings";
+
+/** The sections of the sidebar, each a panel of the rail, in the rail's order. */
+export const sidebarSectionIds = ["repos", "local", "remote", "tags", "worktrees"] as const;
+export type SidebarSectionId = (typeof sidebarSectionIds)[number];
+
+/**
+ * Why a sidebar panel closed, which says where the focus goes: a press gives it to what it
+ * pressed and a move of the focus already took it; any other way (⌘B, a row's activation, the
+ * dashboard) gives it back to where it was before the panel opened, else the layout's list.
+ */
+export type SidebarCloseReason = "press" | "focus" | "other";
 
 /** Pane limits in px, from the design: detail never under 360, sidebar 240 by default. */
 export const paneLimits: Record<keyof PaneSizes, { min: number; max: number }> = {
@@ -82,6 +92,8 @@ export const useShellStore = defineStore("shell", () => {
   const sidebarPanel = ref<SidebarSectionId | null>(null);
   /** The panel ⌘B opens: the last one opened, Branches until one is. */
   const lastSidebarPanel = ref<SidebarSectionId>("local");
+  /** Why the panel last closed (`SidebarCloseReason`), read by whoever places the focus. */
+  const sidebarCloseReason = ref<SidebarCloseReason>("other");
   /** Each panel's filter, kept while it is closed; cleared when another repository shows. */
   const sidebarFilters = ref<Record<SidebarSectionId, string>>(noFilters());
 
@@ -134,8 +146,15 @@ export const useShellStore = defineStore("shell", () => {
     lastSidebarPanel.value = id;
   }
 
-  function closeSidebarPanel(): void {
+  function closeSidebarPanel(reason: SidebarCloseReason = "other"): void {
+    if (sidebarPanel.value === null) return;
+    sidebarCloseReason.value = reason;
     sidebarPanel.value = null;
+  }
+
+  /** ⌘B's panel when the last one is not offered (Repositories in a project of one). */
+  function forgetSidebarPanel(id: SidebarSectionId): void {
+    if (lastSidebarPanel.value === id) lastSidebarPanel.value = "local";
   }
 
   /**
@@ -238,9 +257,11 @@ export const useShellStore = defineStore("shell", () => {
     windowWidth,
     sidebarPanel,
     lastSidebarPanel,
+    sidebarCloseReason,
     sidebarFilters,
     openSidebarPanel,
     closeSidebarPanel,
+    forgetSidebarPanel,
     toggleSidebarPanel,
     setSidebarFilter,
     clearSidebarFilters,

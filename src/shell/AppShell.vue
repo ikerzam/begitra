@@ -60,6 +60,7 @@ import ToastHost from "./ToastHost.vue";
 import TopBar from "./TopBar.vue";
 import { useExternal } from "./useExternal";
 import { useOpenFolder } from "./useOpenFolder";
+import { useSidebarAvailable } from "./useSidebarAvailable";
 import { useRepoWatcher } from "./useRepoWatcher";
 import { useNativeMenu, type TextMenuRequest } from "./useNativeMenu";
 import { useZoom } from "./useZoom";
@@ -128,7 +129,7 @@ const changedCount = computed(() => {
  * The sidebar, its rail, shows in every layout with a repository or a project open, and Home has
  * none. Its panel floats over whichever layout shows, which keeps its width.
  */
-const sidebarAvailable = computed(() => repo.state.kind !== "empty" || projects.active !== null);
+const sidebarAvailable = useSidebarAvailable();
 /* Home closes a panel left open: the next project opens with none. */
 watch(sidebarAvailable, (available) => {
   if (!available) shell.closeSidebarPanel();
@@ -163,9 +164,14 @@ onBeforeUnmount(() => {
 });
 useShortcut("graph-focus", () => void shell.setLayoutMode("graph"));
 useShortcut("review-focus", () => void shell.setLayoutMode("review"));
-useShortcut("toggle-sidebar", () => {
-  if (sidebarAvailable.value) shell.toggleSidebarPanel();
-});
+// Not behind a dialog, a menu or the palette: a panel would open under the scrim and take the
+// focus from the overlay.
+useShortcut(
+  "toggle-sidebar",
+  outsideOverlays(() => {
+    if (sidebarAvailable.value) shell.toggleSidebarPanel();
+  }),
+);
 useShortcut("open-terminal", () => void external.openTerminal());
 useShortcut("open-editor", () => void external.openEditor());
 useShortcut("compare-with", compareWith);
@@ -282,14 +288,15 @@ watch(
 );
 
 /**
- * A sidebar panel that closes with the focus inside it (⌘B, a row's activation) would leave the
- * focus on the page's body: the layout behind takes it on its list, as when it shows. Escape has
- * given it to the rail's icon already, and a press outside to what it pressed.
+ * A sidebar panel that closes with the focus inside it (⌘B, a row's activation) gives it back to
+ * where it was before it opened (`useSidebarPanelFocus`); with nowhere to go, the layout behind
+ * takes it on its list, as when it shows. Escape and a move of the focus have placed it already,
+ * and a press gives it to what it pressed: refocusing then could scroll a list under the pointer.
  */
 watch(
   () => shell.sidebarPanel,
   (panel, previous) => {
-    if (panel !== null || previous === null) return;
+    if (panel !== null || previous === null || shell.sidebarCloseReason !== "other") return;
     void nextTick(() => {
       const active = document.activeElement;
       if (active && active !== document.body) return;
@@ -371,25 +378,29 @@ function removeFromProject(): void {
     <OperationBanner />
     <div class="relative flex min-h-0 flex-1">
       <SidebarRail v-if="sidebarAvailable" />
-      <ReviewFocusLayout v-if="reviewMode" ref="reviewLayout" />
-      <CompareLayout v-else-if="compareMode" ref="compareLayout" />
-      <WorktreesLayout v-else-if="worktreesMode" ref="worktreesLayout" />
-      <SettingsLayout v-else-if="settingsMode" ref="settingsLayout" />
-      <ChangesLayout v-else-if="changesMode" ref="changesLayout" />
-      <ProjectLayout v-else-if="projectMode" ref="projectLayout" />
-      <GraphFocusLayout
-        v-else
-        ref="graphLayout"
-        @open-folder="() => void openFolder()"
-        @add-folder="() => void addFolder()"
-        @review="(file) => void review(file)"
-        @remove-from-project="removeFromProject"
-      />
+      <!-- The panel follows its rail in the tab order; the layouts paint in a stacking context of
+           their own, so their raised parts (the graph's canvas, the rails' rings) stay under it. -->
       <SidebarPanel
         v-if="sidebarAvailable && shell.sidebarPanel"
         :id="shell.sidebarPanel"
         :key="shell.sidebarPanel"
       />
+      <div class="isolate flex min-h-0 min-w-0 flex-1">
+        <ReviewFocusLayout v-if="reviewMode" ref="reviewLayout" />
+        <CompareLayout v-else-if="compareMode" ref="compareLayout" />
+        <WorktreesLayout v-else-if="worktreesMode" ref="worktreesLayout" />
+        <SettingsLayout v-else-if="settingsMode" ref="settingsLayout" />
+        <ChangesLayout v-else-if="changesMode" ref="changesLayout" />
+        <ProjectLayout v-else-if="projectMode" ref="projectLayout" />
+        <GraphFocusLayout
+          v-else
+          ref="graphLayout"
+          @open-folder="() => void openFolder()"
+          @add-folder="() => void addFolder()"
+          @review="(file) => void review(file)"
+          @remove-from-project="removeFromProject"
+        />
+      </div>
       <DropTarget :active="dragging" />
     </div>
     <StatusBar />

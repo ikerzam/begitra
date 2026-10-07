@@ -87,10 +87,12 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 defineExpose({
-  /** The theme's select first: the screen opens on Appearance. */
+  /** The theme's select first: the screen opens on Appearance. The page keeps its scroll. */
   focus: () => {
     const theme = page.value?.querySelector<HTMLElement>("#settings-theme");
-    (theme ?? page.value?.querySelector<HTMLElement>("input, select, button"))?.focus();
+    (theme ?? page.value?.querySelector<HTMLElement>("input, select, button"))?.focus({
+      preventScroll: true,
+    });
   },
 });
 </script>

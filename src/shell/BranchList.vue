@@ -19,7 +19,7 @@ import { isListKeydown, useListNavigation } from "@/shortcuts/useListNavigation"
 import { useRepoStore } from "@/stores/repo";
 
 import { branchSelectionKey, useBranchSelection } from "./useBranchSelection";
-import type { BranchRow } from "./useSidebarSections";
+import type { BranchRow } from "./useSidebarSection";
 
 const props = defineProps<{
   rows: BranchRow[];
@@ -41,9 +41,16 @@ const menu = ref<{ ref: GitRef; x: number; y: number } | null>(null);
 
 const rowCount = computed(() => props.rows.length);
 
+/** What an empty list of each kind says. */
+const EMPTY = {
+  local: "sidebar.noBranches",
+  remote: "sidebar.noRemoteBranches",
+  tags: "sidebar.noTags",
+} as const;
+
 /* The selection is the graph's scope ref, so filtering keeps it; none until the user picks a row.
-   The sidebar's ref lists share it, so a move into the next list leaves one pending scope; a list
-   on its own keeps its own. */
+   The panel provides it and applies a scope still pending when it closes; a list on its own keeps
+   its own. */
 const shared = inject(branchSelectionKey, null);
 const selection = shared ?? useBranchSelection();
 if (!shared) onUnmounted(selection.dispose);
@@ -143,7 +150,6 @@ defineExpose({ focus: navigation.focus });
     </MotionRows>
     <template
       v-if="
-        props.kind === 'local' &&
         props.rows.length === 0 &&
         (repo.state.kind === 'opening' || (repo.state.kind === 'ready' && !repo.refsLoaded))
       "
@@ -151,10 +157,11 @@ defineExpose({ focus: navigation.focus });
       <SkeletonRow v-for="n in 6" :key="n" :index="n" height="list" />
     </template>
     <p
-      v-else-if="props.kind === 'local' && props.rows.length === 0"
+      v-else-if="props.rows.length === 0"
       class="px-3 py-2 text-md text-fg-secondary"
+      data-testid="branch-list-empty"
     >
-      {{ repo.state.kind === "ready" ? t("sidebar.noBranches") : t("sidebar.noRepository") }}
+      {{ repo.state.kind === "ready" ? t(EMPTY[props.kind]) : t("sidebar.noRepository") }}
     </p>
   </div>
   <RefMenu

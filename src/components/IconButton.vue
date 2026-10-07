@@ -9,6 +9,11 @@ const props = withDefaults(
     icon?: Component;
     /** For toggle buttons (layout modes, the dashboard): renders `aria-pressed` and the selected fill. */
     pressed?: boolean;
+    /**
+     * For a button that shows and hides what it controls (the rail's panels): renders
+     * `aria-expanded` and, while expanded, the selected fill.
+     */
+    expanded?: boolean;
     disabled?: boolean;
     /**
      * Why the button cannot act now. It stays in the tab order and under the pointer
@@ -21,17 +26,21 @@ const props = withDefaults(
     tooltip?: string;
     /** A shortcut hint shown as `kbd` in the tooltip after its text. */
     keys?: string;
+    /** Read after the name by assistive technology (an alert the icon carries). */
+    description?: string;
     /** A number shown after the icon (a toggle's count), which widens the button; none at 0. */
     count?: number;
   }>(),
   {
     icon: undefined,
     pressed: undefined,
+    expanded: undefined,
     disabled: false,
     unavailable: "",
     size: "md",
     tooltip: undefined,
     keys: "",
+    description: "",
     count: 0,
   },
 );
@@ -42,10 +51,12 @@ const { n } = useI18n();
 const countText = computed(() => (props.count > 999 ? `${n(999)}+` : n(props.count)));
 
 /* The colours by state: unavailable dims the icon (a pressed one keeps its fill); a pressed
-   toggle keeps its fill under the pointer instead of turning into a hover. */
+   toggle, or an expanded disclosure, keeps its fill under the pointer instead of a hover. */
+const selected = computed(() => props.pressed === true || props.expanded === true);
 const stateClass = computed(() => {
-  if (props.unavailable) return props.pressed ? "bg-selected text-fg-disabled" : "text-fg-disabled";
-  return props.pressed
+  if (props.unavailable)
+    return selected.value ? "bg-selected text-fg-disabled" : "text-fg-disabled";
+  return selected.value
     ? "bg-selected text-fg"
     : "text-fg-secondary enabled:hover:bg-hover enabled:hover:text-fg";
 });
@@ -63,9 +74,10 @@ function onClick(event: MouseEvent): void {
     :aria-disabled="props.unavailable ? 'true' : undefined"
     :aria-label="props.label"
     :aria-pressed="props.pressed"
+    :aria-expanded="props.expanded"
     :data-tooltip="props.unavailable || (props.tooltip ?? props.label)"
     :data-tooltip-keys="props.keys || undefined"
-    :aria-description="props.unavailable || props.keys || undefined"
+    :aria-description="props.unavailable || props.description || props.keys || undefined"
     class="inline-flex shrink-0 items-center justify-center rounded-sm disabled:text-fg-disabled"
     :class="[
       props.count > 0 ? 'h-5 min-w-5 gap-1 px-1' : props.size === 'lg' ? 'size-6' : 'size-5',

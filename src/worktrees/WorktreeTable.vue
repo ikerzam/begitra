@@ -98,27 +98,23 @@ async function focus(): Promise<void> {
 }
 
 /**
- * Whether a row of the sidebar's lists holds the focus: the user is moving through them, and a
- * repository shown from there brings the dashboard back for it. The rows leave that focus where
- * it is; the dashboard's toggle, a button, hands it to them.
+ * Whether a sidebar panel holds the focus (its filter or its rows): the rows arriving behind it
+ * leave that focus where it is, since taking it would close the panel.
  */
-function sidebarRowFocused(): boolean {
+function sidebarPanelFocused(): boolean {
   const active = document.activeElement;
-  return (
-    active instanceof Element &&
-    active.closest('[data-testid="sidebar-panel"] [role="option"]') !== null
-  );
+  return active instanceof Element && active.closest('[data-testid="sidebar-panel"]') !== null;
 }
 
 // A selected row that disappeared (removed, pruned) hands the focus to the first row; the
-// first rows take the focus when they arrive after the dashboard opened, unless a row of the
-// sidebar's lists holds it.
+// first rows take the focus when they arrive after the dashboard opened, unless a sidebar panel
+// holds it.
 watch(rowCount, (count, previous) => {
   if (count < previous && selectedIndex.value < 0 && count > 0) void focus();
-  if (previous === 0 && count > 0 && !sidebarRowFocused()) void focus();
+  if (previous === 0 && count > 0 && !sidebarPanelFocused()) void focus();
 });
 
-defineExpose({ focus, sidebarRowFocused });
+defineExpose({ focus, sidebarPanelFocused });
 </script>
 
 <template>

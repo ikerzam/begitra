@@ -22,7 +22,7 @@ import WorktreeContextMenu from "@/worktrees/WorktreeContextMenu.vue";
 
 import { errorText } from "./errorMessage";
 import { useExternal } from "./useExternal";
-import type { WorktreeRow } from "./useSidebarSections";
+import type { WorktreeRow } from "./useSidebarSection";
 
 const props = defineProps<{ rows: WorktreeRow[] }>();
 const emit = defineEmits<{

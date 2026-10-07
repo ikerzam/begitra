@@ -1,7 +1,6 @@
-// The sections of the sidebar and their rows: the open project's repositories (while it holds
-// more than one), the local branches, the remote branches, the tags and the worktrees, each
-// filtered by the sidebar's one filter. The lists draw the rows; the headers count them from here,
-// so a folded section, whose list is not drawn, still counts.
+// The rows of one sidebar panel: the open project's repositories, the local branches, the remote
+// branches, the tags or the worktrees, under the panel's filter, and how many the section holds
+// without it. Only the panel's own section is computed: the others stay unread.
 
 import { computed, type ComputedRef, type Ref } from "vue";
 import { useI18n } from "vue-i18n";
@@ -10,7 +9,8 @@ import type { Ref as GitRef } from "@/ipc/schemas";
 import { matchesQuery } from "@/palette/usePalette";
 import { useProjectsStore } from "@/stores/projects";
 import { useRepoStore } from "@/stores/repo";
-import { useSettingsStore, type SidebarSectionId } from "@/stores/settings";
+import { useSettingsStore } from "@/stores/settings";
+import type { SidebarSectionId } from "@/stores/shell";
 
 import { branchLanes } from "./branchLanes";
 import { sortRefs } from "./branchOrder";
@@ -46,15 +46,15 @@ export interface SidebarRows {
   worktrees: WorktreeRow[];
 }
 
-/** Each section's rows under the filter, and how many it holds without it. */
-export interface SidebarSections {
+/** The panel's rows under the filter (the other sections' empty), and the section's total. */
+export interface SidebarSection {
   rows: ComputedRef<SidebarRows>;
-  totals: ComputedRef<Record<SidebarSectionId, number>>;
-  /** The sections the sidebar shows, in order. */
-  shown: ComputedRef<SidebarSectionId[]>;
+  total: ComputedRef<number>;
 }
 
-export function useSidebarSections(filter: Ref<string>): SidebarSections {
+const noRows = (): SidebarRows => ({ repos: [], local: [], remote: [], tags: [], worktrees: [] });
+
+export function useSidebarSection(id: SidebarSectionId, filter: Ref<string>): SidebarSection {
   const { t } = useI18n();
   const repo = useRepoStore();
   const projects = useProjectsStore();
@@ -119,34 +119,36 @@ export function useSidebarSections(filter: Ref<string>): SidebarSections {
   const rows = computed<SidebarRows>(() => {
     const query = filter.value;
     const byRef = (row: BranchRow) => matchesQuery(row.ref.name, query);
-    return {
-      repos: allRepos.value.filter((row) => matchesQuery(`${row.name} ${row.branch}`, query)),
-      local: allLocal.value.filter(byRef),
-      remote: allRemote.value.filter(byRef),
-      tags: allTags.value.filter(byRef),
-      worktrees: allWorktrees.value.filter((row) =>
-        matchesQuery(`${row.name} ${row.branch}`, query),
-      ),
-    };
+    const byName = (row: { name: string; branch: string }) =>
+      matchesQuery(`${row.name} ${row.branch}`, query);
+    switch (id) {
+      case "repos":
+        return { ...noRows(), repos: allRepos.value.filter(byName) };
+      case "local":
+        return { ...noRows(), local: allLocal.value.filter(byRef) };
+      case "remote":
+        return { ...noRows(), remote: allRemote.value.filter(byRef) };
+      case "tags":
+        return { ...noRows(), tags: allTags.value.filter(byRef) };
+      case "worktrees":
+        return { ...noRows(), worktrees: allWorktrees.value.filter(byName) };
+    }
   });
 
-  const totals = computed(() => ({
-    repos: allRepos.value.length,
-    local: allLocal.value.length,
-    remote: allRemote.value.length,
-    tags: allTags.value.length,
-    worktrees: allWorktrees.value.length,
-  }));
-
-  const shown = computed<SidebarSectionId[]>(() => {
-    const ids: SidebarSectionId[] = [];
-    if (projects.activeMembers.length > 1) ids.push("repos");
-    ids.push("local");
-    if (totals.value.remote > 0) ids.push("remote");
-    if (totals.value.tags > 0) ids.push("tags");
-    ids.push("worktrees");
-    return ids;
+  const total = computed(() => {
+    switch (id) {
+      case "repos":
+        return allRepos.value.length;
+      case "local":
+        return allLocal.value.length;
+      case "remote":
+        return allRemote.value.length;
+      case "tags":
+        return allTags.value.length;
+      case "worktrees":
+        return allWorktrees.value.length;
+    }
   });
 
-  return { rows, totals, shown };
+  return { rows, total };
 }

@@ -13,6 +13,7 @@ import { useNotesExport } from "@/review/useNotesExport";
 import { folderKey } from "@/shell/format";
 import { useExternal } from "@/shell/useExternal";
 import { useOpenFolder } from "@/shell/useOpenFolder";
+import { useSidebarAvailable } from "@/shell/useSidebarAvailable";
 import { useBranchesStore } from "@/stores/branches";
 import { useCleanupStore } from "@/stores/cleanup";
 import { useIndexStore } from "@/stores/index";
@@ -57,9 +58,11 @@ export function usePaletteActions(): PaletteActions {
   const projects = useProjectsStore();
   const projectDialogs = useProjectDialogsStore();
   const syncActions = useSyncActions();
+  const sidebarAvailable = useSidebarAvailable();
 
   return {
     hasRepository: () => repo.state.kind === "ready",
+    hasSidebar: () => sidebarAvailable.value,
     projectPinned: () => projects.active?.pinned ?? null,
     hasFolderProjects: () => projects.folders.length > 0,
     openFolder: async () => {
@@ -76,7 +79,9 @@ export function usePaletteActions(): PaletteActions {
     },
     setGraphFocus: () => void shell.setLayoutMode("graph"),
     setReviewFocus: () => void shell.setLayoutMode("review"),
-    toggleSidebar: () => shell.toggleSidebarPanel(),
+    toggleSidebar: () => {
+      if (sidebarAvailable.value) shell.toggleSidebarPanel();
+    },
     openTerminal: async () => {
       await external.openTerminal();
     },

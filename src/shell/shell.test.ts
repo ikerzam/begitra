@@ -6,7 +6,7 @@ import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CommitNode, IndexEntry, Project, Repo } from "@/ipc/schemas";
-import { ShortcutRegistry, setShortcutRegistry } from "@/shortcuts/registry";
+import { ShortcutRegistry, setShortcutRegistry, shortcutRegistry } from "@/shortcuts/registry";
 import { useGraphStore } from "@/stores/graph";
 import { useIndexStore } from "@/stores/index";
 import { useOperationsStore } from "@/stores/operations";
@@ -138,6 +138,8 @@ function backend(
     worktreesGate?: Promise<void>;
     /** `list_worktrees` rejects. */
     failWorktrees?: boolean;
+    /** The repository has no remote branch. */
+    noRemotes?: boolean;
   } = {},
 ) {
   const tip = options.tip ?? { index: 0 };
@@ -210,7 +212,7 @@ function backend(
             message: null,
             committedAt: commit(tip.index).committer.time,
           },
-        ];
+        ].filter((ref) => !(options.noRemotes && ref.kind === "remote-branch"));
       case "walk_commits":
         send(
           [
@@ -1204,7 +1206,9 @@ describe("Sidebar rail and panels", () => {
     const wrapper = await openShell();
     const shown = await open(wrapper, "local");
     expect(shown.attributes("data-panel")).toBe("local");
-    expect(icon(wrapper, "local").attributes("aria-pressed")).toBe("true");
+    // A disclosure: the icon says its panel is expanded, not pressed.
+    expect(icon(wrapper, "local").attributes("aria-expanded")).toBe("true");
+    expect(icon(wrapper, "local").attributes("aria-pressed")).toBeUndefined();
     expect(shown.get('[data-testid="sidebar-panel-title"]').text()).toBe("Branches");
     expect(count(wrapper)).toBe("1");
     // The layout behind is still graph focus.
@@ -1215,7 +1219,7 @@ describe("Sidebar rail and panels", () => {
     await icon(wrapper, "local").trigger("click");
     await settle();
     expect(panel(wrapper).exists()).toBe(false);
-    expect(icon(wrapper, "local").attributes("aria-pressed")).toBe("false");
+    expect(icon(wrapper, "local").attributes("aria-expanded")).toBe("false");
     // Another icon opens its own panel in place of the open one.
     await open(wrapper, "local");
     await open(wrapper, "remote");
@@ -1514,7 +1518,11 @@ describe("Sidebar rail and panels", () => {
     const wrapper = await openShell({ failWorktrees: true });
     expect(wrapper.find('[data-testid="rail-worktrees-alert"]').exists()).toBe(true);
     expect(icon(wrapper, "worktrees").attributes("data-tooltip")).toBe(
-      "Worktrees · Couldn't list the worktrees",
+      "Couldn't list the worktrees",
+    );
+    // Read out after the icon's name too, which the dot alone does not say.
+    expect(icon(wrapper, "worktrees").attributes("aria-description")).toBe(
+      "Couldn't list the worktrees",
     );
     const shown = await open(wrapper, "worktrees");
     const error = shown.get('[data-testid="worktrees-error"]');
@@ -1531,6 +1539,215 @@ describe("Sidebar rail and panels", () => {
   it("leaves the Repositories icon out for a project of one", async () => {
     const wrapper = await openShell({ loneProject: true });
     expect(rail(wrapper)).toEqual(["Branches", "Remote branches", "Tags", "Worktrees"]);
+    wrapper.unmount();
+  });
+
+  it("follows its rail in the tab order, and closes when the focus moves on into the layout", async () => {
+    const wrapper = await openShell();
+    const shown = await open(wrapper, "local");
+    expect(wrapper.get('[data-testid="sidebar-rail"]').element.nextElementSibling).toBe(
+      shown.element,
+    );
+    // Back to the rail keeps it open; on into the layout closes it, the focus staying there.
+    (icon(wrapper, "tags").element as HTMLElement).focus();
+    await settle();
+    expect(panel(wrapper).exists()).toBe(true);
+    const row = shown.get('[data-testid="branch-list-local"] [data-testid="list-row"]');
+    (row.element as HTMLElement).focus();
+    const commitRow = wrapper.findAll('[data-testid="graph-row"]')[1]!.element as HTMLElement;
+    commitRow.focus();
+    await settle();
+    expect(panel(wrapper).exists()).toBe(false);
+    expect(document.activeElement).toBe(commitRow);
+    wrapper.unmount();
+  });
+
+  it("gives the focus back to where it was when Ctrl B closes it, and leaves it to a press", async () => {
+    const wrapper = await openShell();
+    const rows = () => wrapper.findAll('[data-testid="graph-row"]');
+    const second = rows()[1]!.element as HTMLElement;
+    second.focus();
+    press("b");
+    await settle();
+    expect(panel(wrapper).exists()).toBe(true);
+    expect(document.activeElement).not.toBe(second);
+    press("b");
+    await settle();
+    expect(panel(wrapper).exists()).toBe(false);
+    expect(document.activeElement).toBe(second);
+    // A press outside: the shell moves no focus, so the list under the pointer stays put for the
+    // click that follows.
+    press("b");
+    await settle();
+    const focus = vi.spyOn(HTMLElement.prototype, "focus");
+    rows()[2]!.element.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    await settle();
+    expect(panel(wrapper).exists()).toBe(false);
+    expect(focus).not.toHaveBeenCalled();
+    focus.mockRestore();
+    wrapper.unmount();
+  });
+
+  it("keeps the rest of a double click on a repository row from the graph behind", async () => {
+    const wrapper = await openShell();
+    await useIndexStore().load();
+    await settle();
+    const shown = await open(wrapper, "repos");
+    const rows = shown.findAll('[data-testid="repo-list"] [data-testid="list-row"]');
+    const at = { bubbles: true, cancelable: true, clientX: 60, clientY: 90 };
+    rows[2]!.element.dispatchEvent(new MouseEvent("pointerdown", at));
+    rows[2]!.element.dispatchEvent(new MouseEvent("click", at));
+    await settle();
+    expect(panel(wrapper).exists()).toBe(false);
+    expect(useRepoStore().repo?.root).toBe("/other");
+    // The second press of the double click lands where the row was: on a commit.
+    const commitRow = wrapper.findAll('[data-testid="graph-row"]')[1]!.element;
+    const selected = useRepoStore().selectedIndex;
+    for (const type of ["pointerdown", "mousedown", "click", "dblclick"]) {
+      commitRow.dispatchEvent(new MouseEvent(type, at));
+    }
+    await settle();
+    expect(useShellStore().layoutMode).toBe("graph");
+    expect(useRepoStore().selectedIndex).toBe(selected);
+    wrapper.unmount();
+  });
+
+  it("shows skeleton rows in every ref panel while the repository opens, then says when there is none", async () => {
+    let openRepository = () => {};
+    backend({
+      openGate: new Promise<void>((resolve) => (openRepository = resolve)),
+      noRemotes: true,
+    });
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    await settle();
+    void useProjectsStore().open(1);
+    await settle();
+    const skeletons = () =>
+      wrapper.findAll('[data-testid="sidebar-panel"] [data-testid="skeleton-row"]');
+    await open(wrapper, "remote");
+    expect(skeletons()).toHaveLength(6);
+    await open(wrapper, "tags");
+    expect(skeletons()).toHaveLength(6);
+    openRepository();
+    await settle();
+    expect(skeletons()).toHaveLength(0);
+    expect(wrapper.get('[data-testid="branch-list-empty"]').text()).toBe("No tags");
+    await open(wrapper, "remote");
+    expect(wrapper.get('[data-testid="branch-list-empty"]').text()).toBe("No remote branches");
+    wrapper.unmount();
+  });
+
+  it("says no repository is open in a ref panel of one that failed, whose dashboard cannot open", async () => {
+    const wrapper = await openShell({ failOpen: true });
+    await open(wrapper, "tags");
+    expect(wrapper.get('[data-testid="branch-list-empty"]').text()).toBe("No repository open");
+    await open(wrapper, "worktrees");
+    expect(wrapper.get('[data-testid="sidebar-dashboard"]').attributes("disabled")).toBeDefined();
+    wrapper.unmount();
+  });
+
+  it("keeps the panel when a press on a dialog's backdrop closes the dialog", async () => {
+    const wrapper = await openShell();
+    const shown = await open(wrapper, "local");
+    const row = shown.get('[data-testid="branch-list-local"] [data-testid="list-row"]');
+    await row.trigger("contextmenu", { clientX: 40, clientY: 80 });
+    await settle();
+    await wrapper.get('[role="menu"] [data-testid="menu-rename"]').trigger("click");
+    await settle();
+    const scrim = wrapper.get('[role="dialog"]').element.closest("[data-scrim]")!;
+    scrim.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 }));
+    await settle();
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+    expect(panel(wrapper).exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("opens no panel from Ctrl B behind the palette, nor at Home, and none waits for the next project", async () => {
+    const wrapper = await openShell();
+    press("k");
+    await settle();
+    press("b");
+    await settle();
+    expect(panel(wrapper).exists()).toBe(false);
+    expect(wrapper.find('[data-testid="palette-overlay"]').exists()).toBe(true);
+    useShellStore().closePalette();
+    await useProjectsStore().close();
+    await settle();
+    press("b");
+    shortcutRegistry().run("toggle-sidebar");
+    await settle();
+    expect(useShellStore().sidebarPanel).toBeNull();
+    // The palette offers no toggle at Home.
+    press("k");
+    await settle();
+    await wrapper.get('[data-testid="palette-input"]').setValue("sidebar panel");
+    expect(wrapper.findAll('[data-testid="palette-row"]')).toHaveLength(0);
+    useShellStore().closePalette();
+    await useProjectsStore().open(1);
+    await settle();
+    expect(panel(wrapper).exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("opens Branches with Ctrl B once the project shows a single repository", async () => {
+    const wrapper = await openShell();
+    await open(wrapper, "repos");
+    press("b");
+    await settle();
+    const projects = useProjectsStore();
+    await projects.setMembers(1, [projects.activeMembers[0]!.path]);
+    await settle();
+    expect(rail(wrapper)).not.toContain("Repositories");
+    press("b");
+    await settle();
+    expect(panel(wrapper).attributes("data-panel")).toBe("local");
+    wrapper.unmount();
+  });
+
+  it("opens over review focus and the settings, which keep their layout", async () => {
+    const wrapper = await openShell();
+    for (const [key, layout] of [
+      ["2", "review-focus"],
+      [",", "settings-layout"],
+    ] as const) {
+      press(key);
+      await settle();
+      await open(wrapper, "local");
+      expect(wrapper.find(`[data-testid="${layout}"]`).exists()).toBe(true);
+      press("b");
+      await settle();
+      expect(panel(wrapper).exists()).toBe(false);
+    }
+    wrapper.unmount();
+  });
+
+  it("keeps the layout's single keys from acting while a panel's list has the focus", async () => {
+    const wrapper = await openShell();
+    press("2");
+    await settle();
+    const review = useReviewStore();
+    const shown = await open(wrapper, "local");
+    const row = shown.get('[data-testid="branch-list-local"] [data-testid="list-row"]');
+    (row.element as HTMLElement).focus();
+    await row.trigger("keydown", { key: "r" });
+    await settle();
+    expect(review.reviewedFiles.size).toBe(0);
+    wrapper.unmount();
+  });
+
+  it("scopes the graph to a branch chosen just before the panel closed", async () => {
+    const wrapper = await openShell();
+    const shown = await open(wrapper, "remote");
+    const row = shown.get('[data-testid="branch-list-remote"] [data-testid="list-row"]');
+    await row.trigger("keydown", { key: "j" });
+    press("b");
+    await settle();
+    expect(panel(wrapper).exists()).toBe(false);
+    expect(useGraphStore().filters.scope).toEqual({
+      kind: "ref",
+      name: "origin/main",
+      fullName: "refs/remotes/origin/main",
+    });
     wrapper.unmount();
   });
 

@@ -61,6 +61,8 @@ const labels: Record<string, string> = {
 
 interface ActionOptions {
   hasRepository?: boolean;
+  /** A project or a repository is open, so the sidebar shows. */
+  hasSidebar?: boolean;
   /** Whether the open project is pinned; null without an open project. */
   pinned?: boolean | null;
   hasFolderProjects?: boolean;
@@ -74,6 +76,7 @@ interface ActionOptions {
 function actions(options: ActionOptions | boolean = {}): PaletteActions & { calls: string[] } {
   const {
     hasRepository = true,
+    hasSidebar = true,
     pinned = false,
     hasFolderProjects = true,
     hasReviewNotes = false,
@@ -87,6 +90,7 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
   return {
     calls,
     hasRepository: () => hasRepository,
+    hasSidebar: () => hasSidebar,
     projectPinned: () => pinned,
     hasFolderProjects: () => hasFolderProjects,
     openFolder: () => {
