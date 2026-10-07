@@ -55,6 +55,19 @@ pub mod codes {
     /// The ignore file could not be read or written, or would be written through a link;
     /// `detail` carries the reason.
     pub const IGNORE_WRITE_FAILED: &str = "ignore.write_failed";
+    /// The files a discard touches add up to more than a copy holds; nothing was discarded.
+    pub const DISCARD_TOO_LARGE: &str = "discard.too_large";
+    /// A path a discard touches is a folder or another thing a copy does not hold; nothing
+    /// was discarded, and `detail` carries the path.
+    pub const DISCARD_NOT_A_FILE: &str = "discard.not_a_file";
+    /// A path a discard touches is behind a link or a junction, which can lead outside the
+    /// working tree; nothing was discarded, and `detail` carries the path.
+    pub const DISCARD_BEHIND_LINK: &str = "discard.behind_link";
+    /// The copy before a discard could not be made; nothing was discarded, and `detail`
+    /// carries the reason.
+    pub const DISCARD_COPY_FAILED: &str = "discard.copy_failed";
+    /// The copy an Undo asks for is gone: its toast went, or another discard replaced it.
+    pub const DISCARD_COPY_GONE: &str = "discard.copy_gone";
     /// A command argument did not match its type; `detail` names the field.
     pub const IPC_INVALID_ARGUMENT: &str = "ipc.invalid_argument";
     /// The operation was cancelled.
@@ -84,7 +97,7 @@ pub mod codes {
 
     /// Every code, in the order of the frontend's `errorCodes` (`src/ipc/schemas.ts`); the
     /// contract test compares the two lists through the `app-errors` fixture.
-    pub const ALL: [&str; 32] = [
+    pub const ALL: [&str; 37] = [
         REPO_NOT_FOUND,
         REPO_INVALID,
         REPO_CORRUPT_OBJECT,
@@ -105,6 +118,11 @@ pub mod codes {
         CONFLICT_SUBMODULE,
         IGNORE_INVALID_PATH,
         IGNORE_WRITE_FAILED,
+        DISCARD_TOO_LARGE,
+        DISCARD_NOT_A_FILE,
+        DISCARD_BEHIND_LINK,
+        DISCARD_COPY_FAILED,
+        DISCARD_COPY_GONE,
         IPC_INVALID_ARGUMENT,
         OP_CANCELLED,
         OP_TIMEOUT,

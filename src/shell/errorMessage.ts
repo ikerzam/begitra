@@ -50,6 +50,16 @@ export function errorText(
       return { key: "errors.ignoreInvalidPath", params };
     case "ignore.write_failed":
       return { key: "errors.ignoreWriteFailed", params };
+    case "discard.too_large":
+      return { key: "errors.discardTooLarge", params };
+    case "discard.not_a_file":
+      return { key: "errors.discardNotAFile", params: { ...params, path: error.detail ?? path } };
+    case "discard.behind_link":
+      return { key: "errors.discardBehindLink", params: { ...params, path: error.detail ?? path } };
+    case "discard.copy_failed":
+      return { key: "errors.discardCopyFailed", params: { ...params, reason: error.detail ?? "" } };
+    case "discard.copy_gone":
+      return { key: "errors.discardCopyGone", params };
     case "external.spawn_failed":
       return { key: "errors.spawnFailed", params };
     case "external.not_found":

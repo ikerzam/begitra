@@ -641,6 +641,11 @@
     "submoduleConflict": "{path} es un submódulo: haz checkout del commit que quieras dentro de él y márcalo como resuelto.",
     "ignoreInvalidPath": "Begitra no puede escribir una regla de ignorar para esa ruta.",
     "ignoreWriteFailed": "No se pudo escribir el fichero de reglas de ignorar.",
+    "discardTooLarge": "Los ficheros suman más de lo que Begitra guarda en una copia.",
+    "discardNotAFile": "{path} no es un fichero: Begitra no guarda copia de él.",
+    "discardBehindLink": "{path} está tras un enlace o una unión, que puede llevar fuera del árbol de trabajo: Begitra no guarda copia de él.",
+    "discardCopyFailed": "Begitra no ha podido guardar una copia: {reason}",
+    "discardCopyGone": "Los cambios descartados ya no se guardan: su copia se fue con su aviso.",
     "generic": "{message}"
   },
   "repoRow": {

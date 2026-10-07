@@ -3,6 +3,7 @@
 
 pub mod channels;
 pub mod commands;
+pub mod discards;
 pub mod error;
 pub mod events;
 pub mod external;
@@ -82,6 +83,30 @@ fn open_index(app: &tauri::App, state: &AppState) {
     }
 }
 
+/// Opens this session's folder for the copies discards keep (`discards` under the app data
+/// folder) and removes, off the main thread, the folders of sessions no longer running;
+/// without the folder no copy is kept, and every discard asks its second confirmation.
+fn open_discards(app: &tauri::App, state: &AppState) {
+    let dir = match app.path().app_local_data_dir() {
+        Ok(dir) => dir.join("discards"),
+        Err(error) => {
+            tracing::warn!(error = %error, "no app data folder: discards keep no copy");
+            return;
+        }
+    };
+    if let Err(error) = state.discards().open(&dir) {
+        tracing::warn!(error = %error, dir = %dir.display(), "the discards' folder could not be opened: discards keep no copy");
+        return;
+    }
+    let sweeper = state.clone();
+    if let Err(error) = std::thread::Builder::new()
+        .name("discards-sweep".to_owned())
+        .spawn(move || sweeper.discards().sweep())
+    {
+        tracing::warn!(%error, "the copies an earlier session left stay until the next start");
+    }
+}
+
 /// Builds and runs the Tauri application.
 ///
 /// Exits the process with status 1 if the runtime fails to start; there is no UI to report to
@@ -100,6 +125,7 @@ pub fn run() {
             let state = app.state::<AppState>().inner().clone();
             attach_log(app, &state, log_slot.as_ref());
             open_index(app, &state);
+            open_discards(app, &state);
             spawn_walk_eviction(state);
             // The syntax set takes a while to deserialise; loading it now keeps the first
             // diff from waiting for it.
@@ -201,12 +227,21 @@ pub fn run() {
             commands::stash::stash_pop,
             commands::stash::stash_drop,
         ])
-        .run(tauri::generate_context!());
+        .build(tauri::generate_context!());
 
-    if let Err(error) = result {
-        eprintln!("begitra: failed to start the application runtime: {error}");
-        std::process::exit(1);
-    }
+    let app = match result {
+        Ok(app) => app,
+        Err(error) => {
+            eprintln!("begitra: failed to start the application runtime: {error}");
+            std::process::exit(1);
+        }
+    };
+    app.run(|handle, event| {
+        // The copies discards kept go with the session.
+        if let tauri::RunEvent::Exit = event {
+            handle.state::<AppState>().discards().close();
+        }
+    });
 }
 
 #[cfg(test)]

@@ -641,6 +641,11 @@
     "submoduleConflict": "{path} is a submodule: check out the commit you want inside it, then mark it resolved.",
     "ignoreInvalidPath": "Begitra can't write an ignore rule for that path.",
     "ignoreWriteFailed": "Couldn't write the ignore file.",
+    "discardTooLarge": "The files add up to more than Begitra keeps a copy of.",
+    "discardNotAFile": "{path} is not a file: Begitra keeps no copy of it.",
+    "discardBehindLink": "{path} is behind a link or a junction, which can lead outside the working tree: Begitra keeps no copy of it.",
+    "discardCopyFailed": "Begitra couldn't keep a copy: {reason}",
+    "discardCopyGone": "The discarded changes are no longer kept: their copy went with its notification.",
     "generic": "{message}"
   },
   "repoRow": {

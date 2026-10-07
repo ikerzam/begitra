@@ -14,6 +14,7 @@ use git_core::git2_engine::Git2Engine;
 use repo_index::Index;
 use syntax::Highlight;
 
+use crate::discards::Discards;
 use crate::error::AppError;
 use crate::ops::Operations;
 use crate::watcher::{RepoWatcher, WatchBases, WatchBasesExt};
@@ -54,6 +55,8 @@ struct Inner {
     highlights: Mutex<HashMap<PathBuf, VecDeque<CachedHighlight>>>,
     /// The day file the log is written to, once the folder is resolved.
     log_file: Mutex<Option<PathBuf>>,
+    /// The copies discards keep for their Undo.
+    discards: Discards,
 }
 
 /// The watcher of the open repository and the start in flight. A start walks the whole tree
@@ -135,6 +138,11 @@ impl AppState {
     /// The operation registry.
     pub fn ops(&self) -> &Operations {
         &self.inner.ops
+    }
+
+    /// The copies discards keep for their Undo.
+    pub fn discards(&self) -> &Discards {
+        &self.inner.discards
     }
 
     /// Records the log file the subscriber writes to.

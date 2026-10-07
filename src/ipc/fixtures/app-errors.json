@@ -82,6 +82,26 @@
     "message": "Sample message for ignore.write_failed"
   },
   {
+    "code": "discard.too_large",
+    "message": "Sample message for discard.too_large"
+  },
+  {
+    "code": "discard.not_a_file",
+    "message": "Sample message for discard.not_a_file"
+  },
+  {
+    "code": "discard.behind_link",
+    "message": "Sample message for discard.behind_link"
+  },
+  {
+    "code": "discard.copy_failed",
+    "message": "Sample message for discard.copy_failed"
+  },
+  {
+    "code": "discard.copy_gone",
+    "message": "Sample message for discard.copy_gone"
+  },
+  {
     "code": "ipc.invalid_argument",
     "message": "Sample message for ipc.invalid_argument"
   },
