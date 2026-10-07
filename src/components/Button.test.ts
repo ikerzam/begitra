@@ -75,4 +75,45 @@ describe("Button", () => {
     await disabled.trigger("click");
     expect(onClick).toHaveBeenCalledTimes(1);
   });
+
+  it("stays focusable while unavailable, says why, and does nothing on a press", async () => {
+    const onClick = vi.fn();
+    const reason = "main is level with origin/main: nothing to push.";
+    const wrapper = mountWithI18n(Button, {
+      props: { unavailable: reason, tooltip: "Push main to origin/main" },
+      attrs: { onClick },
+      slots: { default: "Push" },
+    });
+    expect(wrapper.attributes("disabled")).toBeUndefined();
+    expect(wrapper.attributes("aria-disabled")).toBe("true");
+    expect(wrapper.attributes("data-tooltip")).toBe(reason);
+    expect(wrapper.attributes("aria-description")).toBe(reason);
+    expect(wrapper.classes()).toContain("text-fg-disabled");
+    expect(wrapper.classes()).not.toContain("border-line-strong");
+    await wrapper.trigger("click");
+    expect(onClick).not.toHaveBeenCalled();
+    // Available again, the tooltip and the key hint are its own.
+    await wrapper.setProps({ unavailable: "", keys: "Ctrl Shift P" });
+    expect(wrapper.attributes("aria-disabled")).toBeUndefined();
+    expect(wrapper.attributes("data-tooltip")).toBe("Push main to origin/main");
+    expect(wrapper.attributes("data-tooltip-keys")).toBe("Ctrl Shift P");
+    await wrapper.trigger("click");
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a submit from its form while unavailable", () => {
+    const onSubmit = vi.fn((event: Event) => event.preventDefault());
+    const form = document.createElement("form");
+    form.addEventListener("submit", onSubmit);
+    document.body.appendChild(form);
+    const wrapper = mountWithI18n(Button, {
+      props: { type: "submit", unavailable: "Not now." },
+      slots: { default: "Commit" },
+      attachTo: form,
+    });
+    (wrapper.element as HTMLButtonElement).click();
+    expect(onSubmit).not.toHaveBeenCalled();
+    wrapper.unmount();
+    form.remove();
+  });
 });
