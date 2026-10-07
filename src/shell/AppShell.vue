@@ -515,7 +515,7 @@ function removeFromProject(): void {
       :path="projectDialogs.removing"
     />
     <StashSheet v-if="stash.sheetOpen" />
-    <ToastHost />
+    <ToastHost @released="focusLayout" />
     <TextMenu v-if="textMenu" v-bind="textMenu" @close="textMenu = null" />
   </div>
 </template>

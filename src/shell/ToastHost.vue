@@ -1,15 +1,42 @@
 <script setup lang="ts">
 import { X } from "@lucide/vue";
-import { ref } from "vue";
+import { ref, useTemplateRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import IconButton from "@/components/IconButton.vue";
 import Toast from "@/components/Toast.vue";
 import { useToastsStore, type ToastEntry } from "@/stores/toasts";
 
+const emit = defineEmits<{
+  /** A toast holding the focus went (its action, its X, a newer one in its slot). */
+  released: [];
+}>();
+
 const { t } = useI18n();
 const toasts = useToastsStore();
 const expanded = ref(new Set<number>());
+const host = useTemplateRef<HTMLElement>("host");
+
+// The focus on a toast's button falls to the page's body when the toast goes: the shell then
+// gives it back to the layout shown.
+let held = false;
+watch(
+  () => toasts.toasts,
+  () => {
+    held = host.value?.contains(document.activeElement) ?? false;
+  },
+  { flush: "pre" },
+);
+watch(
+  () => toasts.toasts,
+  () => {
+    if (!held) return;
+    held = false;
+    const active = document.activeElement;
+    if (active === null || active === document.body) emit("released");
+  },
+  { flush: "post" },
+);
 
 function toggle(id: number): void {
   const next = new Set(expanded.value);
@@ -18,14 +45,10 @@ function toggle(id: number): void {
   expanded.value = next;
 }
 
-/** The action: the toast's own, which dismisses it, or the output toggle. */
+/** The action: the toast's own, which takes it away, or the output toggle. */
 function onAction(toast: ToastEntry): void {
-  if (toast.onAction) {
-    toasts.dismiss(toast.id);
-    toast.onAction();
-  } else {
-    toggle(toast.id);
-  }
+  if (toast.onAction) toasts.act(toast.id);
+  else toggle(toast.id);
 }
 
 function messageOf(toast: ToastEntry): string {
@@ -46,6 +69,7 @@ function actionOf(toast: ToastEntry): string {
 
 <template>
   <div
+    ref="host"
     class="toast-host pointer-events-none absolute right-4 left-4 z-50 flex flex-col items-end gap-2"
     data-testid="toast-host"
   >

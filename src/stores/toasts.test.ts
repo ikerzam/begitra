@@ -23,6 +23,48 @@ describe("toasts store", () => {
     expect(toasts.toasts).toEqual([]);
   });
 
+  it("holds one toast per slot, telling the one a newer toast replaces", () => {
+    const toasts = useToastsStore();
+    const gone = vi.fn();
+    toasts.push({
+      kind: "success",
+      message: "one",
+      slot: "discard",
+      sticky: true,
+      onDismiss: gone,
+    });
+    const other = toasts.push({ kind: "success", message: "other" });
+    const second = toasts.push({ kind: "success", message: "two", slot: "discard", sticky: true });
+    expect(toasts.toasts.map((toast) => toast.id)).toEqual([other, second]);
+    expect(gone).toHaveBeenCalledTimes(1);
+  });
+
+  it("tells a toast it went, unless its action ran", () => {
+    const toasts = useToastsStore();
+    const gone = vi.fn();
+    const acted = vi.fn();
+    const id = toasts.push({
+      kind: "success",
+      message: "x",
+      sticky: true,
+      onDismiss: gone,
+      onAction: acted,
+    });
+    toasts.act(id);
+    expect(acted).toHaveBeenCalledTimes(1);
+    expect(gone).not.toHaveBeenCalled();
+    expect(toasts.toasts).toEqual([]);
+
+    toasts.push({ kind: "success", message: "timed", onDismiss: gone });
+    vi.advanceTimersByTime(AUTO_DISMISS_MS);
+    expect(gone).toHaveBeenCalledTimes(1);
+    const closed = toasts.push({ kind: "success", message: "closed", onDismiss: gone });
+    toasts.dismiss(closed);
+    expect(gone).toHaveBeenCalledTimes(2);
+    toasts.dismiss(closed);
+    expect(gone).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps a sticky toast, the only way back to what it names, until dismissed", () => {
     const toasts = useToastsStore();
     const kept = toasts.push({ kind: "success", message: "deleted", sticky: true });

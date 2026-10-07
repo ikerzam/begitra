@@ -37,4 +37,34 @@ describe("ToastHost", () => {
       "Deleted 1 branch and 2 worktrees",
     ]);
   });
+
+  it("hands the focus back when the toast holding it goes, and only then", async () => {
+    const wrapper = mountWithI18n(ToastHost, { attachTo: document.body });
+    const toasts = useToastsStore();
+    let undone = 0;
+    toasts.push({
+      kind: "success",
+      message: "Discarded 2 files",
+      action: "Undo",
+      onAction: () => {
+        undone += 1;
+      },
+      sticky: true,
+    });
+    const other = toasts.push({ kind: "success", message: "Copied", sticky: true });
+    await nextTick();
+    // A toast going while the focus is elsewhere leaves the focus alone.
+    toasts.dismiss(other);
+    await nextTick();
+    expect(wrapper.emitted("released")).toBeUndefined();
+
+    const undo = wrapper.findAll("button").find((button) => button.text() === "Undo");
+    (undo?.element as HTMLElement).focus();
+    await undo?.trigger("click");
+    await nextTick();
+    expect(undone).toBe(1);
+    expect(toasts.toasts).toEqual([]);
+    expect(wrapper.emitted("released")).toHaveLength(1);
+    wrapper.unmount();
+  });
 });
