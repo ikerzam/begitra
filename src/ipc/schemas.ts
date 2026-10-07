@@ -39,6 +39,8 @@ export const errorCodes = [
   "conflict.not_conflicted",
   "conflict.gone",
   "conflict.submodule",
+  "ignore.invalid_path",
+  "ignore.write_failed",
   "ipc.invalid_argument",
   "op.cancelled",
   "op.timeout",
@@ -591,6 +593,34 @@ export type OperationSides = v.InferOutput<typeof OperationSidesSchema>;
 export const SideSchema = v.picklist(["ours", "theirs"]);
 export type Side = v.InferOutput<typeof SideSchema>;
 
+/** What an ignore rule matches of an untracked path: itself, its extension, its folder. */
+export const IgnoreRuleSchema = v.picklist(["file", "extension", "folder"]);
+export type IgnoreRule = v.InferOutput<typeof IgnoreRuleSchema>;
+
+/** Where an ignore rule goes: `.gitignore` at the root, or `.git/info/exclude`. */
+export const IgnorePlaceSchema = v.picklist(["gitignore", "exclude"]);
+export type IgnorePlace = v.InferOutput<typeof IgnorePlaceSchema>;
+
+/** A rule as `git check-ignore -v` names it. */
+export const KeptBySchema = v.object({
+  source: v.string(),
+  line: count,
+  pattern: v.string(),
+});
+export type KeptBy = v.InferOutput<typeof KeptBySchema>;
+
+/** What writing an ignore rule did, and whether git then ignores the path. */
+export const IgnoreOutcomeSchema = v.object({
+  line: v.string(),
+  file: v.string(),
+  /** False when the file already held the line. */
+  written: v.boolean(),
+  ignored: v.boolean(),
+  /** The rule that keeps the path when git does not ignore it. */
+  keptBy: v.nullable(KeptBySchema),
+});
+export type IgnoreOutcome = v.InferOutput<typeof IgnoreOutcomeSchema>;
+
 /**
  * Why a local branch can go: its tip is in the main branch (or its upstream); it is in the main
  * branch with no commits of its own (an agent's new branch); its upstream is gone and merging it
@@ -1021,6 +1051,13 @@ export const commandArgs = {
     repo: path,
     tracked: v.array(repoPath),
     untracked: v.array(repoPath),
+    opId,
+  }),
+  ignore_path: v.object({
+    repo: path,
+    path: repoPath,
+    rule: IgnoreRuleSchema,
+    place: IgnorePlaceSchema,
     opId,
   }),
   apply_selection: v.object({

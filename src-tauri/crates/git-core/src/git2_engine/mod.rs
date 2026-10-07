@@ -13,6 +13,7 @@ mod count;
 mod diff;
 mod diff_pages;
 mod filter;
+mod ignore;
 pub mod index_snapshot;
 pub mod patch;
 mod refs;
@@ -46,6 +47,7 @@ use crate::types::{
     SwitchTarget, WalkOptions, WalkScope, Worktree, WorktreeAdd,
 };
 use crate::types::{BranchToDelete, CleanupCandidates, DeleteOutcome};
+use crate::types::{IgnoreOutcome, IgnorePlace, IgnoreRule};
 
 /// A repository opened with libgit2.
 ///
@@ -481,6 +483,16 @@ impl GitEngine for Git2Engine {
         cancel: &Cancel,
     ) -> GitResult<()> {
         staging::discard_paths(self, tracked, untracked, cancel)
+    }
+
+    fn ignore_path(
+        &self,
+        path: &str,
+        rule: IgnoreRule,
+        place: IgnorePlace,
+        cancel: &Cancel,
+    ) -> GitResult<IgnoreOutcome> {
+        ignore::ignore_path(self, path, rule, place, cancel)
     }
 
     fn apply_selection(

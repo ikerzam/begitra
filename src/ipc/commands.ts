@@ -48,6 +48,7 @@ import {
   SymbolSchema,
   WalkPageSchema,
   WorktreeSchema,
+  IgnoreOutcomeSchema,
   type AnnotationWrite,
   type BlobAt,
   type CommitRequest,
@@ -56,6 +57,8 @@ import {
   type DiffOptions,
   type DiffPage,
   type DiffTarget,
+  type IgnorePlace,
+  type IgnoreRule,
   type LineRange,
   type RepoChanged,
   type ScanMessage,
@@ -156,6 +159,20 @@ export function discardPaths(
   opId = newOpId("discard"),
 ) {
   return call("discard_paths", { repo, tracked, untracked, opId }, v.null());
+}
+
+/**
+ * Writes an ignore rule for an untracked path, one line in `.gitignore` or `.git/info/exclude`
+ * (ADR-0020), and says whether git then ignores it.
+ */
+export function ignorePath(
+  repo: string,
+  path: string,
+  rule: IgnoreRule,
+  place: IgnorePlace,
+  opId = newOpId("ignore"),
+) {
+  return call("ignore_path", { repo, path, rule, place, opId }, IgnoreOutcomeSchema);
 }
 
 /** Applies a selection of hunks and lines to the index or the working tree. */

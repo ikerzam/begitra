@@ -13,7 +13,10 @@ use std::time::Duration;
 
 use git_core::engine::GitEngine;
 use git_core::git2_engine::patch;
-use git_core::types::{CommitContext, CommitRequest, LineKind, PatchSelection, SelectionTarget};
+use git_core::types::{
+    CommitContext, CommitRequest, IgnoreOutcome, IgnorePlace, IgnoreRule, LineKind, PatchSelection,
+    SelectionTarget,
+};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -193,6 +196,27 @@ pub async fn discard_paths(
     run_unregistered(&op_id, WRITE_TIMEOUT, move |cancel| {
         app.open(&repo)?
             .discard_paths(&tracked, &untracked, &cancel)
+    })
+    .await
+}
+
+/// Writes an ignore rule for an untracked path, one line appended to `.gitignore` or to
+/// `info/exclude` (ADR-0020); the dialog named the line and the file before the user
+/// confirmed. Two short reads of git and one write: the default timeout bounds them.
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip(state), fields(rule = ?rule, place = ?place))]
+pub async fn ignore_path(
+    state: State<'_, AppState>,
+    repo: PathBuf,
+    path: String,
+    rule: IgnoreRule,
+    place: IgnorePlace,
+    op_id: String,
+) -> Result<IgnoreOutcome, AppError> {
+    validate_path("path", &path)?;
+    let app = state.inner().clone();
+    run_unregistered(&op_id, DEFAULT_TIMEOUT, move |cancel| {
+        app.open(&repo)?.ignore_path(&path, rule, place, &cancel)
     })
     .await
 }

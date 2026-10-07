@@ -74,6 +74,14 @@
     "message": "Sample message for conflict.submodule"
   },
   {
+    "code": "ignore.invalid_path",
+    "message": "Sample message for ignore.invalid_path"
+  },
+  {
+    "code": "ignore.write_failed",
+    "message": "Sample message for ignore.write_failed"
+  },
+  {
     "code": "ipc.invalid_argument",
     "message": "Sample message for ipc.invalid_argument"
   },

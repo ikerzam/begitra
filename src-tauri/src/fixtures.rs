@@ -11,12 +11,13 @@ use git_core::types::{
     BaseCommit, BlobAt, BlobContent, BranchToDelete, ChangeKind, ChangeSet, CleanupCandidate,
     CleanupCandidates, CleanupReason, CommitContext, CommitCount, CommitNode, CommitRequest,
     Comparison, ComparisonRelation, Conflict, ConflictKind, DeleteOutcome, DiffLine, DiffOptions,
-    DiffTarget, Edge, Endpoint, FileChange, GitDetection, Hunk, KeptReason, LineKind, MergeMode,
-    MergePreview, MergePreviewKind, OperationSides, OperationState, OtherOperation, Outcome,
-    OutcomeKind, PatchSelection, PullRequest, PushRequest, Ref, RefKind, Remote, Repo, ResetMode,
-    SelectedHunk, SelectedLine, SequencerAction, Side, SideName, Signature, Span, StashPush,
-    StatusEntry, StatusOptions, SwitchTarget, WalkFilter, WalkOptions, WalkOrder, WalkScope,
-    WorkingTreeBase, Worktree, WorktreeAdd, WorktreeBranch,
+    DiffTarget, Edge, Endpoint, FileChange, GitDetection, Hunk, IgnoreOutcome, IgnorePlace,
+    IgnoreRule, KeptBy, KeptReason, LineKind, MergeMode, MergePreview, MergePreviewKind,
+    OperationSides, OperationState, OtherOperation, Outcome, OutcomeKind, PatchSelection,
+    PullRequest, PushRequest, Ref, RefKind, Remote, Repo, ResetMode, SelectedHunk, SelectedLine,
+    SequencerAction, Side, SideName, Signature, Span, StashPush, StatusEntry, StatusOptions,
+    SwitchTarget, WalkFilter, WalkOptions, WalkOrder, WalkScope, WorkingTreeBase, Worktree,
+    WorktreeAdd, WorktreeBranch,
 };
 use serde::Serialize;
 use syntax::{Highlight, Symbol, SymbolKind, Token, TokenClass};
@@ -709,6 +710,37 @@ fn write_phase7() {
         ],
     );
     write("sides", &[Side::Ours, Side::Theirs]);
+    write(
+        "ignore-rules",
+        &[IgnoreRule::File, IgnoreRule::Extension, IgnoreRule::Folder],
+    );
+    write(
+        "ignore-places",
+        &[IgnorePlace::Gitignore, IgnorePlace::Exclude],
+    );
+    write(
+        "ignore-outcomes",
+        &[
+            IgnoreOutcome {
+                line: "*.log".to_owned(),
+                file: PathBuf::from("/home/iker/code/begitra/.gitignore"),
+                written: true,
+                ignored: true,
+                kept_by: None,
+            },
+            IgnoreOutcome {
+                line: "*.log".to_owned(),
+                file: PathBuf::from("/home/iker/code/begitra/.gitignore"),
+                written: false,
+                ignored: false,
+                kept_by: Some(KeptBy {
+                    source: "sub/.gitignore".to_owned(),
+                    line: 1,
+                    pattern: "!keep.log".to_owned(),
+                }),
+            },
+        ],
+    );
     write(
         "cleanup-candidates",
         &[

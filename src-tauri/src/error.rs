@@ -49,6 +49,12 @@ pub mod codes {
     pub const CONFLICT_GONE: &str = "conflict.gone";
     /// A side was asked for a submodule's conflict; git did not run.
     pub const CONFLICT_SUBMODULE: &str = "conflict.submodule";
+    /// An ignore rule was asked for a path it cannot be written for (absolute, outside the
+    /// working tree, missing, tracked) or that has nothing for the rule; nothing was written.
+    pub const IGNORE_INVALID_PATH: &str = "ignore.invalid_path";
+    /// The ignore file could not be read or written, or would be written through a link;
+    /// `detail` carries the reason.
+    pub const IGNORE_WRITE_FAILED: &str = "ignore.write_failed";
     /// A command argument did not match its type; `detail` names the field.
     pub const IPC_INVALID_ARGUMENT: &str = "ipc.invalid_argument";
     /// The operation was cancelled.
@@ -78,7 +84,7 @@ pub mod codes {
 
     /// Every code, in the order of the frontend's `errorCodes` (`src/ipc/schemas.ts`); the
     /// contract test compares the two lists through the `app-errors` fixture.
-    pub const ALL: [&str; 30] = [
+    pub const ALL: [&str; 32] = [
         REPO_NOT_FOUND,
         REPO_INVALID,
         REPO_CORRUPT_OBJECT,
@@ -97,6 +103,8 @@ pub mod codes {
         CONFLICT_NOT_CONFLICTED,
         CONFLICT_GONE,
         CONFLICT_SUBMODULE,
+        IGNORE_INVALID_PATH,
+        IGNORE_WRITE_FAILED,
         IPC_INVALID_ARGUMENT,
         OP_CANCELLED,
         OP_TIMEOUT,

@@ -1053,6 +1053,57 @@ pub enum Side {
     Theirs,
 }
 
+/// What an ignore rule matches of an untracked path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum IgnoreRule {
+    /// The path alone, anchored at the working tree's root: `/logs/debug.log`.
+    File,
+    /// Every file with the path's extension, in every folder: `*.log`.
+    Extension,
+    /// The path's folder and everything under it: `/logs/`.
+    Folder,
+}
+
+/// The file an ignore rule is appended to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum IgnorePlace {
+    /// `.gitignore` at the working tree's root: shared with everyone who clones it.
+    Gitignore,
+    /// `info/exclude` in the common git directory: this clone and its worktrees only.
+    Exclude,
+}
+
+/// What writing an ignore rule did, and what git then says of the path.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IgnoreOutcome {
+    /// The rule's line, as written (or as found).
+    pub line: String,
+    /// The file the line is in.
+    pub file: PathBuf,
+    /// Whether the line was appended; false when the file already held it.
+    pub written: bool,
+    /// Whether git ignores the path now (`git check-ignore -q`).
+    pub ignored: bool,
+    /// The rule that keeps the path when git does not ignore it: a `!` pattern that
+    /// re-includes it, in a file read after the line's.
+    pub kept_by: Option<KeptBy>,
+}
+
+/// An ignore rule as `git check-ignore -v` names it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeptBy {
+    /// The file holding it, as git prints it (repository-relative for a `.gitignore`).
+    pub source: String,
+    /// Its line number in that file, from 1.
+    pub line: u32,
+    /// The pattern, as written.
+    pub pattern: String,
+}
+
 /// Why a local branch can go.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]

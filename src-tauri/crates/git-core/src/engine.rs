@@ -14,6 +14,7 @@ use crate::types::{
     StatusEntry, StatusOptions, SwitchTarget, WalkOptions, WalkScope, Worktree, WorktreeAdd,
 };
 use crate::types::{BranchToDelete, CleanupCandidates, DeleteOutcome};
+use crate::types::{IgnoreOutcome, IgnorePlace, IgnoreRule};
 
 /// Cooperative cancellation flag checked by long operations between units of work.
 ///
@@ -227,6 +228,28 @@ pub trait GitEngine: Send + Sync {
         untracked: &[String],
         cancel: &Cancel,
     ) -> GitResult<()>;
+
+    /// Writes an ignore rule for the untracked `path` (relative to the root, as the status
+    /// lists it): the path itself, its extension or its folder, as one line appended to
+    /// `place` (ADR-0020), then asks git whether the path is ignored and, when it is not,
+    /// which rule keeps it. A line the file already holds is not written again.
+    ///
+    /// # Errors
+    ///
+    /// [`GitError::IgnoreInvalidPath`] before anything is written for a path that is
+    /// absolute, outside the working tree, missing from it or tracked, or a rule the path has
+    /// nothing for; [`GitError::IgnoreWriteFailed`] when the file cannot be read or written,
+    /// or would be written through a link.
+    ///
+    /// [`GitError::IgnoreInvalidPath`]: crate::error::GitError::IgnoreInvalidPath
+    /// [`GitError::IgnoreWriteFailed`]: crate::error::GitError::IgnoreWriteFailed
+    fn ignore_path(
+        &self,
+        path: &str,
+        rule: IgnoreRule,
+        place: IgnorePlace,
+        cancel: &Cancel,
+    ) -> GitResult<IgnoreOutcome>;
 
     /// Applies a selection of hunks and lines with `git apply`: to the index, reversed to
     /// the index, or reversed to the working tree. git checks the context, so a file that

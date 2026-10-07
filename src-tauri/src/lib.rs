@@ -164,6 +164,7 @@ pub fn run() {
             commands::staging::stage_paths,
             commands::staging::unstage_paths,
             commands::staging::discard_paths,
+            commands::staging::ignore_path,
             commands::staging::apply_selection,
             commands::staging::commit,
             commands::staging::commit_context,

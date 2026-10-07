@@ -1,0 +1,20 @@
+[
+  {
+    "line": "*.log",
+    "file": "/home/iker/code/begitra/.gitignore",
+    "written": true,
+    "ignored": true,
+    "keptBy": null
+  },
+  {
+    "line": "*.log",
+    "file": "/home/iker/code/begitra/.gitignore",
+    "written": false,
+    "ignored": false,
+    "keptBy": {
+      "source": "sub/.gitignore",
+      "line": 1,
+      "pattern": "!keep.log"
+    }
+  }
+]
