@@ -34,7 +34,7 @@ const name = useId();
     <label
       v-for="option in props.options"
       :key="option.value"
-      class="inline-flex items-center gap-2 text-md select-none"
+      class="flex items-start gap-2 text-md select-none"
       :class="props.disabled ? 'text-fg-disabled' : 'text-fg'"
       :data-testid="`radio-${option.value}`"
     >
@@ -62,18 +62,27 @@ const name = useId();
       >
         <Check v-if="model === option.value" :size="12" :stroke-width="2" />
       </span>
-      <span>{{ option.label }}</span>
-      <span v-if="option.hint" :id="`${name}-${option.value}-hint`" class="ml-2 text-fg-muted">
-        {{ option.hint }}
+      <!-- The label and its hint wrap as one text, anywhere in a long path, under the box. -->
+      <span class="min-w-0 wrap-anywhere">
+        <span>{{ option.label }}</span>
+        <span
+          v-if="option.hint"
+          :id="`${name}-${option.value}-hint`"
+          class="ml-2 text-sm text-fg-muted"
+        >
+          {{ option.hint }}
+        </span>
       </span>
     </label>
   </div>
 </template>
 
 <style scoped>
-/* The box is 14px, as `Checkbox`'s; no spacing step is 14. */
+/* The box is 14px, as `Checkbox`'s; no spacing step is 14. It sits on the first line of a label
+   that wraps: centred on that line's height. */
 .radio-box {
   width: 14px;
   height: 14px;
+  margin-top: calc((1lh - 14px) / 2);
 }
 </style>
