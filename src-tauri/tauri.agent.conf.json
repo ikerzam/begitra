@@ -1,0 +1,13 @@
+{
+  "build": {
+    "beforeBuildCommand": "pnpm build && node scripts/build-agent-server.mjs"
+  },
+  "bundle": {
+    "externalBin": ["binaries/begitra-mcp"],
+    "windows": {
+      "nsis": {
+        "installerHooks": "windows/agent-hooks.nsh"
+      }
+    }
+  }
+}

@@ -9,6 +9,8 @@ coverage/
 # Rust
 target/
 src-tauri/gen/schemas/
+# The agent server placed for the installers (scripts/build-agent-server.mjs)
+src-tauri/binaries/
 
 # Benchmark repositories (downloaded or generated, never committed)
 bench/repos/

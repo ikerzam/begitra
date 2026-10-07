@@ -88,7 +88,7 @@ jobs:
 
       # Without the updater's artifacts: the `sign` job signs the installers.
       - name: Build the installers
-        run: pnpm tauri build --bundles nsis msi --config src-tauri/tauri.unsigned.conf.json
+        run: pnpm tauri build --bundles nsis msi --config src-tauri/tauri.unsigned.conf.json --config src-tauri/tauri.agent.conf.json
 
       # The bundle's `nsis/` and `msi/` folders, as the release script looks for them.
       - name: Keep the installers

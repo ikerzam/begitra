@@ -65,7 +65,7 @@ jobs:
 
       # Without the updater's artifacts: only the release workflow's sign job holds the key.
       - name: Build the bundles
-        run: pnpm tauri build ${{ matrix.args }} --config src-tauri/tauri.unsigned.conf.json
+        run: pnpm tauri build ${{ matrix.args }} --config src-tauri/tauri.unsigned.conf.json --config src-tauri/tauri.agent.conf.json
 
       # The bundle folder of both layouts: `target/release/bundle` without a target triple,
       # `target/<triple>/release/bundle` with one (the two macOS builds).
