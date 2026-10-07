@@ -69,7 +69,9 @@ onBeforeUnmount(stop);
 </template>
 
 <style scoped>
-/* No width of its own, so the pane keeps its exact size; a 6px hit area straddles the edge. */
+/* No width of its own, so the pane keeps its exact size; a 6px hit area straddles the edge. A
+   pane on the right takes it on its own side: the pane on the edge's left has its scrollbar
+   (the diff's overview ruler too) down that edge, which the hit area would cover. */
 .pane-resizer {
   width: 0;
 }
@@ -78,6 +80,10 @@ onBeforeUnmount(stop);
   content: "";
   position: absolute;
   inset: 0 -3px;
+}
+
+.pane-resizer[data-direction="-1"]::before {
+  inset: 0 -6px 0 0;
 }
 
 /* On hover the pane's hairline turns strong: the line is drawn over it, on the pane's side. */
