@@ -55,7 +55,7 @@ const describedBy = computed(() => {
         :size="16"
         :stroke-width="1.5"
         aria-hidden="true"
-        class="pointer-events-none absolute left-2 text-fg-secondary"
+        class="pointer-events-none absolute left-2 text-fg-muted"
       />
       <input
         :id="id"
