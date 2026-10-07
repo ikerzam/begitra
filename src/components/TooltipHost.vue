@@ -38,7 +38,7 @@ let hiddenAt = Number.NEGATIVE_INFINITY;
 let keyboard = false;
 
 /** The rows of the lists the keys walk: their focus shows no bubble. */
-const LIST_ROWS = '[role="treeitem"], [role="option"], [role="row"]';
+const LIST_ROWS = '[role="treeitem"], [role="option"], [role="row"], [role="tab"]';
 
 /**
  * The element with a hint that `target` is in, unless the popup it opens is open (a menu, a

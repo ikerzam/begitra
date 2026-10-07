@@ -55,6 +55,7 @@ import ReviewFocusLayout from "./ReviewFocusLayout.vue";
 import SidebarPanel from "./SidebarPanel.vue";
 import SidebarRail from "./SidebarRail.vue";
 import StatusBar from "./StatusBar.vue";
+import { TAB_PANEL_ID, tabElementId } from "./tabIds";
 import TabRow from "./TabRow.vue";
 import TextMenu from "./TextMenu.vue";
 import ToastHost from "./ToastHost.vue";
@@ -98,7 +99,14 @@ const changesLayout = ref<{ focusLists(): void } | null>(null);
 const projectLayout = ref<{ focus(): void } | null>(null);
 
 const reviewMode = computed(() => shell.layoutMode === "review" && repo.state.kind === "ready");
-const compareMode = computed(() => shell.layoutMode === "compare" && repo.state.kind === "ready");
+/** A comparison's tab: its layout from the moment its repository starts to open. */
+const compareMode = computed(
+  () =>
+    shell.layoutMode === "compare" &&
+    (repo.state.kind === "ready" || repo.state.kind === "opening"),
+);
+/** The row of tabs: a comparison open in an open project (at launch, once the project is). */
+const tabRowShown = computed(() => tabs.comparisons.length > 0 && projects.active !== null);
 const worktreesMode = computed(
   () => shell.layoutMode === "worktrees" && repo.state.kind === "ready",
 );
@@ -424,7 +432,7 @@ function removeFromProject(): void {
       @open-palette="shell.openPalette()"
       @set-layout-mode="(mode) => void shell.setLayoutMode(mode)"
     />
-    <TabRow v-if="tabs.comparisons.length > 0" />
+    <TabRow v-if="tabRowShown" @shown="focusLayout" />
     <OperationBanner />
     <div class="relative flex min-h-0 flex-1">
       <SidebarRail v-if="sidebarAvailable" />
@@ -435,7 +443,12 @@ function removeFromProject(): void {
         :id="shell.sidebarPanel"
         :key="shell.sidebarPanel"
       />
-      <div class="isolate flex min-h-0 min-w-0 flex-1">
+      <div
+        :id="TAB_PANEL_ID"
+        class="isolate flex min-h-0 min-w-0 flex-1"
+        :role="tabRowShown ? 'tabpanel' : undefined"
+        :aria-labelledby="tabRowShown ? tabElementId(tabs.activeId) : undefined"
+      >
         <ReviewFocusLayout v-if="reviewMode" ref="reviewLayout" />
         <CompareLayout v-else-if="compareMode" ref="compareLayout" />
         <WorktreesLayout v-else-if="worktreesMode" ref="worktreesLayout" />

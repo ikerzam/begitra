@@ -65,6 +65,8 @@ export const useCompareStore = defineStore("compare", () => {
   /** The paths the preview reports as conflicting. */
   const conflicts = computed(() => new Set(preview.value?.conflicts ?? []));
   const active = computed(() => endpoints.value !== null);
+  /** A comparison's tab whose repository is still opening: the comparison waits for it. */
+  const waiting = computed(() => active.value && repo.state.kind === "opening");
 
   function stopAll(): void {
     serial += 1;
@@ -303,6 +305,7 @@ export const useCompareStore = defineStore("compare", () => {
     same,
     conflicts,
     active,
+    waiting,
     open,
     setEndpoint,
     swap,

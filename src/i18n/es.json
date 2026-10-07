@@ -659,7 +659,9 @@
     "createFrom": "Crear una rama desde"
   },
   "tabs": {
-    "label": "Pestañas",
+    "label": "Vistas abiertas",
+    "close": "Cerrar pestaña",
+    "closeWith": "{keys} la cierra",
     "graph": "Grafo",
     "review": "Revisión",
     "changes": "Cambios",

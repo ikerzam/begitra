@@ -209,6 +209,12 @@ const focus = useSidebarPanelFocus(
 </template>
 
 <style scoped>
+/* Its shadow falls on the layout beside and below it, not up over the tab row or the top bar,
+   nor back over the rail. */
+.sidebar-panel {
+  clip-path: inset(0 -32px -32px 0);
+}
+
 /* The rows' ring goes inside: the panel clips their sides. */
 .sidebar-panel-list :deep([role="option"]:focus-visible) {
   outline-offset: -2px;

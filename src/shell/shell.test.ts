@@ -879,7 +879,8 @@ describe("AppShell", () => {
     await settle();
     expect(wrapper.find('[data-testid="graph-focus"]').exists()).toBe(true);
     expect(useTabsStore().comparisons).toHaveLength(1);
-    expect(wrapper.find('[data-testid="tab-row"]').exists()).toBe(true);
+    // A repository open outside a project keeps its comparison in the session, with no row.
+    expect(wrapper.find('[data-testid="tab-row"]').exists()).toBe(false);
     wrapper.unmount();
   });
 
@@ -1984,6 +1985,83 @@ describe("Tabs", () => {
     await settle();
     expect(names(wrapper)).toEqual(["Graph", "main ↔ c2", "main ↔ origin/main"]);
     expect(shown(wrapper)).toBe(2);
+    wrapper.unmount();
+  });
+
+  it("moves the focus with the tab shown while the row holds it, whatever shows the tab", async () => {
+    const { wrapper } = await openShell();
+    await compare(main, upstream);
+    await compare(main, older);
+    (tabs(wrapper)[2]!.element as HTMLElement).focus();
+    press("Tab");
+    await settle();
+    expect(shown(wrapper)).toBe(0);
+    expect(document.activeElement).toBe(tabs(wrapper)[0]?.element);
+    press("2");
+    await settle();
+    expect(document.activeElement).toBe(tabs(wrapper)[0]?.element);
+    expect(tabs(wrapper)[0]?.attributes("aria-selected")).toBe("true");
+    wrapper.unmount();
+  });
+
+  it("labels the layout below as the panel of the tab shown", async () => {
+    const { wrapper } = await openShell();
+    await compare(main, upstream);
+    const panel = wrapper.get("#tab-panel");
+    const active = tabs(wrapper)[1]!;
+    expect(panel.attributes("role")).toBe("tabpanel");
+    expect(panel.attributes("aria-labelledby")).toBe(active.attributes("id"));
+    expect(active.attributes("aria-controls")).toBe("tab-panel");
+    expect(tabs(wrapper)[0]?.attributes("aria-controls")).toBeUndefined();
+    expect(active.attributes("aria-description")).toBe("Ctrl W closes it");
+    wrapper.unmount();
+  });
+
+  it("sets a commit's short hash in mono in its tab's name", async () => {
+    const { wrapper } = await openShell();
+    await compare({ kind: "revision", rev: commit(2).hash, label: "c2c2c2c" }, main);
+    const parts = tabs(wrapper)[1]!.findAll('[data-testid="tab-name"] > span');
+    expect(parts.map((part) => [part.text(), part.classes().includes("font-mono")])).toEqual([
+      ["c2c2c2c", true],
+      ["↔", false],
+      ["main", false],
+    ]);
+    wrapper.unmount();
+  });
+
+  it("gives the layout the focus when the shown tab is pressed with a sidebar panel open", async () => {
+    const { wrapper } = await openShell();
+    await compare(main, upstream);
+    await wrapper.get('[data-testid="rail-local"]').trigger("click");
+    await settle();
+    expect(wrapper.find('[data-testid="sidebar-panel"]').exists()).toBe(true);
+    const active = tabs(wrapper)[1]!;
+    active.element.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    await active.trigger("mousedown");
+    await active.trigger("click");
+    await settle();
+    expect(wrapper.find('[data-testid="sidebar-panel"]').exists()).toBe(false);
+    expect(document.activeElement?.closest('[data-testid="compare-layout"]')).not.toBeNull();
+    wrapper.unmount();
+  });
+
+  it("shows a comparison's tab as the comparison loading while its repository opens", async () => {
+    let openRepository = () => {};
+    backend({ openGate: new Promise<void>((resolve) => (openRepository = resolve)) });
+    const settings = useSettingsStore();
+    await settings.update("activeProject", 1);
+    await settings.update("tabs", {
+      "1": { comparisons: [{ a: main, b: upstream }], active: 1 },
+    });
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    await settle();
+    expect(useRepoStore().state.kind).toBe("opening");
+    expect(wrapper.find('[data-testid="compare-layout"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="graph-focus"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="merge-preview-loading"]').exists()).toBe(true);
+    openRepository();
+    await settle();
+    expect(wrapper.find('[data-testid="merge-preview-up-to-date"]').exists()).toBe(true);
     wrapper.unmount();
   });
 

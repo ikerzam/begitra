@@ -5,7 +5,7 @@
 // the lists show their loading states; both endpoints at the same commit show the empty state; a
 // comparison that failed shows the banner in place of the merge-base line.
 
-import { computed, ref } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Button from "@/components/Button.vue";
@@ -39,6 +39,8 @@ const picker = usePickerStore();
 const external = useExternal();
 const now = useNow();
 const sideA = ref<{ focus(): void } | null>(null);
+const sideB = ref<{ focus(): void } | null>(null);
+const layout = ref<HTMLElement | null>(null);
 
 const endpoints = computed(() => compare.endpoints);
 const lanes = computed<Record<CompareSide, number>>(() => {
@@ -106,11 +108,56 @@ function selectBase(): void {
   if (hash) compare.selectCommit(hash);
 }
 
-defineExpose({ focusSides: () => sideA.value?.focus() });
+/* The comparison is asked for the focus as it shows, before its lists arrive: the first list
+   with rows takes it once they do, else what the screen offers (Pick another ref, the error
+   banner), unless something else took the focus meanwhile. */
+let focusWanted = false;
+
+function placeFocus(): void {
+  if (!focusWanted) return;
+  const active = document.activeElement;
+  if (active && active !== document.body && !layout.value?.contains(active)) {
+    focusWanted = false;
+    return;
+  }
+  const { a, b } = compare.sides;
+  let target: (() => void) | null = null;
+  if (a.commits.length > 0) target = () => sideA.value?.focus();
+  else if ((a.done || a.error) && b.commits.length > 0) target = () => sideB.value?.focus();
+  else if (compare.same || compare.comparisonError) {
+    const button = layout.value?.querySelector<HTMLElement>(
+      '[data-testid="compare-same"] button, [data-testid="compare-error"] button',
+    );
+    if (button) target = () => button.focus();
+  }
+  if (!target) return;
+  target();
+  // Rows the store holds but the list has not drawn yet take it on the next change.
+  if (layout.value?.contains(document.activeElement)) focusWanted = false;
+}
+
+watch(
+  () => [
+    compare.sides.a.commits.length,
+    compare.sides.a.done,
+    compare.sides.a.error,
+    compare.sides.b.commits.length,
+    compare.same,
+    compare.comparisonError,
+  ],
+  () => void nextTick(placeFocus),
+);
+
+defineExpose({
+  focusSides: () => {
+    focusWanted = true;
+    void nextTick(placeFocus);
+  },
+});
 </script>
 
 <template>
-  <div class="flex min-h-0 min-w-0 flex-1" data-testid="compare-layout">
+  <div ref="layout" class="flex min-h-0 min-w-0 flex-1" data-testid="compare-layout">
     <div v-if="endpoints" class="flex min-h-0 min-w-0 flex-1 flex-col">
       <CompareHeader
         :a="endpoints.a"
@@ -159,13 +206,13 @@ defineExpose({ focusSides: () => sideA.value?.focus() });
         >
           <Button variant="secondary" @click="pick('b')">{{ t("compare.pickAnother") }}</Button>
         </EmptyState>
-        <template v-else-if="compare.comparison || compare.comparing">
+        <template v-else-if="compare.comparison || compare.comparing || compare.waiting">
           <MergePreviewBanner
             :a="names.a"
             :b="names.b"
             :preview="compare.preview"
             :error="compare.previewError"
-            :loading="compare.previewing || compare.comparing"
+            :loading="compare.previewing || compare.comparing || compare.waiting"
             @open-terminal="() => void external.openTerminal()"
           />
           <div class="compare-sides flex shrink-0 border-y border-line" data-testid="compare-sides">
@@ -175,17 +222,18 @@ defineExpose({ focusSides: () => sideA.value?.focus() });
               :count="compare.comparison?.onlyInA ?? null"
               :list="compare.sides.a"
               :lane="lanes.a"
-              :pending="compare.comparing"
+              :pending="compare.comparing || compare.waiting"
               class="border-r border-line"
               @activate="(hash) => void compare.openCommit(hash)"
               @load-more="compare.loadMore('a')"
             />
             <SideCommits
+              ref="sideB"
               :name="names.b"
               :count="compare.comparison?.onlyInB ?? null"
               :list="compare.sides.b"
               :lane="lanes.b"
-              :pending="compare.comparing"
+              :pending="compare.comparing || compare.waiting"
               @activate="(hash) => void compare.openCommit(hash)"
               @load-more="compare.loadMore('b')"
             />

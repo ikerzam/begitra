@@ -58,10 +58,20 @@ export const useTabsStore = defineStore("tabs", () => {
     activeId.value = tab.id;
   }
 
-  /** Changes the comparison of the tab shown (an endpoint picked again, or the swap). */
+  /**
+   * Changes the comparison of the tab shown (an endpoint picked again, or the swap); a pair
+   * another tab compares already shows that tab instead, the edited one closing.
+   */
   function setPair(a: CompareEndpoint, b: CompareEndpoint): void {
     const id = activeId.value;
     if (id === null) return;
+    const pair = { a, b };
+    const other = comparisons.value.find((tab) => tab.id !== id && samePair(tab, pair));
+    if (other) {
+      comparisons.value = comparisons.value.filter((tab) => tab.id !== id);
+      activeId.value = other.id;
+      return;
+    }
     comparisons.value = comparisons.value.map((tab) => (tab.id === id ? { id, a, b } : tab));
   }
 

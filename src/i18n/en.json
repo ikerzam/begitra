@@ -659,7 +659,9 @@
     "createFrom": "Create a branch from"
   },
   "tabs": {
-    "label": "Tabs",
+    "label": "Open views",
+    "close": "Close tab",
+    "closeWith": "{keys} closes it",
     "graph": "Graph",
     "review": "Review",
     "changes": "Changes",

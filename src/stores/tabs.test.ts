@@ -83,6 +83,15 @@ describe("tabs store", () => {
     expect(tabs.activePair?.b).toEqual(release);
   });
 
+  it("shows the tab of a pair another tab compares already, the edited one closing", async () => {
+    const { tabs } = await start();
+    tabs.openComparison(main, fix);
+    tabs.openComparison(main, release);
+    tabs.setPair(main, fix);
+    expect(names()).toEqual(["main ↔ claude/fix-auth"]);
+    expect(tabs.activePair).toEqual({ a: main, b: fix });
+  });
+
   it("changes the pair of the tab shown in place", async () => {
     const { tabs } = await start();
     tabs.openComparison(main, fix);
