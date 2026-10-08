@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// The settings' Agents section (`Settings / Agents`): what an agent connected to Begitra does,
-// the command that registers the agent server with Claude Code in a read-only field with Copy,
-// and the server's path; without a server beside the app, a sentence saying so.
+// The settings' Agents section: what an agent connected to Begitra does, the command that
+// registers the agent server with Claude Code in a read-only field with Copy, and the server's
+// path; without a server beside the app, a sentence saying so, and another when the app could
+// not tell where its server is.
 
 import { Copy } from "@lucide/vue";
 import { computed, onMounted } from "vue";
@@ -63,6 +64,7 @@ onMounted(() => {
       </div>
       <p
         class="truncate font-mono text-mono-sm text-fg-muted select-text"
+        :data-tooltip="server"
         data-testid="agents-path"
       >
         {{ server }}
@@ -74,6 +76,13 @@ onMounted(() => {
       data-testid="agents-missing"
     >
       {{ t("settings.agents.missing") }}
+    </p>
+    <p
+      v-else-if="screen.appInfoState === 'failed'"
+      class="text-sm text-fg-muted"
+      data-testid="agents-unknown"
+    >
+      {{ t("settings.agents.unknown") }}
     </p>
   </SettingsSection>
 </template>

@@ -109,6 +109,8 @@ export interface FakeBackendOptions {
   failAnnotations?: boolean;
   /** No agent server beside the app (a development build that did not build it). */
   noAgentServer?: boolean;
+  /** `app_info` rejects, so the app cannot tell its version or where its agent server is. */
+  failAppInfo?: boolean;
   /** The annotations the index holds at start, per target key. */
   annotations?: Record<string, Annotation[]>;
   /** Commits a range scope lists. Default 3. */
@@ -1640,6 +1642,10 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
           return dropUnreferenced(known.members.map((member) => member.path));
         }
         case "app_info":
+          if (options.failAppInfo) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({ code: "internal", message: "no app data folder" });
+          }
           return {
             version: "0.1.0",
             logFile: "/home/iker/.local/share/dev.begitra.app/logs/begitra-2026-09-22.log",

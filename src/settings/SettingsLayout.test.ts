@@ -124,7 +124,17 @@ describe("SettingsLayout", () => {
       'claude mcp add --scope user begitra -- "/opt/begitra/begitra-mcp"',
     );
     expect(command.element.readOnly).toBe(true);
-    expect(section.get('[data-testid="agents-path"]').text()).toBe("/opt/begitra/begitra-mcp");
+    expect(section.text()).toContain(
+      "Connect Claude Code to Begitra: it reads your reviews, resolves the notes it addresses and leaves notes of its own.",
+    );
+    expect(section.text()).not.toContain("Run this command");
+    // j walks on from the read-only command to Copy, as from any other control.
+    command.element.focus();
+    command.element.dispatchEvent(new KeyboardEvent("keydown", { key: "j", bubbles: true }));
+    expect(document.activeElement).toBe(section.get('[data-testid="agents-copy"]').element);
+    const path = section.get('[data-testid="agents-path"]');
+    expect(path.text()).toBe("/opt/begitra/begitra-mcp");
+    expect(path.attributes("data-tooltip")).toBe("/opt/begitra/begitra-mcp");
     await section.get('[data-testid="agents-copy"]').trigger("click");
     await settled();
     expect(writeText).toHaveBeenCalledWith(command.element.value);
@@ -138,6 +148,16 @@ describe("SettingsLayout", () => {
     expect(empty.find('[data-testid="agents-command"]').exists()).toBe(false);
     expect(empty.get('[data-testid="agents-missing"]').text()).toContain("not beside the app");
     bare.unmount();
+
+    setActivePinia(createPinia());
+    await useSettingsStore().init(memoryStorage(), "windows");
+    const failed = await mountSettings({ failAppInfo: true });
+    const unknown = failed.get('[data-testid="agents-settings"]');
+    expect(unknown.find('[data-testid="agents-missing"]').exists()).toBe(false);
+    expect(unknown.get('[data-testid="agents-unknown"]').text()).toBe(
+      "Begitra couldn't tell where its agent server is.",
+    );
+    failed.unmount();
   });
 
   it("lists the folder projects' folders with their counts, and removes one after its confirmation", async () => {

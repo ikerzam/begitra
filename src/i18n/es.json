@@ -1411,11 +1411,12 @@
     },
     "agents": {
       "title": "Agentes",
-      "sentence": "Conecta Claude Code a Begitra: lee tus revisiones, resuelve las notas que atiende y deja notas propias. Ejecuta este comando una vez en una terminal.",
+      "sentence": "Conecta Claude Code a Begitra: el agente lee tus revisiones, resuelve las notas que atiende y deja notas propias.",
       "command": "Comando que registra Begitra en Claude Code",
       "copy": "Copiar",
       "copied": "Comando copiado: ejecútalo en una terminal",
-      "missing": "El servidor para agentes no está junto a la app: esta compilación no lo generó."
+      "missing": "El servidor para agentes no está junto a la app: esta compilación no lo generó.",
+      "unknown": "Begitra no ha podido saber dónde está su servidor para agentes."
     },
     "about": {
       "title": "Acerca de",

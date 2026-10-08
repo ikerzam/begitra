@@ -72,7 +72,9 @@ function onKeydown(event: KeyboardEvent): void {
     page.value?.focus();
     return;
   }
-  if (isEditableTarget(origin)) return;
+  // A read-only field (the agents' command) types nothing: the keys walk on from it.
+  const readOnly = origin instanceof HTMLInputElement && origin.readOnly;
+  if (isEditableTarget(origin) && !readOnly) return;
   if (event.key !== "j" && event.key !== "k") return;
   const controls = [...(page.value?.querySelectorAll<HTMLElement>("input, button") ?? [])].filter(
     (control) => !control.hasAttribute("disabled"),
@@ -160,7 +162,6 @@ defineExpose({
       </div>
       <div class="flex flex-col gap-4">
         <ShortcutsPanel />
-        <hr class="border-line" />
         <AgentsSettings />
       </div>
     </div>
