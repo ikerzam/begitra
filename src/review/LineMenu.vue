@@ -1,8 +1,9 @@
 <script setup lang="ts">
-// The menu of a diff line: Copy while text is selected, "Open in editor at line N" (the new
-// side's line; absent for a deleted file), Copy path and File history (absent for a file new in
-// a change not committed yet). It opens on a right click of a line or its numbers, and on the
-// menu key while the diff has focus.
+// The menu of a diff line, the copies first as in every file menu: Copy while text is selected,
+// Copy path and Copy link; then the opens: "Open in editor at line N" (the new side's line;
+// absent for a deleted file), Open on <forge> (a commit's file at the line) and File history
+// (absent for a file new in a change not committed yet). It opens on a right click of a line or
+// its numbers, and on the menu key while the diff has focus.
 
 import { Code, Copy, FileText, History } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
@@ -10,6 +11,9 @@ import { useI18n } from "vue-i18n";
 import ContextMenu from "@/components/ContextMenu.vue";
 import ContextMenuItem from "@/components/ContextMenuItem.vue";
 import ContextMenuSeparator from "@/components/ContextMenuSeparator.vue";
+import CopyLinkItem from "@/remotes/CopyLinkItem.vue";
+import OpenLinkItem from "@/remotes/OpenLinkItem.vue";
+import type { Link } from "@/remotes/useLinks";
 import { copyText } from "@/shell/clipboard";
 import { formatShortcut } from "@/shortcuts/platform";
 import { shortcutRegistry } from "@/shortcuts/registry";
@@ -26,6 +30,8 @@ const props = defineProps<{
   selection: string;
   /** Whether the file has a history for the graph to list. */
   history: boolean;
+  /** The file's page on its forge, at the line for a commit's file; null when it has none. */
+  link: Link | null;
 }>();
 const emit = defineEmits<{ close: []; open: [line: number]; history: [] }>();
 
@@ -51,22 +57,13 @@ async function copyPath(): Promise<void> {
       data-testid="line-menu"
       @close="emit('close')"
     >
-      <template v-if="props.selection !== ''">
-        <ContextMenuItem
-          :label="t('textMenu.copy')"
-          :icon="Copy"
-          :keys="copyHint"
-          data-testid="line-menu-copy"
-          @select="() => void copyText(props.selection)"
-        />
-        <ContextMenuSeparator />
-      </template>
       <ContextMenuItem
-        v-if="props.line !== null"
-        :label="t('lineMenu.openAtLine', { line: props.line })"
-        :icon="Code"
-        data-testid="line-menu-editor"
-        @select="() => props.line !== null && emit('open', props.line)"
+        v-if="props.selection !== ''"
+        :label="t('textMenu.copy')"
+        :icon="Copy"
+        :keys="copyHint"
+        data-testid="line-menu-copy"
+        @select="() => void copyText(props.selection)"
       />
       <ContextMenuItem
         :label="t('fileMenu.copyPath')"
@@ -74,13 +71,25 @@ async function copyPath(): Promise<void> {
         data-testid="line-menu-copy-path"
         @select="() => void copyPath()"
       />
-      <ContextMenuItem
-        v-if="props.history"
-        :label="t('fileMenu.history')"
-        :icon="History"
-        data-testid="line-menu-history"
-        @select="emit('history')"
-      />
+      <CopyLinkItem v-if="props.link" :link="props.link" />
+      <template v-if="props.line !== null || props.link || props.history">
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          v-if="props.line !== null"
+          :label="t('lineMenu.openAtLine', { line: props.line })"
+          :icon="Code"
+          data-testid="line-menu-editor"
+          @select="() => props.line !== null && emit('open', props.line)"
+        />
+        <OpenLinkItem v-if="props.link" :link="props.link" />
+        <ContextMenuItem
+          v-if="props.history"
+          :label="t('fileMenu.history')"
+          :icon="History"
+          data-testid="line-menu-history"
+          @select="emit('history')"
+        />
+      </template>
     </ContextMenu>
   </Teleport>
 </template>

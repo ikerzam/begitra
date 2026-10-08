@@ -6,6 +6,8 @@
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 
+import { forgeOf, forgePageHosts } from "@/remotes/forgeLinks";
+
 import {
   AnnotationSchema,
   AnnotationWriteSchema,
@@ -95,6 +97,7 @@ const schemas: Record<string, v.GenericSchema> = {
   "commit-result.json": CommitResultSchema,
   "commit-contexts.json": v.array(CommitContextSchema),
   "app-errors.json": v.array(AppErrorSchema),
+  "forge-hosts.json": v.object({ hosts: v.array(v.string()), organisationHost: v.string() }),
   "repo-changed.json": RepoChangedSchema,
   "pong.json": PongSchema,
   "app-info.json": v.array(AppInfoSchema),
@@ -169,6 +172,15 @@ describe("IPC contract", () => {
       if (result.success) expect(result.output).toEqual(data);
     });
   }
+
+  it("builds links on the hosts the backend opens, and only on them", () => {
+    const forges = fixtures["./fixtures/forge-hosts.json"] as {
+      hosts: string[];
+      organisationHost: string;
+    };
+    expect([...forges.hosts].sort()).toEqual([...forgePageHosts].sort());
+    expect(forgeOf(`https://geo${forges.organisationHost}/maps/_git/portal`)?.kind).toBe("azure");
+  });
 
   it("lists the same error codes as the backend, in the same order", () => {
     const errors = fixtures["./fixtures/app-errors.json"] as { code: string }[];

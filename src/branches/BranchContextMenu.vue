@@ -2,10 +2,11 @@
 // The menu of a branch row or a ref badge, by the ref's kind. A local branch:
 // Checkout (↵), Create branch here…, New worktree…, Open worktree (when another worktree holds
 // it), Merge into <current>, Rebase <current> onto this, Compare with… (⇧⌘C), Rename…, Set
-// upstream…, Push (⇧⌘P), Copy branch name, Delete…. A remote branch: Checkout (a local branch
-// that tracks it), create, New worktree…, merge, rebase, compare, Pull into <current>…, Fetch
-// <remote>, copy, Delete on <remote>…. A tag: Checkout (detached), create,
-// compare, Push tag…, copy, Delete tag…. The stash badge has a menu of its own (StashBadgeMenu).
+// upstream…, Push (⇧⌘P), Copy branch name, Copy link and Open on <forge> (by its upstream),
+// Delete…. A remote branch: Checkout (a local branch that tracks it), create, New worktree…,
+// merge, rebase, compare, Pull into <current>…, Fetch <remote>, copy, the link, Delete on
+// <remote>…. A tag: Checkout (detached), create, compare, Push tag…, copy, the link, Delete
+// tag…. The stash badge has a menu of its own (StashBadgeMenu).
 
 import {
   Cloud,
@@ -30,6 +31,9 @@ import ContextMenu from "@/components/ContextMenu.vue";
 import ContextMenuItem from "@/components/ContextMenuItem.vue";
 import ContextMenuSeparator from "@/components/ContextMenuSeparator.vue";
 import type { Ref as GitRef } from "@/ipc/schemas";
+import CopyLinkItem from "@/remotes/CopyLinkItem.vue";
+import OpenLinkItem from "@/remotes/OpenLinkItem.vue";
+import { useLinks } from "@/remotes/useLinks";
 import { sameFolder } from "@/shell/format";
 import { useRepoStore } from "@/stores/repo";
 import { useShortcutHint } from "@/shortcuts/useShortcut";
@@ -55,6 +59,8 @@ const { t } = useI18n();
 const repo = useRepoStore();
 const compareHint = useShortcutHint("compare-with");
 const pushHint = useShortcutHint("push");
+const links = useLinks();
+const link = computed(() => links.linkOf({ kind: "ref", ref: props.target }));
 
 const isLocal = computed(() => props.target.kind === "local-branch");
 const isRemote = computed(() => props.target.kind === "remote-branch");
@@ -191,6 +197,10 @@ const label = computed(() =>
       data-testid="menu-copy-name"
       @select="emit('choose', 'copyName')"
     />
+    <template v-if="link">
+      <CopyLinkItem :link="link" />
+      <OpenLinkItem :link="link" />
+    </template>
     <template v-if="isLocal || isTag || remoteName !== null">
       <ContextMenuSeparator />
       <ContextMenuItem

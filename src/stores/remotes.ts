@@ -107,7 +107,11 @@ export const useRemotesStore = defineStore("remotes", () => {
     return first === undefined ? names : [first, ...names.filter((name) => name !== first)];
   });
 
-  async function load(): Promise<void> {
+  /**
+   * Lists the remotes again. `quiet` keeps a failure out of the toasts: a menu that asked for the
+   * list to build links offers none, and the sheet and the network dialogs say why.
+   */
+  async function load(options: { quiet?: boolean } = {}): Promise<void> {
     const root = repo.repo?.root;
     if (!root || repo.state.kind !== "ready") {
       remotes.value = [];
@@ -130,7 +134,7 @@ export const useRemotesStore = defineStore("remotes", () => {
       // The sheet shows the failure in the list's place; a dialog that needed the list toasts.
       if (sheetOpen.value) {
         loadError.value = error;
-      } else {
+      } else if (!options.quiet) {
         toasts.push({
           kind: "error",
           message: "",

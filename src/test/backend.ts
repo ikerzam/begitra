@@ -281,9 +281,16 @@ export interface FakeBackendOptions {
   repositoryOf?: Record<string, string>;
   /** What `read_blob` answers for these paths, as text. */
   blobTexts?: Record<string, string>;
-  /** `open_external` rejects these paths with `external.not_found`, as the backend does for a
-   * path that is not on disk. */
+  /** `open_external` and `reveal_path` reject these paths with `external.not_found`, as the
+   * backend does for a path that is not on disk. */
   missingPaths?: string[];
+  /** `open_link` and `reveal_path` reject with `external.spawn_failed`: the platform refused. */
+  failOpener?: boolean;
+  /** `remotes` rejects with `git.cli_failed`, as for a broken configuration. */
+  failRemotes?: boolean;
+  /** `open_link` and `reveal_path` reject with `external.refused`, as for a link or a path the
+   * backend does not open. */
+  refuseOpener?: boolean;
 }
 
 /** The hash the operations that move HEAD answer. */
@@ -1351,6 +1358,14 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
           return options.writeGate ? options.writeGate.hold(cmd, deleteThem) : deleteThem();
         }
         case "remotes":
+          if (options.failRemotes) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({
+              code: "git.cli_failed",
+              message: "git remote exited with 128",
+              detail: "fatal: bad config line 3 in file .git/config",
+            });
+          }
           return remotes.map((remote) => ({ ...remote }));
         case "remote_add":
           remotes = [
@@ -1497,6 +1512,33 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
           }
           // The argv that ran, as the backend answers: the first template's words.
           return String((args["templates"] as string[] | undefined)?.[0] ?? "").split(" ");
+        case "open_link":
+        case "reveal_path":
+          if (options.refuseOpener) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({
+              code: "external.refused",
+              message: "The link is not a forge's page",
+              detail: String(args["url"] ?? args["path"]),
+            });
+          }
+          if (options.failOpener) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({
+              code: "external.spawn_failed",
+              message: "The browser could not be opened",
+              detail: "no handler for https",
+            });
+          }
+          if (cmd === "reveal_path" && options.missingPaths?.includes(String(args["path"]))) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({
+              code: "external.not_found",
+              message: "The path is not on disk",
+              detail: String(args["path"]),
+            });
+          }
+          return null;
         case "projects": {
           if (options.failProjects) return projectFailure();
           const listed = [...projects].sort(byName).map(copyProject);

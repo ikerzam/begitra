@@ -64,6 +64,8 @@ export function errorText(
       return { key: "errors.spawnFailed", params };
     case "external.not_found":
       return { key: "errors.notOnDisk", params: { ...params, path: error.detail ?? path } };
+    case "external.refused":
+      return { key: "errors.externalRefused", params };
     case "index.database":
       return { key: "errors.indexDatabase", params };
     case "index.folder":

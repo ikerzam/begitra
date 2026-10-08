@@ -388,6 +388,7 @@ defineExpose({ focus });
       v-if="menu"
       :x="menu.x"
       :y="menu.y"
+      :hash="menu.hash"
       :branch="repo.currentBranch?.name ?? null"
       :head="menuOnHead"
       @close="closeMenu"

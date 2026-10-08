@@ -76,11 +76,15 @@ pub mod codes {
     pub const OP_TIMEOUT: &str = "op.timeout";
     /// A walk id is unknown or was evicted.
     pub const OP_UNKNOWN_WALK: &str = "op.unknown_walk";
-    /// The terminal or editor command could not be started; `detail` carries the argv.
+    /// The terminal, the editor, the browser or the file manager could not be started;
+    /// `detail` carries the argv or the platform's reason.
     pub const EXTERNAL_SPAWN_FAILED: &str = "external.spawn_failed";
-    /// The file or folder to open in the terminal or the editor is not on disk; `detail`
-    /// carries its path.
+    /// The file or folder to open in the terminal or the editor, or to reveal, is not on disk;
+    /// `detail` carries its path.
     pub const EXTERNAL_NOT_FOUND: &str = "external.not_found";
+    /// A link that is not a forge's `https:` page, or an item outside the repositories the app
+    /// knows, was refused; nothing opened, and `detail` carries what was refused.
+    pub const EXTERNAL_REFUSED: &str = "external.refused";
     /// The settings file could not be read or written.
     pub const SETTINGS_IO: &str = "settings.io";
     /// The repository index database failed.
@@ -97,7 +101,7 @@ pub mod codes {
 
     /// Every code, in the order of the frontend's `errorCodes` (`src/ipc/schemas.ts`); the
     /// contract test compares the two lists through the `app-errors` fixture.
-    pub const ALL: [&str; 37] = [
+    pub const ALL: [&str; 38] = [
         REPO_NOT_FOUND,
         REPO_INVALID,
         REPO_CORRUPT_OBJECT,
@@ -129,6 +133,7 @@ pub mod codes {
         OP_UNKNOWN_WALK,
         EXTERNAL_SPAWN_FAILED,
         EXTERNAL_NOT_FOUND,
+        EXTERNAL_REFUSED,
         SETTINGS_IO,
         INDEX_DATABASE,
         INDEX_FOLDER,

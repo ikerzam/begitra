@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { createPinia, setActivePinia } from "pinia";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import type { WorktreeRow } from "@/stores/worktrees";
 import { mountWithI18n } from "@/test/mount";
@@ -24,6 +25,10 @@ const gone: WorktreeRow = {
 };
 
 describe("WorktreeContextMenu", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
   it("disables Terminal and Editor for a folder that is gone in the sidebar only", () => {
     const sidebar = mountWithI18n(WorktreeContextMenu, {
       props: { row: gone, x: 0, y: 0, dialogs: false },
@@ -39,6 +44,8 @@ describe("WorktreeContextMenu", () => {
     for (const id of ["menu-terminal", "menu-editor"]) {
       expect(dashboard.get(`[data-testid="${id}"]`).attributes("aria-disabled")).toBeUndefined();
     }
+    // A folder that is gone has nothing to reveal.
+    expect(dashboard.find('[data-testid="menu-reveal"]').exists()).toBe(false);
     dashboard.unmount();
   });
 });

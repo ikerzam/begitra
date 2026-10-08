@@ -126,6 +126,10 @@
     "message": "Sample message for external.not_found"
   },
   {
+    "code": "external.refused",
+    "message": "Sample message for external.refused"
+  },
+  {
     "code": "settings.io",
     "message": "Sample message for settings.io"
   },

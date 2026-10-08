@@ -589,6 +589,19 @@ export function openExternal(templates: string[], path: string, line: number | n
   return call("open_external", { templates, path, line }, v.array(v.string()));
 }
 
+/** Opens `url`, a forge's page, in the default browser; the backend refuses any other link. */
+export function openLink(url: string) {
+  return call("open_link", { url }, v.null());
+}
+
+/**
+ * Reveals `path`, a file or folder of the working tree at `root` or one of its worktrees, in the
+ * platform's file manager; the backend refuses a path outside the repositories it knows.
+ */
+export function revealPath(root: string, path: string) {
+  return call("reveal_path", { root, path }, v.null());
+}
+
 // --- Discovery ------------------------------------------------------------------------------
 
 /** Folder names the scanner never enters unless the settings say otherwise. */

@@ -5,6 +5,7 @@ import { Folder, FolderGit2, Layers, ListTree } from "@lucide/vue";
 import { nextTick } from "vue";
 import { computed, type ComputedRef } from "vue";
 
+import { useLinks } from "@/remotes/useLinks";
 import { useSyncActions } from "@/remotes/useSyncActions";
 import { useDiscoveryFormat } from "@/discovery/useDiscoveryFormat";
 import { i18n, setLocale } from "@/i18n";
@@ -45,6 +46,7 @@ export function usePaletteActions(): PaletteActions {
   const settings = useSettingsStore();
   const { openFolder, addFolder } = useOpenFolder();
   const external = useExternal();
+  const links = useLinks();
   const review = useReviewStore();
   const notesExport = useNotesExport();
   const picker = usePickerStore();
@@ -87,6 +89,10 @@ export function usePaletteActions(): PaletteActions {
     },
     openEditor: async () => {
       await external.openEditor();
+    },
+    revealRepository: async () => {
+      const root = repo.repo?.root;
+      if (root) await links.reveal(root, root);
     },
     setLocale: async (locale) => {
       await settings.update("locale", locale);

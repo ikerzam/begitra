@@ -1,9 +1,10 @@
 <script setup lang="ts">
-// The context menu of a worktree row: the row's actions plus Lock or Unlock. Opened at the
-// pointer, or under the focused row from the menu key. The sidebar's Worktrees section opens it
-// without the actions that ask in a dialog (lock, unlock, remove), which the dashboard holds,
-// and with Terminal and Editor disabled for a folder that is gone: the dashboard's banner
-// explains that one and offers the prune, the sidebar has no place to.
+// The context menu of a worktree row: the row's actions, Reveal in Explorer, plus Lock or
+// Unlock. Opened at the pointer, or under the focused row from the menu key. The sidebar's
+// Worktrees section opens it without the actions that ask in a dialog (lock, unlock, remove),
+// which the dashboard holds, and with Terminal and Editor disabled for a folder that is gone:
+// the dashboard's banner explains that one and offers the prune, the sidebar has no place to.
+// A folder that is gone has nothing to reveal.
 
 import { Code, FileDiff, Lock, LockOpen, Terminal, Trash2 } from "@lucide/vue";
 import { computed } from "vue";
@@ -12,6 +13,8 @@ import { useI18n } from "vue-i18n";
 import ContextMenu from "@/components/ContextMenu.vue";
 import ContextMenuItem from "@/components/ContextMenuItem.vue";
 import ContextMenuSeparator from "@/components/ContextMenuSeparator.vue";
+import RevealItem from "@/remotes/RevealItem.vue";
+import { useRepoStore } from "@/stores/repo";
 import type { WorktreeRow } from "@/stores/worktrees";
 
 const props = withDefaults(
@@ -35,6 +38,7 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+const repo = useRepoStore();
 
 /** The sidebar offers nothing to open in a folder that is gone. */
 const gone = computed(() => !props.dialogs && props.row.prunable);
@@ -62,6 +66,11 @@ const gone = computed(() => !props.dialogs && props.row.prunable);
       :disabled="gone"
       data-testid="menu-editor"
       @select="emit('openEditor')"
+    />
+    <RevealItem
+      v-if="!props.row.prunable && repo.repo"
+      :root="repo.repo.root"
+      :path="props.row.path"
     />
     <template v-if="props.dialogs && !props.row.isMain">
       <ContextMenuSeparator />

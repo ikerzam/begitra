@@ -1,0 +1,11 @@
+{
+  "hosts": [
+    "github.com",
+    "gitlab.com",
+    "bitbucket.org",
+    "dev.azure.com",
+    "codeberg.org",
+    "gitea.com"
+  ],
+  "organisationHost": ".visualstudio.com"
+}

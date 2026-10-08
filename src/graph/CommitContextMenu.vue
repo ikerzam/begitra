@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// The context menu of a commit row: copy hash and message, diff from
-// here, compare with…, select as range end, the branch actions on the commit (HEAD's row
-// adds "Undo commit"), open in terminal and in editor. Opened at the pointer, or under the
+// The context menu of a commit row: copy hash, message and link, diff from here, compare
+// with…, select as range end, the branch actions on the commit (HEAD's row adds "Undo
+// commit"), open on the forge, in terminal and in editor. Opened at the pointer, or under the
 // focused row from the keyboard.
 
 import {
@@ -18,17 +18,23 @@ import {
   UndoDot,
   Waypoints,
 } from "@lucide/vue";
+import { computed, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ContextMenu from "@/components/ContextMenu.vue";
 import ContextMenuItem from "@/components/ContextMenuItem.vue";
 import ContextMenuSeparator from "@/components/ContextMenuSeparator.vue";
+import CopyLinkItem from "@/remotes/CopyLinkItem.vue";
+import OpenLinkItem from "@/remotes/OpenLinkItem.vue";
+import { useLinks } from "@/remotes/useLinks";
 import { formatShortcut } from "@/shortcuts/platform";
 import { shortcutRegistry } from "@/shortcuts/registry";
 
 const props = defineProps<{
   x: number;
   y: number;
+  /** The commit's full hash, for its link. */
+  hash: string;
   /** The current branch, named in "Reset <branch> to here"; null when detached. */
   branch?: string | null;
   /** The row is HEAD's commit, which "Undo commit" moves back from. */
@@ -54,6 +60,9 @@ const emit = defineEmits<{
 const { t } = useI18n();
 /* Copy is the platform's own shortcut, not a rebindable command. */
 const copyHint = formatShortcut("mod+c", shortcutRegistry().platform);
+const links = useLinks();
+const link = computed(() => links.linkOf({ kind: "commit", hash: props.hash }));
+onMounted(links.ensureRemotes);
 </script>
 
 <template>
@@ -66,6 +75,7 @@ const copyHint = formatShortcut("mod+c", shortcutRegistry().platform);
       @select="emit('copyHash')"
     />
     <ContextMenuItem :label="t('graph.copyMessage')" :icon="Copy" @select="emit('copyMessage')" />
+    <CopyLinkItem v-if="link" :link="link" />
     <ContextMenuSeparator />
     <ContextMenuItem
       :label="t('graph.diffFromHere')"
@@ -125,6 +135,7 @@ const copyHint = formatShortcut("mod+c", shortcutRegistry().platform);
       @select="emit('reset')"
     />
     <ContextMenuSeparator />
+    <OpenLinkItem v-if="link" :link="link" />
     <ContextMenuItem
       :label="t('palette.commandsById.open-terminal')"
       :icon="Terminal"

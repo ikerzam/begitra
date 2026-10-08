@@ -3,6 +3,8 @@
 // i18n keys (`palette.commandsById.<id>`); the shortcut id gives the `Kbd` hint. The Projects
 // and Repos sections are fed separately (see `usePalette`).
 
+import { detectPlatform } from "@/shortcuts/platform";
+
 export interface PaletteCommand {
   /** Stable id; also the key of its label and, when bound, the shortcut id. */
   id: string;
@@ -35,6 +37,8 @@ export interface PaletteActions {
   toggleSidebar: () => void;
   openTerminal: () => Promise<void>;
   openEditor: () => Promise<void>;
+  /** Shows the open repository's folder in the platform's file manager. */
+  revealRepository: () => Promise<void>;
   setLocale: (locale: "en" | "es") => Promise<void>;
   /** Opens the picker of "Diff from…". */
   diffFrom: () => void;
@@ -179,6 +183,13 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       shortcutId: "open-editor",
       enabled: withRepo,
       run: actions.openEditor,
+    },
+    {
+      id: "reveal-repository",
+      // The platform's own words: Reveal in Explorer, Reveal in Finder, Open containing folder.
+      labelKey: `links.reveal.${detectPlatform()}`,
+      enabled: withRepo,
+      run: actions.revealRepository,
     },
     {
       id: "open-file-editor",

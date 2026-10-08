@@ -20,9 +20,11 @@ import FileMenu from "@/detail/FileMenu.vue";
 import { applyFilters, pathMatcher, sortBySize } from "@/detail/groupFiles";
 import { historySide } from "@/graph/fileHistory";
 import type { FileChange } from "@/ipc/schemas";
+import { fileSourceOf } from "@/remotes/fileLinks";
 import { outsideOverlays } from "@/shortcuts/registry";
 import { useShortcut } from "@/shortcuts/useShortcut";
 import { useFindStore } from "@/stores/find";
+import { useRepoStore } from "@/stores/repo";
 import { targetLabel, useReviewStore } from "@/stores/review";
 
 import type { FindFile } from "./find";
@@ -42,6 +44,9 @@ const props = withDefaults(
 
 const { t } = useI18n();
 const review = useReviewStore();
+const repo = useRepoStore();
+/** Where the files are, for their links and Reveal. */
+const fileSource = computed(() => fileSourceOf(review.target, repo.repo?.root ?? null, repo.refs));
 const list = ref<{ focus(): void; collapseAll(): void }>();
 const filterInput = ref<{ $el: HTMLElement } | null>(null);
 
@@ -231,6 +236,7 @@ defineExpose({ focus: () => list.value?.focus(), moveFile });
         :x="fileMenu.x"
         :y="fileMenu.y"
         :side="historySide(review.target)"
+        :source="fileSource"
         @close="closeFileMenu"
       />
       <EmptyState

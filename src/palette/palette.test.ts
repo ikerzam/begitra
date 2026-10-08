@@ -120,6 +120,10 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
       calls.push("terminal");
       return Promise.resolve();
     },
+    revealRepository: () => {
+      calls.push("reveal");
+      return Promise.resolve();
+    },
     openEditor: () => {
       calls.push("editor");
       return Promise.resolve();
@@ -302,6 +306,7 @@ describe("usePalette", () => {
       "zoom-reset",
       "open-terminal",
       "open-editor",
+      "reveal-repository",
       "pin-project",
       "go-to-projects",
       "scan-folders",

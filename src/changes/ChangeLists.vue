@@ -41,6 +41,11 @@ import type { FileStatus } from "@/components/types";
 import { statusOf } from "@/detail/groupFiles";
 import { historyPath } from "@/graph/fileHistory";
 import type { Conflict, FileChange, Side } from "@/ipc/schemas";
+import CopyLinkItem from "@/remotes/CopyLinkItem.vue";
+import { revealTarget, type FileSource } from "@/remotes/fileLinks";
+import OpenLinkItem from "@/remotes/OpenLinkItem.vue";
+import RevealItem from "@/remotes/RevealItem.vue";
+import { useLinks } from "@/remotes/useLinks";
 import { errorText } from "@/shell/errorMessage";
 import { useShortcutHint } from "@/shortcuts/useShortcut";
 import { isListKeydown, rowStep, useListNavigation } from "@/shortcuts/useListNavigation";
@@ -98,6 +103,19 @@ const menuHistory = computed(() => {
     changes.staged.files.find((file) => file.path === path),
   );
 });
+const links = useLinks();
+/** The lists' working tree, where their files link and show. */
+const source = computed<FileSource | null>(() =>
+  changes.root === null ? null : { kind: "working", root: changes.root },
+);
+/** The open row menu's file at the upstream; none for a file the upstream has not. */
+const menuLink = computed(() =>
+  menu.value ? links.fileLink(menu.value.file, source.value) : null,
+);
+/** The open row menu's file on disk; none for a deleted one. */
+const menuReveal = computed(() =>
+  menu.value ? revealTarget(menu.value.file, source.value) : null,
+);
 /** The conflict row whose menu is open. */
 const conflictMenu = ref<{ conflict: Conflict; x: number; y: number } | null>(null);
 const resolveHint = useShortcutHint("mark-resolved");
@@ -235,6 +253,7 @@ function openMenu(row: Row, x: number, y: number): void {
     return;
   }
   menu.value = { list: row.list, file: row.file, x, y };
+  links.ensureRemotes();
 }
 
 function closeConflictMenu(): void {
@@ -596,6 +615,15 @@ defineExpose({ focus: navigation.focus, moveFile, selectEdge });
         :icon="Copy"
         data-testid="menu-copy-path"
         @select="menuAction('copy')"
+      />
+      <CopyLinkItem v-if="menuLink" :link="menuLink" />
+      <ContextMenuSeparator />
+      <OpenLinkItem v-if="menuLink" :link="menuLink" />
+      <RevealItem
+        v-if="menuReveal"
+        :root="menuReveal.root"
+        :path="menuReveal.path"
+        :shown="menu.file.path"
       />
       <ContextMenuItem
         :label="t('fileMenu.openInEditor')"

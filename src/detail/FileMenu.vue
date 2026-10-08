@@ -1,12 +1,13 @@
 <script setup lang="ts">
 // The menu of a file row (the commit's files, the review's and the comparison's files panel):
 // Open in review where the panel offers it, Copy path (the repository-relative path, with a
-// toast), Open in editor (the file on disk; nothing to open for a deleted file) and File
-// history (the graph filtered by the path the commits have; none for a file new in the working
-// tree or the index).
+// toast), Copy link and Open on <forge> (the file at its commit, or a working file at the
+// upstream), Reveal in Explorer (a working file on disk), Open in editor (the file on disk;
+// nothing to open for a deleted file) and File history (the graph filtered by the path the
+// commits have; none for a file new in the working tree or the index).
 
 import { Code, Copy, FileDiff, History } from "@lucide/vue";
-import { computed } from "vue";
+import { computed, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
 
 import { useStagedFiles } from "@/changes/useChanges";
@@ -15,6 +16,11 @@ import ContextMenuItem from "@/components/ContextMenuItem.vue";
 import ContextMenuSeparator from "@/components/ContextMenuSeparator.vue";
 import { historyPath, type HistorySide } from "@/graph/fileHistory";
 import type { FileChange } from "@/ipc/schemas";
+import CopyLinkItem from "@/remotes/CopyLinkItem.vue";
+import { revealTarget, type FileSource } from "@/remotes/fileLinks";
+import OpenLinkItem from "@/remotes/OpenLinkItem.vue";
+import RevealItem from "@/remotes/RevealItem.vue";
+import { useLinks } from "@/remotes/useLinks";
 import { copyText } from "@/shell/clipboard";
 import { useExternal } from "@/shell/useExternal";
 import { useGraphStore } from "@/stores/graph";
@@ -30,8 +36,10 @@ const props = withDefaults(
     review?: boolean;
     /** Where the file's change stands: a commit's, or the review's of the index or working tree. */
     side?: HistorySide;
+    /** Where the file is, for its link and Reveal; none offers neither. */
+    source?: FileSource | null;
   }>(),
-  { review: false, side: "committed" },
+  { review: false, side: "committed", source: null },
 );
 const emit = defineEmits<{ close: []; review: [file: FileChange] }>();
 
@@ -44,6 +52,10 @@ const staged = useStagedFiles();
 
 const deleted = computed(() => props.file.status === "deleted");
 const history = computed(() => historyPath(props.file, props.side, staged));
+const links = useLinks();
+const link = computed(() => links.fileLink(props.file, props.source));
+const revealed = computed(() => revealTarget(props.file, props.source));
+onMounted(links.ensureRemotes);
 
 async function copyPath(): Promise<void> {
   if (await copyText(props.file.path)) {
@@ -82,6 +94,15 @@ function openInEditor(): void {
       :icon="Copy"
       data-testid="file-menu-copy"
       @select="() => void copyPath()"
+    />
+    <CopyLinkItem v-if="link" :link="link" />
+    <ContextMenuSeparator />
+    <OpenLinkItem v-if="link" :link="link" />
+    <RevealItem
+      v-if="revealed"
+      :root="revealed.root"
+      :path="revealed.path"
+      :shown="props.file.path"
     />
     <ContextMenuItem
       :label="t('fileMenu.openInEditor')"

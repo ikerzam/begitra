@@ -623,6 +623,18 @@
     "editorFailed": "No se pudo abrir el editor. Revisa el comando del editor en Ajustes.",
     "showCommand": "Mostrar el comando"
   },
+  "links": {
+    "open": "Abrir en {forge}",
+    "copy": "Copiar el enlace",
+    "copied": "Enlace copiado",
+    "openFailed": "No se pudo abrir el navegador.",
+    "reveal": {
+      "windows": "Mostrar en el Explorador",
+      "macos": "Mostrar en el Finder",
+      "linux": "Abrir la carpeta contenedora"
+    },
+    "revealFailed": "No se pudo abrir el gestor de archivos."
+  },
   "errors": {
     "repoNotFound": "No se pudo abrir {path}. La carpeta se ha eliminado o ya no es un repositorio Git.",
     "repoInvalid": "No se pudo abrir {path}. {message}",
@@ -637,6 +649,7 @@
     "gitFailed": "git devolvió un error. {message}",
     "spawnFailed": "No se pudo iniciar el comando. {message}",
     "notOnDisk": "{path} no está en el disco.",
+    "externalRefused": "Begitra solo abre páginas de los servicios de código que conoce y los archivos de tus repositorios.",
     "indexDatabase": "No se ha podido guardar la lista de repositorios. {message}",
     "indexFolder": "No se ha podido escanear {path}. {message}",
     "watcherUnavailable": "Los cambios en este repositorio no se detectarán automáticamente.",

@@ -265,6 +265,57 @@ describe("ChangesLayout", () => {
     wrapper.unmount();
   });
 
+  it("links a tracked row at the upstream and reveals any row on disk", async () => {
+    const tracking: GitRef = {
+      name: "main",
+      fullName: "refs/heads/main",
+      kind: "local-branch",
+      target: fakeCommit(0).hash,
+      isCurrent: true,
+      upstream: "origin/main",
+      ahead: 0,
+      behind: 0,
+      worktree: "/r",
+      message: null,
+      committedAt: null,
+    };
+    const url = "git@github.com:geo/portal.git";
+    const { wrapper, calls } = await mountScreen({
+      refs: [tracking],
+      remotes: [{ name: "origin", fetchUrl: url, pushUrl: url, fetchedAt: null }],
+    });
+    const menuOn = async (path: string) => {
+      await wrapper.get(`[data-list="unstaged"][data-path="${path}"]`).trigger("contextmenu");
+      await settled();
+    };
+    await menuOn("src/a.ts");
+    const items = wrapper
+      .findAll('[role="menuitem"]')
+      .map((item) => item.attributes("data-testid"));
+    expect(items).toEqual([
+      "menu-stage",
+      "menu-discard",
+      "menu-copy-path",
+      "menu-copy-link",
+      "menu-open-link",
+      "menu-reveal",
+      "menu-editor",
+      "menu-history",
+    ]);
+    await wrapper.get('[data-testid="menu-open-link"]').trigger("click");
+    await settled();
+    expect(of(calls, "open_link").at(-1)?.args).toEqual({
+      url: "https://github.com/geo/portal/blob/main/src/a.ts",
+    });
+    // An untracked file is not on the remote yet, but it is on disk.
+    await menuOn("src/new.md");
+    expect(wrapper.find('[data-testid="menu-copy-link"]').exists()).toBe(false);
+    await wrapper.get('[data-testid="menu-reveal"]').trigger("click");
+    await settled();
+    expect(of(calls, "reveal_path").at(-1)?.args).toEqual({ root: "/r", path: "/r/src/new.md" });
+    wrapper.unmount();
+  });
+
   it("shows a row's file history in the graph: a staged rename's old path, none for a new file", async () => {
     const { wrapper, calls } = await mountScreen({
       changes: {

@@ -18,6 +18,8 @@ import { useStagedFiles } from "@/changes/useChanges";
 import { refocusAfterMenu } from "@/components/menuFocus";
 import { historyPath, historySide } from "@/graph/fileHistory";
 import type { FileChange, Hunk } from "@/ipc/schemas";
+import { fileSourceOf } from "@/remotes/fileLinks";
+import { useLinks } from "@/remotes/useLinks";
 import { useShortcut } from "@/shortcuts/useShortcut";
 import { useExternal } from "@/shell/useExternal";
 import { useCodeTheme } from "@/shell/useTheme";
@@ -593,6 +595,14 @@ interface MenuRequest {
   selection: string;
 }
 const menu = ref<MenuRequest | null>(null);
+const links = useLinks();
+/** The file's page at the menu's line, for the line menu. */
+const menuLink = computed(() => {
+  const open = menu.value;
+  if (!open) return null;
+  const source = fileSourceOf(target.value ?? null, root.value, repo.refs);
+  return links.fileLink(props.file, source, open.line);
+});
 /** Where the keyboard's menu opens: past the two numbers and the marker (110px), at the code. */
 const MENU_INDENT = 116;
 
@@ -635,6 +645,7 @@ function onContextMenu(event: MouseEvent): void {
     line: lineOfIndex(Number(element.dataset["row"])),
     selection: text,
   };
+  links.ensureRemotes();
 }
 
 /**
@@ -655,6 +666,7 @@ function openMenuAtKeyboard(): void {
     line: index === null ? null : lineOfIndex(index),
     selection: selectionInRows(),
   };
+  links.ensureRemotes();
 }
 
 defineExpose({
@@ -802,6 +814,7 @@ defineExpose({
           :line="menu.line"
           :selection="menu.selection"
           :history="history !== null"
+          :link="menuLink"
           @open="openAtLine"
           @history="showHistory"
           @close="closeMenu"

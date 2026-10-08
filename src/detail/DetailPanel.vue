@@ -141,6 +141,7 @@ function onSelect(file: FileChange, trigger: SelectTrigger): void {
           :file="fileMenu.file"
           :x="fileMenu.x"
           :y="fileMenu.y"
+          :source="{ kind: 'commit', hash: commit.hash }"
           review
           @review="(file) => emit('review', file)"
           @close="closeFileMenu"

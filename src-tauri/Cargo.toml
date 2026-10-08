@@ -65,6 +65,9 @@ tauri-plugin-dialog = "2"
 # The update check the About section runs, and the relaunch after an install.
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+# Forge pages in the browser and Reveal in the file manager, called as a library after the
+# app's own checks; the plugin is not registered.
+tauri-plugin-opener = "2"
 git-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true

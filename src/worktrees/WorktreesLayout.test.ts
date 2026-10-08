@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { nextTick } from "vue";
 
 import type { Worktree } from "@/ipc/schemas";
+import { detectPlatform } from "@/shortcuts/platform";
 import { ShortcutRegistry, setShortcutRegistry } from "@/shortcuts/registry";
 import { useCompareStore } from "@/stores/compare";
 import { useRepoStore } from "@/stores/repo";
@@ -24,6 +25,13 @@ import {
 import { mountWithI18n } from "@/test/mount";
 
 import WorktreesLayout from "./WorktreesLayout.vue";
+
+/** The platform's words for Reveal, as the menus show them. */
+const REVEAL = {
+  windows: "Reveal in Explorer",
+  macos: "Reveal in Finder",
+  linux: "Open containing folder",
+}[detectPlatform()];
 
 const summaries = {
   "/wt/claude-auth": {
@@ -141,6 +149,7 @@ describe("WorktreesLayout", () => {
       "Compare with main",
       "Open in terminal",
       "Open in editor",
+      REVEAL,
       "Lock worktree",
       "Remove worktree…",
     ]);

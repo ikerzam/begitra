@@ -463,6 +463,14 @@ fn app_errors() -> Vec<AppError> {
         .collect()
 }
 
+/// The forges' hosts the backend opens, which the frontend must build its links on.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ForgeHosts {
+    hosts: Vec<&'static str>,
+    organisation_host: &'static str,
+}
+
 /// A member of a project under `/home/iker`.
 fn member(path: &str, origin: MemberOrigin) -> Member {
     Member {
@@ -1229,6 +1237,13 @@ fn write_fixtures() {
         ],
     );
     write("app-errors", &app_errors());
+    write(
+        "forge-hosts",
+        &ForgeHosts {
+            hosts: crate::links::FORGE_HOSTS.to_vec(),
+            organisation_host: crate::links::AZURE_ORGANISATION_HOST,
+        },
+    );
     write_phase7();
     write(
         "repo-changed",

@@ -9,8 +9,10 @@ pub mod events;
 pub mod external;
 #[cfg(test)]
 mod fixtures;
+pub mod links;
 pub mod logging;
 pub mod ops;
+pub mod reveal;
 pub mod state;
 pub mod watcher;
 
@@ -143,6 +145,8 @@ pub fn run() {
             commands::system::cancel_operation,
             commands::system::debug_emit_repo_changed,
             commands::external::open_external,
+            commands::external::open_link,
+            commands::external::reveal_path,
             commands::repo::open_repository,
             commands::repo::close_repository,
             commands::repo::watch_repository,

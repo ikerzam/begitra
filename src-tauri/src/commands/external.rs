@@ -1,9 +1,18 @@
-//! "Open in terminal" and "Open in editor" commands.
+//! "Open in terminal", "Open in editor", "Open on <forge>" and "Reveal in Explorer" commands.
+//!
+//! The last two use the opener crate as a library, after their own checks: its plugin is not
+//! registered, so the webview has none of its commands.
 
 use std::path::PathBuf;
 
-use crate::error::AppError;
+use tauri::State;
+
+use crate::error::{codes, AppError};
 use crate::external::open_with;
+use crate::links::checked_link;
+use crate::ops::DEFAULT_TIMEOUT;
+use crate::reveal;
+use crate::state::AppState;
 
 /// The highest line a command may name: more than any file the viewer shows.
 const MAX_LINE: u32 = 10_000_000;
@@ -43,10 +52,56 @@ pub async fn open_external(
         .map_err(|join| AppError::internal(format!("spawn task failed: {join}")))?
 }
 
+/// Opens `url`, a forge's page, in the default browser; any other link is refused
+/// (`external.refused`) and opens nothing.
+///
+/// The platform answers at once, but a handler that waits on a dialog would hold the command:
+/// it answers `op.timeout` after the default timeout, the call left to finish on its own.
+#[tauri::command]
+#[tracing::instrument(level = "debug")]
+pub async fn open_link(url: String) -> Result<(), AppError> {
+    let link = checked_link(&url)?;
+    let task = tokio::task::spawn_blocking(move || {
+        tauri_plugin_opener::open_url(link.as_str(), None::<&str>).map_err(|error| {
+            AppError::new(
+                codes::EXTERNAL_SPAWN_FAILED,
+                "The browser could not be opened",
+            )
+            .with_detail(error.to_string())
+        })
+    });
+    tokio::time::timeout(DEFAULT_TIMEOUT, task)
+        .await
+        .map_err(|_| AppError::timeout("open_link", DEFAULT_TIMEOUT))?
+        .map_err(|join| AppError::internal(format!("open task failed: {join}")))?
+}
+
+/// Reveals `path`, a file or folder of the working tree at `root` or one of `root`'s
+/// worktrees, in the platform's file manager, selected where the platform can. The checks are
+/// [`reveal::check`]'s; the platform's own call runs off the async runtime, and a share that
+/// does not answer makes it `op.timeout` after the default timeout.
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip(state))]
+pub async fn reveal_path(
+    state: State<'_, AppState>,
+    root: PathBuf,
+    path: PathBuf,
+) -> Result<(), AppError> {
+    let app = state.inner().clone();
+    let task = tokio::task::spawn_blocking(move || {
+        reveal::check(&app, &root, &path)?;
+        tauri_plugin_opener::reveal_item_in_dir(&path)
+            .map_err(|error| reveal::failure(&path, error))
+    });
+    tokio::time::timeout(DEFAULT_TIMEOUT, task)
+        .await
+        .map_err(|_| AppError::timeout("reveal_path", DEFAULT_TIMEOUT))?
+        .map_err(|join| AppError::internal(format!("reveal task failed: {join}")))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::codes;
 
     #[test]
     fn lines_start_at_one_and_stay_bounded() {
