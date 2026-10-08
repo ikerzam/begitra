@@ -5,7 +5,7 @@ import { flushPromises, type VueWrapper } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { CommitNode, IndexEntry, Project, Repo } from "@/ipc/schemas";
+import type { CommitNode, IndexEntry, Project, Ref, Repo } from "@/ipc/schemas";
 import { useCompareStore } from "@/stores/compare";
 import { usePickerStore } from "@/stores/picker";
 import { ShortcutRegistry, setShortcutRegistry, shortcutRegistry } from "@/shortcuts/registry";
@@ -1437,6 +1437,117 @@ describe("Sidebar rail and panel", () => {
     await settle();
     expect(calls).toContain("switch");
     expect(panel(wrapper).exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("marks a branch another worktree holds and one whose upstream is gone", async () => {
+    const wrapper = await openShell();
+    const local = (name: string, over: Partial<Ref> = {}): Ref => ({
+      name,
+      fullName: `refs/heads/${name}`,
+      kind: "local-branch",
+      target: commit(0).hash,
+      isCurrent: false,
+      upstream: null,
+      ahead: null,
+      behind: null,
+      worktree: null,
+      message: null,
+      committedAt: 100,
+      ...over,
+    });
+    const shownRows = async (section = "local") => {
+      await settle();
+      const shown = await show(wrapper, section);
+      const rows = shown.findAll(`[data-testid="branch-list-${section}"] [data-testid="list-row"]`);
+      return (name: string) =>
+        rows.find((row) => row.get('[data-testid="list-row-name"]').text() === name)!;
+    };
+    useRepoStore().refs = [
+      local("main", {
+        isCurrent: true,
+        worktree: "/r",
+        upstream: "origin/main",
+        ahead: 2,
+        behind: 0,
+        committedAt: 900,
+      }),
+      local("claude/fix-auth", { worktree: "/wt/claude-auth", committedAt: 800 }),
+      local("feature/old-tiles", { upstream: "origin/feature/old-tiles", committedAt: 700 }),
+      local("feature/local-only", { committedAt: 600 }),
+      local("claude/gone-too", {
+        worktree: "/wt/claude-gone",
+        upstream: "origin/claude/gone-too",
+        committedAt: 500,
+      }),
+      {
+        ...local("origin/main", { committedAt: 900 }),
+        fullName: "refs/remotes/origin/main",
+        kind: "remote-branch",
+      },
+      { ...local("v2.3.1", { committedAt: 400 }), fullName: "refs/tags/v2.3.1", kind: "tag" },
+    ];
+    let row = await shownRows();
+    // An agent's branch: the tree in its dot's lane colour after it, said in the tooltip and read
+    // with the row; its name whole in its own tooltip.
+    const held = row("claude/fix-auth");
+    const icon = held.get('[data-testid="list-row-icon"]');
+    const lane = held.get("[data-lane]").attributes("data-lane");
+    expect(icon.classes()).toContain(`text-lane-${lane}`);
+    expect(icon.attributes("data-tooltip")).toBe("Checked out in claude-auth");
+    expect(held.attributes("aria-description")).toBe("Checked out in claude-auth");
+    expect(held.get('[data-testid="list-row-name"]').attributes("data-tooltip")).toBe(
+      "claude/fix-auth",
+    );
+    // A gone upstream: "gone" where the counts would be.
+    const gone = row("feature/old-tiles");
+    const meta = gone.get('[data-testid="list-row-meta"]');
+    expect(meta.text()).toBe("gone");
+    expect(meta.attributes("data-tooltip")).toBe(
+      "origin/feature/old-tiles is gone from its remote",
+    );
+    expect(gone.find('[data-testid="ahead"]').exists()).toBe(false);
+    expect(gone.attributes("aria-description")).toBe(
+      "origin/feature/old-tiles is gone from its remote",
+    );
+    // Both on one row: both sentences.
+    expect(row("claude/gone-too").attributes("aria-description")).toBe(
+      "Checked out in claude-gone. origin/claude/gone-too is gone from its remote",
+    );
+    // The current branch, with its counts, and a branch without upstream show neither.
+    for (const name of ["main", "feature/local-only"]) {
+      expect(row(name).find('[data-testid="list-row-icon"]').exists()).toBe(false);
+      expect(row(name).find('[data-testid="list-row-meta"]').exists()).toBe(false);
+      expect(row(name).attributes("aria-description")).toBeUndefined();
+    }
+    expect(row("main").find('[data-testid="ahead"]').text()).toBe("2");
+    // Remote branches and tags are never marked.
+    const remote = await shownRows("remote");
+    expect(remote("origin/main").find('[data-testid="list-row-meta"]').exists()).toBe(false);
+    expect(remote("origin/main").attributes("aria-description")).toBeUndefined();
+    const tags = await shownRows("tags");
+    expect(tags("v2.3.1").get('[data-testid="list-row-icon"]').attributes("data-tooltip")).toBe(
+      undefined,
+    );
+    expect(tags("v2.3.1").attributes("aria-description")).toBeUndefined();
+    // From a linked worktree, the main worktree's branch is the one held elsewhere; the current
+    // branch whose upstream is gone says so.
+    useRepoStore().refs = [
+      local("main", { worktree: "/r", committedAt: 900 }),
+      local("claude/fix-auth", {
+        isCurrent: true,
+        worktree: "/wt/claude-auth",
+        upstream: "origin/claude/fix-auth",
+        committedAt: 800,
+      }),
+    ];
+    row = await shownRows();
+    expect(row("main").get('[data-testid="list-row-icon"]').attributes("data-tooltip")).toBe(
+      "Checked out in r",
+    );
+    const current = row("claude/fix-auth");
+    expect(current.find('[data-testid="list-row-icon"]').exists()).toBe(false);
+    expect(current.get('[data-testid="list-row-meta"]').text()).toBe("gone");
     wrapper.unmount();
   });
 

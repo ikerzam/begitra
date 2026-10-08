@@ -13,6 +13,7 @@ import { useSettingsStore } from "@/stores/settings";
 import type { SidebarSectionId } from "@/stores/shell";
 
 import { branchLanes } from "./branchLanes";
+import { goneUpstream, heldIn } from "./branchMarkers";
 import { sortRefs } from "./branchOrder";
 import { baseName, sameFolder } from "./format";
 
@@ -28,6 +29,10 @@ export interface RepoRow {
 export interface BranchRow {
   ref: GitRef;
   lane: number;
+  /** The folder of the worktree that holds the branch, when it is not the open one. */
+  heldIn: string | null;
+  /** The branch's upstream when it is gone from its remote. */
+  gone: string | null;
 }
 
 export interface WorktreeRow {
@@ -96,7 +101,12 @@ export function useSidebarSection(id: SidebarSectionId, filter: Ref<string>): Si
       sortRefs(
         repo.refs.filter((ref) => ref.kind === kind),
         settings.values.branchSort,
-      ).map((ref) => ({ ref, lane: lanes.value.get(ref.fullName) ?? 0 })),
+      ).map((ref) => ({
+        ref,
+        lane: lanes.value.get(ref.fullName) ?? 0,
+        heldIn: heldIn(ref),
+        gone: goneUpstream(ref),
+      })),
     );
   const allLocal = refsOf("local-branch");
   const allRemote = refsOf("remote-branch");

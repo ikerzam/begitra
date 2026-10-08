@@ -154,7 +154,11 @@
     "filter": "Filter",
     "repositories": "Repositories",
     "remoteBranches": "Remote branches",
-    "countOf": "{n} of {m}"
+    "countOf": "{n} of {m}",
+    "heldIn": "Checked out in {folder}",
+    "gone": "gone",
+    "goneFrom": "{upstream} is gone from its remote",
+    "markers": "{held}. {gone}"
   },
   "statusBar": {
     "noRepositories": "No repositories",

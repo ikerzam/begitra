@@ -533,7 +533,7 @@ describe("RefMenu", () => {
     const dialogs = mountWithI18n(BranchDialogs, { attachTo: document.body });
     const rows = useRepoStore()
       .refs.filter((ref) => ref.kind === "local-branch")
-      .map((ref) => ({ ref, lane: 0 }));
+      .map((ref) => ({ ref, lane: 0, heldIn: null, gone: null }));
     const list = mountWithI18n(BranchList, {
       props: { rows, kind: "local", label: "Branches" },
       attachTo: document.body,
@@ -562,7 +562,7 @@ describe("RefMenu", () => {
     await open({ refs: held });
     const rows = useRepoStore()
       .refs.filter((ref) => ref.kind === "local-branch")
-      .map((ref) => ({ ref, lane: 0 }));
+      .map((ref) => ({ ref, lane: 0, heldIn: null, gone: null }));
     const list = mountWithI18n(BranchList, {
       props: { rows, kind: "local", label: "Branches" },
       attachTo: document.body,
@@ -585,7 +585,7 @@ describe("RefMenu", () => {
     await open();
     const rows = useRepoStore()
       .refs.filter((ref) => ref.kind === "local-branch")
-      .map((ref) => ({ ref, lane: 0 }));
+      .map((ref) => ({ ref, lane: 0, heldIn: null, gone: null }));
     const list = mountWithI18n(BranchList, {
       props: { rows, kind: "local", label: "Branches" },
       attachTo: document.body,

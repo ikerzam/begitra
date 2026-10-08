@@ -16,6 +16,10 @@ describe("ListRow", () => {
     expect(wrapper.classes()).toContain("h-row-list");
     expect(wrapper.get("[data-lane]").classes()).toContain("bg-lane-3");
     expect(wrapper.get("[data-testid='list-row-name']").text()).toBe("feature/tile-cache");
+    // The whole name is its tooltip, whatever the row cuts.
+    expect(wrapper.get("[data-testid='list-row-name']").attributes("data-tooltip")).toBe(
+      "feature/tile-cache",
+    );
     expect(wrapper.get("[data-testid='ahead']").text()).toBe("2");
     expect(wrapper.find("[data-tooltip='Uncommitted changes']").exists()).toBe(false);
     expect(wrapper.find("[data-testid='list-row-meta']").exists()).toBe(false);
@@ -48,6 +52,33 @@ describe("ListRow", () => {
     const idle = mountWithI18n(ListRow, { props: { name: "Repos", icon: GitBranch, meta: "14" } });
     expect(idle.get("svg").classes()).toContain("text-fg-secondary");
     expect(idle.classes()).toContain("hover:bg-hover");
+  });
+
+  it("colours its icon by a lane, and carries its markers' tooltips and description", () => {
+    const wrapper = mountWithI18n(ListRow, {
+      props: {
+        name: "claude/fix-auth",
+        lane: 4,
+        icon: GitBranch,
+        iconBeside: true,
+        iconLane: 4,
+        iconTooltip: "Checked out in claude-auth",
+        meta: "gone",
+        metaTooltip: "origin/claude/fix-auth is gone from its remote",
+        description: "Checked out in claude-auth",
+      },
+    });
+    const icon = wrapper.get("[data-testid='list-row-icon']");
+    expect(icon.classes()).toContain("text-lane-4");
+    expect(icon.classes()).not.toContain("text-fg-secondary");
+    expect(icon.attributes("data-tooltip")).toBe("Checked out in claude-auth");
+    const meta = wrapper.get("[data-testid='list-row-meta']");
+    expect(meta.attributes("data-tooltip")).toBe("origin/claude/fix-auth is gone from its remote");
+    expect(wrapper.attributes("aria-description")).toBe("Checked out in claude-auth");
+    // Without them nothing is added.
+    const plain = mountWithI18n(ListRow, { props: { name: "main", lane: 1 } });
+    expect(plain.attributes("aria-description")).toBeUndefined();
+    expect(plain.find("[data-testid='list-row-icon']").exists()).toBe(false);
   });
 
   it("selects on click and activates on Enter or double click", async () => {

@@ -6,6 +6,7 @@ import type { Component } from "vue";
 import AheadBehind from "./AheadBehind.vue";
 import DirtyDot from "./DirtyDot.vue";
 import LaneDot from "./LaneDot.vue";
+import { laneTextClass } from "./lanes";
 
 const props = withDefaults(
   defineProps<{
@@ -25,6 +26,14 @@ const props = withDefaults(
     tabStop?: boolean;
     /** Draw the icon after the lane dot too (the Worktrees panel shows both). */
     iconBeside?: boolean;
+    /** A lane whose colour the icon takes (a branch's worktree marker); 0 keeps the text's. */
+    iconLane?: number;
+    /** What the icon says, as its tooltip. */
+    iconTooltip?: string;
+    /** What the meta says beyond its text, as its tooltip. */
+    metaTooltip?: string;
+    /** What the row's markers say, read with the row. */
+    description?: string;
   }>(),
   {
     lane: 0,
@@ -37,12 +46,20 @@ const props = withDefaults(
     selected: false,
     tabStop: undefined,
     iconBeside: false,
+    iconLane: 0,
+    iconTooltip: undefined,
+    metaTooltip: undefined,
+    description: undefined,
   },
 );
 
 const emit = defineEmits<{ select: []; activate: [] }>();
 
 const hasCounts = computed(() => props.ahead !== undefined || props.behind !== undefined);
+const iconClass = computed(() => {
+  if (props.iconLane > 0) return laneTextClass(props.iconLane);
+  return props.selected ? "text-fg" : "text-fg-secondary";
+});
 
 function onKeydown(event: KeyboardEvent): void {
   if (event.key === "Enter") {
@@ -57,6 +74,7 @@ function onKeydown(event: KeyboardEvent): void {
     role="option"
     :aria-selected="props.selected"
     :tabindex="(props.tabStop ?? props.selected) ? 0 : -1"
+    :aria-description="props.description || undefined"
     data-testid="list-row"
     class="flex h-row-list items-center gap-2 border-l-2 px-3 text-md whitespace-nowrap"
     :class="props.selected ? 'border-accent bg-selected' : 'border-transparent hover:bg-hover'"
@@ -80,11 +98,14 @@ function onKeydown(event: KeyboardEvent): void {
       :stroke-width="1.5"
       aria-hidden="true"
       class="shrink-0"
-      :class="props.selected ? 'text-fg' : 'text-fg-secondary'"
+      :class="iconClass"
+      :data-tooltip="props.iconTooltip || undefined"
+      data-testid="list-row-icon"
     />
     <span
       class="flex-1 truncate text-fg"
       :class="{ 'font-medium': props.selected }"
+      :data-tooltip="props.name"
       data-testid="list-row-name"
     >
       {{ props.name }}
@@ -95,6 +116,7 @@ function onKeydown(event: KeyboardEvent): void {
       v-if="props.meta"
       class="shrink-0 text-sm"
       :class="props.missing ? 'text-danger' : 'text-fg-muted'"
+      :data-tooltip="props.metaTooltip || undefined"
       data-testid="list-row-meta"
     >
       {{ props.meta }}

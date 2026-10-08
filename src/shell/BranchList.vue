@@ -3,9 +3,10 @@
 // filtered by the panel, with roving focus and j/k navigation. Selecting a branch scopes the graph
 // to it (the selection lives in the graph store, so the scope control and the lists agree);
 // nothing is selected until the user picks a row, and the first row is the tab stop until then.
-// ↵ checks a branch out.
+// ↵ checks a branch out. A branch another worktree holds shows the tree in its lane's colour after
+// its dot, and one whose upstream is gone from the remote says "gone" where its counts would be.
 
-import { Tag } from "@lucide/vue";
+import { Tag, TreePine } from "@lucide/vue";
 import { computed, inject, onUnmounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -71,6 +72,16 @@ const navigation = useListNavigation({
   onActivate: (index) => activate(index),
 });
 
+/** Each row's markers as its tooltips and its description say them, read once per row. */
+const markers = computed(() =>
+  props.rows.map((row) => {
+    const held = row.heldIn === null ? "" : t("sidebar.heldIn", { folder: row.heldIn });
+    const gone = row.gone === null ? "" : t("sidebar.goneFrom", { upstream: row.gone });
+    const description = held && gone ? t("sidebar.markers", { held, gone }) : held || gone;
+    return { held, gone, description };
+  }),
+);
+
 /** ↵ or a double click on a row: checks the branch out (not the current one). */
 function activate(index: number): void {
   const ref = props.rows[index]?.ref;
@@ -135,9 +146,15 @@ defineExpose({ focus: navigation.focus });
         :data-index="index"
         :name="row.ref.name"
         :lane="row.lane"
-        :icon="props.kind === 'tags' ? Tag : undefined"
+        :icon="props.kind === 'tags' ? Tag : row.heldIn !== null ? TreePine : undefined"
+        :icon-beside="row.heldIn !== null"
+        :icon-lane="row.heldIn !== null ? row.lane : 0"
+        :icon-tooltip="markers[index]?.held || undefined"
         :ahead="row.ref.upstream ? (row.ref.ahead ?? undefined) : undefined"
         :behind="row.ref.upstream ? (row.ref.behind ?? undefined) : undefined"
+        :meta="row.gone !== null ? t('sidebar.gone') : ''"
+        :meta-tooltip="markers[index]?.gone || undefined"
+        :description="markers[index]?.description || undefined"
         :selected="index === selectedRow"
         :tab-stop="index === tabStopRow"
         @select="navigation.select(index)"

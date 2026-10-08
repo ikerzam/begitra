@@ -154,7 +154,11 @@
     "filter": "Filtrar",
     "repositories": "Repositorios",
     "remoteBranches": "Ramas remotas",
-    "countOf": "{n} de {m}"
+    "countOf": "{n} de {m}",
+    "heldIn": "Activa en {folder}",
+    "gone": "desaparecida",
+    "goneFrom": "{upstream} ya no está en su remoto",
+    "markers": "{held}. {gone}"
   },
   "statusBar": {
     "noRepositories": "Sin repositorios",
