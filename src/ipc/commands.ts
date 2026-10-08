@@ -128,6 +128,14 @@ export function mergeBase(repo: string, a: string, b: string, opId = newOpId("me
   return call("merge_base", { repo, a, b, opId }, v.string());
 }
 
+/**
+ * The full names of the branches, remote branches and tags whose history holds `commit` (a full
+ * hash): one walk of the whole history, seconds on a large one; cancel it through `opId`.
+ */
+export function refsContaining(repo: string, commit: string, opId = newOpId("contains")) {
+  return call("refs_containing", { repo, commit, opId }, v.array(v.string()));
+}
+
 /** The merge base, the counts of commits only on each side and the relation of two revisions. */
 export function compare(repo: string, a: string, b: string, opId = newOpId("compare")) {
   return call("compare", { repo, a, b, opId }, ComparisonSchema);

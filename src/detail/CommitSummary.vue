@@ -8,6 +8,8 @@ import type { CommitNode, Ref as GitRef } from "@/ipc/schemas";
 import { absoluteDate, relativeDate, shortHash } from "@/shell/format";
 import { useNow } from "@/shell/useNow";
 
+import ContainedIn from "./ContainedIn.vue";
+
 const props = defineProps<{ commit: CommitNode; refs: GitRef[] }>();
 const emit = defineEmits<{ selectParent: [hash: string] }>();
 
@@ -46,7 +48,9 @@ const badges = computed(() =>
       v-if="props.commit.parents.length > 0"
       class="flex items-center gap-2 text-sm text-fg-secondary"
     >
-      <span>{{ props.commit.parents.length > 1 ? t("detail.parents") : t("detail.parent") }}</span>
+      <span class="text-fg-muted">
+        {{ props.commit.parents.length > 1 ? t("detail.parents") : t("detail.parent") }}
+      </span>
       <button
         v-for="parent in props.commit.parents"
         :key="parent"
@@ -58,8 +62,9 @@ const badges = computed(() =>
         {{ shortHash(parent) }}
       </button>
     </p>
-    <div v-if="badges.length > 0" class="flex flex-wrap items-center gap-2">
+    <div v-if="badges.length > 0" class="flex flex-wrap items-center gap-1">
       <RefBadge v-for="badge in badges" :key="badge.key" :kind="badge.kind" :label="badge.label" />
     </div>
+    <ContainedIn :commit="props.commit.hash" :refs="props.refs" />
   </div>
 </template>

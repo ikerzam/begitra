@@ -288,6 +288,15 @@ export interface FakeBackendOptions {
   failOpener?: boolean;
   /** `remotes` rejects with `git.cli_failed`, as for a broken configuration. */
   failRemotes?: boolean;
+  /**
+   * What `refs_containing` answers per commit (full ref names); the branches, remote branches
+   * and tags whose tip is the commit otherwise. `containingGate` holds each answer until the
+   * test lets it go (`refuse` fails it as git would).
+   */
+  containing?: Record<string, string[]>;
+  containingGate?: WriteGate;
+  /** `refs_containing` rejects with this error (an `op.timeout` has no detail). */
+  containingFailure?: { code: string; message: string; detail?: string };
   /** `open_link` and `reveal_path` reject with `external.refused`, as for a link or a path the
    * backend does not open. */
   refuseOpener?: boolean;
@@ -1356,6 +1365,25 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
               };
             });
           return options.writeGate ? options.writeGate.hold(cmd, deleteThem) : deleteThem();
+        }
+        case "refs_containing": {
+          const commit = String(args["commit"]);
+          if (options.containingFailure) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({ ...options.containingFailure });
+          }
+          const answer = () =>
+            options.containing?.[commit] ??
+            listedRefs()
+              .filter(
+                (entry) =>
+                  entry.target === commit &&
+                  (entry.kind === "local-branch" ||
+                    entry.kind === "remote-branch" ||
+                    entry.kind === "tag"),
+              )
+              .map((entry) => entry.fullName);
+          return options.containingGate ? options.containingGate.hold(cmd, answer) : answer();
         }
         case "remotes":
           if (options.failRemotes) {

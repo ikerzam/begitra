@@ -51,7 +51,8 @@ function remoteName(upstream: string, branch: string): string | null {
   return upstream.slice(0, upstream.length - branch.length - 1);
 }
 
-function badgeKind(ref: GitRef): BadgeKind {
+/** The badge a ref draws as: its kind, and the current branch's own. */
+export function badgeKind(ref: GitRef): BadgeKind {
   switch (ref.kind) {
     case "local-branch":
       return ref.isCurrent ? "current" : "local";

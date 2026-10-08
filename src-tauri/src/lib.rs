@@ -168,6 +168,7 @@ pub fn run() {
             commands::repo::list_refs,
             commands::repo::status,
             commands::repo::merge_base,
+            commands::repo::refs_containing,
             commands::repo::count_commits,
             commands::repo::list_worktrees,
             commands::walk::walk_commits,

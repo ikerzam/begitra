@@ -9,6 +9,7 @@ mod branches;
 mod cleanup;
 mod cli_walk;
 mod compare;
+mod contains;
 mod count;
 mod diff;
 mod diff_pages;
@@ -434,6 +435,10 @@ impl GitEngine for Git2Engine {
 
     fn read_blob(&self, at: &BlobAt, path: &str) -> GitResult<BlobContent> {
         blob::read(self, at, path)
+    }
+
+    fn refs_containing(&self, commit: &str, cancel: &Cancel) -> GitResult<Vec<String>> {
+        contains::refs_containing(self, commit, cancel)
     }
 
     fn compare(&self, a: &str, b: &str, cancel: &Cancel) -> GitResult<Comparison> {

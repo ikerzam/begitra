@@ -552,6 +552,193 @@ pub fn run_git_streaming(
     run_polled_streaming(command, joined(args), cancel, on_line)
 }
 
+/// Lines of output one batch carries from [`run_git_lines`]'s reader thread to its caller.
+const LINE_BATCH: usize = 512;
+
+/// Batches the reader may run ahead of the caller: past them git is paused, its pipe full.
+const BATCHES_AHEAD: usize = 8;
+
+/// Runs `git <args>` in `cwd` and hands each line of its standard output to `on_line` as it
+/// arrives, without its line ending: for a listing too large to hold whole (`rev-list` over a
+/// large history). A reader thread sends the lines in batches through a bounded channel, so a
+/// slow caller pauses git instead of filling memory. `cancel` is polled every
+/// [`CANCEL_POLL`] while waiting and after each batch; a cancelled run stops git (see
+/// [`abort`]) and returns [`GitError::Cancelled`], and so does any early return or a panic of
+/// `on_line`. stderr is read whole by its own thread. The exit status is returned, not judged,
+/// as [`run_git_cancellable`] does; the exit's `stdout` is empty, its lines having gone to
+/// `on_line`.
+#[tracing::instrument(level = "debug", skip_all, fields(cwd = %cwd.display(), args = ?Redacted(args)))]
+pub fn run_git_lines(
+    cwd: &Path,
+    args: &[&str],
+    cancel: &Cancel,
+    on_line: &mut dyn FnMut(&[u8]),
+) -> GitResult<CliExit> {
+    run_lines(command(cwd, args), joined(args), None, cancel, on_line)
+}
+
+/// [`run_git_lines`] with `input` on git's stdin (the revisions `rev-list --stdin` starts
+/// from), written from its own thread so that neither side blocks on a full pipe.
+#[tracing::instrument(level = "debug", skip_all, fields(cwd = %cwd.display(), args = ?Redacted(args), input_bytes = input.len()))]
+pub fn run_git_lines_with_input(
+    cwd: &Path,
+    args: &[&str],
+    input: Vec<u8>,
+    cancel: &Cancel,
+    on_line: &mut dyn FnMut(&[u8]),
+) -> GitResult<CliExit> {
+    run_lines(
+        command(cwd, args),
+        joined(args),
+        Some(input),
+        cancel,
+        on_line,
+    )
+}
+
+/// A git that runs until it exits: dropped while it still holds the child (an early return, a
+/// cancel, a panic of the caller's callback), it stops git and what git started.
+struct Running(Option<Child>);
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        if let Some(child) = self.0.take() {
+            abort(child);
+        }
+    }
+}
+
+/// The body of [`run_git_lines`] and [`run_git_lines_with_input`].
+fn run_lines(
+    mut command: Command,
+    joined: String,
+    input: Option<Vec<u8>>,
+    cancel: &Cancel,
+    on_line: &mut dyn FnMut(&[u8]),
+) -> GitResult<CliExit> {
+    let run_failed = |what: String| GitError::Cli {
+        command: joined.clone(),
+        status: None,
+        stderr: what,
+    };
+    cancel.check()?;
+    isolate(&mut command);
+    if input.is_some() {
+        command.stdin(Stdio::piped());
+    }
+    let child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| GitError::GitNotStarted {
+            command: joined.clone(),
+            reason: error.to_string(),
+        })?;
+    let mut running = Running(Some(child));
+    let Some(child) = running.0.as_mut() else {
+        return Err(run_failed("git stopped as it started".to_owned()));
+    };
+    if let Some(bytes) = input {
+        feed(child, bytes)
+            .map_err(|error| run_failed(format!("could not start the input thread: {error}")))?;
+    }
+    let (sender, batches) = mpsc::sync_channel(BATCHES_AHEAD);
+    let out_reader = read_line_batches(child.stdout.take(), sender)
+        .map_err(|error| run_failed(format!("could not start the output thread: {error}")))?;
+    let err_reader = read_pipe("err", child.stderr.take())
+        .map_err(|error| run_failed(format!("could not start the error thread: {error}")))?;
+    loop {
+        match batches.recv_timeout(CANCEL_POLL) {
+            Ok(batch) => {
+                for line in &batch {
+                    on_line(line);
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+        // The reader ends at end-of-file, or at its next send once the channel is gone.
+        cancel.check()?;
+    }
+    let status = loop {
+        let Some(child) = running.0.as_mut() else {
+            return Err(run_failed(
+                "git stopped before its exit was read".to_owned(),
+            ));
+        };
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                cancel.check()?;
+                thread::sleep(CANCEL_POLL);
+            }
+            Err(error) => return Err(run_failed(format!("could not wait for git: {error}"))),
+        }
+    };
+    // git exited: there is nothing to stop any more.
+    running.0 = None;
+    // A process git started may still hold a pipe: the readers are waited for under the cancel.
+    while !(out_reader.is_finished() && err_reader.is_finished()) {
+        cancel.check()?;
+        thread::sleep(CANCEL_POLL);
+    }
+    out_reader
+        .join()
+        .map_err(|_| run_failed("the output thread stopped".to_owned()))?
+        .map_err(|error| run_failed(format!("could not read git's output: {error}")))?;
+    let stderr = err_reader
+        .join()
+        .map_err(|_| run_failed("the error thread stopped".to_owned()))?
+        .map_err(|error| run_failed(format!("could not read git's messages: {error}")))?;
+    Ok(CliExit {
+        status: status.code(),
+        stdout: Vec::new(),
+        stderr: String::from_utf8_lossy(&stderr).into_owned(),
+    })
+}
+
+/// Reads a pipe line by line, each without its `\n` or `\r\n`, and sends the lines in batches
+/// of [`LINE_BATCH`]; the thread ends at end-of-file, or once the receiver is gone.
+fn read_line_batches<R: Read + Send + 'static>(
+    pipe: Option<R>,
+    batches: mpsc::SyncSender<Vec<Vec<u8>>>,
+) -> std::io::Result<thread::JoinHandle<std::io::Result<()>>> {
+    thread::Builder::new()
+        .name("begitra-git-lines".to_owned())
+        .spawn(move || {
+            use std::io::BufRead;
+            let Some(pipe) = pipe else {
+                return Ok(());
+            };
+            let mut reader = std::io::BufReader::new(pipe);
+            let mut batch = Vec::with_capacity(LINE_BATCH);
+            loop {
+                let mut line = Vec::new();
+                if reader.read_until(b'\n', &mut line)? == 0 {
+                    break;
+                }
+                if line.last() == Some(&b'\n') {
+                    line.pop();
+                }
+                if line.last() == Some(&b'\r') {
+                    line.pop();
+                }
+                batch.push(line);
+                if batch.len() == LINE_BATCH {
+                    let full = std::mem::replace(&mut batch, Vec::with_capacity(LINE_BATCH));
+                    if batches.send(full).is_err() {
+                        return Ok(());
+                    }
+                }
+            }
+            if !batch.is_empty() {
+                // The receiver may be gone: the caller stopped listening.
+                let _ = batches.send(batch);
+            }
+            Ok(())
+        })
+}
+
 /// [`run_git_cancellable`] with `input` on git's stdin (a pathspec list, a commit message,
 /// a patch), written from its own thread so that neither side blocks on a full pipe.
 #[tracing::instrument(level = "debug", skip_all, fields(cwd = %cwd.display(), args = ?Redacted(args), input_bytes = input.len()))]
@@ -1170,6 +1357,64 @@ mod tests {
             "returned {took:?} after the cancel"
         );
         assert_eq!(lines, ["start"]);
+    }
+
+    #[test]
+    fn lines_arrive_whole_and_in_order_past_a_batch() {
+        let mut lines = Vec::new();
+        let exit = run_git_lines(
+            Path::new("."),
+            &["-c", "alias.w=!seq 1 1300", "w"],
+            &Cancel::never(),
+            &mut |line| lines.push(String::from_utf8_lossy(line).into_owned()),
+        )
+        .expect("git runs");
+        assert_eq!(exit.status, Some(0), "{}", exit.stderr);
+        assert!(exit.stdout.is_empty());
+        let expected: Vec<String> = (1..=1300).map(|n| n.to_string()).collect();
+        assert_eq!(lines, expected);
+    }
+
+    #[test]
+    fn a_cancel_after_a_batch_stops_a_git_still_printing() {
+        // The cancel is checked after each batch: a git that prints on, then sleeps, stops
+        // after the first batch, without its output read to the end or its sleep waited for.
+        let cancel = Cancel::new();
+        let flag = cancel.clone();
+        let mut seen = 0;
+        let mut cancelled_at = None;
+        let result = run_git_lines(
+            Path::new("."),
+            &["-c", "alias.w=!seq 1 20000; sleep 8", "w"],
+            &cancel,
+            &mut |_| {
+                seen += 1;
+                flag.cancel();
+                cancelled_at.get_or_insert_with(std::time::Instant::now);
+            },
+        );
+        assert_eq!(result.expect_err("cancelled").code(), "op.cancelled");
+        assert_eq!(seen, LINE_BATCH, "one batch, then the cancel");
+        let took = cancelled_at.expect("lines arrived").elapsed();
+        assert!(
+            took < Duration::from_secs(4),
+            "returned {took:?} after the cancel"
+        );
+    }
+
+    #[test]
+    fn lines_with_input_read_git_s_stdin() {
+        let mut lines = Vec::new();
+        let exit = run_git_lines_with_input(
+            Path::new("."),
+            &["hash-object", "--stdin"],
+            b"hello\n".to_vec(),
+            &Cancel::never(),
+            &mut |line| lines.push(String::from_utf8_lossy(line).into_owned()),
+        )
+        .expect("git runs");
+        assert_eq!(exit.status, Some(0), "{}", exit.stderr);
+        assert_eq!(lines, ["ce013625030ba8dba906f756967f9e9ca394464a"]);
     }
 
     #[test]

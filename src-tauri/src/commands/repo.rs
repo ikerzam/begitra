@@ -245,6 +245,28 @@ pub async fn merge_base(
     .await
 }
 
+/// The longest a "Contained in" read runs: about eight times the parents-first walk of the
+/// kernel's 1.48 million commits without a commit-graph.
+const CONTAINS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// The full names of the branches, remote branches and tags whose history holds `commit` (a
+/// full hash) in the repository at `repo`; git's walk stops with the operation.
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip(state))]
+pub async fn refs_containing(
+    state: State<'_, AppState>,
+    repo: PathBuf,
+    commit: String,
+    op_id: String,
+) -> Result<Vec<String>, AppError> {
+    let app = state.inner().clone();
+    let worker = app.clone();
+    run_blocking(app.ops(), &op_id, CONTAINS_TIMEOUT, move |cancel| {
+        worker.open(&repo)?.refs_containing(&commit, &cancel)
+    })
+    .await
+}
+
 /// Lists the worktrees of the repository at `repo`.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state))]

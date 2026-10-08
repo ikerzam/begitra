@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { createPinia, setActivePinia } from "pinia";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { fakeCommit } from "@/test/backend";
 import { mountWithI18n } from "@/test/mount";
@@ -6,6 +7,10 @@ import { mountWithI18n } from "@/test/mount";
 import CommitSummary from "./CommitSummary.vue";
 
 describe("CommitSummary", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
   it("keeps its subject, body and author selectable in a window that selects nothing else", () => {
     const wrapper = mountWithI18n(CommitSummary, { props: { commit: fakeCommit(0), refs: [] } });
     expect(wrapper.get("[data-testid='commit-subject']").classes()).toContain("select-text");

@@ -1045,6 +1045,11 @@ export const commandArgs = {
   list_refs: v.object({ repo: path, opId }),
   status: v.object({ repo: path, options: StatusOptionsSchema, opId }),
   merge_base: v.object({ repo: path, a: v.string(), b: v.string(), opId }),
+  refs_containing: v.object({
+    repo: path,
+    commit: v.pipe(v.string(), v.regex(/^[0-9a-f]{40}$/)),
+    opId,
+  }),
   compare: v.object({ repo: path, a: revision, b: revision, opId }),
   merge_preview: v.object({ repo: path, a: revision, b: revision, opId }),
   worktree_add: v.object({

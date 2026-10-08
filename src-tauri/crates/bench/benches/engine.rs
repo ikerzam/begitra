@@ -282,6 +282,29 @@ fn walk_first_page_filtered(c: &mut Criterion) {
     group.finish();
 }
 
+/// The refs whose history holds the commit ten below HEAD: one parents-first walk of every
+/// commit of the branches, the remote branches and the tags, whatever the commit.
+fn refs_containing(c: &mut Criterion) {
+    let mut group = c.benchmark_group("refs_containing");
+    group.sample_size(10);
+    group.measurement_time(Duration::from_secs(60));
+    for target in present() {
+        let Ok(out) = run_git(&target.path, &["rev-parse", "HEAD~10"]) else {
+            eprintln!("skipping refs_containing/{}: no HEAD~10", target.name);
+            continue;
+        };
+        let commit = out.stdout.trim().to_owned();
+        let engine = engine(&target.path);
+        group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+            b.iter(|| {
+                e.refs_containing(&commit, &Cancel::never())
+                    .expect("refs containing")
+            });
+        });
+    }
+    group.finish();
+}
+
 /// The first page of a path history (`git rev-list --all -- <path>` hydrated with libgit2)
 /// for the path the newest commits change most often; the child process is killed when the
 /// handle drops.
@@ -1232,6 +1255,7 @@ criterion_group!(
     count_refs,
     count_all,
     path_history,
+    refs_containing,
     walk_ten_pages,
     status,
     status_libgit2,

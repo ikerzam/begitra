@@ -70,6 +70,9 @@ pub fn budget(id: &str) -> Option<Duration> {
         ("worktree_add_remove", _) => return None,
         // Staging writes are user actions with their progress in the status bar.
         ("stage_unstage_10k", _) | ("apply_selection_5k", _) => return None,
+        // "Contained in" reads on demand behind its count of seconds, under a 120 s timeout:
+        // recorded without a budget.
+        ("refs_containing", _) => return None,
         _ => return None,
     };
     Some(Duration::from_millis(ms))

@@ -177,6 +177,14 @@ pub trait GitEngine: Send + Sync {
     /// for an endpoint that does not name a commit.
     fn compare(&self, a: &str, b: &str, cancel: &Cancel) -> GitResult<Comparison>;
 
+    /// The full names of the branches, remote branches and tags whose history holds `commit`
+    /// (a full hash), as `git for-each-ref --contains` lists them without a remote's symbolic
+    /// `HEAD`, in the order the repository lists the refs. With a commit-graph file git answers;
+    /// without one, one walk of every commit of those refs, parents first, with no date bound,
+    /// so a commit with a clock behind is not missed. [`GitError::RefNotFound`] for a hash the
+    /// repository does not have as a commit; cancellation stops git.
+    fn refs_containing(&self, commit: &str, cancel: &Cancel) -> GitResult<Vec<String>>;
+
     /// What merging `b` into `a` would do, through `git merge-tree` for the diverged case:
     /// nothing the user can see changes (git may store the merged result as unreferenced
     /// objects). Cancellation stops the child process and what it started.
