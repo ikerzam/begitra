@@ -1,46 +1,109 @@
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it } from "vitest";
+import { nextTick } from "vue";
 
+import { fakeBackend } from "@/test/backend";
+import { projectOf } from "@/test/entries";
+
+import { useProjectsStore } from "./projects";
+import { useRepoStore } from "./repo";
 import { memoryStorage, useSettingsStore } from "./settings";
 import { clampPane, defaultDetailWidth, useShellStore } from "./shell";
+
+/** A repository opening: the sidebar shows wherever the tab shown has one. */
+function opening(): void {
+  useRepoStore().state = { kind: "opening", path: "/r" };
+}
 
 beforeEach(() => {
   setActivePinia(createPinia());
 });
 
 describe("shell store", () => {
-  it("switches layout modes through the settings", async () => {
+  it("switches layouts through the tabs, never through the settings", async () => {
     const settings = useSettingsStore();
-    const storage = memoryStorage();
+    const storage = memoryStorage({ activeProject: 1 });
     await settings.init(storage, "windows");
     const shell = useShellStore();
     expect(shell.layoutMode).toBe("graph");
     await shell.setLayoutMode("review");
     expect(shell.layoutMode).toBe("review");
-    expect(storage.data.get("layoutMode")).toBe("review");
+    expect(storage.data.has("layoutMode")).toBe(false);
   });
 
-  it("opens and closes the sidebar's panels, Ctrl B the last one, for the session", async () => {
+  it("opens and closes the sidebar's panel per kind of tab, remembered", async () => {
     const settings = useSettingsStore();
-    const storage = memoryStorage();
+    const storage = memoryStorage({ activeProject: 1 });
     await settings.init(storage, "windows");
+    opening();
     const shell = useShellStore();
-    expect(shell.sidebarPanel).toBeNull();
-    // Ctrl B with none open opens Branches the first time.
-    shell.toggleSidebarPanel();
-    expect(shell.sidebarPanel).toBe("local");
-    // A rail icon opens its panel in place of the open one, and closes it when it is the open one.
-    shell.toggleSidebarPanel("worktrees");
-    expect(shell.sidebarPanel).toBe("worktrees");
-    shell.toggleSidebarPanel("worktrees");
-    expect(shell.sidebarPanel).toBeNull();
-    // Ctrl B opens the last one again, then closes it.
-    shell.toggleSidebarPanel();
-    expect(shell.sidebarPanel).toBe("worktrees");
-    shell.toggleSidebarPanel();
-    expect(shell.sidebarPanel).toBeNull();
-    // Nothing of it is a setting.
-    expect([...storage.data.keys()].some((key) => key.startsWith("sidebar"))).toBe(false);
+    // Open in graph focus by default, on Branches; Ctrl B closes it there alone.
+    expect(shell.sidebarView).toBe("graph");
+    expect(shell.sidebarOpen).toBe(true);
+    expect(shell.sidebarSection).toBe("local");
+    expect(shell.sidebarWidth).toBe(288);
+    shell.toggleSidebar();
+    expect(shell.sidebarOpen).toBe(false);
+    expect(shell.sidebarWidth).toBe(48);
+    // Closed in review focus by default; a rail icon opens it on its section, to be focused.
+    await shell.setLayoutMode("review");
+    expect(shell.sidebarOpen).toBe(false);
+    shell.pickSidebarSection("tags");
+    expect(shell.sidebarOpen).toBe(true);
+    expect(shell.sidebarSection).toBe("tags");
+    expect(shell.takeSidebarFocus()).toBe(true);
+    expect(shell.takeSidebarFocus()).toBe(false);
+    // Another icon shows its section; the shown section's icon closes the panel.
+    shell.pickSidebarSection("worktrees");
+    expect(shell.sidebarSection).toBe("worktrees");
+    expect(shell.takeSidebarFocus()).toBe(true);
+    shell.pickSidebarSection("worktrees");
+    expect(shell.sidebarOpen).toBe(false);
+    shell.pickSidebarSection("worktrees");
+    // Each kind of tab keeps its own: graph focus's is still closed.
+    await shell.setLayoutMode("graph");
+    expect(shell.sidebarOpen).toBe(false);
+    await settings.flush();
+    expect(storage.data.get("sidebarPanels")).toEqual({
+      graph: false,
+      review: true,
+      compare: true,
+      worktrees: true,
+      changes: true,
+    });
+    expect(storage.data.get("sidebarSection")).toBe("worktrees");
+  });
+
+  it("shows no sidebar in the Overview, the settings, a project's folder view or Home", async () => {
+    fakeBackend({
+      projects: [projectOf(1, "Geoportal", ["/api", "/web"]), projectOf(2, "Docs", ["/docs"])],
+    });
+    const settings = useSettingsStore();
+    await settings.init(memoryStorage(), "windows");
+    const shell = useShellStore();
+    await useProjectsStore().load();
+    // Home: no project, no repository.
+    expect(shell.sidebarView).toBeNull();
+    shell.toggleSidebar();
+    expect(shell.sidebarOpen).toBe(false);
+    expect(shell.sidebarWidth).toBe(0);
+    await settings.update("activeProject", 1);
+    await nextTick();
+    opening();
+    expect(shell.sidebarView).toBe("graph");
+    for (const mode of ["settings", "overview", "changes"] as const) {
+      await shell.setLayoutMode(mode);
+      expect(shell.sidebarView).toBeNull();
+    }
+    // A project of one shows the sidebar beside its changes, and Branches in place of its
+    // Repositories.
+    await settings.update("sidebarSection", "repos");
+    expect(shell.sidebarSection).toBe("repos");
+    await settings.update("activeProject", 2);
+    await nextTick();
+    await shell.setLayoutMode("changes");
+    expect(shell.sidebarView).toBe("changes");
+    expect(shell.sidebarSection).toBe("local");
   });
 
   it("keeps a filter per panel until the filters are cleared", async () => {
@@ -51,7 +114,6 @@ describe("shell store", () => {
     shell.setSidebarFilter("tags", "v2");
     expect(shell.sidebarFilters.local).toBe("auth");
     expect(shell.sidebarFilters.remote).toBe("");
-    shell.closeSidebarPanel();
     expect(shell.sidebarFilters.tags).toBe("v2");
     shell.clearSidebarFilters();
     expect(Object.values(shell.sidebarFilters)).toEqual(["", "", "", "", ""]);
@@ -138,11 +200,22 @@ describe("shell store", () => {
     expect(shell.detailWidth).toBe(455);
     shell.setWindowWidth(1440);
     expect(shell.detailWidth).toBe(520);
-    // An open panel floats: the room stays the page less the rail.
+    // The panel starts closed there; opened, its room comes off the detail panel's limits:
+    // 823 - 288 - 320 is under the floor.
     await shell.resetPaneSize("detail");
     shell.setWindowWidth(823);
-    shell.openSidebarPanel("repos");
-    expect(shell.detailWidth).toBe(310);
+    opening();
+    expect(shell.sidebarOpen).toBe(false);
+    shell.toggleSidebar();
+    expect(shell.sidebarOpen).toBe(true);
+    expect(shell.detailLimits).toEqual({ min: 280, max: 280 });
+    expect(shell.detailWidth).toBe(280);
+    // Crossing the breakpoint brings back what graph focus remembers, open, and closes it again
+    // on the way down.
+    shell.setWindowWidth(1440);
+    expect(shell.sidebarOpen).toBe(true);
+    shell.setWindowWidth(823);
+    expect(shell.sidebarOpen).toBe(false);
     // 1024px and above keep the normal limits, 360 to 900.
     shell.setWindowWidth(1024);
     expect(shell.detailWidth).toBe(360);
@@ -169,7 +242,7 @@ describe("shell store", () => {
 
   it("collapses the review rail below 1100px until the user shows it", async () => {
     const settings = useSettingsStore();
-    await settings.init(memoryStorage(), "macos");
+    await settings.init(memoryStorage({ activeProject: 1 }), "macos");
     const shell = useShellStore();
     await shell.setLayoutMode("review");
     shell.setWindowWidth(1440);
@@ -187,7 +260,7 @@ describe("shell store", () => {
 
   it("hides and shows the review rail on request at any width", async () => {
     const settings = useSettingsStore();
-    await settings.init(memoryStorage(), "windows");
+    await settings.init(memoryStorage({ activeProject: 1 }), "windows");
     const shell = useShellStore();
     await shell.setLayoutMode("review");
     shell.setWindowWidth(1440);

@@ -1,9 +1,9 @@
 <script setup lang="ts">
-// The refs of one sidebar panel (the local branches, the remote branches or the tags), filtered
-// by the panel, with roving focus and j/k navigation. Selecting a branch scopes the graph to it
-// (the selection lives in the graph store, so the scope control and the lists agree); nothing is
-// selected until the user picks a row, and the first row is the tab stop until then. ↵ checks a
-// branch out and says the row was activated (`activated`), which closes the panel.
+// The refs of one sidebar section (the local branches, the remote branches or the tags),
+// filtered by the panel, with roving focus and j/k navigation. Selecting a branch scopes the graph
+// to it (the selection lives in the graph store, so the scope control and the lists agree);
+// nothing is selected until the user picks a row, and the first row is the tab stop until then.
+// ↵ checks a branch out.
 
 import { Tag } from "@lucide/vue";
 import { computed, inject, onUnmounted, ref } from "vue";
@@ -30,8 +30,6 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{
   action: [kind: BranchAction, ref: GitRef];
-  /** A row was activated (↵): the panel closes. */
-  activated: [];
 }>();
 
 const { t } = useI18n();
@@ -73,11 +71,10 @@ const navigation = useListNavigation({
   onActivate: (index) => activate(index),
 });
 
-/** ↵ or a double click on a row: checks the branch out (not the current one), then says so. */
+/** ↵ or a double click on a row: checks the branch out (not the current one). */
 function activate(index: number): void {
   const ref = props.rows[index]?.ref;
   if (ref && !ref.isCurrent) emit("action", "checkout", ref);
-  emit("activated");
 }
 
 /** The menu opens under the row, past the lane dot, where the graph opens its own. */

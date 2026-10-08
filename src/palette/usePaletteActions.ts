@@ -13,7 +13,6 @@ import { useNotesExport } from "@/review/useNotesExport";
 import { folderKey } from "@/shell/format";
 import { useExternal } from "@/shell/useExternal";
 import { useOpenFolder } from "@/shell/useOpenFolder";
-import { useSidebarAvailable } from "@/shell/useSidebarAvailable";
 import { useBranchesStore } from "@/stores/branches";
 import { useCleanupStore } from "@/stores/cleanup";
 import { useIndexStore } from "@/stores/index";
@@ -61,12 +60,11 @@ export function usePaletteActions(): PaletteActions {
   const projects = useProjectsStore();
   const projectDialogs = useProjectDialogsStore();
   const syncActions = useSyncActions();
-  const sidebarAvailable = useSidebarAvailable();
   const tabs = useTabsStore();
 
   return {
     hasRepository: () => repo.state.kind === "ready",
-    hasSidebar: () => sidebarAvailable.value,
+    hasSidebar: () => shell.sidebarView !== null,
     projectPinned: () => projects.active?.pinned ?? null,
     hasFolderProjects: () => projects.folders.length > 0,
     openFolder: async () => {
@@ -83,9 +81,7 @@ export function usePaletteActions(): PaletteActions {
     },
     setGraphFocus: () => void shell.setLayoutMode("graph"),
     setReviewFocus: () => void shell.setLayoutMode("review"),
-    toggleSidebar: () => {
-      if (sidebarAvailable.value) shell.toggleSidebarPanel();
-    },
+    toggleSidebar: () => shell.toggleSidebar(),
     openTerminal: async () => {
       await external.openTerminal();
     },
@@ -129,9 +125,10 @@ export function usePaletteActions(): PaletteActions {
     swapComparison: () => compare.swap(),
     inGraph: () => shell.layoutMode === "graph" && repo.state.kind === "ready",
     goToHead: () => void shortcutRegistry().run("go-to-head"),
-    hasTabs: () => tabs.comparisons.length > 0,
+    hasTabs: () => tabs.row.length > 1,
     nextTab: () => tabs.step(1),
     previousTab: () => tabs.step(-1),
+    canCloseTab: () => tabs.active !== null,
     closeTab: () => void tabs.closeActive(),
     openComparisonInReview: () => compare.openInReview(),
     showWorktrees: () => worktrees.show(),

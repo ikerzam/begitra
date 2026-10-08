@@ -78,6 +78,8 @@ describe("PaletteOverlay", () => {
 
   it("lists the commands with their hints, filters, runs with enter and closes", async () => {
     const shell = useShellStore();
+    // A repository opening: review focus has a tab to show, which Home has not.
+    useRepoStore().state = { kind: "opening", path: "/r" };
     shell.openPalette();
     const wrapper = mountWithI18n(PaletteOverlay, { attachTo: document.body });
     const rows = wrapper.findAll('[data-testid="palette-row"]');
@@ -85,7 +87,7 @@ describe("PaletteOverlay", () => {
     expect(rows.some((r) => r.text().includes("Open in terminal"))).toBe(false);
 
     const input = wrapper.get('[data-testid="palette-input"]');
-    await input.setValue("rev");
+    await input.setValue("review focus");
     expect(wrapper.findAll('[data-testid="palette-row"]')).toHaveLength(1);
     await input.trigger("keydown", { key: "Enter" });
     expect(shell.layoutMode).toBe("review");

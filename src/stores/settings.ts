@@ -3,7 +3,8 @@
 // so a bad value falls back to its default), and every `update` writes through. The keys of
 // the versions before projects (the scan folders, the last repository, the folder view and the
 // project tab) are read once into `legacy` for the projects' migration step, which then drops
-// them (`dropLegacy`).
+// them (`dropLegacy`). The one layout of an earlier version's project tab (`layoutMode`) is read
+// once into `launchLayout`, for the launch to show its tab.
 
 import { load } from "@tauri-apps/plugin-store";
 import { defineStore } from "pinia";
@@ -16,10 +17,21 @@ import { PALETTE_THEMES, type PaletteThemeId } from "@/styles/themes";
 
 import { lineTemplates } from "./externalTemplates";
 
-/** The layouts of the project's tab, which the top bar, ⌘1 to ⌘4 and the gear choose. */
+/** The layouts a tab of their own shows: the fixed tabs' (⌘1 to ⌘4), the dashboard and the
+ * settings. */
 export type ProjectLayout = "graph" | "review" | "worktrees" | "settings" | "changes" | "overview";
-/** The layout shown: the project's tab's, or the comparison of a comparison's tab. */
+/** The layout shown: a tab's, a comparison's included. */
 export type LayoutMode = ProjectLayout | "compare";
+
+/** The sections of the sidebar, each shown in its docked panel from the rail, in the rail's
+ * order. */
+export const sidebarSectionIds = ["repos", "local", "remote", "tags", "worktrees"] as const;
+export type SidebarSectionId = (typeof sidebarSectionIds)[number];
+
+/** The kinds of tab that show the sidebar, each with its panel open or closed. */
+export const sidebarViews = ["graph", "review", "compare", "worktrees", "changes"] as const;
+export type SidebarView = (typeof sidebarViews)[number];
+export type SidebarPanels = Record<SidebarView, boolean>;
 export type TabWidth = 2 | 4 | 8;
 
 /** The filters a new review starts with (the settings' Diff section, "Hide by default"). */
@@ -64,10 +76,18 @@ export interface CompareEndpoints {
   b: CompareEndpoint;
 }
 
-/** A project's comparison tabs, and the tab it showed: 0 its own, n the n-th comparison. */
+/** A tab opened on demand, as the settings keep it. */
+export type StoredTab =
+  ({ kind: "compare" } & CompareEndpoints) | { kind: "worktrees" } | { kind: "settings" };
+
+/**
+ * A project's tabs opened on demand, and the tab it showed: a fixed one by its kind, or an open
+ * one by its place among them. `project` is the one tab of an earlier version's project, whose
+ * layout the launch resolves (`launchLayout`).
+ */
 export interface ProjectTabs {
-  comparisons: CompareEndpoints[];
-  active: number;
+  open: StoredTab[];
+  active: "graph" | "review" | "changes" | "overview" | "project" | number;
 }
 
 /** Widths in px of the resizable columns of the table with a header; the last takes the rest. */
@@ -91,8 +111,6 @@ export interface Settings {
   editorLineCommand: string;
   paneSizes: PaneSizes;
   columnWidths: ColumnWidths;
-  /** The layout of the project's tab. */
-  layoutMode: ProjectLayout;
   locale: Locale;
   /** Ids of the last commands run from the palette, most recent first. */
   paletteRecents: string[];
@@ -112,8 +130,12 @@ export interface Settings {
   diffIgnoreWhitespace: boolean;
   /** Show every unchanged line of a file in the diff viewer, not only the hunks' context. */
   diffWholeFile: boolean;
-  /** Each project's comparison tabs, by project id. */
+  /** Each project's tabs opened on demand and the tab it showed, by project id. */
   tabs: Record<string, ProjectTabs>;
+  /** The section the sidebar's panel shows. */
+  sidebarSection: SidebarSectionId;
+  /** Whether the sidebar's panel is open, per kind of tab. */
+  sidebarPanels: SidebarPanels;
   /** Where new worktrees go; null means a sibling folder of the repository. */
   worktreeFolder: string | null;
   /** The git executable the CLI runs; null means `git` on PATH. */
@@ -159,6 +181,24 @@ const endpoint = v.object({
   label: v.pipe(v.string(), v.minLength(1)),
 });
 const pair = v.object({ a: endpoint, b: endpoint });
+const storedTab = v.variant("kind", [
+  v.object({ kind: v.literal("compare"), a: endpoint, b: endpoint }),
+  v.object({ kind: v.literal("worktrees") }),
+  v.object({ kind: v.literal("settings") }),
+]);
+const projectTabs = v.object({
+  open: v.array(storedTab),
+  active: v.union([
+    v.picklist(["graph", "review", "changes", "overview", "project"]),
+    v.pipe(v.number(), v.integer(), v.minValue(0)),
+  ]),
+});
+/** A project's tabs as the versions before every view was a tab kept them: its comparisons and
+ * the tab shown, 0 the project's own, n the n-th comparison. */
+const earlierProjectTabs = v.object({
+  comparisons: v.array(pair),
+  active: v.pipe(v.number(), v.integer(), v.minValue(0)),
+});
 
 const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } = {
   terminalCommand: v.pipe(v.string(), v.minLength(1)),
@@ -168,7 +208,6 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   columnWidths: v.object({
     worktrees: v.object({ path: px, branch: px, state: px, ahead: px }),
   }),
-  layoutMode: v.picklist(["graph", "review", "worktrees", "settings", "changes", "overview"]),
   locale: v.picklist(["en", "es"]),
   paletteRecents: v.array(v.string()),
   skipFolders: v.array(path),
@@ -179,13 +218,15 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   diffWrap: v.boolean(),
   diffIgnoreWhitespace: v.boolean(),
   diffWholeFile: v.boolean(),
-  tabs: v.record(
-    v.string(),
-    v.object({
-      comparisons: v.array(pair),
-      active: v.pipe(v.number(), v.integer(), v.minValue(0)),
-    }),
-  ),
+  tabs: v.record(v.string(), projectTabs),
+  sidebarSection: v.picklist(sidebarSectionIds),
+  sidebarPanels: v.object({
+    graph: v.boolean(),
+    review: v.boolean(),
+    compare: v.boolean(),
+    worktrees: v.boolean(),
+    changes: v.boolean(),
+  }),
   worktreeFolder: v.nullable(path),
   gitExecutable: v.nullable(path),
   tabWidth: v.picklist([2, 4, 8]),
@@ -228,7 +269,47 @@ const legacySchemas = {
 };
 
 /** The layout the project view and the folder view map to: the Overview and the Changes. */
-const legacyLayouts: Record<string, LayoutMode> = { project: "overview", folder: "changes" };
+const legacyLayouts: Record<string, ProjectLayout> = { project: "overview", folder: "changes" };
+
+/** The layouts the key `layoutMode` of an earlier version held for its project's tab. */
+const earlierLayout = v.picklist([
+  "graph",
+  "review",
+  "worktrees",
+  "settings",
+  "changes",
+  "overview",
+]);
+
+/**
+ * The layout an earlier version's `layoutMode` showed in its project's tab: a layout as it was,
+ * the project and folder views as the Overview and the Changes, the comparison as the graph (its
+ * comparison comes back as a tab of its own); null when the file holds no such key.
+ */
+function launchLayoutOf(stored: unknown): ProjectLayout | null {
+  if (typeof stored !== "string") return null;
+  const legacy = legacyLayouts[stored];
+  if (legacy) return legacy;
+  if (stored === "compare") return "graph";
+  const parsed = v.safeParse(earlierLayout, stored);
+  return parsed.success ? parsed.output : null;
+}
+
+/** An earlier version's tabs of each project: its comparisons as compare tabs, its own tab as
+ * `project`, the layout of which the launch resolves. */
+function tabsOfEarlier(stored: unknown): Record<string, ProjectTabs> | null {
+  const parsed = v.safeParse(v.record(v.string(), earlierProjectTabs), stored);
+  if (!parsed.success) return null;
+  return Object.fromEntries(
+    Object.entries(parsed.output).map(([key, entry]) => [
+      key,
+      {
+        open: entry.comparisons.map((pairOf) => ({ kind: "compare" as const, ...pairOf })),
+        active: entry.active === 0 ? ("project" as const) : entry.active - 1,
+      },
+    ]),
+  );
+}
 
 /** Command templates per platform; the first entry is the default, the rest are fallbacks. */
 export function platformDefaults(platform: Platform): { terminal: string[]; editor: string[] } {
@@ -263,7 +344,6 @@ export function defaultSettings(platform: Platform): Settings {
     editorLineCommand: "",
     paneSizes: { sidebar: 240, detail: null, files: 280, reviewRail: 280 },
     columnWidths: defaultColumnWidths(),
-    layoutMode: "graph",
     locale: "en",
     paletteRecents: [],
     skipFolders: [...defaultSkipFolders],
@@ -275,6 +355,9 @@ export function defaultSettings(platform: Platform): Settings {
     diffIgnoreWhitespace: false,
     diffWholeFile: false,
     tabs: {},
+    sidebarSection: "local",
+    // Review focus keeps the room for the diff: the rail alone.
+    sidebarPanels: { graph: true, review: false, compare: true, worktrees: true, changes: true },
     worktreeFolder: null,
     gitExecutable: null,
     tabWidth: 4,
@@ -344,36 +427,51 @@ export const useSettingsStore = defineStore("settings", () => {
   let flushing: Promise<void> | undefined;
   let settle: (() => void) | undefined;
 
+  /** The layout an earlier version left its open project's one tab on, until the launch shows
+   * it (`takeLaunchLayout`); null when the file held none. */
+  const launchLayout = ref<ProjectLayout | null>(null);
+
   /** Reads every key from `backend`; invalid or missing keys keep their default. Values
    * updated before the read finished win over the stored ones and are written through. The
    * keys of a version before projects land in `legacy`, and its project and folder views map
-   * to the Overview and the Changes. */
+   * to the Overview and the Changes. An earlier version's tabs turn into the tabs of each
+   * project, and its `layoutMode` into `launchLayout`, the key leaving the file. */
   async function init(backend: SettingsStorage, forPlatform = platform.value): Promise<void> {
     platform.value = forPlatform;
     const next = defaultSettings(forPlatform);
     const stored = await Promise.all(settingsKeys.map((key) => backend.get<unknown>(key)));
-    const layout = stored[settingsKeys.indexOf("layoutMode")];
-    const oldLayout = typeof layout === "string" ? legacyLayouts[layout] : undefined;
+    const layout = await backend.get<unknown>("layoutMode");
     settingsKeys.forEach((key, index) => {
       const parsed = v.safeParse(schemas[key], stored[index]);
       if (parsed.success) (next as unknown as Record<string, unknown>)[key] = parsed.output;
     });
-    // The mapped layout is written through, so the file holds no retired layout past this read.
-    if (oldLayout && !pending.has("layoutMode")) pending.set("layoutMode", oldLayout);
+    const earlier = tabsOfEarlier(stored[settingsKeys.indexOf("tabs")]);
+    if (earlier && !pending.has("tabs")) pending.set("tabs", earlier);
+    launchLayout.value = launchLayoutOf(layout);
     const comparison = await readComparison(backend, layout === "compare", next);
-    legacy.value = await readLegacy(backend, oldLayout ? (layout as "project" | "folder") : null);
+    const legacyLayout = typeof layout === "string" && layout in legacyLayouts ? layout : null;
+    legacy.value = await readLegacy(backend, legacyLayout as "project" | "folder" | null);
     for (const [key, value] of pending) (next as unknown as Record<string, unknown>)[key] = value;
     values.value = next;
     storage = backend;
     loaded.value = true;
+    const retired = layout !== undefined;
+    if (retired) await backend.delete("layoutMode");
     if (pending.size > 0) await flush();
-    else if (comparison) await backend.save();
+    else if (comparison || retired) await backend.save();
+  }
+
+  /** The layout an earlier version left its open project on, once: the launch shows its tab. */
+  function takeLaunchLayout(): ProjectLayout | null {
+    const layout = launchLayout.value;
+    launchLayout.value = null;
+    return layout;
   }
 
   /**
    * A file holding one comparison (`compare`) beside the compare layout: the open project's first
-   * comparison tab, shown, and the project's tab in graph focus; the key goes from the file.
-   * A comparison stored with another layout had been left, and goes. True when the key was there.
+   * comparison tab, shown; the key goes from the file. A comparison stored with another layout
+   * had been left, and goes. True when the key was there.
    */
   async function readComparison(
     backend: SettingsStorage,
@@ -381,13 +479,13 @@ export const useSettingsStore = defineStore("settings", () => {
     next: Settings,
   ): Promise<boolean> {
     const stored = await backend.get<unknown>("compare");
-    if (shown && !pending.has("layoutMode")) pending.set("layoutMode", "graph");
     if (stored === undefined) return false;
     const parsed = v.safeParse(pair, stored);
     const project = next.activeProject;
-    if (shown && parsed.success && project !== null && !(String(project) in next.tabs)) {
-      const tabs = { ...next.tabs, [String(project)]: { comparisons: [parsed.output], active: 1 } };
-      if (!pending.has("tabs")) pending.set("tabs", tabs);
+    const tabs = (pending.get("tabs") as Settings["tabs"] | undefined) ?? next.tabs;
+    if (shown && parsed.success && project !== null && !(String(project) in tabs)) {
+      const entry: ProjectTabs = { open: [{ kind: "compare", ...parsed.output }], active: 0 };
+      pending.set("tabs", { ...tabs, [String(project)]: entry });
     }
     await backend.delete("compare");
     return true;
@@ -483,6 +581,8 @@ export const useSettingsStore = defineStore("settings", () => {
     values,
     loaded,
     legacy,
+    launchLayout,
+    takeLaunchLayout,
     init,
     update,
     flush,

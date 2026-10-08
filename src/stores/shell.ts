@@ -1,11 +1,13 @@
-// Shell layout state: the layout shown (a comparison's tab's, else the project's tab's), the
-// sidebar's open panel (its rail is the sidebar), pane sizes (persisted through the settings
-// store), the narrow-window collapse of the review rail and of the detail panel under the zoom,
-// and the palette.
+// Shell layout state: the layout shown (the tab shown's), the sidebar (where the tab shown has
+// one, its section and whether its docked panel is open), pane sizes (persisted through the
+// settings store), the narrow-window collapse of the review rail and of the detail panel under
+// the zoom, and the palette.
 
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 
+import { useProjectsStore } from "./projects";
+import { useRepoStore } from "./repo";
 import {
   defaultColumnWidths,
   defaultSettings,
@@ -14,19 +16,12 @@ import {
   type LayoutMode,
   type PaneSizes,
   type ProjectLayout,
+  type SidebarSectionId,
+  type SidebarView,
 } from "./settings";
 import { useTabsStore } from "./tabs";
 
-/** The sections of the sidebar, each a panel of the rail, in the rail's order. */
-export const sidebarSectionIds = ["repos", "local", "remote", "tags", "worktrees"] as const;
-export type SidebarSectionId = (typeof sidebarSectionIds)[number];
-
-/**
- * Why a sidebar panel closed, which says where the focus goes: a press gives it to what it
- * pressed and a move of the focus already took it; any other way (⌘B, a row's activation, the
- * dashboard) gives it back to where it was before the panel opened, else the layout's list.
- */
-export type SidebarCloseReason = "press" | "focus" | "other";
+export { sidebarSectionIds, type SidebarSectionId } from "./settings";
 
 /** Pane limits in px, from the design: detail never under 360, sidebar 240 by default. */
 export const paneLimits: Record<keyof PaneSizes, { min: number; max: number }> = {
@@ -49,7 +44,7 @@ export const REVIEW_RAIL_BREAKPOINT = 1100;
  * detail panel gives way to the graph panel.
  */
 export const NARROW_BREAKPOINT = 1024;
-/** The sidebar's rail (`--rail-w`): all the room the sidebar takes, its panels floating. */
+/** The sidebar's rail (`--rail-w`), beside which its panel docks while open. */
 const RAIL_WIDTH = 48;
 /** The room the detail panel's default share leaves the sidebar. */
 const SIDEBAR_SHARE = 240;
@@ -89,33 +84,69 @@ export const useShellStore = defineStore("shell", () => {
   const windowWidth = ref(1440);
   const reviewRailPreference = ref<ReviewRailPreference>("auto");
   const paletteOpen = ref(false);
-  /**
-   * The sidebar's open panel, floating over the main area; none open by default. Session state,
-   * not a setting: a panel open at start would cover the graph.
-   */
-  const sidebarPanel = ref<SidebarSectionId | null>(null);
-  /** The panel ⌘B opens: the last one opened, Branches until one is. */
-  const lastSidebarPanel = ref<SidebarSectionId>("local");
-  /** Why the panel last closed (`SidebarCloseReason`), read by whoever places the focus. */
-  const sidebarCloseReason = ref<SidebarCloseReason>("other");
-  /** Each panel's filter, kept while it is closed; cleared when another repository shows. */
+  /** Under the narrow breakpoint the panel starts closed; opened there, it stays open until the
+   * page crosses the breakpoint. Session state. */
+  const narrowSidebarOpen = ref(false);
+  /** Set when the panel opens or shows another section: the panel takes it (`takeSidebarFocus`)
+   * and focuses its list. */
+  const sidebarFocusPending = ref(false);
+  /** The panel's list keeps the focus across a reload of its rows (a worktree opened as the
+   * context lists the worktrees again): the layout does not take it meanwhile. */
+  const sidebarFocusHeld = ref(false);
+  /** Each section's filter, kept while another shows or the panel is closed; cleared when
+   * another repository shows. */
   const sidebarFilters = ref<Record<SidebarSectionId, string>>(noFilters());
 
-  /** The layout shown: the comparison while its tab shows, else the project's tab's. */
+  /** The layout shown: the tab shown's, Home's being graph focus with no project. */
   const layoutMode = computed<LayoutMode>(() =>
-    tabs.activePair ? "compare" : settings.values.layoutMode,
+    tabs.activeKind === "home" ? "graph" : tabs.activeKind,
   );
   const narrow = computed(() => windowWidth.value < NARROW_BREAKPOINT);
   const paneSizes = computed<PaneSizes>(() => settings.values.paneSizes);
   const columnWidths = computed<ColumnWidths>(() => settings.values.columnWidths);
 
   /**
+   * The kind of tab whose sidebar shows, null where none does: the views that act on the
+   * repository the project shows have one; the Overview, the Changes of a project of several
+   * repositories, the settings and Home have none. The projects and the repository are read
+   * when this is, since those stores need this one to be set up.
+   */
+  const sidebarView = computed<SidebarView | null>(() => {
+    const projects = useProjectsStore();
+    if (useRepoStore().state.kind === "empty" && projects.active === null) return null;
+    const mode = layoutMode.value;
+    if (mode === "overview" || mode === "settings") return null;
+    if (mode === "changes" && projects.multi) return null;
+    return mode;
+  });
+
+  /** Whether the sidebar's panel is open in the tab shown. */
+  const sidebarOpen = computed(() => {
+    const view = sidebarView.value;
+    if (view === null) return false;
+    return narrow.value ? narrowSidebarOpen.value : settings.values.sidebarPanels[view];
+  });
+
+  /** The section the panel shows; Branches in a project of one, which has no Repositories. */
+  const sidebarSection = computed<SidebarSectionId>(() => {
+    const section = settings.values.sidebarSection;
+    if (section === "repos" && useProjectsStore().activeMembers.length <= 1) return "local";
+    return section;
+  });
+
+  /** The room the sidebar takes: its rail, and its panel while open; none where it is not. */
+  const sidebarWidth = computed(() => {
+    if (sidebarView.value === null) return 0;
+    return RAIL_WIDTH + (sidebarOpen.value ? paneSizes.value.sidebar : 0);
+  });
+
+  /**
    * The detail panel's limits, for its divider as for its width: 360 to 900, and
-   * under the narrow breakpoint 280 up to what leaves the graph panel 320px.
+   * under the narrow breakpoint 280 up to what leaves the graph panel 320px beside the sidebar.
    */
   const detailLimits = computed(() => {
     if (!narrow.value) return paneLimits.detail;
-    const room = windowWidth.value - RAIL_WIDTH - NARROW_GRAPH_MIN;
+    const room = windowWidth.value - Math.max(sidebarWidth.value, RAIL_WIDTH) - NARROW_GRAPH_MIN;
     const max = Math.max(NARROW_DETAIL_MIN, Math.min(room, paneLimits.detail.max));
     return { min: NARROW_DETAIL_MIN, max };
   });
@@ -143,39 +174,49 @@ export const useShellStore = defineStore("shell", () => {
     return windowWidth.value < REVIEW_RAIL_BREAKPOINT;
   });
 
-  /** Shows the project's tab with `mode`; the comparison's tab, if one showed, stays. */
+  /** Shows the tab of `mode`, opening the dashboard's or the settings' tab when missing; the
+   * other tabs stay. */
   function setLayoutMode(mode: ProjectLayout): Promise<void> {
-    tabs.showProject();
-    return settings.update("layoutMode", mode);
+    tabs.show(mode);
+    return Promise.resolve();
   }
 
-  /** Opens a sidebar panel over the main area; the next ⌘B opens it again. */
-  function openSidebarPanel(id: SidebarSectionId): void {
-    sidebarPanel.value = id;
-    lastSidebarPanel.value = id;
+  /** Opens or closes the panel in the tab shown: remembered per kind of tab, and for the
+   * session alone under the narrow breakpoint. */
+  function setSidebarOpen(open: boolean): void {
+    const view = sidebarView.value;
+    if (view === null || open === sidebarOpen.value) return;
+    if (narrow.value) narrowSidebarOpen.value = open;
+    else void settings.update("sidebarPanels", { ...settings.values.sidebarPanels, [view]: open });
+    if (open) sidebarFocusPending.value = true;
   }
 
-  function closeSidebarPanel(reason: SidebarCloseReason = "other"): void {
-    if (sidebarPanel.value === null) return;
-    sidebarCloseReason.value = reason;
-    sidebarPanel.value = null;
+  /** Holds the focus for the panel's list while its rows are read again, or lets it go. */
+  function holdSidebarFocus(held: boolean): void {
+    sidebarFocusHeld.value = held;
   }
 
-  /** ⌘B's panel when the last one is not offered (Repositories in a project of one). */
-  function forgetSidebarPanel(id: SidebarSectionId): void {
-    if (lastSidebarPanel.value === id) lastSidebarPanel.value = "local";
+  /** Whether the panel should focus its list now; true once per opening or section shown. */
+  function takeSidebarFocus(): boolean {
+    const pending = sidebarFocusPending.value;
+    sidebarFocusPending.value = false;
+    return pending;
   }
 
-  /**
-   * A rail icon (`id`): opens its panel, or closes it when it is the open one. ⌘B (no `id`):
-   * closes the open panel, or opens the last one.
-   */
-  function toggleSidebarPanel(id?: SidebarSectionId): void {
-    if (sidebarPanel.value !== null && (id === undefined || sidebarPanel.value === id)) {
-      closeSidebarPanel();
-    } else {
-      openSidebarPanel(id ?? lastSidebarPanel.value);
+  /** ⌘B and the palette: closes the open panel, or opens it on the section it showed last. */
+  function toggleSidebar(): void {
+    setSidebarOpen(!sidebarOpen.value);
+  }
+
+  /** A rail icon: closes the panel when it shows `id`, else shows `id` in it, opening it. */
+  function pickSidebarSection(id: SidebarSectionId): void {
+    if (sidebarOpen.value && sidebarSection.value === id) {
+      setSidebarOpen(false);
+      return;
     }
+    if (settings.values.sidebarSection !== id) void settings.update("sidebarSection", id);
+    if (sidebarOpen.value) sidebarFocusPending.value = true;
+    else setSidebarOpen(true);
   }
 
   function setSidebarFilter(id: SidebarSectionId, value: string): void {
@@ -233,11 +274,15 @@ export const useShellStore = defineStore("shell", () => {
     return setColumnWidth(table, column, width);
   }
 
-  /** Crossing a breakpoint in either direction hands its rail back to the automatic rule. */
+  /** Crossing a breakpoint in either direction hands its rail back to the automatic rule, and
+   * the sidebar's panel to what each kind of tab remembers (closed under the narrow one). */
   function setWindowWidth(px: number): void {
     const railNarrow = px < REVIEW_RAIL_BREAKPOINT;
     if (railNarrow !== windowWidth.value < REVIEW_RAIL_BREAKPOINT) {
       reviewRailPreference.value = "auto";
+    }
+    if (px < NARROW_BREAKPOINT !== windowWidth.value < NARROW_BREAKPOINT) {
+      narrowSidebarOpen.value = false;
     }
     windowWidth.value = px;
   }
@@ -264,14 +309,17 @@ export const useShellStore = defineStore("shell", () => {
 
   return {
     windowWidth,
-    sidebarPanel,
-    lastSidebarPanel,
-    sidebarCloseReason,
+    sidebarView,
+    sidebarOpen,
+    sidebarSection,
+    sidebarWidth,
+    takeSidebarFocus,
+    sidebarFocusHeld,
+    holdSidebarFocus,
     sidebarFilters,
-    openSidebarPanel,
-    closeSidebarPanel,
-    forgetSidebarPanel,
-    toggleSidebarPanel,
+    setSidebarOpen,
+    toggleSidebar,
+    pickSidebarSection,
     setSidebarFilter,
     clearSidebarFilters,
     layoutMode,

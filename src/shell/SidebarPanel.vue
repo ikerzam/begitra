@@ -1,19 +1,20 @@
 <script setup lang="ts">
-// A sidebar panel: one section of the sidebar, floating over the main area beside the rail. Its
-// header names the section with its count ("2 of 12" while its filter narrows it) and carries the
-// section's actions (the branch order and Clean up in Branches, the dashboard in Worktrees); its
-// filter is its own and stays while the panel is closed; its list is the section's, with its rows,
-// keys and menus. How it takes, keeps and gives back the focus, and what closes it, is
-// `useSidebarPanelFocus`. The layout behind never moves: the panel floats, resizable from its
-// right edge.
+// The sidebar's panel: the section chosen on the rail, docked beside it, the layout taking the
+// rest of the width. Its header names the section with its count ("2 of 12" while its filter
+// narrows it) and carries the section's actions (the branch order and Clean up in Branches, the
+// dashboard in Worktrees); its filter is the section's own and stays while another section
+// shows or the panel is closed; its list is the section's, with its rows, keys and menus, which
+// act without closing anything. Opened or shown from the rail or ⌘B, it focuses its list;
+// Escape hands the focus to the layout (`leave`). Resizable from its right edge.
 
 import { ArrowDownAZ, BrushCleaning, ClockArrowDown, LayoutList, Search } from "@lucide/vue";
-import { computed, onUnmounted, provide, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, provide, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import { useBranchActions } from "@/branches/useBranchActions";
 import IconButton from "@/components/IconButton.vue";
 import Input from "@/components/Input.vue";
+import { isOverlayTarget } from "@/shortcuts/registry";
 import { useCleanupStore } from "@/stores/cleanup";
 import { useRepoStore } from "@/stores/repo";
 import { useSettingsStore } from "@/stores/settings";
@@ -24,11 +25,13 @@ import PaneResizer from "./PaneResizer.vue";
 import RepoList from "./RepoList.vue";
 import { panelTitle } from "./sidebarPanels";
 import { branchSelectionKey, useBranchSelection } from "./useBranchSelection";
-import { useSidebarPanelFocus } from "./useSidebarPanelFocus";
 import { useSidebarSection } from "./useSidebarSection";
 import WorktreeList from "./WorktreeList.vue";
 
 const props = defineProps<{ id: SidebarSectionId }>();
+/** Escape in the panel, or the dashboard shown from it: the shell gives the layout's list the
+ * focus. */
+const emit = defineEmits<{ leave: [] }>();
 
 const { t, n } = useI18n();
 const shell = useShellStore();
@@ -37,7 +40,7 @@ const repo = useRepoStore();
 const cleanup = useCleanupStore();
 const actions = useBranchActions();
 
-/* The ref list's branch selection: a scope still pending when the panel closes applies then. */
+/* The ref list's branch selection: a scope still pending when the section goes applies then. */
 const branchSelection = useBranchSelection();
 provide(branchSelectionKey, branchSelection);
 onUnmounted(branchSelection.flush);
@@ -49,12 +52,12 @@ const filter = computed({
 const filtering = computed(() => filter.value.trim() !== "");
 const { rows, total } = useSidebarSection(props.id, filter);
 const title = computed(() => t(panelTitle(props.id)));
-/** The kind of refs a ref panel lists; null for the repositories and the worktrees. */
+/** The kind of refs a ref section lists; null for the repositories and the worktrees. */
 const refKind = computed(() =>
   props.id === "local" || props.id === "remote" || props.id === "tags" ? props.id : null,
 );
 
-/** Whether the panel's rows are being read: skeleton rows and no count meanwhile. */
+/** Whether the section's rows are being read: skeleton rows and no count meanwhile. */
 const reading = computed(() => {
   if (props.id === "repos") return false;
   if (repo.state.kind === "opening") return true;
@@ -77,15 +80,14 @@ function toggleBranchSort(): void {
   void settings.update("branchSort", byRecent.value ? "name" : "recent");
 }
 
-/* The worktrees dashboard, from the Worktrees panel's header: the panel closes on it. */
+/* The worktrees dashboard, from the Worktrees section's header: its tab shows, its rows taking
+   the focus. */
 const repoReady = computed(() => repo.state.kind === "ready");
-const dashboardShown = computed(() => repoReady.value && shell.layoutMode === "worktrees");
-function toggleDashboard(): void {
-  shell.closeSidebarPanel();
-  void shell.setLayoutMode(dashboardShown.value ? "graph" : "worktrees");
+function showDashboard(): void {
+  void shell.setLayoutMode("worktrees");
+  emit("leave");
 }
 
-const panel = ref<HTMLElement | null>(null);
 const list = ref<{ focus: () => void } | null>(null);
 const filterField = ref<{ $el: HTMLElement } | null>(null);
 
@@ -98,25 +100,29 @@ function focusFirst(): void {
   }
 }
 
-const focus = useSidebarPanelFocus(
-  panel,
-  () => document.querySelector<HTMLElement>(`[data-testid="rail-${props.id}"]`),
-  focusFirst,
-);
+/* Opened or shown from the rail or ⌘B, the panel takes the focus, unless an overlay holds it. */
+onMounted(() => {
+  if (!shell.takeSidebarFocus() || isOverlayTarget(document.activeElement)) return;
+  void nextTick(focusFirst);
+});
+
+function onKeydown(event: KeyboardEvent): void {
+  if (event.key !== "Escape" || event.defaultPrevented || isOverlayTarget(event.target)) return;
+  event.preventDefault();
+  emit("leave");
+}
 </script>
 
 <template>
   <aside
     id="sidebar-panel"
-    ref="panel"
-    class="sidebar-panel absolute inset-y-0 left-rail z-10 flex flex-col border-r border-line-strong bg-raised shadow-overlay"
+    class="sidebar-panel relative flex shrink-0 flex-col border-r border-line bg-app"
     :style="{ width: `${shell.paneSizes.sidebar}px` }"
     aria-labelledby="sidebar-panel-title"
     data-testid="sidebar-panel"
-    data-floating-panel
+    data-sidebar-panel
     :data-panel="props.id"
-    @keydown="focus.onKeydown"
-    @focusout="focus.onFocusOut"
+    @keydown="onKeydown"
   >
     <div class="flex h-bar-top shrink-0 items-center gap-2 pr-2 pl-3">
       <h2
@@ -149,10 +155,9 @@ const focus = useSidebarPanelFocus(
         v-else-if="props.id === 'worktrees'"
         :icon="LayoutList"
         :label="t('palette.commandsById.show-worktrees')"
-        :pressed="dashboardShown"
         :disabled="!repoReady"
         data-testid="sidebar-dashboard"
-        @click="toggleDashboard"
+        @click="showDashboard"
       />
     </div>
     <div class="shrink-0 p-2">
@@ -172,18 +177,8 @@ const focus = useSidebarPanelFocus(
       >
         {{ t("sidebar.noMatches") }}
       </p>
-      <RepoList
-        v-else-if="props.id === 'repos'"
-        ref="list"
-        :rows="rows.repos"
-        @activated="focus.activated"
-      />
-      <WorktreeList
-        v-else-if="props.id === 'worktrees'"
-        ref="list"
-        :rows="rows.worktrees"
-        @activated="focus.activated"
-      />
+      <RepoList v-else-if="props.id === 'repos'" ref="list" :rows="rows.repos" />
+      <WorktreeList v-else-if="props.id === 'worktrees'" ref="list" :rows="rows.worktrees" />
       <BranchList
         v-else-if="refKind"
         ref="list"
@@ -191,7 +186,6 @@ const focus = useSidebarPanelFocus(
         :kind="refKind"
         :label="title"
         @action="actions.run"
-        @activated="focus.activated"
       />
     </div>
     <div class="absolute inset-y-0 -right-px">
@@ -209,12 +203,6 @@ const focus = useSidebarPanelFocus(
 </template>
 
 <style scoped>
-/* Its shadow falls on the layout beside and below it, not up over the tab row or the top bar,
-   nor back over the rail. */
-.sidebar-panel {
-  clip-path: inset(0 -32px -32px 0);
-}
-
 /* The rows' ring goes inside: the panel clips their sides. */
 .sidebar-panel-list :deep([role="option"]:focus-visible) {
   outline-offset: -2px;

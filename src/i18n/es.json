@@ -132,12 +132,7 @@
   "topBar": {
     "search": "Buscar o ejecutar un comando…",
     "settings": "Ajustes",
-    "graphFocus": "Vista de grafo",
-    "reviewFocus": "Vista de revisión",
-    "changes": "Cambios",
-    "changesCount": "Cambios, {n} archivo cambiado | Cambios, {n} archivos cambiados",
-    "noProject": "Ningún proyecto abierto",
-    "overview": "Resumen del proyecto"
+    "noProject": "Ningún proyecto abierto"
   },
   "sidebar": {
     "branches": "Ramas",
@@ -700,12 +695,15 @@
     "label": "Vistas abiertas",
     "close": "Cerrar pestaña",
     "closeWith": "{keys} la cierra",
+    "keysAndClose": "{keys}; {close}",
     "graph": "Grafo",
     "review": "Revisión",
     "changes": "Cambios",
+    "changesCount": "Cambios, {n} archivo cambiado | Cambios, {n} archivos cambiados",
     "overview": "Resumen",
     "worktrees": "Worktrees",
     "settings": "Ajustes",
+    "projects": "Proyectos",
     "comparison": "{a} ↔ {b}"
   },
   "compare": {

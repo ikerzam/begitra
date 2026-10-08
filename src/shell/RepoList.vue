@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// The sidebar's Repositories panel: the open project's repositories and worktrees in its order,
-// each worktree under its repository when both are members, filtered by the panel; the one the
-// project shows is selected, a missing one is flagged, and ↵ or a click shows the focused one and
-// says the row was activated (`activated`), which closes the panel.
+// The sidebar's Repositories section: the open project's repositories and worktrees in its
+// order, each worktree under its repository when both are members, filtered by the panel; the one
+// the project shows is selected, a missing one is flagged, and ↵ or a click shows the focused
+// one.
 
 import { FolderGit2, ListTree } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
@@ -16,10 +16,6 @@ import { sameFolder } from "./format";
 import type { RepoRow } from "./useSidebarSection";
 
 const props = defineProps<{ rows: RepoRow[] }>();
-const emit = defineEmits<{
-  /** A row was activated (↵ or a click): the panel closes. */
-  activated: [];
-}>();
 
 const { t } = useI18n();
 const projects = useProjectsStore();
@@ -59,7 +55,6 @@ function onKeydown(event: KeyboardEvent): void {
 function open(row: RepoRow): void {
   if (row.missing && !projects.isShown(row.path)) return;
   void projects.show(row.path);
-  emit("activated");
 }
 
 defineExpose({ focus: navigation.focus });

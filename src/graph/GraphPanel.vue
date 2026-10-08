@@ -17,7 +17,7 @@ import { errorText } from "@/shell/errorMessage";
 import { sameFolder, shortHash } from "@/shell/format";
 import {
   isEditableTarget,
-  isFloatingPanelTarget,
+  isSidebarPanelTarget,
   isOverlayTarget,
   outsideOverlays,
 } from "@/shortcuts/registry";
@@ -69,7 +69,7 @@ useShortcut("go-to-head", (event) => {
 /**
  * Go to HEAD: its commit selected, centred and focused, the pages it is in loaded first; a
  * scope or filters that leave it out say so, with "Show all" clearing them and going there.
- * The focus stays where the user took it meanwhile (a field, a dialog, a floating panel).
+ * The focus stays where the user took it meanwhile (a field, a dialog, the sidebar's panel).
  */
 async function goToHead(): Promise<void> {
   const found = await graph.goToHead();
@@ -89,7 +89,7 @@ async function goToHead(): Promise<void> {
   await nextTick();
   const active = document.activeElement;
   const elsewhere =
-    isEditableTarget(active) || isOverlayTarget(active) || isFloatingPanelTarget(active);
+    isEditableTarget(active) || isOverlayTarget(active) || isSidebarPanelTarget(active);
   await rows.value?.revealSelected(!elsewhere, repo.selectedIndex, "center");
 }
 

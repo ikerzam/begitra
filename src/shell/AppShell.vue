@@ -1,9 +1,10 @@
 <script setup lang="ts">
-// The window: top bar, the row of the open project's tabs, the layout of the tab shown, status
-// bar, palette and toasts, plus the global shortcuts, the window width the review rail collapse
-// depends on, the drop target, the watcher of the open repository, and the launch: the projects
-// load, a settings file of a version before projects takes its one-time step, and the open
-// project reopens on the repository it showed while the index loads beside it.
+// The window: top bar, the row of tabs, the sidebar where the tab shown has one (its rail and its
+// docked panel), the layout of the tab shown, status bar, palette and toasts, plus the global
+// shortcuts, the window width the review rail collapse depends on, the drop target, the watcher
+// of the open repository, and the launch: the projects load, a settings file of a version before
+// projects takes its one-time step, and the open project reopens on the repository it showed
+// while the index loads beside it.
 
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
@@ -29,7 +30,6 @@ import PickerOverlay from "@/picker/PickerOverlay.vue";
 import { shortHash } from "@/shell/format";
 import { isOverlayTarget, outsideOverlays, shortcutRegistry } from "@/shortcuts/registry";
 import { installShortcuts, useShortcut } from "@/shortcuts/useShortcut";
-import { useChangesStore } from "@/stores/changes";
 import { useIndexStore } from "@/stores/index";
 import { useOperationsStore } from "@/stores/operations";
 import { useRemotesStore } from "@/stores/remotes";
@@ -38,13 +38,13 @@ import { useStashStore } from "@/stores/stash";
 import { usePickerStore } from "@/stores/picker";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
-import { useFolderStore } from "@/stores/folder";
 import { useProjectsStore } from "@/stores/projects";
 import { useBulkStore } from "@/stores/bulk";
 import { useProjectDialogsStore } from "@/stores/projectDialogs";
 import { useShellStore } from "@/stores/shell";
 import { useTabsStore } from "@/stores/tabs";
 import { useWorktreesStore } from "@/stores/worktrees";
+import { useSettingsStore } from "@/stores/settings";
 import { useSettingsScreenStore } from "@/stores/settingsScreen";
 import SettingsLayout from "@/settings/SettingsLayout.vue";
 import AddWorktreeDialog from "@/worktrees/AddWorktreeDialog.vue";
@@ -62,7 +62,6 @@ import ToastHost from "./ToastHost.vue";
 import TopBar from "./TopBar.vue";
 import { useExternal } from "./useExternal";
 import { useOpenFolder } from "./useOpenFolder";
-import { useSidebarAvailable } from "./useSidebarAvailable";
 import { useRepoWatcher } from "./useRepoWatcher";
 import { useNativeMenu, type TextMenuRequest } from "./useNativeMenu";
 import { useZoom } from "./useZoom";
@@ -71,13 +70,12 @@ const shell = useShellStore();
 const tabs = useTabsStore();
 const repo = useRepoStore();
 const index = useIndexStore();
-const folder = useFolderStore();
 const projects = useProjectsStore();
 const bulk = useBulkStore();
 const projectDialogs = useProjectDialogsStore();
-const changes = useChangesStore();
 const worktrees = useWorktreesStore();
 const settingsScreen = useSettingsScreenStore();
+const settings = useSettingsStore();
 const reviewStore = useReviewStore();
 const picker = usePickerStore();
 const remotes = useRemotesStore();
@@ -105,8 +103,11 @@ const compareMode = computed(
     shell.layoutMode === "compare" &&
     (repo.state.kind === "ready" || repo.state.kind === "opening"),
 );
-/** The row of tabs: a comparison open in an open project (at launch, once the project is). */
-const tabRowShown = computed(() => tabs.comparisons.length > 0 && projects.active !== null);
+/** The row of tabs: while there is more than one, always in a project (at launch, once the
+ * project is open), at Home while the settings' tab is open beside Home's. */
+const tabRowShown = computed(
+  () => tabs.row.length > 1 && (projects.active !== null || settings.values.activeProject === null),
+);
 const worktreesMode = computed(
   () => shell.layoutMode === "worktrees" && repo.state.kind === "ready",
 );
@@ -120,24 +121,6 @@ const changesMode = computed(
  * an open repository.
  */
 const projectMode = computed(() => projects.view !== null);
-/** The Changes toggle's count: the project's repositories' changed files, as far as read. */
-const changedCount = computed(() => {
-  if (!projects.multi || folder.source !== projects.active?.id) return changes.counts?.changed ?? 0;
-  const read = folder.repositories.reduce(
-    (sum, repository) => sum + (repository.view.counts?.changed ?? 0),
-    0,
-  );
-  return Math.max(read, changes.counts?.changed ?? 0);
-});
-/**
- * The sidebar, its rail, shows in every layout with a repository or a project open, and Home has
- * none. Its panel floats over whichever layout shows, which keeps its width.
- */
-const sidebarAvailable = useSidebarAvailable();
-/* Home closes a panel left open: the next project opens with none. */
-watch(sidebarAvailable, (available) => {
-  if (!available) shell.closeSidebarPanel();
-});
 
 /** "Compare with…": the selected commit in graph focus, else the current branch, as A. */
 function compareWith(): void {
@@ -168,12 +151,14 @@ onBeforeUnmount(() => {
 });
 useShortcut("graph-focus", () => void shell.setLayoutMode("graph"));
 useShortcut("review-focus", () => void shell.setLayoutMode("review"));
-// Not behind a dialog, a menu or the palette: a panel would open under the scrim and take the
-// focus from the overlay.
+// Not behind a dialog, a menu or the palette: the panel would take the focus from the overlay.
+// Closing it from inside gives the layout's list the focus, which would fall to the body.
 useShortcut(
   "toggle-sidebar",
   outsideOverlays(() => {
-    if (sidebarAvailable.value) shell.toggleSidebarPanel();
+    const inside = document.activeElement?.closest("[data-sidebar-panel]") != null;
+    shell.toggleSidebar();
+    if (inside && !shell.sidebarOpen) focusLayout(true);
   }),
 );
 useShortcut("open-terminal", () => void external.openTerminal());
@@ -317,32 +302,28 @@ watch(
 );
 
 /**
- * A sidebar panel that closes with the focus inside it (⌘B, a row's activation) gives it back to
- * where it was before it opened (`useSidebarPanelFocus`); with nowhere to go, the layout behind
- * takes it on its list, as when it shows. Escape and a move of the focus have placed it already,
- * and a press gives it to what it pressed: refocusing then could scroll a list under the pointer.
- */
-watch(
-  () => shell.sidebarPanel,
-  (panel, previous) => {
-    if (panel !== null || previous === null || shell.sidebarCloseReason !== "other") return;
-    focusLayout();
-  },
-);
-
-/**
  * Another tab shown (a click, Ctrl Tab, ⌘W): the layout it shows takes the focus on its list
  * when the one it replaced took the focus with it. Between two comparisons the layout stays, and
  * so does the focus; ← and → keep it on the row.
  */
 watch(
-  () => tabs.activeId,
+  () => tabs.activeKey,
   () => focusLayout(),
 );
 
-/** The layout shown takes the focus on its list, on the next tick, when nothing holds it. */
-function focusLayout(): void {
+/**
+ * The layout shown takes the focus on its list, on the next tick, when nothing holds it. Handed
+ * over from the sidebar's panel (`fromPanel`: Escape there, ⌘B closing it, the dashboard's icon),
+ * the panel lets the focus go first, so the layouts that wait for their rows take it once they
+ * arrive. Nothing takes it while the panel holds it across a reload of its list.
+ */
+function focusLayout(fromPanel = false): void {
+  const held = document.activeElement;
+  if (fromPanel && held instanceof HTMLElement && held.closest("[data-sidebar-panel]")) {
+    held.blur();
+  }
   void nextTick(() => {
+    if (shell.sidebarFocusHeld) return;
     const active = document.activeElement;
     if (active && active !== document.body) return;
     if (reviewMode.value) reviewLayout.value?.focusFiles();
@@ -363,6 +344,7 @@ function rowHoldsFocus(): boolean {
 /** The commit rows take the focus on the next tick, when nothing else holds it. */
 function focusGraphRows(): void {
   void nextTick(() => {
+    if (shell.sidebarFocusHeld) return;
     const active = document.activeElement;
     if (active && active !== document.body) return;
     graphLayout.value?.focusRows();
@@ -433,31 +415,30 @@ function removeFromProject(): void {
 <template>
   <div class="relative flex h-full min-h-0 flex-col bg-app text-fg" data-testid="app-shell">
     <TopBar
-      :layout-mode="shell.layoutMode"
-      :changed-count="changedCount"
-      :can-show-changes="repo.state.kind === 'ready' || projects.multi"
-      :can-show-overview="projects.multi"
+      :settings-shown="shell.layoutMode === 'settings'"
       :show-sync="repo.state.kind === 'ready' && repo.refsLoaded && shell.layoutMode !== 'overview'"
       @open-folder="() => void openFolder()"
       @open-palette="shell.openPalette()"
-      @set-layout-mode="(mode) => void shell.setLayoutMode(mode)"
+      @open-settings="() => void shell.setLayoutMode('settings')"
     />
     <TabRow v-if="tabRowShown" @shown="focusLayout" />
     <OperationBanner />
     <div class="relative flex min-h-0 flex-1">
-      <SidebarRail v-if="sidebarAvailable" />
-      <!-- The panel follows its rail in the tab order; the layouts paint in a stacking context of
-           their own, so their raised parts (the graph's canvas, the rails' rings) stay under it. -->
+      <SidebarRail v-if="shell.sidebarView !== null" />
+      <!-- The panel follows its rail in the tab order, before the layout beside it. The layouts
+           paint in a stacking context of their own, so their raised parts (the graph's canvas,
+           the graph rail's ring) stay under the menus the panel opens over them. -->
       <SidebarPanel
-        v-if="sidebarAvailable && shell.sidebarPanel"
-        :id="shell.sidebarPanel"
-        :key="shell.sidebarPanel"
+        v-if="shell.sidebarOpen"
+        :id="shell.sidebarSection"
+        :key="shell.sidebarSection"
+        @leave="focusLayout(true)"
       />
       <div
         :id="TAB_PANEL_ID"
         class="isolate flex min-h-0 min-w-0 flex-1"
         :role="tabRowShown ? 'tabpanel' : undefined"
-        :aria-labelledby="tabRowShown ? tabElementId(tabs.activeId) : undefined"
+        :aria-labelledby="tabRowShown ? tabElementId(tabs.activeKey) : undefined"
       >
         <ReviewFocusLayout v-if="reviewMode" ref="reviewLayout" />
         <CompareLayout v-else-if="compareMode" ref="compareLayout" />

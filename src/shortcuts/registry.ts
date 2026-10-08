@@ -104,11 +104,11 @@ export function isOverlayTarget(target: unknown): boolean {
 }
 
 /**
- * Whether a key event comes from a panel floating over the screen (a sidebar panel): its list
- * has its own keys, and the single keys of the screen below (r, n, s…) must not act from there.
+ * Whether a key event comes from the sidebar's panel: its list has its own keys, and the single
+ * keys of the layout beside it (r, n, s…) must not act from there.
  */
-export function isFloatingPanelTarget(target: unknown): boolean {
-  return target instanceof Element && target.closest("[data-floating-panel]") !== null;
+export function isSidebarPanelTarget(target: unknown): boolean {
+  return target instanceof Element && target.closest("[data-sidebar-panel]") !== null;
 }
 
 /**
@@ -188,7 +188,7 @@ export class ShortcutRegistry {
   /**
    * Dispatches a keydown: the first binding whose keys match and that has a handler runs.
    * Plain-key bindings (no modifier) are skipped while a text field has focus, and a screen's
-   * bindings while a dialog, a menu or a floating panel has it. Returns whether something
+   * bindings while a dialog, a menu or the sidebar's panel has it. Returns whether something
    * handled the event (and called `preventDefault`).
    */
   dispatch(event: KeyboardEvent): boolean {
@@ -200,8 +200,8 @@ export class ShortcutRegistry {
     const overlay =
       isOverlayTarget(event.target) ||
       isOverlayTarget(focused) ||
-      isFloatingPanelTarget(event.target) ||
-      isFloatingPanelTarget(focused);
+      isSidebarPanelTarget(event.target) ||
+      isSidebarPanelTarget(focused);
     for (const binding of this.bindings.values()) {
       const stack = this.handlers.get(binding.id);
       const handler = stack?.[stack.length - 1];

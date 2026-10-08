@@ -98,8 +98,8 @@ async function focus(): Promise<void> {
 }
 
 /**
- * Whether a sidebar panel holds the focus (its filter or its rows): the rows arriving behind it
- * leave that focus where it is, since taking it would close the panel.
+ * Whether the sidebar's panel holds the focus (its filter or its rows): the rows arriving beside
+ * it leave that focus where the user put it.
  */
 function sidebarPanelFocused(): boolean {
   const active = document.activeElement;

@@ -550,6 +550,9 @@ describe("projects store", () => {
     await projects.load();
     await projects.migrateSettings();
     expect(useSettingsStore().values.activeProject).toBe(3);
-    expect(useSettingsStore().values.layoutMode).toBe("changes");
+    // The project the step opens shows the Changes the app was left on, once.
+    await settled();
+    expect(useShellStore().layoutMode).toBe("changes");
+    expect(useSettingsStore().launchLayout).toBeNull();
   });
 });

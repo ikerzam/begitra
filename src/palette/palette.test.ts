@@ -224,6 +224,7 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
     inGraph: () => true,
     goToHead: record("goToHead"),
     hasTabs: () => false,
+    canCloseTab: () => false,
     nextTab: record("nextTab"),
     previousTab: record("previousTab"),
     closeTab: record("closeTab"),

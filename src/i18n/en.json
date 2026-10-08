@@ -132,12 +132,7 @@
   "topBar": {
     "search": "Search or run a command…",
     "settings": "Settings",
-    "graphFocus": "Graph focus",
-    "reviewFocus": "Review focus",
-    "changes": "Changes",
-    "changesCount": "Changes, {n} file changed | Changes, {n} files changed",
-    "noProject": "No project open",
-    "overview": "Project overview"
+    "noProject": "No project open"
   },
   "sidebar": {
     "branches": "Branches",
@@ -700,12 +695,15 @@
     "label": "Open views",
     "close": "Close tab",
     "closeWith": "{keys} closes it",
+    "keysAndClose": "{keys}; {close}",
     "graph": "Graph",
     "review": "Review",
     "changes": "Changes",
+    "changesCount": "Changes, {n} file changed | Changes, {n} files changed",
     "overview": "Overview",
     "worktrees": "Worktrees",
     "settings": "Settings",
+    "projects": "Projects",
     "comparison": "{a} ↔ {b}"
   },
   "compare": {

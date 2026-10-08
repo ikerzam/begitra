@@ -95,7 +95,7 @@ function withMenuRow(action: (path: string) => void): void {
 }
 
 defineExpose({
-  /** Focuses the rows, unless a sidebar panel holds the focus. */
+  /** Focuses the rows, unless the sidebar's panel holds the focus. */
   focusRows: () => {
     if (!table.value?.sidebarPanelFocused()) void table.value?.focus();
   },

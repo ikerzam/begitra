@@ -1,13 +1,13 @@
 <script setup lang="ts">
-// The sidebar's Worktrees panel: the worktrees of the open repository as their folder name with
-// the branch's lane dot and the tree icon, filtered by the panel, with roving focus and j/k
-// navigation. Selecting a row selects it in the dashboard; ↵ opens it as the context and says the
-// row was activated (`activated`), which closes the panel; a right click or the menu key opens the
-// dashboard's row menu without its dialog actions. The rail reads the list; skeleton rows stand in
-// until it answers, and a listing that fails says so above the rows.
+// The sidebar's Worktrees section: the worktrees of the open repository as their folder name
+// with the branch's lane dot and the tree icon, filtered by the panel, with roving focus and j/k
+// navigation. Selecting a row selects it in the dashboard; ↵ opens it as the context; a right
+// click or the menu key opens the dashboard's row menu without its dialog actions. The rail reads
+// the list; skeleton rows stand in until it answers, and a listing that fails says so above the
+// rows.
 
 import { ListTree } from "@lucide/vue";
-import { computed, ref } from "vue";
+import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ErrorBanner from "@/components/ErrorBanner.vue";
@@ -17,6 +17,7 @@ import { refocusAfterMenu } from "@/components/menuFocus";
 import SkeletonRow from "@/components/SkeletonRow.vue";
 import { isListKeydown, useListNavigation } from "@/shortcuts/useListNavigation";
 import { useRepoStore } from "@/stores/repo";
+import { useShellStore } from "@/stores/shell";
 import { useWorktreesStore } from "@/stores/worktrees";
 import WorktreeContextMenu from "@/worktrees/WorktreeContextMenu.vue";
 
@@ -25,13 +26,10 @@ import { useExternal } from "./useExternal";
 import type { WorktreeRow } from "./useSidebarSection";
 
 const props = defineProps<{ rows: WorktreeRow[] }>();
-const emit = defineEmits<{
-  /** A row was activated (↵): the panel closes. */
-  activated: [];
-}>();
 
 const { t } = useI18n();
 const repo = useRepoStore();
+const shell = useShellStore();
 const worktrees = useWorktreesStore();
 const external = useExternal();
 const listbox = ref<HTMLElement | null>(null);
@@ -54,21 +52,48 @@ const navigation = useListNavigation({
   selected: selectedRow,
   onActivate: (index) => {
     const row = props.rows[index];
-    if (row) openAsContext(row.key);
+    if (row) void openAsContext(row.key);
   },
   rowElement: (index) => listbox.value?.querySelector(`[data-index="${index}"]`),
 });
-
-/** Opens a worktree as the context; the panel closes on it. */
-function openAsContext(key: string): void {
-  void worktrees.openAsContext(key);
-  emit("activated");
-}
 
 /** The repository is opening, or open with its worktrees not listed yet. */
 const loading = computed(
   () => repo.state.kind === "opening" || (repo.state.kind === "ready" && !repo.worktreesLoaded),
 );
+
+/**
+ * ↵ opens a worktree as the context, which lists the worktrees again and empties the list
+ * meanwhile: a list that held the focus keeps it, its selected row taking it back once the rows
+ * are drawn again, and the layout leaves it there in between.
+ */
+let refocus = false;
+
+async function openAsContext(key: string): Promise<void> {
+  const held = listbox.value?.contains(document.activeElement) ?? false;
+  if (held) {
+    refocus = true;
+    shell.holdSidebarFocus(true);
+  }
+  await worktrees.openAsContext(key);
+  if (held) settleFocus();
+}
+
+function settleFocus(): void {
+  if (!refocus || loading.value) return;
+  refocus = false;
+  shell.holdSidebarFocus(false);
+  const active = document.activeElement;
+  if (active && active !== document.body) return;
+  void nextTick(() => navigation.focus());
+}
+
+watch([() => loading.value, () => props.rows.length], settleFocus);
+
+onUnmounted(() => {
+  if (refocus) shell.holdSidebarFocus(false);
+});
+
 const failure = computed(() => {
   const error = repo.state.kind === "ready" ? repo.worktreesError : null;
   if (!error) return null;

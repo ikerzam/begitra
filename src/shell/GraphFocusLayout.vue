@@ -30,6 +30,7 @@ const shell = useShellStore();
 const repo = useRepoStore();
 const projects = useProjectsStore();
 const graph = ref<{ focus(): void } | null>(null);
+const home = ref<{ focus(): void } | null>(null);
 
 const detailWidth = computed(() => `${shell.detailWidth}px`);
 /**
@@ -40,7 +41,8 @@ const homeIsEmpty = computed(
   () => projects.loaded && projects.loadError === null && projects.projects.length === 0,
 );
 
-defineExpose({ focusRows: () => graph.value?.focus() });
+/* The commit rows, or at Home its list of projects. */
+defineExpose({ focusRows: () => (graph.value ?? home.value)?.focus() });
 </script>
 
 <template>
@@ -52,7 +54,7 @@ defineExpose({ focusRows: () => graph.value?.focus() });
         @open-folder="emit('openFolder')"
         @add-folder="emit('addFolder')"
       />
-      <HomeScreen v-else @open-folder="emit('openFolder')" />
+      <HomeScreen v-else ref="home" @open-folder="emit('openFolder')" />
     </template>
     <template v-else>
       <GraphPanel

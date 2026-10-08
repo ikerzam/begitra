@@ -1,17 +1,46 @@
-// The tabs of the open project: its own tab, which shows the layout the top bar and ⌘1 to ⌘4
-// choose, and a tab for each comparison the user opened, two endpoints the comparison recomputes
-// when its tab shows. Each project's comparisons are remembered in the settings (`tabs`) with the
-// tab it showed: another project shows its own tab first, and a launch shows the tab the window
-// was closed on.
+// The tabs of the window, for the open project or, with none, for Home. A project's row starts
+// with its fixed tabs (Graph, Review, Changes, and the Overview while it holds more than one
+// repository), which never close; Home's with Home's own. After them come the tabs opened on
+// demand, each closable: one per comparison, the worktrees dashboard and the settings. A new tab
+// opens right after the tab shown, or right after the fixed tabs while one of those shows. Each
+// project's open tabs and the tab it showed are remembered in the settings (`tabs`): opening a
+// project shows its Graph tab, and a launch shows the tab the window was closed on.
 
 import { defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
 
-import { useSettingsStore, type CompareEndpoint, type CompareEndpoints } from "./settings";
+import { useProjectsStore } from "./projects";
+import { useRepoStore } from "./repo";
+import {
+  useSettingsStore,
+  type CompareEndpoint,
+  type CompareEndpoints,
+  type ProjectLayout,
+  type ProjectTabs,
+  type StoredTab,
+} from "./settings";
 
-/** A comparison's tab: its endpoints, and an id unique in the session. */
-export interface ComparisonTab extends CompareEndpoints {
-  id: number;
+/** The tabs a project always has, in the row's order. */
+export const fixedTabKinds = ["graph", "review", "changes", "overview"] as const;
+export type FixedTabKind = (typeof fixedTabKinds)[number];
+
+/** A tab opened on demand, with an id unique in the session. */
+export type OpenTab =
+  | ({ id: number; kind: "compare" } & CompareEndpoints)
+  | { id: number; kind: "worktrees" }
+  | { id: number; kind: "settings" };
+
+/** A tab of the row: a fixed one or Home's by its kind, one opened on demand by its id. */
+export type TabKey = FixedTabKind | "home" | number;
+
+/** What a tab shows. */
+export type TabKind = FixedTabKind | "home" | OpenTab["kind"];
+
+export interface RowTab {
+  key: TabKey;
+  kind: TabKind;
+  /** The tab opened on demand; null for a fixed tab and Home's, which never close. */
+  open: OpenTab | null;
 }
 
 /** Whether two pairs compare the same A with the same B. */
@@ -19,43 +48,90 @@ function samePair(one: CompareEndpoints, other: CompareEndpoints): boolean {
   return one.a.rev === other.a.rev && one.b.rev === other.b.rev;
 }
 
+const isFixed = (kind: string): kind is FixedTabKind =>
+  (fixedTabKinds as readonly string[]).includes(kind);
+
 export const useTabsStore = defineStore("tabs", () => {
   const settings = useSettingsStore();
-  const comparisons = ref<ComparisonTab[]>([]);
-  /** The comparison whose tab shows; null shows the project's tab. */
-  const activeId = ref<number | null>(null);
+  /** The open project, whose tabs these are; null at Home. */
+  const context = ref<number | null>(null);
+  const open = ref<OpenTab[]>([]);
+  const activeKey = ref<TabKey>("home");
   let nextId = 1;
 
-  const active = computed(() => comparisons.value.find((tab) => tab.id === activeId.value) ?? null);
-  /** The endpoints of the comparison shown, null on the project's tab. */
-  const activePair = computed<CompareEndpoints | null>(() =>
-    active.value ? { a: active.value.a, b: active.value.b } : null,
+  /** Home: no project open, and no repository open outside one. The repository store is read
+   * when this is, as the projects store is below: both need this one to be set up. */
+  const atHome = computed(() => context.value === null && useRepoStore().state.kind === "empty");
+
+  /** The row: the fixed tabs (the Overview while the project holds several repositories), or
+   * Home's, then the tabs opened on demand. */
+  const row = computed<RowTab[]>(() => {
+    const fixed: RowTab[] = atHome.value
+      ? [{ key: "home", kind: "home", open: null }]
+      : fixedTabKinds
+          .filter((kind) => kind !== "overview" || useProjectsStore().multi)
+          .map((kind) => ({ key: kind, kind, open: null }));
+    return [...fixed, ...open.value.map((tab) => ({ key: tab.id, kind: tab.kind, open: tab }))];
+  });
+
+  /** The tab shown as an index of the row; -1 while it is not in the row (an Overview the
+   * project's members no longer offer, until the shell shows the graph). */
+  const activeIndex = computed(() => row.value.findIndex((tab) => tab.key === activeKey.value));
+  /** The open tab shown; null on a fixed tab or Home's. */
+  const active = computed(() =>
+    typeof activeKey.value === "number"
+      ? (open.value.find((tab) => tab.id === activeKey.value) ?? null)
+      : null,
   );
-  /** The tab shown as an index of the row: 0 for the project's tab, n for the n-th comparison. */
-  const activeIndex = computed(() =>
-    activeId.value === null
-      ? 0
-      : comparisons.value.findIndex((tab) => tab.id === activeId.value) + 1,
+  /** What the tab shown shows. */
+  const activeKind = computed<TabKind>(() =>
+    typeof activeKey.value === "number" ? (active.value?.kind ?? "graph") : activeKey.value,
+  );
+  /** The endpoints of the comparison shown, null elsewhere. */
+  const activePair = computed<CompareEndpoints | null>(() =>
+    active.value?.kind === "compare" ? { a: active.value.a, b: active.value.b } : null,
+  );
+  /** The comparisons' tabs, in the row's order. */
+  const comparisons = computed(() =>
+    open.value.filter(
+      (tab): tab is Extract<OpenTab, { kind: "compare" }> => tab.kind === "compare",
+    ),
   );
 
-  function tabOf(pair: CompareEndpoints): ComparisonTab {
-    return { id: nextId++, a: pair.a, b: pair.b };
+  /** Opens `tab` right after the tab shown, or right after the fixed tabs while one shows. */
+  function insert(tab: OpenTab): void {
+    const shown = activeKey.value;
+    const at = typeof shown === "number" ? open.value.findIndex((t) => t.id === shown) + 1 : 0;
+    const list = [...open.value];
+    list.splice(at, 0, tab);
+    open.value = list;
+    activeKey.value = tab.id;
   }
 
-  /** Shows the comparison of `a` with `b`: its tab when one is open, else a new one after the
-   * tab shown. */
-  function openComparison(a: CompareEndpoint, b: CompareEndpoint): void {
-    const pair = { a, b };
-    const open = comparisons.value.find((tab) => samePair(tab, pair));
-    if (open) {
-      activeId.value = open.id;
+  /**
+   * Shows the tab of `kind`: a fixed one, or the dashboard's or the settings', opened first when
+   * missing. At Home the project's views show Home, and the settings open beside it.
+   */
+  function show(kind: ProjectLayout): void {
+    if (atHome.value && kind !== "settings") {
+      activeKey.value = "home";
       return;
     }
-    const tab = tabOf(pair);
-    const list = [...comparisons.value];
-    list.splice(activeIndex.value, 0, tab);
-    comparisons.value = list;
-    activeId.value = tab.id;
+    if (isFixed(kind)) {
+      activeKey.value = kind;
+      return;
+    }
+    const existing = open.value.find((tab) => tab.kind === kind);
+    if (existing) activeKey.value = existing.id;
+    else insert({ id: nextId++, kind });
+  }
+
+  /** Shows the comparison of `a` with `b`: its tab when one is open, else a new one. */
+  function openComparison(a: CompareEndpoint, b: CompareEndpoint): void {
+    const pair = { a, b };
+    const existing = comparisons.value.find((tab) => samePair(tab, pair));
+    if (existing) activeKey.value = existing.id;
+    else insert({ id: nextId++, kind: "compare", a, b });
   }
 
   /**
@@ -63,72 +139,116 @@ export const useTabsStore = defineStore("tabs", () => {
    * another tab compares already shows that tab instead, the edited one closing.
    */
   function setPair(a: CompareEndpoint, b: CompareEndpoint): void {
-    const id = activeId.value;
-    if (id === null) return;
+    const shown = active.value;
+    if (shown?.kind !== "compare") return;
     const pair = { a, b };
-    const other = comparisons.value.find((tab) => tab.id !== id && samePair(tab, pair));
+    const other = comparisons.value.find((tab) => tab.id !== shown.id && samePair(tab, pair));
     if (other) {
-      comparisons.value = comparisons.value.filter((tab) => tab.id !== id);
-      activeId.value = other.id;
+      open.value = open.value.filter((tab) => tab.id !== shown.id);
+      activeKey.value = other.id;
       return;
     }
-    comparisons.value = comparisons.value.map((tab) => (tab.id === id ? { id, a, b } : tab));
+    open.value = open.value.map((tab) => (tab.id === shown.id ? { ...shown, a, b } : tab));
   }
 
-  function showProject(): void {
-    activeId.value = null;
-  }
-
-  /** Shows the tab at `index` of the row (0, the project's). */
+  /** Shows the tab at `index` of the row, the first one below it. */
   function showIndex(index: number): void {
-    activeId.value = index <= 0 ? null : (comparisons.value[index - 1]?.id ?? activeId.value);
+    const tab = row.value[Math.max(index, 0)];
+    if (tab) activeKey.value = tab.key;
   }
 
   /** The next (1) or previous (-1) tab, round the row. */
   function step(by: 1 | -1): void {
-    const count = comparisons.value.length + 1;
+    const count = row.value.length;
     if (count < 2) return;
-    showIndex((activeIndex.value + by + count) % count);
+    const from = Math.max(activeIndex.value, 0);
+    showIndex((from + by + count) % count);
   }
 
-  /** Closes a comparison's tab; closing the one shown shows the tab before it. */
+  /** Closes a tab opened on demand; closing the one shown shows the tab before it. */
   function close(id: number): void {
-    const index = comparisons.value.findIndex((tab) => tab.id === id);
+    const index = row.value.findIndex((tab) => tab.key === id);
     if (index < 0) return;
-    const wasActive = activeId.value === id;
-    comparisons.value = comparisons.value.filter((tab) => tab.id !== id);
-    if (wasActive) showIndex(index);
+    const wasActive = activeKey.value === id;
+    open.value = open.value.filter((tab) => tab.id !== id);
+    if (wasActive) showIndex(index - 1);
   }
 
-  /** ⌘W: closes the comparison shown; false on the project's tab, which never closes. */
+  /** ⌘W: closes the tab shown; false on a fixed tab or Home's, which never close. */
   function closeActive(): boolean {
-    if (activeId.value === null) return false;
-    close(activeId.value);
+    const shown = activeKey.value;
+    if (typeof shown !== "number") return false;
+    close(shown);
     return true;
   }
 
   // --- Per project ---------------------------------------------------------------------------
 
-  /** The project whose tabs these are; null without one, whose comparisons are not kept. */
-  let project: number | null = null;
+  function tabOf(stored: StoredTab): OpenTab {
+    return { id: nextId++, ...stored };
+  }
 
-  function load(id: number | null, showStored: boolean): void {
-    project = id;
+  /** The launch shows the tab of the layout an earlier version's project tab showed: a fixed
+   * tab, or the dashboard or the settings opened after the others. */
+  function showLaunchLayout(layout: ProjectLayout | null): void {
+    if (layout === null) return;
+    if (isFixed(layout)) {
+      activeKey.value = layout;
+      return;
+    }
+    const existing = open.value.find((tab) => tab.kind === layout);
+    const tab = existing ?? tabOf({ kind: layout });
+    if (!existing) open.value = [...open.value, tab];
+    activeKey.value = tab.id;
+  }
+
+  /**
+   * Shows the tabs of `id`, or Home's: its Graph tab, or at launch the tab it showed. The first
+   * project shown takes the layout an earlier version left its one tab on (`launchLayout`): the
+   * open project at launch, or the one the step of a version before projects opens.
+   */
+  function load(id: number | null, launch: boolean): void {
+    context.value = id;
     const stored = id === null ? undefined : settings.values.tabs[String(id)];
-    comparisons.value = (stored?.comparisons ?? []).map(tabOf);
-    activeId.value = null;
-    if (showStored && stored) showIndex(stored.active);
+    open.value = (stored?.open ?? []).map(tabOf);
+    activeKey.value = id === null ? "home" : "graph";
+    if (id === null) {
+      // Left at Home, with no project the step of a version before projects will open: the
+      // layout belongs to no project.
+      if (launch && settings.legacy === null) settings.takeLaunchLayout();
+      return;
+    }
+    const shown = stored?.active;
+    const layout = settings.takeLaunchLayout();
+    if (shown === undefined || shown === "project") showLaunchLayout(layout);
+    else if (!launch) return;
+    else if (typeof shown === "number") activeKey.value = open.value[shown]?.id ?? "graph";
+    else activeKey.value = shown;
+  }
+
+  /** The tab shown as the settings keep it: a fixed tab's kind, or an open tab's place. */
+  function storedActive(): ProjectTabs["active"] {
+    const shown = activeKey.value;
+    if (typeof shown !== "number") return shown === "home" ? "graph" : shown;
+    return Math.max(
+      open.value.findIndex((tab) => tab.id === shown),
+      0,
+    );
   }
 
   function save(): void {
-    if (project === null) return;
-    const key = String(project);
-    const entry = {
-      comparisons: comparisons.value.map(({ a, b }) => ({ a, b })),
-      active: activeIndex.value,
+    const id = context.value;
+    if (id === null) return;
+    const key = String(id);
+    const entry: ProjectTabs = {
+      open: open.value.map((tab): StoredTab => {
+        if (tab.kind === "compare") return { kind: "compare", a: tab.a, b: tab.b };
+        return { kind: tab.kind };
+      }),
+      active: storedActive(),
     };
     const all = { ...settings.values.tabs };
-    if (entry.comparisons.length === 0) delete all[key];
+    if (entry.open.length === 0 && entry.active === "graph") delete all[key];
     else all[key] = entry;
     if (JSON.stringify(all) !== JSON.stringify(settings.values.tabs)) {
       void settings.update("tabs", all);
@@ -145,30 +265,36 @@ export const useTabsStore = defineStore("tabs", () => {
     }
   }
 
-  // The launch shows the tab the window was closed on; another project, its own tab.
+  // The launch shows the tab the window was closed on; another project, its Graph tab. At once,
+  // so a view asked for right after the project changes is the new project's.
   let launched = false;
   watch(
     () => [settings.loaded, settings.values.activeProject] as const,
     ([loaded, id]) => {
       if (!loaded) return;
-      if (launched && id === project) return;
+      if (launched && id === context.value) return;
+      // The project left keeps its tabs as they are now: its save would run after the load.
+      if (launched) save();
       load(id, !launched);
       launched = true;
     },
-    { immediate: true },
+    { immediate: true, flush: "sync" },
   );
 
-  watch([comparisons, activeId], save, { deep: true });
+  watch([open, activeKey], save, { deep: true });
 
   return {
-    comparisons,
-    activeId,
+    row,
+    open,
+    activeKey,
     active,
+    activeKind,
     activePair,
     activeIndex,
+    comparisons,
+    show,
     openComparison,
     setPair,
-    showProject,
     showIndex,
     step,
     close,

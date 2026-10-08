@@ -624,19 +624,21 @@ describe("launch and the watcher", () => {
     expect(useRepoStore().repo?.root).toBe("/r");
     expect(useShellStore().layoutMode).toBe("worktrees");
     expect(wrapper.find('[data-testid="worktrees-layout"]').exists()).toBe(true);
-    // The Worktrees panel's dashboard toggle shows it.
-    await wrapper.get('[data-testid="rail-worktrees"]').trigger("click");
-    await settle();
-    expect(wrapper.get('[data-testid="sidebar-dashboard"]').attributes("aria-pressed")).toBe(
-      "true",
-    );
-    // ⌘1 returns to the graph.
+    // The dashboard is a tab of its own, after the fixed ones.
+    const names = () => wrapper.findAll('[data-testid="tab-name"]').map((name) => name.text());
+    expect(names()).toEqual(["Graph", "Review", "Changes", "Overview", "Worktrees"]);
+    // ⌘1 returns to the graph, the Worktrees tab staying in the row.
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "1", ctrlKey: true }));
     await settle();
     expect(useShellStore().layoutMode).toBe("graph");
-    expect(wrapper.get('[data-testid="sidebar-dashboard"]').attributes("aria-pressed")).toBe(
-      "false",
-    );
+    expect(names()).toContain("Worktrees");
+    // The Worktrees section's dashboard icon shows that tab again.
+    await wrapper.get('[data-testid="rail-worktrees"]').trigger("click");
+    await settle();
+    await wrapper.get('[data-testid="sidebar-dashboard"]').trigger("click");
+    await settle();
+    expect(useShellStore().layoutMode).toBe("worktrees");
+    expect(names()).toHaveLength(5);
     wrapper.unmount();
   });
 
@@ -783,14 +785,14 @@ describe("AppShell", () => {
     expect(wrapper.get('[data-testid="top-bar"]').text()).toContain("r");
     expect(wrapper.find('[data-testid="sidebar-rail"]').exists()).toBe(true);
     expect(wrapper.findAll('[data-testid="graph-row"]')).toHaveLength(3);
-    await wrapper.get('[data-testid="rail-local"]').trigger("click");
-    await settle();
+    // Graph focus shows the Branches panel docked beside the rail.
     expect(wrapper.get('[data-testid="branch-list-local"]').text()).toContain("main");
     await wrapper.get('[data-testid="rail-remote"]').trigger("click");
     await settle();
     expect(wrapper.get('[data-testid="sidebar-panel-count"]').text()).toBe("1");
     await wrapper.get('[data-testid="rail-remote"]').trigger("click");
     await settle();
+    expect(wrapper.find('[data-testid="sidebar-panel"]').exists()).toBe(false);
     expect(wrapper.get('[data-testid="commit-subject"]').text()).toBe("feat: change 0");
     expect(wrapper.get('[data-testid="detail-stats"]').text()).toContain("2 files");
     expect(wrapper.get('[data-testid="file-list"]').text()).toContain("app.ts");
@@ -879,8 +881,8 @@ describe("AppShell", () => {
     await settle();
     expect(wrapper.find('[data-testid="graph-focus"]').exists()).toBe(true);
     expect(useTabsStore().comparisons).toHaveLength(1);
-    // A repository open outside a project keeps its comparison in the session, with no row.
-    expect(wrapper.find('[data-testid="tab-row"]').exists()).toBe(false);
+    // A repository open outside a project keeps its comparison in the session, in the row.
+    expect(wrapper.get('[data-testid="tab-row"]').text()).toContain("origin/main");
     wrapper.unmount();
   });
 
@@ -1085,10 +1087,7 @@ describe("AppShell", () => {
     const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
     await useRepoStore().open("/r");
     await settle();
-    // Closed, a panel takes its edge with it.
-    expect(wrapper.find('[aria-label="Resize the sidebar"]').exists()).toBe(false);
-    await wrapper.get('[data-testid="rail-local"]').trigger("click");
-    await settle();
+    // Graph focus shows the panel, with its edge.
     const divider = wrapper.get('[aria-label="Resize the sidebar"]');
     await divider.trigger("mousedown", { clientX: 288 });
     window.dispatchEvent(new MouseEvent("mousemove", { clientX: 368 }));
@@ -1098,7 +1097,7 @@ describe("AppShell", () => {
     expect(wrapper.get('[data-testid="sidebar-panel"]').attributes("style")).toContain(
       "width: 320px",
     );
-    // Another panel opens at the same width.
+    // Another section shows at the same width.
     await wrapper.get('[data-testid="rail-worktrees"]').trigger("click");
     await settle();
     expect(wrapper.get('[data-testid="sidebar-panel"]').attributes("style")).toContain(
@@ -1107,6 +1106,10 @@ describe("AppShell", () => {
     await wrapper.get('[aria-label="Resize the sidebar"]').trigger("dblclick");
     await settle();
     expect(useSettingsStore().values.paneSizes.sidebar).toBe(240);
+    // Closed, the panel takes its edge with it.
+    await wrapper.get('[data-testid="rail-worktrees"]').trigger("click");
+    await settle();
+    expect(wrapper.find('[aria-label="Resize the sidebar"]').exists()).toBe(false);
     wrapper.unmount();
   });
 
@@ -1123,17 +1126,17 @@ describe("AppShell", () => {
       "Nothing to show until the repository opens",
     );
     expect(wrapper.find('[data-testid="sidebar-rail"]').exists()).toBe(true);
-    // Ctrl B opens the Branches panel; a repository that failed to open lists no branch, so its
-    // filter takes the focus.
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "b", ctrlKey: true }));
-    await settle();
-    expect(shell.sidebarPanel).toBe("local");
-    const panel = wrapper.get('[data-testid="sidebar-panel"]');
-    expect(panel.text()).toContain("No repository open");
-    expect(document.activeElement).toBe(panel.get('[data-testid="sidebar-filter"]').element);
+    // The Branches panel shows beside the rail; a repository that failed to open lists no branch.
+    expect(wrapper.get('[data-testid="sidebar-panel"]').text()).toContain("No repository open");
+    // Ctrl B closes it, and opens it again on its filter, its list having no row.
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "b", ctrlKey: true }));
     await settle();
     expect(wrapper.find('[data-testid="sidebar-panel"]').exists()).toBe(false);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "b", ctrlKey: true }));
+    await settle();
+    expect(shell.sidebarSection).toBe("local");
+    const panel = wrapper.get('[data-testid="sidebar-panel"]');
+    expect(document.activeElement).toBe(panel.get('[data-testid="sidebar-filter"]').element);
     wrapper.unmount();
   });
 
@@ -1161,12 +1164,14 @@ describe("AppShell", () => {
   });
 });
 
-describe("Sidebar rail and panels", () => {
+describe("Sidebar rail and panel", () => {
   const rail = (wrapper: VueWrapper) =>
     wrapper.findAll('[data-testid="sidebar-rail"] button').map((b) => b.attributes("aria-label"));
   const icon = (wrapper: VueWrapper, id: string) => wrapper.get(`[data-testid="rail-${id}"]`);
   const panel = (wrapper: VueWrapper) => wrapper.find('[data-testid="sidebar-panel"]');
   const count = (wrapper: VueWrapper) => wrapper.get('[data-testid="sidebar-panel-count"]').text();
+  const inRows = (wrapper: VueWrapper) =>
+    wrapper.get('[data-testid="commit-rows"]').element.contains(document.activeElement);
 
   let calls: string[] = [];
 
@@ -1179,99 +1184,170 @@ describe("Sidebar rail and panels", () => {
     return wrapper;
   }
 
-  async function open(wrapper: VueWrapper, id: string) {
-    await icon(wrapper, id).trigger("click");
-    await settle();
+  /** Shows section `id` in the panel: a click on its icon, unless the panel shows it already. */
+  async function show(wrapper: VueWrapper, id: string) {
+    const shown = panel(wrapper);
+    if (!shown.exists() || shown.attributes("data-panel") !== id) {
+      await icon(wrapper, id).trigger("click");
+      await settle();
+    }
     return wrapper.get('[data-testid="sidebar-panel"]');
   }
 
   const press = (key: string, init: KeyboardEventInit = {}) =>
     window.dispatchEvent(new KeyboardEvent("keydown", { key, ctrlKey: true, ...init }));
 
-  it("shows the same rail in every layout with a project, and none at Home", async () => {
+  it("shows the rail where the tab acts on the repository, and none in the Overview, the settings or at Home", async () => {
     const wrapper = await openShell();
     const icons = ["Repositories", "Branches", "Remote branches", "Tags", "Worktrees"];
     expect(rail(wrapper)).toEqual(icons);
+    // Graph focus shows the Branches panel; review focus the rail alone.
+    expect(panel(wrapper).attributes("data-panel")).toBe("local");
+    press("2");
+    await settle();
+    expect(rail(wrapper)).toEqual(icons);
     expect(panel(wrapper).exists()).toBe(false);
-    // Review focus, the Changes and the settings keep it as it is.
-    for (const key of ["2", "3", ","]) {
+    // The folder view of a project of several, the Overview and the settings have no sidebar.
+    for (const key of ["3", "4", ","]) {
       press(key);
       await settle();
-      expect(rail(wrapper)).toEqual(icons);
+      expect(wrapper.find('[data-testid="sidebar-rail"]').exists()).toBe(false);
+      expect(panel(wrapper).exists()).toBe(false);
     }
     press("1");
     await settle();
+    expect(panel(wrapper).attributes("data-panel")).toBe("local");
     await useProjectsStore().close();
     await settle();
     expect(wrapper.find('[data-testid="sidebar-rail"]').exists()).toBe(false);
     wrapper.unmount();
   });
 
-  it("opens a panel from its icon over the layout, its list focused; the icon or Ctrl B closes it", async () => {
+  it("docks the panel beside the rail, its list focused when an icon shows it; the icon or Ctrl B closes it", async () => {
     const wrapper = await openShell();
-    const shown = await open(wrapper, "local");
-    expect(shown.attributes("data-panel")).toBe("local");
-    // A disclosure: the icon says its panel is expanded, not pressed.
-    expect(icon(wrapper, "local").attributes("aria-expanded")).toBe("true");
-    expect(icon(wrapper, "local").attributes("aria-pressed")).toBeUndefined();
-    expect(shown.get('[data-testid="sidebar-panel-title"]').text()).toBe("Branches");
+    const docked = panel(wrapper);
+    expect(wrapper.get('[data-testid="sidebar-rail"]').element.nextElementSibling).toBe(
+      docked.element,
+    );
+    expect(docked.classes()).not.toContain("absolute");
+    expect(docked.get('[data-testid="sidebar-panel-title"]').text()).toBe("Branches");
     expect(count(wrapper)).toBe("1");
-    // The layout behind is still graph focus.
-    expect(wrapper.find('[data-testid="graph-focus"]').exists()).toBe(true);
-    const row = shown.get('[data-testid="branch-list-local"] [data-testid="list-row"]');
+    // A toggle: the icon of the section shown is pressed while the panel is open.
+    expect(icon(wrapper, "local").attributes("aria-pressed")).toBe("true");
+    expect(icon(wrapper, "local").attributes("aria-expanded")).toBeUndefined();
+    const shown = await show(wrapper, "remote");
+    expect(shown.attributes("data-panel")).toBe("remote");
+    expect(icon(wrapper, "local").attributes("aria-pressed")).toBe("false");
+    const row = shown.get('[data-testid="branch-list-remote"] [data-testid="list-row"]');
     expect(document.activeElement).toBe(row.element);
+    // The layout beside it is still graph focus.
+    expect(wrapper.find('[data-testid="graph-focus"]').exists()).toBe(true);
     // Its icon closes it.
-    await icon(wrapper, "local").trigger("click");
+    await icon(wrapper, "remote").trigger("click");
     await settle();
     expect(panel(wrapper).exists()).toBe(false);
-    expect(icon(wrapper, "local").attributes("aria-expanded")).toBe("false");
-    // Another icon opens its own panel in place of the open one.
-    await open(wrapper, "local");
-    await open(wrapper, "remote");
-    expect(panel(wrapper).attributes("data-panel")).toBe("remote");
-    // Ctrl B closes the open panel, its focus going to the graph's rows behind it, then opens
-    // the last one again.
-    press("b");
-    await settle();
-    expect(panel(wrapper).exists()).toBe(false);
-    expect(
-      wrapper.get('[data-testid="commit-rows"]').element.contains(document.activeElement),
-    ).toBe(true);
+    expect(icon(wrapper, "remote").attributes("aria-pressed")).toBe("false");
+    // Ctrl B opens it on the section it showed, its list focused, and closes it from there,
+    // the graph's rows taking the focus.
     press("b");
     await settle();
     expect(panel(wrapper).attributes("data-panel")).toBe("remote");
+    expect(panel(wrapper).element.contains(document.activeElement)).toBe(true);
+    press("b");
+    await settle();
+    expect(panel(wrapper).exists()).toBe(false);
+    expect(inRows(wrapper)).toBe(true);
     wrapper.unmount();
   });
 
-  it("closes on Escape with the focus on its icon, and on a press outside that reaches its target", async () => {
+  it("hands the focus to the comparison and the dashboard on Escape too", async () => {
     const wrapper = await openShell();
-    const shown = await open(wrapper, "worktrees");
+    useCompareStore().open(
+      { kind: "revision", rev: "refs/heads/main", label: "main" },
+      { kind: "revision", rev: "refs/remotes/origin/main", label: "origin/main" },
+    );
+    await settle();
+    let shown = await show(wrapper, "local");
+    let row = shown.get('[data-testid="branch-list-local"] [data-testid="list-row"]');
+    (row.element as HTMLElement).focus();
+    await row.trigger("keydown", { key: "Escape" });
+    await settle();
+    expect(
+      wrapper.get('[data-testid="compare-layout"]').element.contains(document.activeElement),
+    ).toBe(true);
+    press(",");
+    await settle();
+    await useShellStore().setLayoutMode("worktrees");
+    await settle();
+    shown = await show(wrapper, "local");
+    row = shown.get('[data-testid="branch-list-local"] [data-testid="list-row"]');
+    (row.element as HTMLElement).focus();
+    await row.trigger("keydown", { key: "Escape" });
+    await settle();
+    expect(
+      wrapper.get('[data-testid="worktrees-layout"]').element.contains(document.activeElement),
+    ).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("gives the dashboard's rows the focus when its icon shows it", async () => {
+    const wrapper = await openShell();
+    await show(wrapper, "worktrees");
+    const dashboard = wrapper.get('[data-testid="sidebar-dashboard"]');
+    (dashboard.element as HTMLElement).focus();
+    await dashboard.trigger("click");
+    await settle();
+    expect(
+      wrapper.get('[data-testid="worktrees-layout"]').element.contains(document.activeElement),
+    ).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("keeps the focus on the worktree list when Enter opens a worktree as the context", async () => {
+    const wrapper = await openShell();
+    const shown = await show(wrapper, "worktrees");
+    const rows = shown.findAll('[data-testid="worktree-list"] [data-testid="list-row"]');
+    // The worktree open already lists nothing again, and holds nothing.
+    const own = rows.find((row) => row.text() === "r")!;
+    (own.element as HTMLElement).focus();
+    await own.trigger("keydown", { key: "Enter" });
+    await settle();
+    expect(useShellStore().sidebarFocusHeld).toBe(false);
+    expect(document.activeElement).toBe(own.element);
+    const auth = rows.find((row) => row.text() === "claude-auth")!;
+    (auth.element as HTMLElement).focus();
+    await auth.trigger("keydown", { key: "Enter" });
+    await settle();
+    expect(useRepoStore().repo?.root).toBe("/wt/claude-auth");
+    expect(useShellStore().sidebarFocusHeld).toBe(false);
+    expect(
+      wrapper.get('[data-testid="worktree-list"]').element.contains(document.activeElement),
+    ).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("hands the focus to the layout on Escape and stays open, a press on the graph reaching it", async () => {
+    const wrapper = await openShell();
+    const shown = await show(wrapper, "worktrees");
     const row = shown.get('[data-testid="worktree-list"] [data-testid="list-row"]');
     (row.element as HTMLElement).focus();
     await row.trigger("keydown", { key: "Escape" });
     await settle();
-    expect(panel(wrapper).exists()).toBe(false);
-    expect(document.activeElement).toBe(icon(wrapper, "worktrees").element);
-    // A press on the graph closes the panel and selects the commit it pressed.
-    await open(wrapper, "tags");
+    expect(panel(wrapper).exists()).toBe(true);
+    expect(inRows(wrapper)).toBe(true);
+    // A press on the graph selects the commit it pressed, the panel staying.
     const commitRow = wrapper.findAll('[data-testid="graph-row"]')[2]!;
     commitRow.element.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
     await commitRow.trigger("click");
     await settle();
-    expect(panel(wrapper).exists()).toBe(false);
+    expect(panel(wrapper).exists()).toBe(true);
     expect(useRepoStore().selectedIndex).toBe(2);
-    // A press on the rail does not count as outside: its icon decides.
-    await open(wrapper, "tags");
-    icon(wrapper, "local").element.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
-    await icon(wrapper, "local").trigger("click");
-    await settle();
-    expect(panel(wrapper).attributes("data-panel")).toBe("local");
     wrapper.unmount();
   });
 
   it("keeps the panel open through a row's menu and the dialog its action opens", async () => {
     const wrapper = await openShell();
-    const shown = await open(wrapper, "local");
+    const shown = await show(wrapper, "local");
     const row = shown.get('[data-testid="branch-list-local"] [data-testid="list-row"]');
     await row.trigger("contextmenu", { clientX: 40, clientY: 80 });
     await settle();
@@ -1292,29 +1368,29 @@ describe("Sidebar rail and panels", () => {
     wrapper.unmount();
   });
 
-  it("keeps a filter per panel while it is closed, and clears them for another repository", async () => {
+  it("keeps a filter per section while another shows, and clears them for another repository", async () => {
     const wrapper = await openShell();
     await useIndexStore().load();
-    let shown = await open(wrapper, "local");
+    let shown = await show(wrapper, "local");
     await shown.get('[data-testid="sidebar-filter"]').setValue("zzz");
     await settle();
     expect(count(wrapper)).toBe("0 of 1");
     expect(shown.get('[data-testid="panel-no-matches"]').text()).toBe(
       "Nothing matches the filter.",
     );
-    shown = await open(wrapper, "remote");
+    shown = await show(wrapper, "remote");
     expect((shown.get('[data-testid="sidebar-filter"]').element as HTMLInputElement).value).toBe(
       "",
     );
     expect(count(wrapper)).toBe("1");
-    shown = await open(wrapper, "local");
+    shown = await show(wrapper, "local");
     expect((shown.get('[data-testid="sidebar-filter"]').element as HTMLInputElement).value).toBe(
       "zzz",
     );
     await useProjectsStore().show("/other");
     await settle();
-    shown = await open(wrapper, "worktrees");
-    shown = await open(wrapper, "local");
+    shown = await show(wrapper, "worktrees");
+    shown = await show(wrapper, "local");
     expect((shown.get('[data-testid="sidebar-filter"]').element as HTMLInputElement).value).toBe(
       "",
     );
@@ -1338,7 +1414,7 @@ describe("Sidebar rail and panels", () => {
     });
     useRepoStore().refs = [local("alpha", 100), local("beta", 900), local("gamma", 500)];
     await settle();
-    await open(wrapper, "local");
+    await show(wrapper, "local");
     const names = () =>
       wrapper
         .get('[data-testid="branch-list-local"]')
@@ -1354,19 +1430,19 @@ describe("Sidebar rail and panels", () => {
     expect(wrapper.get('[data-testid="branch-sort"]').attributes("aria-label")).toBe(
       "Sort by last commit",
     );
-    // ↵ on a branch checks it out and closes the panel.
+    // ↵ on a branch checks it out, the panel staying open.
     const beta = wrapper.findAll('[data-testid="branch-list-local"] [data-testid="list-row"]')[1]!;
     await beta.trigger("click");
     await beta.trigger("keydown", { key: "Enter" });
     await settle();
     expect(calls).toContain("switch");
-    expect(panel(wrapper).exists()).toBe(false);
+    expect(panel(wrapper).exists()).toBe(true);
     wrapper.unmount();
   });
 
   it("selects no branch on open, and scopes the graph once the selection settles", async () => {
     const wrapper = await openShell();
-    const shown = await open(wrapper, "remote");
+    const shown = await show(wrapper, "remote");
     const rows = shown.findAll('[data-testid="branch-list-remote"] [data-testid="list-row"]');
     expect(rows.map((row) => row.attributes("aria-selected"))).toEqual(["false"]);
     expect(rows[0]?.attributes("tabindex")).toBe("0");
@@ -1380,16 +1456,15 @@ describe("Sidebar rail and panels", () => {
       name: "origin/main",
       fullName: "refs/remotes/origin/main",
     });
-    // Selecting scopes the graph with the panel still open.
     expect(panel(wrapper).exists()).toBe(true);
     wrapper.unmount();
   });
 
-  it("lists the project's repositories in their panel, worktrees under their repository, and shows one with Enter", async () => {
+  it("lists the project's repositories in their section, worktrees under their repository, and shows one with Enter", async () => {
     const wrapper = await openShell();
     await useIndexStore().load();
     await settle();
-    const shown = await open(wrapper, "repos");
+    const shown = await show(wrapper, "repos");
     const list = shown.get('[data-testid="repo-list"]');
     const rows = list.findAll('[data-testid="list-row"]');
     expect(rows.map((row) => row.text())).toEqual([
@@ -1412,7 +1487,7 @@ describe("Sidebar rail and panels", () => {
     await again[2]!.trigger("keydown", { key: "Enter" });
     await settle();
     expect(useRepoStore().repo?.root).toBe("/other");
-    expect(panel(wrapper).exists()).toBe(false);
+    expect(panel(wrapper).exists()).toBe(true);
     wrapper.unmount();
   });
 
@@ -1420,7 +1495,7 @@ describe("Sidebar rail and panels", () => {
     const writeText = vi.fn(() => Promise.resolve());
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
     const wrapper = await openShell();
-    const shown = await open(wrapper, "remote");
+    const shown = await show(wrapper, "remote");
     const row = shown.get('[data-testid="branch-list-remote"] [data-testid="list-row"]');
     await row.trigger("contextmenu");
     await settle();
@@ -1438,26 +1513,22 @@ describe("Sidebar rail and panels", () => {
     await menu.get('[data-testid="menu-copy-name"]').trigger("click");
     await settle();
     expect(writeText).toHaveBeenCalledWith("origin/main");
-    // The menu's action leaves the panel open.
     expect(panel(wrapper).exists()).toBe(true);
     wrapper.unmount();
   });
 
-  it("opens the worktrees dashboard from the Worktrees panel, which closes", async () => {
+  it("shows the worktrees dashboard's tab from the Worktrees section", async () => {
     const wrapper = await openShell();
-    await open(wrapper, "worktrees");
+    await show(wrapper, "worktrees");
     const dashboard = wrapper.get('[data-testid="sidebar-dashboard"]');
     expect(dashboard.attributes("aria-label")).toBe("Show worktrees");
-    expect(dashboard.attributes("aria-pressed")).toBe("false");
+    expect(dashboard.attributes("aria-pressed")).toBeUndefined();
     await dashboard.trigger("click");
     await settle();
     expect(useShellStore().layoutMode).toBe("worktrees");
-    expect(panel(wrapper).exists()).toBe(false);
-    await open(wrapper, "worktrees");
-    expect(wrapper.get('[data-testid="sidebar-dashboard"]').attributes("aria-pressed")).toBe(
-      "true",
-    );
-    await wrapper.get('[data-testid="sidebar-dashboard"]').trigger("click");
+    // The dashboard's tab keeps the panel beside it, open as the dashboard's tabs have it.
+    expect(panel(wrapper).attributes("data-panel")).toBe("worktrees");
+    press("1");
     await settle();
     expect(useShellStore().layoutMode).toBe("graph");
     wrapper.unmount();
@@ -1465,7 +1536,7 @@ describe("Sidebar rail and panels", () => {
 
   it("lists the worktrees with their lane dots, and keeps a row menu's keys in the menu", async () => {
     const wrapper = await openShell();
-    const shown = await open(wrapper, "worktrees");
+    const shown = await show(wrapper, "worktrees");
     const rows = shown.get('[data-testid="worktree-list"]').findAll('[data-testid="list-row"]');
     expect(rows.map((row) => row.text())).toEqual(["r", "claude-auth"]);
     expect(rows[0]?.find("[data-lane]").exists()).toBe(true);
@@ -1502,11 +1573,11 @@ describe("Sidebar rail and panels", () => {
     expect(useRepoStore().state.kind).toBe("opening");
     const skeletons = () =>
       wrapper.findAll('[data-testid="sidebar-panel"] [data-testid="skeleton-row"]');
-    await open(wrapper, "local");
+    await show(wrapper, "local");
     expect(skeletons()).toHaveLength(6);
-    // A panel being read shows no count, rather than a 0 it does not mean.
+    // A section being read shows no count, rather than a 0 it does not mean.
     expect(count(wrapper)).toBe("");
-    await open(wrapper, "worktrees");
+    await show(wrapper, "worktrees");
     expect(skeletons()).toHaveLength(2);
     openRepository();
     await settle();
@@ -1529,7 +1600,7 @@ describe("Sidebar rail and panels", () => {
     expect(icon(wrapper, "worktrees").attributes("aria-description")).toBe(
       "Couldn't list the worktrees",
     );
-    const shown = await open(wrapper, "worktrees");
+    const shown = await show(wrapper, "worktrees");
     const error = shown.get('[data-testid="worktrees-error"]');
     expect(error.text()).toContain("Couldn't list the worktrees.");
     await error.get('[data-testid="error-banner-toggle"]').trigger("click");
@@ -1547,77 +1618,35 @@ describe("Sidebar rail and panels", () => {
     wrapper.unmount();
   });
 
-  it("follows its rail in the tab order, and closes when the focus moves on into the layout", async () => {
+  it("follows its rail in the tab order, before the layout, and stays as the focus moves on", async () => {
     const wrapper = await openShell();
-    const shown = await open(wrapper, "local");
+    const shown = await show(wrapper, "local");
     expect(wrapper.get('[data-testid="sidebar-rail"]').element.nextElementSibling).toBe(
       shown.element,
     );
-    // Back to the rail keeps it open; on into the layout closes it, the focus staying there.
-    (icon(wrapper, "tags").element as HTMLElement).focus();
-    await settle();
-    expect(panel(wrapper).exists()).toBe(true);
+    expect(shown.element.nextElementSibling?.id).toBe("tab-panel");
     const row = shown.get('[data-testid="branch-list-local"] [data-testid="list-row"]');
     (row.element as HTMLElement).focus();
     const commitRow = wrapper.findAll('[data-testid="graph-row"]')[1]!.element as HTMLElement;
     commitRow.focus();
     await settle();
-    expect(panel(wrapper).exists()).toBe(false);
+    expect(panel(wrapper).exists()).toBe(true);
     expect(document.activeElement).toBe(commitRow);
     wrapper.unmount();
   });
 
-  it("gives the focus back to where it was when Ctrl B closes it, and leaves it to a press", async () => {
+  it("leaves the focus where it is when Ctrl B acts from the layout", async () => {
     const wrapper = await openShell();
-    const rows = () => wrapper.findAll('[data-testid="graph-row"]');
-    const second = rows()[1]!.element as HTMLElement;
+    const second = wrapper.findAll('[data-testid="graph-row"]')[1]!.element as HTMLElement;
     second.focus();
-    press("b");
-    await settle();
-    expect(panel(wrapper).exists()).toBe(true);
-    expect(document.activeElement).not.toBe(second);
     press("b");
     await settle();
     expect(panel(wrapper).exists()).toBe(false);
     expect(document.activeElement).toBe(second);
-    // A press outside: the shell moves no focus, so the list under the pointer stays put for the
-    // click that follows.
-    press("b");
-    await settle();
-    const focus = vi.spyOn(HTMLElement.prototype, "focus");
-    rows()[2]!.element.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
-    await settle();
-    expect(panel(wrapper).exists()).toBe(false);
-    expect(focus).not.toHaveBeenCalled();
-    focus.mockRestore();
     wrapper.unmount();
   });
 
-  it("keeps the rest of a double click on a repository row from the graph behind", async () => {
-    const wrapper = await openShell();
-    await useIndexStore().load();
-    await settle();
-    const shown = await open(wrapper, "repos");
-    const rows = shown.findAll('[data-testid="repo-list"] [data-testid="list-row"]');
-    const at = { bubbles: true, cancelable: true, clientX: 60, clientY: 90 };
-    rows[2]!.element.dispatchEvent(new MouseEvent("pointerdown", at));
-    rows[2]!.element.dispatchEvent(new MouseEvent("click", at));
-    await settle();
-    expect(panel(wrapper).exists()).toBe(false);
-    expect(useRepoStore().repo?.root).toBe("/other");
-    // The second press of the double click lands where the row was: on a commit.
-    const commitRow = wrapper.findAll('[data-testid="graph-row"]')[1]!.element;
-    const selected = useRepoStore().selectedIndex;
-    for (const type of ["pointerdown", "mousedown", "click", "dblclick"]) {
-      commitRow.dispatchEvent(new MouseEvent(type, at));
-    }
-    await settle();
-    expect(useShellStore().layoutMode).toBe("graph");
-    expect(useRepoStore().selectedIndex).toBe(selected);
-    wrapper.unmount();
-  });
-
-  it("shows skeleton rows in every ref panel while the repository opens, then says when there is none", async () => {
+  it("shows skeleton rows in every ref section while the repository opens, then says when there is none", async () => {
     let openRepository = () => {};
     backend({
       openGate: new Promise<void>((resolve) => (openRepository = resolve)),
@@ -1629,31 +1658,31 @@ describe("Sidebar rail and panels", () => {
     await settle();
     const skeletons = () =>
       wrapper.findAll('[data-testid="sidebar-panel"] [data-testid="skeleton-row"]');
-    await open(wrapper, "remote");
+    await show(wrapper, "remote");
     expect(skeletons()).toHaveLength(6);
-    await open(wrapper, "tags");
+    await show(wrapper, "tags");
     expect(skeletons()).toHaveLength(6);
     openRepository();
     await settle();
     expect(skeletons()).toHaveLength(0);
     expect(wrapper.get('[data-testid="branch-list-empty"]').text()).toBe("No tags");
-    await open(wrapper, "remote");
+    await show(wrapper, "remote");
     expect(wrapper.get('[data-testid="branch-list-empty"]').text()).toBe("No remote branches");
     wrapper.unmount();
   });
 
-  it("says no repository is open in a ref panel of one that failed, whose dashboard cannot open", async () => {
+  it("says no repository is open in a ref section of one that failed, whose dashboard cannot open", async () => {
     const wrapper = await openShell({ failOpen: true });
-    await open(wrapper, "tags");
+    await show(wrapper, "tags");
     expect(wrapper.get('[data-testid="branch-list-empty"]').text()).toBe("No repository open");
-    await open(wrapper, "worktrees");
+    await show(wrapper, "worktrees");
     expect(wrapper.get('[data-testid="sidebar-dashboard"]').attributes("disabled")).toBeDefined();
     wrapper.unmount();
   });
 
   it("keeps the panel when a press on a dialog's backdrop closes the dialog", async () => {
     const wrapper = await openShell();
-    const shown = await open(wrapper, "local");
+    const shown = await show(wrapper, "local");
     const row = shown.get('[data-testid="branch-list-local"] [data-testid="list-row"]');
     await row.trigger("contextmenu", { clientX: 40, clientY: 80 });
     await settle();
@@ -1667,13 +1696,13 @@ describe("Sidebar rail and panels", () => {
     wrapper.unmount();
   });
 
-  it("opens no panel from Ctrl B behind the palette, nor at Home, and none waits for the next project", async () => {
+  it("does nothing with Ctrl B behind the palette or at Home, and opens the next project as its graph has it", async () => {
     const wrapper = await openShell();
     press("k");
     await settle();
     press("b");
     await settle();
-    expect(panel(wrapper).exists()).toBe(false);
+    expect(panel(wrapper).exists()).toBe(true);
     expect(wrapper.find('[data-testid="palette-overlay"]').exists()).toBe(true);
     useShellStore().closePalette();
     await useProjectsStore().close();
@@ -1681,7 +1710,8 @@ describe("Sidebar rail and panels", () => {
     press("b");
     shortcutRegistry().run("toggle-sidebar");
     await settle();
-    expect(useShellStore().sidebarPanel).toBeNull();
+    expect(useShellStore().sidebarOpen).toBe(false);
+    expect(useSettingsStore().values.sidebarPanels.graph).toBe(true);
     // The palette offers no toggle at Home.
     press("k");
     await settle();
@@ -1690,48 +1720,49 @@ describe("Sidebar rail and panels", () => {
     useShellStore().closePalette();
     await useProjectsStore().open(1);
     await settle();
-    expect(panel(wrapper).exists()).toBe(false);
-    wrapper.unmount();
-  });
-
-  it("opens Branches with Ctrl B once the project shows a single repository", async () => {
-    const wrapper = await openShell();
-    await open(wrapper, "repos");
-    press("b");
-    await settle();
-    const projects = useProjectsStore();
-    await projects.setMembers(1, [projects.activeMembers[0]!.path]);
-    await settle();
-    expect(rail(wrapper)).not.toContain("Repositories");
-    press("b");
-    await settle();
     expect(panel(wrapper).attributes("data-panel")).toBe("local");
     wrapper.unmount();
   });
 
-  it("opens over review focus and the settings, which keep their layout", async () => {
+  it("shows Branches in place of Repositories once the project holds a single repository", async () => {
     const wrapper = await openShell();
-    for (const [key, layout] of [
-      ["2", "review-focus"],
-      [",", "settings-layout"],
-    ] as const) {
-      press(key);
-      await settle();
-      await open(wrapper, "local");
-      expect(wrapper.find(`[data-testid="${layout}"]`).exists()).toBe(true);
-      press("b");
-      await settle();
-      expect(panel(wrapper).exists()).toBe(false);
-    }
+    await show(wrapper, "repos");
+    const projects = useProjectsStore();
+    await projects.setMembers(1, [projects.activeMembers[0]!.path]);
+    await settle();
+    expect(rail(wrapper)).not.toContain("Repositories");
+    expect(panel(wrapper).attributes("data-panel")).toBe("local");
     wrapper.unmount();
   });
 
-  it("keeps the layout's single keys from acting while a panel's list has the focus", async () => {
+  it("opens beside review focus, closed there until the user opens it, and keeps each tab's", async () => {
+    const wrapper = await openShell();
+    press("2");
+    await settle();
+    expect(panel(wrapper).exists()).toBe(false);
+    await show(wrapper, "local");
+    expect(wrapper.find('[data-testid="review-focus"]').exists()).toBe(true);
+    // Graph focus closes its own; review focus keeps its own open.
+    press("1");
+    await settle();
+    press("b");
+    await settle();
+    expect(panel(wrapper).exists()).toBe(false);
+    press("2");
+    await settle();
+    expect(panel(wrapper).exists()).toBe(true);
+    press("1");
+    await settle();
+    expect(panel(wrapper).exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("keeps the layout's single keys from acting while the panel's list has the focus", async () => {
     const wrapper = await openShell();
     press("2");
     await settle();
     const review = useReviewStore();
-    const shown = await open(wrapper, "local");
+    const shown = await show(wrapper, "local");
     const row = shown.get('[data-testid="branch-list-local"] [data-testid="list-row"]');
     (row.element as HTMLElement).focus();
     await row.trigger("keydown", { key: "r" });
@@ -1742,7 +1773,7 @@ describe("Sidebar rail and panels", () => {
 
   it("scopes the graph to a branch chosen just before the panel closed", async () => {
     const wrapper = await openShell();
-    const shown = await open(wrapper, "remote");
+    const shown = await show(wrapper, "remote");
     const row = shown.get('[data-testid="branch-list-remote"] [data-testid="list-row"]');
     await row.trigger("keydown", { key: "j" });
     press("b");
@@ -1758,7 +1789,7 @@ describe("Sidebar rail and panels", () => {
 
   it("leaves no native tooltip in the shell: every hint is the app's", async () => {
     const wrapper = await openShell();
-    await open(wrapper, "local");
+    await show(wrapper, "local");
     expect(wrapper.findAll("[title], svg title")).toHaveLength(0);
     expect(wrapper.findAll("[data-tooltip]").length).toBeGreaterThan(0);
     wrapper.unmount();
@@ -1773,6 +1804,8 @@ describe("Tabs", () => {
     label: "origin/main",
   };
   const older: CompareEndpoint = { kind: "revision", rev: commit(2).hash, label: "c2" };
+  /** Geoportal holds three repositories: its fixed tabs, the Overview among them. */
+  const fixed = ["Graph", "Review", "Changes", "Overview"];
 
   async function openShell() {
     const calls = backend();
@@ -1800,19 +1833,31 @@ describe("Tabs", () => {
     return event;
   };
 
-  it("shows no row with the project's tab alone, and the row once a comparison opens", async () => {
+  it("shows a project's fixed tabs in a row, and a comparison's tab after them", async () => {
     const { wrapper } = await openShell();
-    expect(row(wrapper).exists()).toBe(false);
+    expect(names(wrapper)).toEqual(fixed);
+    expect(shown(wrapper)).toBe(0);
+    // The fixed tabs never close, and name the key that shows them.
+    expect(wrapper.findAll('[data-testid="tab-close"]')).toHaveLength(0);
+    expect(tabs(wrapper).map((tab) => tab.attributes("data-tooltip-keys"))).toEqual([
+      "Ctrl 1",
+      "Ctrl 2",
+      "Ctrl 3",
+      "Ctrl 4",
+    ]);
+    // The top bar holds no toggle of them.
+    expect(wrapper.find('[data-testid="mode-graph"]').exists()).toBe(false);
     await compare(main, upstream);
-    expect(names(wrapper)).toEqual(["Graph", "main ↔ origin/main"]);
-    expect(shown(wrapper)).toBe(1);
+    expect(names(wrapper)).toEqual([...fixed, "main ↔ origin/main"]);
+    expect(shown(wrapper)).toBe(4);
     expect(wrapper.find('[data-testid="compare-layout"]').exists()).toBe(true);
     // The whole name is the tab's tooltip, whatever the row cuts.
-    expect(tabs(wrapper)[1]?.attributes("data-tooltip")).toBe("main ↔ origin/main");
+    expect(tabs(wrapper)[4]?.attributes("data-tooltip")).toBe("main ↔ origin/main");
+    expect(tabs(wrapper)[4]?.find('[data-testid="tab-close"]').exists()).toBe(true);
     wrapper.unmount();
   });
 
-  it("comes back to a comparison after ⌘1, recomputed, and the project's tab as it was", async () => {
+  it("comes back to a comparison after ⌘1, recomputed, and the Graph tab as it was", async () => {
     const { wrapper, calls } = await openShell();
     useRepoStore().select(1);
     await compare(main, upstream);
@@ -1820,14 +1865,14 @@ describe("Tabs", () => {
     press("1");
     await settle();
     expect(wrapper.find('[data-testid="graph-focus"]').exists()).toBe(true);
-    expect(names(wrapper)).toEqual(["Graph", "main ↔ origin/main"]);
+    expect(names(wrapper)).toEqual([...fixed, "main ↔ origin/main"]);
     expect(shown(wrapper)).toBe(0);
     expect(useRepoStore().selectedIndex).toBe(1);
-    await tabs(wrapper)[1]!.trigger("click");
+    await tabs(wrapper)[4]!.trigger("click");
     await settle();
     expect(wrapper.find('[data-testid="compare-layout"]').exists()).toBe(true);
     expect(calls.filter((cmd) => cmd === "compare")).toHaveLength(compared + 1);
-    // The project's tab shows the commit it had selected.
+    // The Graph tab shows the commit it had selected.
     await tabs(wrapper)[0]!.trigger("click");
     await settle();
     expect(wrapper.find('[data-testid="graph-focus"]').exists()).toBe(true);
@@ -1842,17 +1887,17 @@ describe("Tabs", () => {
     await tabs(wrapper)[0]!.trigger("click");
     await settle();
     // Each opens after the tab shown: the second after the first.
-    expect(names(wrapper)).toEqual(["Graph", "main ↔ origin/main", "main ↔ c2"]);
+    expect(names(wrapper)).toEqual([...fixed, "main ↔ origin/main", "main ↔ c2"]);
     const seen: number[] = [];
-    for (let step = 0; step < 3; step += 1) {
+    for (let step = 0; step < 6; step += 1) {
       press("Tab");
       await settle();
       seen.push(shown(wrapper));
     }
-    expect(seen).toEqual([1, 2, 0]);
+    expect(seen).toEqual([1, 2, 3, 4, 5, 0]);
     press("Tab", { shiftKey: true });
     await settle();
-    expect(shown(wrapper)).toBe(2);
+    expect(shown(wrapper)).toBe(5);
     // The palette names the key.
     expect(shortcutRegistry().hint("next-tab")).toBe("Ctrl Tab");
     wrapper.unmount();
@@ -1862,39 +1907,39 @@ describe("Tabs", () => {
     const { wrapper } = await openShell();
     await compare(main, upstream);
     await compare(main, older);
-    await tabs(wrapper)[0]!.trigger("click");
+    press("4");
     await settle();
     const inSideA = () => document.activeElement?.closest('[data-testid="side-main"]') != null;
     press("Tab");
     await settle();
-    expect(shown(wrapper)).toBe(1);
+    expect(shown(wrapper)).toBe(4);
     expect(inSideA()).toBe(true);
     // To the next comparison: the layout stays and its lists load again.
     press("Tab");
     await settle();
-    expect(shown(wrapper)).toBe(2);
+    expect(shown(wrapper)).toBe(5);
     expect(inSideA()).toBe(true);
     wrapper.unmount();
   });
 
-  it("closes the comparison shown with Ctrl W, the tab before it showing; the project's tab never", async () => {
+  it("closes the tab shown with Ctrl W, the tab before it showing; a fixed tab never", async () => {
     const { wrapper } = await openShell();
     await compare(main, upstream);
     await compare(main, older);
-    expect(names(wrapper)).toEqual(["Graph", "main ↔ origin/main", "main ↔ c2"]);
+    expect(names(wrapper)).toEqual([...fixed, "main ↔ origin/main", "main ↔ c2"]);
     press("w");
     await settle();
-    expect(names(wrapper)).toEqual(["Graph", "main ↔ origin/main"]);
-    expect(shown(wrapper)).toBe(1);
+    expect(names(wrapper)).toEqual([...fixed, "main ↔ origin/main"]);
+    expect(shown(wrapper)).toBe(4);
     press("w");
     await settle();
-    expect(row(wrapper).exists()).toBe(false);
-    expect(wrapper.find('[data-testid="graph-focus"]').exists()).toBe(true);
-    // On the project's tab the key closes nothing, and never reaches the webview.
+    expect(names(wrapper)).toEqual(fixed);
+    expect(wrapper.find('[data-testid="project-view"]').exists()).toBe(true);
+    // On a fixed tab the key closes nothing, and never reaches the webview.
     const event = press("w");
     await settle();
     expect(event.defaultPrevented).toBe(true);
-    expect(wrapper.find('[data-testid="graph-focus"]').exists()).toBe(true);
+    expect(names(wrapper)).toEqual(fixed);
     wrapper.unmount();
   });
 
@@ -1902,13 +1947,13 @@ describe("Tabs", () => {
     const { wrapper } = await openShell();
     await compare(main, upstream);
     await compare(main, older);
-    await tabs(wrapper)[1]!.get('[data-testid="tab-close"]').trigger("click");
+    await tabs(wrapper)[4]!.get('[data-testid="tab-close"]').trigger("click");
     await settle();
-    expect(names(wrapper)).toEqual(["Graph", "main ↔ c2"]);
-    expect(shown(wrapper)).toBe(1);
-    await tabs(wrapper)[1]!.trigger("auxclick", { button: 1 });
+    expect(names(wrapper)).toEqual([...fixed, "main ↔ c2"]);
+    expect(shown(wrapper)).toBe(4);
+    await tabs(wrapper)[4]!.trigger("auxclick", { button: 1 });
     await settle();
-    expect(row(wrapper).exists()).toBe(false);
+    expect(names(wrapper)).toEqual(fixed);
     wrapper.unmount();
   });
 
@@ -1920,8 +1965,8 @@ describe("Tabs", () => {
     press("Tab");
     press("w");
     await settle();
-    expect(names(wrapper)).toEqual(["Graph", "main ↔ origin/main"]);
-    expect(shown(wrapper)).toBe(1);
+    expect(names(wrapper)).toEqual([...fixed, "main ↔ origin/main"]);
+    expect(shown(wrapper)).toBe(4);
     wrapper.unmount();
   });
 
@@ -1942,19 +1987,52 @@ describe("Tabs", () => {
     await settle();
     expect(wrapper.find('[data-testid="review-focus"]').exists()).toBe(true);
     expect(review.target).toEqual({ kind: "commit", hash: commit(1).hash });
-    expect(names(wrapper)).toEqual(["Review", "main ↔ origin/main"]);
+    expect(shown(wrapper)).toBe(1);
+    expect(names(wrapper)).toEqual([...fixed, "main ↔ origin/main"]);
     wrapper.unmount();
   });
 
-  it("shows the project's tab from a top bar toggle, the comparison's tab staying", async () => {
+  it("shows a fixed tab from a click, the comparison's tab staying", async () => {
     const { wrapper } = await openShell();
     await compare(main, upstream);
-    // No toggle is pressed while a comparison shows.
-    expect(wrapper.findAll('[data-testid="top-bar"] [aria-pressed="true"]')).toHaveLength(0);
-    await wrapper.get('[data-testid="mode-changes"]').trigger("click");
+    await tabs(wrapper)[2]!.trigger("click");
     await settle();
-    expect(names(wrapper)).toEqual(["Changes", "main ↔ origin/main"]);
-    expect(shown(wrapper)).toBe(0);
+    expect(useShellStore().layoutMode).toBe("changes");
+    expect(names(wrapper)).toEqual([...fixed, "main ↔ origin/main"]);
+    expect(shown(wrapper)).toBe(2);
+    wrapper.unmount();
+  });
+
+  it("opens the settings' tab after the fixed tabs from the gear, which shows pressed", async () => {
+    const { wrapper } = await openShell();
+    await compare(main, upstream);
+    await tabs(wrapper)[0]!.trigger("click");
+    await settle();
+    await wrapper.get('[data-testid="mode-settings"]').trigger("click");
+    await settle();
+    expect(names(wrapper)).toEqual([...fixed, "Settings", "main ↔ origin/main"]);
+    expect(shown(wrapper)).toBe(4);
+    expect(wrapper.find('[data-testid="settings-layout"]').exists()).toBe(true);
+    expect(wrapper.get('[data-testid="mode-settings"]').attributes("aria-pressed")).toBe("true");
+    // The settings show without the sidebar.
+    expect(wrapper.find('[data-testid="sidebar-rail"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("shows Home's tab alone at Home, and the settings' tab beside it from the gear", async () => {
+    backend();
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    await settle();
+    expect(row(wrapper).exists()).toBe(false);
+    await wrapper.get('[data-testid="mode-settings"]').trigger("click");
+    await settle();
+    expect(names(wrapper)).toEqual(["Projects", "Settings"]);
+    expect(shown(wrapper)).toBe(1);
+    expect(wrapper.find('[data-testid="settings-layout"]').exists()).toBe(true);
+    press("w");
+    await settle();
+    expect(row(wrapper).exists()).toBe(false);
+    expect(wrapper.find('[data-testid="home-screen"]').exists()).toBe(true);
     wrapper.unmount();
   });
 
@@ -1963,12 +2041,12 @@ describe("Tabs", () => {
     await compare(main, upstream);
     useCompareStore().swap();
     await settle();
-    expect(names(wrapper)).toEqual(["Graph", "origin/main ↔ main"]);
+    expect(names(wrapper)).toEqual([...fixed, "origin/main ↔ main"]);
     press("1");
     await settle();
     await compare(upstream, main);
-    expect(names(wrapper)).toEqual(["Graph", "origin/main ↔ main"]);
-    expect(shown(wrapper)).toBe(1);
+    expect(names(wrapper)).toEqual([...fixed, "origin/main ↔ main"]);
+    expect(shown(wrapper)).toBe(4);
     wrapper.unmount();
   });
 
@@ -1979,12 +2057,12 @@ describe("Tabs", () => {
     picker.open({ kind: "compare", side: "b", other: main, inTab: true });
     await picker.choose({ kind: "revision", rev: older.rev, label: "c2" });
     await settle();
-    expect(names(wrapper)).toEqual(["Graph", "main ↔ c2"]);
+    expect(names(wrapper)).toEqual([...fixed, "main ↔ c2"]);
     picker.open({ kind: "compare", side: "b", other: main });
     await picker.choose({ kind: "revision", rev: upstream.rev, label: "origin/main" });
     await settle();
-    expect(names(wrapper)).toEqual(["Graph", "main ↔ c2", "main ↔ origin/main"]);
-    expect(shown(wrapper)).toBe(2);
+    expect(names(wrapper)).toEqual([...fixed, "main ↔ c2", "main ↔ origin/main"]);
+    expect(shown(wrapper)).toBe(5);
     wrapper.unmount();
   });
 
@@ -1992,15 +2070,15 @@ describe("Tabs", () => {
     const { wrapper } = await openShell();
     await compare(main, upstream);
     await compare(main, older);
-    (tabs(wrapper)[2]!.element as HTMLElement).focus();
+    (tabs(wrapper)[5]!.element as HTMLElement).focus();
     press("Tab");
     await settle();
     expect(shown(wrapper)).toBe(0);
     expect(document.activeElement).toBe(tabs(wrapper)[0]?.element);
     press("2");
     await settle();
-    expect(document.activeElement).toBe(tabs(wrapper)[0]?.element);
-    expect(tabs(wrapper)[0]?.attributes("aria-selected")).toBe("true");
+    expect(shown(wrapper)).toBe(1);
+    expect(document.activeElement).toBe(tabs(wrapper)[1]?.element);
     wrapper.unmount();
   });
 
@@ -2008,40 +2086,48 @@ describe("Tabs", () => {
     const { wrapper } = await openShell();
     await compare(main, upstream);
     const panel = wrapper.get("#tab-panel");
-    const active = tabs(wrapper)[1]!;
+    const active = tabs(wrapper)[4]!;
     expect(panel.attributes("role")).toBe("tabpanel");
     expect(panel.attributes("aria-labelledby")).toBe(active.attributes("id"));
     expect(active.attributes("aria-controls")).toBe("tab-panel");
     expect(tabs(wrapper)[0]?.attributes("aria-controls")).toBeUndefined();
     expect(active.attributes("aria-description")).toBe("Ctrl W closes it");
+    // What a tooltip adds is read too: a fixed tab's key, the Settings tab's and its close.
+    expect(tabs(wrapper)[0]?.attributes("aria-description")).toBe("Ctrl 1");
+    press(",");
+    await settle();
+    expect(tabs(wrapper)[shown(wrapper)]?.attributes("aria-description")).toBe(
+      "Ctrl ,; Ctrl W closes it",
+    );
+    // The layouts paint in their own stacking context, under the sidebar panel's menus.
+    expect(panel.classes()).toContain("isolate");
+    wrapper.unmount();
+  });
+
+  it("gives Home's list the focus when Home's tab shows again", async () => {
+    backend();
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    await settle();
+    await wrapper.get('[data-testid="mode-settings"]').trigger("click");
+    await settle();
+    press("w");
+    await settle();
+    expect(wrapper.find('[data-testid="home-screen"]').exists()).toBe(true);
+    expect(
+      wrapper.get('[data-testid="home-screen"]').element.contains(document.activeElement),
+    ).toBe(true);
     wrapper.unmount();
   });
 
   it("sets a commit's short hash in mono in its tab's name", async () => {
     const { wrapper } = await openShell();
     await compare({ kind: "revision", rev: commit(2).hash, label: "c2c2c2c" }, main);
-    const parts = tabs(wrapper)[1]!.findAll('[data-testid="tab-name"] > span');
+    const parts = tabs(wrapper)[4]!.findAll('[data-testid="tab-name"] > span');
     expect(parts.map((part) => [part.text(), part.classes().includes("font-mono")])).toEqual([
       ["c2c2c2c", true],
       ["↔", false],
       ["main", false],
     ]);
-    wrapper.unmount();
-  });
-
-  it("gives the layout the focus when the shown tab is pressed with a sidebar panel open", async () => {
-    const { wrapper } = await openShell();
-    await compare(main, upstream);
-    await wrapper.get('[data-testid="rail-local"]').trigger("click");
-    await settle();
-    expect(wrapper.find('[data-testid="sidebar-panel"]').exists()).toBe(true);
-    const active = tabs(wrapper)[1]!;
-    active.element.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
-    await active.trigger("mousedown");
-    await active.trigger("click");
-    await settle();
-    expect(wrapper.find('[data-testid="sidebar-panel"]').exists()).toBe(false);
-    expect(document.activeElement?.closest('[data-testid="compare-layout"]')).not.toBeNull();
     wrapper.unmount();
   });
 
@@ -2051,7 +2137,7 @@ describe("Tabs", () => {
     const settings = useSettingsStore();
     await settings.update("activeProject", 1);
     await settings.update("tabs", {
-      "1": { comparisons: [{ a: main, b: upstream }], active: 1 },
+      "1": { open: [{ kind: "compare", a: main, b: upstream }], active: 0 },
     });
     const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
     await settle();
@@ -2068,18 +2154,21 @@ describe("Tabs", () => {
   it("moves between the tabs with the arrows on the row, which keeps the focus", async () => {
     const { wrapper } = await openShell();
     await compare(main, upstream);
-    const active = tabs(wrapper)[1]!;
+    const active = tabs(wrapper)[4]!;
     expect(active.attributes("tabindex")).toBe("0");
     expect(tabs(wrapper)[0]?.attributes("tabindex")).toBe("-1");
     (active.element as HTMLElement).focus();
     await active.trigger("keydown", { key: "ArrowLeft" });
     await settle();
+    expect(shown(wrapper)).toBe(3);
+    expect(document.activeElement).toBe(tabs(wrapper)[3]?.element);
+    await tabs(wrapper)[3]!.trigger("keydown", { key: "ArrowRight" });
+    await settle();
+    expect(shown(wrapper)).toBe(4);
+    await tabs(wrapper)[4]!.trigger("keydown", { key: "ArrowRight" });
+    await settle();
     expect(shown(wrapper)).toBe(0);
     expect(document.activeElement).toBe(tabs(wrapper)[0]?.element);
-    await tabs(wrapper)[0]!.trigger("keydown", { key: "ArrowLeft" });
-    await settle();
-    expect(shown(wrapper)).toBe(1);
-    expect(document.activeElement).toBe(tabs(wrapper)[1]?.element);
     wrapper.unmount();
   });
 
@@ -2088,13 +2177,13 @@ describe("Tabs", () => {
     const settings = useSettingsStore();
     await settings.update("activeProject", 1);
     await settings.update("tabs", {
-      "1": { comparisons: [{ a: main, b: upstream }], active: 1 },
+      "1": { open: [{ kind: "compare", a: main, b: upstream }], active: 0 },
     });
     const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
     await settle();
     expect(wrapper.find('[data-testid="compare-layout"]').exists()).toBe(true);
-    expect(names(wrapper)).toEqual(["Graph", "main ↔ origin/main"]);
-    expect(shown(wrapper)).toBe(1);
+    expect(names(wrapper)).toEqual([...fixed, "main ↔ origin/main"]);
+    expect(shown(wrapper)).toBe(4);
     wrapper.unmount();
   });
 });

@@ -170,7 +170,7 @@ describe("settings store", () => {
       activeProject: 3,
     });
     await store.init(storage, "windows");
-    expect(store.values.layoutMode).toBe("changes");
+    expect(store.launchLayout).toBe("changes");
     expect(store.values.activeProject).toBe(3);
     expect(store.legacy).toEqual({
       scanRoots: [],
@@ -178,13 +178,15 @@ describe("settings store", () => {
       folderView: "/home/iker/code/geo",
       layoutMode: "folder",
     });
-    // The mapped layout is written through at once, so the file keeps no retired layout.
-    expect(storage.data.get("layoutMode")).toBe("changes");
+    // The layout leaves the file at once; the launch shows its tab, once.
+    expect(storage.data.has("layoutMode")).toBe(false);
+    expect(store.takeLaunchLayout()).toBe("changes");
+    expect(store.takeLaunchLayout()).toBeNull();
 
     setActivePinia(createPinia());
     const project = useSettingsStore();
     await project.init(memoryStorage({ layoutMode: "project" }), "windows");
-    expect(project.values.layoutMode).toBe("overview");
+    expect(project.launchLayout).toBe("overview");
     expect(project.legacy?.layoutMode).toBe("project");
   });
 
@@ -198,10 +200,12 @@ describe("settings store", () => {
       activeProject: 3,
     });
     await store.init(storage, "windows");
-    expect(store.values.layoutMode).toBe("graph");
-    expect(store.values.tabs).toEqual({ "3": { comparisons: [{ a: main, b: fix }], active: 1 } });
-    // Written through at once, and the single comparison leaves the file.
-    expect(storage.data.get("layoutMode")).toBe("graph");
+    expect(store.launchLayout).toBe("graph");
+    expect(store.values.tabs).toEqual({
+      "3": { open: [{ kind: "compare", a: main, b: fix }], active: 0 },
+    });
+    // Written through at once, and the single comparison and the layout leave the file.
+    expect(storage.data.has("layoutMode")).toBe(false);
     expect(storage.data.get("tabs")).toEqual(store.values.tabs);
     expect(storage.data.has("compare")).toBe(false);
 
@@ -214,10 +218,70 @@ describe("settings store", () => {
       activeProject: 3,
     });
     await left.init(leftStorage, "windows");
-    expect(left.values.layoutMode).toBe("review");
+    expect(left.launchLayout).toBe("review");
     expect(left.values.tabs).toEqual({});
     expect(leftStorage.data.has("compare")).toBe(false);
     expect(leftStorage.saved).toBe(1);
+  });
+
+  it("turns an earlier version's tabs into each project's open tabs, its own tab to resolve", async () => {
+    const main = { kind: "revision", rev: "refs/heads/main", label: "main" };
+    const fix = { kind: "revision", rev: "refs/heads/claude/fix-auth", label: "claude/fix-auth" };
+    const store = useSettingsStore();
+    const storage = memoryStorage({
+      layoutMode: "settings",
+      activeProject: 3,
+      tabs: {
+        "3": { comparisons: [{ a: main, b: fix }], active: 0 },
+        "4": { comparisons: [{ a: fix, b: main }], active: 1 },
+      },
+    });
+    await store.init(storage, "windows");
+    expect(store.values.tabs).toEqual({
+      "3": { open: [{ kind: "compare", a: main, b: fix }], active: "project" },
+      "4": { open: [{ kind: "compare", a: fix, b: main }], active: 0 },
+    });
+    expect(store.launchLayout).toBe("settings");
+    expect(storage.data.get("tabs")).toEqual(store.values.tabs);
+    expect(storage.data.has("layoutMode")).toBe(false);
+  });
+
+  it("keeps the sidebar's section and its panel per kind of tab, open but in review focus", async () => {
+    const store = useSettingsStore();
+    await store.init(memoryStorage(), "windows");
+    expect(store.values.sidebarSection).toBe("local");
+    expect(store.values.sidebarPanels).toEqual({
+      graph: true,
+      review: false,
+      compare: true,
+      worktrees: true,
+      changes: true,
+    });
+    setActivePinia(createPinia());
+    const stored = useSettingsStore();
+    await stored.init(
+      memoryStorage({
+        sidebarSection: "tags",
+        sidebarPanels: {
+          graph: false,
+          review: true,
+          compare: true,
+          worktrees: true,
+          changes: false,
+        },
+      }),
+      "windows",
+    );
+    expect(stored.values.sidebarSection).toBe("tags");
+    expect(stored.values.sidebarPanels.review).toBe(true);
+    setActivePinia(createPinia());
+    const invalid = useSettingsStore();
+    await invalid.init(
+      memoryStorage({ sidebarSection: "stashes", sidebarPanels: { graph: false } }),
+      "windows",
+    );
+    expect(invalid.values.sidebarSection).toBe("local");
+    expect(invalid.values.sidebarPanels.graph).toBe(true);
   });
 
   it("overlays stored values and ignores invalid ones", async () => {
@@ -225,7 +289,7 @@ describe("settings store", () => {
     await store.init(
       memoryStorage({
         paneSizes: { sidebar: 240, detail: 520, files: 280, reviewRail: 280 },
-        layoutMode: "banana",
+        tabs: { "1": { open: [{ kind: "banana" }], active: "graph" } },
         activeProject: 1.5,
         locale: "es",
         terminalCommand: "",
@@ -239,18 +303,23 @@ describe("settings store", () => {
     expect(store.values.theme).toBe("system");
     expect(store.values.codeTheme).toBe("one-dark");
     expect(store.values.paneSizes.detail).toBe(520);
-    expect(store.values.layoutMode).toBe("graph");
+    expect(store.values.tabs).toEqual({});
     expect(store.values.activeProject).toBeNull();
     expect(store.values.locale).toBe("es");
     expect(store.values.terminalCommand).toBe("wt -d {path}");
   });
 
-  it("keeps the Overview and its project", async () => {
+  it("keeps an earlier version's Overview and its project for the launch", async () => {
     const store = useSettingsStore();
     await store.init(memoryStorage({ layoutMode: "overview", activeProject: 3 }), "windows");
-    expect(store.values.layoutMode).toBe("overview");
+    expect(store.launchLayout).toBe("overview");
     expect(store.values.activeProject).toBe(3);
     expect(store.legacy).toBeNull();
+    // An unknown layout leaves nothing to show.
+    setActivePinia(createPinia());
+    const banana = useSettingsStore();
+    await banana.init(memoryStorage({ layoutMode: "banana" }), "windows");
+    expect(banana.launchLayout).toBeNull();
   });
 
   it("writes updates through and keeps the fallbacks after the configured command", async () => {

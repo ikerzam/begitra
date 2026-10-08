@@ -64,11 +64,13 @@ export interface PaletteActions {
   inGraph: () => boolean;
   /** Go to HEAD in the graph. */
   goToHead: () => void;
-  /** Whether the open project has a comparison's tab beside its own. */
+  /** Whether the window holds more than one tab. */
   hasTabs: () => boolean;
   nextTab: () => void;
   previousTab: () => void;
-  /** Closes the comparison's tab shown. */
+  /** Whether the tab shown closes: one opened on demand. */
+  canCloseTab: () => boolean;
+  /** Closes the tab shown. */
   closeTab: () => void;
   openComparisonInReview: () => Promise<void>;
   showWorktrees: () => Promise<void>;
@@ -330,7 +332,7 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       id: "close-tab",
       labelKey: "palette.commandsById.close-tab",
       shortcutId: "close-tab",
-      enabled: actions.inComparison,
+      enabled: actions.canCloseTab,
       run: actions.closeTab,
     },
     {

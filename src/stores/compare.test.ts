@@ -162,10 +162,10 @@ describe("compare store", () => {
     expect(review.chosenTarget).toEqual({ kind: "commit", hash: fakeCommit(2).hash });
     expect(review.comparisonTarget).toBeNull();
     expect(repo.selectedCommit?.hash).toBe(fakeCommit(2).hash);
-    // The project's tab stops the work; the comparison's tab, shown again, recomputes, and
-    // review focus still has its commit once the project's tab shows again.
+    // The Review tab stops the work; the comparison's tab, the row's last, shown again,
+    // recomputes, and review focus still has its commit once the Review tab shows again.
     expect(tabs.comparisons).toHaveLength(1);
-    tabs.step(1);
+    tabs.showIndex(tabs.row.length - 1);
     await settled();
     expect(calls.filter((c) => c.cmd === "compare")).toHaveLength(before + 2);
     expect(review.target).toEqual({

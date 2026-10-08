@@ -1,11 +1,12 @@
 <script setup lang="ts">
-// The sidebar: a 48px rail, the same in every layout while a project is open (Home has none). One
-// icon per panel (`sidebarPanels`): the project's Repositories while it holds more than one
-// repository or worktree, then Branches, Remote branches, Tags and Worktrees. A click opens the
-// icon's panel over the main area, or closes it when it is the open one, whose icon shows
-// expanded. The Worktrees icon carries the alert while the worktrees cannot be listed, read out as
-// its description. The rail reads the worktrees once the repository is ready, so their panel opens
-// on a known list, and clears the panels' filters when another repository shows.
+// The sidebar's 48px rail, in the tabs whose views act on the repository the project shows. One
+// icon per section (`sidebarPanels`): the project's Repositories while it holds more than one
+// repository or worktree, then Branches, Remote branches, Tags and Worktrees. A click shows the
+// icon's section in the docked panel beside the rail, opening the panel when it is closed, or
+// closes the panel when it shows that section, whose icon shows pressed. The Worktrees icon
+// carries the alert while the worktrees cannot be listed, read out as its description. The rail
+// reads the worktrees once the repository is ready, so their section opens on a known list, and
+// clears the sections' filters when another repository shows.
 
 import { computed, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -44,22 +45,13 @@ function alertOf(id: string): string {
   return id === "worktrees" && worktreesFailed.value ? t("sidebar.worktreesUnlisted") : "";
 }
 
+/** A project of one has no Repositories section; the panel shows Branches in its place. */
 const panels = computed(() =>
   SIDEBAR_PANELS.filter((panel) => panel.id !== "repos" || projects.activeMembers.length > 1),
 );
 
-/* A project of one has no Repositories panel: one open from the last project closes, and ⌘B
-   opens Branches instead. */
-watch(
-  panels,
-  (shown) => {
-    const offered = (id: string) => shown.some((panel) => panel.id === id);
-    const open = shell.sidebarPanel;
-    if (open !== null && !offered(open)) shell.closeSidebarPanel();
-    if (!offered("repos")) shell.forgetSidebarPanel("repos");
-  },
-  { immediate: true },
-);
+/** Whether the panel shows the section of `id`. */
+const shown = (id: string) => shell.sidebarOpen && shell.sidebarSection === id;
 </script>
 
 <template>
@@ -75,10 +67,10 @@ watch(
         :description="alertOf(panel.id)"
         :icon="panel.icon"
         size="lg"
-        :expanded="shell.sidebarPanel === panel.id"
-        :aria-controls="shell.sidebarPanel === panel.id ? 'sidebar-panel' : undefined"
+        :pressed="shown(panel.id)"
+        :aria-controls="shown(panel.id) ? 'sidebar-panel' : undefined"
         :data-testid="`rail-${panel.id}`"
-        @click="shell.toggleSidebarPanel(panel.id)"
+        @click="shell.pickSidebarSection(panel.id)"
       />
       <span
         v-if="panel.id === 'worktrees' && worktreesFailed"

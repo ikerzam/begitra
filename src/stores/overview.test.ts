@@ -11,6 +11,7 @@ import { useIndexStore } from "./index";
 import { READS_AT_ONCE, useOverviewStore } from "./overview";
 import { useProjectsStore } from "./projects";
 import { memoryStorage, useSettingsStore } from "./settings";
+import { useTabsStore } from "./tabs";
 
 const GEO = "/home/iker/code/geo";
 const api = entryOf(`${GEO}/api`, { summary: summaryOf({ dirty: true, ahead: 2 }) });
@@ -54,7 +55,7 @@ async function showProject(options: FakeBackendOptions = {}) {
   ];
   await Promise.all([projects.load(), index.load()]);
   void settings.update("activeProject", 1);
-  void settings.update("layoutMode", "overview");
+  useTabsStore().show("overview");
   folder.show();
   for (let i = 0; i < 4; i += 1) await settled();
   return { calls, overview };
