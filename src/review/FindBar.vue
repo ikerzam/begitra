@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// The find bar of `Review / Find`, under the diff's header while the find is open: the query
+// The find bar of review focus, under the diff's header while the find is open: the query
 // (↵ the next match, ⇧↵ the previous one, Escape closes), "Match case", the count ("3 of 41",
 // "No results", "10,000+" past the limit), previous, next and close. Closing hands the focus to
 // the diff (`close`), whose cursor sits on the current match.

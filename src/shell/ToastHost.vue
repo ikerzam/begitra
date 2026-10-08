@@ -99,7 +99,7 @@ function actionOf(toast: ToastEntry): string {
 </template>
 
 <style scoped>
-/* 16px above the status bar, as the frames place a toast. */
+/* 16px above the status bar, clear of its hints. */
 .toast-host {
   bottom: calc(var(--bar-status) + var(--space-4));
 }

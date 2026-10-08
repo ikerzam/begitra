@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// The open project's tabs under the top bar (`Shell / Tabs / 1440`), while it has a comparison
+// The open project's tabs under the top bar, while it has a comparison
 // open: the project's tab, named and drawn after the layout it shows, then one tab per
 // comparison, "<A> ↔ <B>", a commit's short hash in mono. A click, or ← and → on the row, show a
 // tab; while the row holds the focus, the focus follows the tab shown, whatever showed it
@@ -207,7 +207,8 @@ function onWheel(event: WheelEvent): void {
   height: 0;
 }
 
-/* The frame's 240px: a longer name ends in an ellipsis, the whole name in the tooltip. */
+/* 240px at most, off the spacing scale: a longer name ends in an ellipsis, the whole name in
+   the tooltip. */
 .tab {
   max-width: 240px;
 }

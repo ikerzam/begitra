@@ -159,7 +159,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-/* As wide as the frame's popover (280px); not on the spacing scale. */
+/* 280px wide, room for a pattern and its count; not on the spacing scale. */
 .pattern-popover {
   width: 280px;
 }

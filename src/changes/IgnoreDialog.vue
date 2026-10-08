@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// The ignore dialog (`Changes / Ignore dialog`): what to ignore of an untracked file and
+// The ignore dialog: what to ignore of an untracked file and
 // where, as the app's radios with their hints, the line it adds, Cancel and Ignore. Each group
 // is one tab stop whose arrows move the choice; Enter on a radio ignores and Escape cancels,
 // the focus going back to the row it opened from.

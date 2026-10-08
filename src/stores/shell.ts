@@ -51,7 +51,7 @@ export const REVIEW_RAIL_BREAKPOINT = 1100;
 export const NARROW_BREAKPOINT = 1024;
 /** The sidebar's rail (`--rail-w`): all the room the sidebar takes, its panels floating. */
 const RAIL_WIDTH = 48;
-/** The room the detail panel's default share leaves the sidebar, as the frames measure it. */
+/** The room the detail panel's default share leaves the sidebar. */
 const SIDEBAR_SHARE = 240;
 /** Under the narrow breakpoint: the width the detail panel leaves the graph panel (its lanes,
  * a subject and the time), and the detail panel's own floor (the summary and the file names). */
