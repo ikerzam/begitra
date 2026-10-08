@@ -712,6 +712,17 @@ impl AppState {
             .map(|entry| entry.walk)
     }
 
+    /// Takes every stored walk out of the state, for the app's exit.
+    pub fn take_all_walks(&self) -> Vec<Box<dyn CommitWalk>> {
+        self.inner
+            .walks
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .drain()
+            .filter_map(|(_, entry)| entry.walk)
+            .collect()
+    }
+
     /// Takes the walks idle for longer than `limit` out of the state and returns them, so the
     /// caller drops them off the async runtime.
     pub fn evict_idle_walks(&self, limit: Duration) -> Vec<Box<dyn CommitWalk>> {
@@ -1106,6 +1117,14 @@ mod tests {
         assert_eq!(closed.walks.len(), 1);
         assert!(state.close(Path::new("/a")).is_none());
         assert_eq!(state.walk_count(), 0);
+
+        // The app's exit takes every walk, one in use (taken out) aside.
+        state.store_walk(&a, PathBuf::from("/a"), Box::new(FakeWalk));
+        state.store_walk(&b, PathBuf::from("/b"), Box::new(FakeWalk));
+        let in_use = state.take_walk(&b).expect("b is stored");
+        assert_eq!(state.take_all_walks().len(), 1);
+        assert_eq!(state.walk_count(), 0);
+        drop(in_use);
     }
 
     /// A highlight of `lines` lines with `per_line` tokens each.

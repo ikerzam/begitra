@@ -61,12 +61,19 @@ impl Cancel {
 pub trait CommitWalk: Send {
     /// Produces the next page.
     ///
-    /// The last page has `done == true`; calling again after it returns an empty done page.
-    /// When an object turns out to be corrupt, the page in progress is returned with the commits
-    /// read so far and `done == true`, and the following call returns
+    /// The last page has `done == true`; calling again after it returns an empty done page. A
+    /// walk through the git CLI (a path or a content filter) may return a page that is not the
+    /// last with fewer rows than its size, none at all while git reads without listing
+    /// anything. When an object turns out to be corrupt, the page in progress is returned with
+    /// the commits read so far and `done == true`, and the following call returns
     /// [`GitError::CorruptObject`]. Cancellation through `cancel` returns
     /// [`GitError::Cancelled`] within 100 ms.
     fn next_page(&mut self, cancel: &Cancel) -> GitResult<Page>;
+
+    /// Stops what the walk runs and waits until it has stopped, for the app's exit, which no
+    /// helper thread outlives; dropping a walk stops it too, on a helper thread. A walk with
+    /// nothing running has nothing to do.
+    fn stop_now(&mut self) {}
 }
 
 /// Most files a restricted diff ([`GitEngine::diff_paths`]) returns, the size of a page of

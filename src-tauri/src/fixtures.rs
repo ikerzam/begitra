@@ -10,14 +10,14 @@ use std::path::{Path, PathBuf};
 use git_core::types::{
     BaseCommit, BlobAt, BlobContent, BranchToDelete, ChangeKind, ChangeSet, CleanupCandidate,
     CleanupCandidates, CleanupReason, CommitContext, CommitCount, CommitNode, CommitRequest,
-    Comparison, ComparisonRelation, Conflict, ConflictKind, DeleteOutcome, DiffLine, DiffOptions,
-    DiffTarget, Edge, Endpoint, FileChange, GitDetection, Hunk, IgnoreOutcome, IgnorePlace,
-    IgnoreRule, KeptBy, KeptReason, LineKind, MergeMode, MergePreview, MergePreviewKind,
-    OperationSides, OperationState, OtherOperation, Outcome, OutcomeKind, PatchSelection,
-    PullRequest, PushRequest, Ref, RefKind, Remote, Repo, ResetMode, SelectedHunk, SelectedLine,
-    SequencerAction, Side, SideName, Signature, Span, StashPush, StatusEntry, StatusOptions,
-    SwitchTarget, WalkFilter, WalkOptions, WalkOrder, WalkScope, WorkingTreeBase, Worktree,
-    WorktreeAdd, WorktreeBranch,
+    Comparison, ComparisonRelation, Conflict, ConflictKind, ContentFilter, DeleteOutcome, DiffLine,
+    DiffOptions, DiffTarget, Edge, Endpoint, FileChange, GitDetection, Hunk, IgnoreOutcome,
+    IgnorePlace, IgnoreRule, KeptBy, KeptReason, LineKind, MergeMode, MergePreview,
+    MergePreviewKind, OperationSides, OperationState, OtherOperation, Outcome, OutcomeKind,
+    PatchSelection, PullRequest, PushRequest, Ref, RefKind, Remote, Repo, ResetMode, SelectedHunk,
+    SelectedLine, SequencerAction, Side, SideName, Signature, Span, StashPush, StatusEntry,
+    StatusOptions, SwitchTarget, WalkFilter, WalkOptions, WalkOrder, WalkScope, WorkingTreeBase,
+    Worktree, WorktreeAdd, WorktreeBranch,
 };
 use serde::Serialize;
 use syntax::{Highlight, Symbol, SymbolKind, Token, TokenClass};
@@ -1364,6 +1364,21 @@ fn write_fixtures() {
                     since: Some(1_704_067_200),
                     until: Some(1_735_689_600),
                     paths: vec!["apps/api".to_owned()],
+                    content: Some(ContentFilter {
+                        text: "refreshToken".to_owned(),
+                        lines: false,
+                    }),
+                }),
+            },
+            WalkOptions {
+                page_size: 500,
+                order: WalkOrder::Lazy,
+                filter: Some(WalkFilter {
+                    content: Some(ContentFilter {
+                        text: "decodeTile(\t".to_owned(),
+                        lines: true,
+                    }),
+                    ..WalkFilter::default()
                 }),
             },
         ],

@@ -16,9 +16,9 @@ use git_core::error::GitError;
 use git_core::git2_engine::index_snapshot::IndexSnapshot;
 use git_core::git2_engine::Git2Engine;
 use git_core::types::{
-    BlobAt, DiffOptions, DiffTarget, PatchSelection, Prompts, PushRequest, RefKind, SelectedHunk,
-    SelectedLine, SelectionTarget, StatusOptions, WalkFilter, WalkOptions, WalkOrder, WalkScope,
-    WorkingTreeBase, WorktreeAdd, WorktreeBranch,
+    BlobAt, ContentFilter, DiffOptions, DiffTarget, PatchSelection, Prompts, PushRequest, RefKind,
+    SelectedHunk, SelectedLine, SelectionTarget, StatusOptions, WalkFilter, WalkOptions, WalkOrder,
+    WalkScope, WorkingTreeBase, WorktreeAdd, WorktreeBranch,
 };
 
 /// A benchmark repository that is present on disk.
@@ -34,6 +34,8 @@ struct Target {
     typical: Option<String>,
     /// The path changed most often among the newest 200 commits, for `path_history`.
     frequent_path: Option<String>,
+    /// A word the newest non-merge commit adds, for `content_history`.
+    added_word: Option<String>,
 }
 
 fn present() -> Vec<Target> {
@@ -57,6 +59,7 @@ fn present() -> Vec<Target> {
         let large_diff = large_diff(name, &path);
         let typical = typical_commit(&path);
         let frequent_path = frequent_path(&path);
+        let added_word = added_word(&path);
         targets.push(Target {
             name,
             path,
@@ -64,6 +67,7 @@ fn present() -> Vec<Target> {
             large_diff,
             typical,
             frequent_path,
+            added_word,
         });
     }
     targets
@@ -147,6 +151,44 @@ fn typical_commit(path: &Path) -> Option<String> {
     let out = run_git(path, &["rev-list", "--no-merges", "-n", "1", "HEAD"]).ok()?;
     let hash = out.stdout.trim();
     (!hash.is_empty()).then(|| hash.to_owned())
+}
+
+/// The longest word (six characters or more, a letter among them) whose count the newest
+/// non-merge commit raises: "added or removed" lists that commit first, so `content_history`
+/// times git's start and its first diffs, the search of a recent change, rather than a read of
+/// the whole history, which a rare text costs.
+fn added_word(path: &Path) -> Option<String> {
+    let out = run_git(
+        path,
+        &[
+            "log",
+            "--no-merges",
+            "-1",
+            "--format=",
+            "-p",
+            "--no-color",
+            "--no-ext-diff",
+            "HEAD",
+        ],
+    )
+    .ok()?;
+    let mut counts: std::collections::HashMap<&str, i64> = std::collections::HashMap::new();
+    for line in out.stdout.lines() {
+        let sign = match line.as_bytes().first() {
+            Some(b'+') if !line.starts_with("+++") => 1,
+            Some(b'-') if !line.starts_with("---") => -1,
+            _ => continue,
+        };
+        let words = line[1..].split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'));
+        for word in words.filter(|w| w.len() >= 6 && w.chars().any(|c| c.is_ascii_alphabetic())) {
+            *counts.entry(word).or_default() += sign;
+        }
+    }
+    counts
+        .into_iter()
+        .filter(|(_, net)| *net > 0)
+        .max_by(|a, b| a.0.len().cmp(&b.0.len()).then_with(|| b.0.cmp(a.0)))
+        .map(|(word, _)| word.to_owned())
 }
 
 /// The path the newest 200 commits change most often: a file whose history git can list
@@ -334,6 +376,50 @@ fn path_history(c: &mut Criterion) {
                     .walk(&WalkScope::All, &options, &Cancel::never())
                     .expect("walk");
                 walk.next_page(&Cancel::never()).expect("page")
+            });
+        });
+    }
+    group.finish();
+}
+
+/// The first match of a code search, "added or removed" (`git log --all -S<word>` hydrated
+/// with libgit2), for a word the newest non-merge commit adds: a page of one row, so the time is
+/// git's start and its first diffs rather than the wait for more rows; the child process is
+/// killed when the handle drops.
+fn content_history(c: &mut Criterion) {
+    let mut group = c.benchmark_group("content_history");
+    group.sample_size(10);
+    for target in present() {
+        let Some(word) = target.added_word.clone() else {
+            eprintln!(
+                "content_history/{}: the newest commit adds no word to search",
+                target.name
+            );
+            continue;
+        };
+        let engine = engine(&target.path);
+        let options = WalkOptions {
+            page_size: 1,
+            order: WalkOrder::Lazy,
+            filter: Some(WalkFilter {
+                content: Some(ContentFilter {
+                    text: word,
+                    lines: false,
+                }),
+                ..WalkFilter::default()
+            }),
+        };
+        group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+            b.iter(|| {
+                let mut walk = e
+                    .walk(&WalkScope::All, &options, &Cancel::never())
+                    .expect("walk");
+                let page = walk.next_page(&Cancel::never()).expect("page");
+                assert!(
+                    !page.commits.is_empty(),
+                    "no match within the page's deadline"
+                );
+                page
             });
         });
     }
@@ -1255,6 +1341,7 @@ criterion_group!(
     count_refs,
     count_all,
     path_history,
+    content_history,
     refs_containing,
     walk_ten_pages,
     status,

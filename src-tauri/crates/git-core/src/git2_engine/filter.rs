@@ -94,7 +94,8 @@ impl Matcher {
         }
     }
 
-    /// Whether the metadata part of the filter (everything but `paths`) keeps `commit`.
+    /// Whether the metadata part of the filter (everything but `paths` and `content`) keeps
+    /// `commit`.
     pub(super) fn matches(&self, commit: &Commit<'_>) -> bool {
         if self.since.is_some() || self.until.is_some() {
             let time = commit.committer().when().seconds();

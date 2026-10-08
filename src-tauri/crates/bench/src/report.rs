@@ -73,6 +73,9 @@ pub fn budget(id: &str) -> Option<Duration> {
         // "Contained in" reads on demand behind its count of seconds, under a 120 s timeout:
         // recorded without a budget.
         ("refs_containing", _) => return None,
+        // A code search reads as much history as its text needs: the first match of a recent
+        // change is recorded without a budget.
+        ("content_history", _) => return None,
         _ => return None,
     };
     Some(Duration::from_millis(ms))

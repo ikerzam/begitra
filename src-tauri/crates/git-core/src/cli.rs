@@ -321,7 +321,8 @@ fn take_child(slot: &Mutex<Option<Child>>) -> Option<Child> {
         .take()
 }
 
-fn stop_tree(mut child: Child) {
+/// Stops git and what it started, waiting for it: [`abort`] on the caller's thread.
+pub(crate) fn stop_tree(mut child: Child) {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

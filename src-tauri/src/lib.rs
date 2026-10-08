@@ -244,9 +244,15 @@ pub fn run() {
         }
     };
     app.run(|handle, event| {
-        // The copies discards kept go with the session.
         if let tauri::RunEvent::Exit = event {
-            handle.state::<AppState>().discards().close();
+            let state = handle.state::<AppState>();
+            // The copies discards kept go with the session.
+            state.discards().close();
+            // A walk's git would outlive the app: a search that rarely writes reads on until
+            // the end of the history before it finds its pipe closed.
+            for mut walk in state.take_all_walks() {
+                walk.stop_now();
+            }
         }
     });
 }

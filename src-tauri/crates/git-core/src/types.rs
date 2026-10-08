@@ -136,7 +136,8 @@ pub struct CommitNode {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Page {
-    /// Commits in walk order.
+    /// Commits in walk order; fewer than the page size, or none, on a page of a walk through
+    /// the git CLI that closed on time while git read on.
     pub commits: Vec<CommitNode>,
     /// Whether the walk has no more commits after this page.
     pub done: bool,
@@ -415,9 +416,13 @@ pub struct WalkFilter {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub until: Option<i64>,
     /// Repository-relative paths (files or directories) the commit must touch; the history is
-    /// produced by `git rev-list -- <paths>`.
+    /// produced by `git rev-list -- <paths>`, or by the content search's `git log -- <paths>`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub paths: Vec<String>,
+    /// A text the commit's changes must add or remove; the history is produced by `git log -S`
+    /// or `-G`, within the paths when there are some.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<ContentFilter>,
 }
 
 impl WalkFilter {
@@ -428,7 +433,28 @@ impl WalkFilter {
             || self.since.is_some()
             || self.until.is_some()
             || !self.paths.is_empty()
+            || self.content_search().is_some()
     }
+
+    /// The content search, when its text is not empty (git takes no empty pickaxe).
+    pub fn content_search(&self) -> Option<&ContentFilter> {
+        self.content
+            .as_ref()
+            .filter(|content| !content.text.is_empty())
+    }
+}
+
+/// A search of what the commits change, as git's pickaxe answers it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContentFilter {
+    /// The text, matched as written: case-sensitive, never a pattern.
+    pub text: String,
+    /// The commits whose diff adds or removes a line holding the text (`git log -G`, the text
+    /// escaped), rather than those that change how many times it appears in a file
+    /// (`git log -S`).
+    #[serde(default)]
+    pub lines: bool,
 }
 
 /// How a path changed, in status and diffs.

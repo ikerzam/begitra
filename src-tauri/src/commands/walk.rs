@@ -70,8 +70,9 @@ pub(crate) fn validate_scope(scope: &WalkScope) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Rejects filters the frontend should never send: overlong text, too many paths, a path
-/// that escapes the repository or an inverted date range.
+/// Rejects filters the frontend should never send: overlong text, a code search that is empty or
+/// holds a control character other than tab (no argument carries a NUL, and no line of code holds
+/// a line break), too many paths, a path that escapes the repository or an inverted date range.
 fn validate_filter(options: &WalkOptions) -> Result<(), AppError> {
     let Some(filter) = &options.filter else {
         return Ok(());
@@ -85,6 +86,18 @@ fn validate_filter(options: &WalkOptions) -> Result<(), AppError> {
                 field,
                 format!("longer than {MAX_FILTER_TEXT} characters"),
             ));
+        }
+    }
+    if let Some(content) = &filter.content {
+        let length = content.text.chars().count();
+        if length == 0 || length > MAX_FILTER_TEXT {
+            return Err(AppError::invalid_argument(
+                "content",
+                format!("not 1 to {MAX_FILTER_TEXT} characters"),
+            ));
+        }
+        if content.text.chars().any(|c| c.is_control() && c != '\t') {
+            return Err(AppError::invalid_argument("content", "a control character"));
         }
     }
     if filter.paths.len() > MAX_FILTER_PATHS {
@@ -189,8 +202,12 @@ pub fn pump<S: Sink<WalkPage>>(
 #[tauri::command]
 #[tracing::instrument(
     level = "debug",
-    skip(state, scope, on_page),
-    fields(scope = scope.kind(), names = scope.name_count())
+    skip(state, scope, options, on_page),
+    fields(
+        scope = scope.kind(),
+        names = scope.name_count(),
+        filtered = options.filter.is_some(),
+    )
 )]
 pub async fn walk_commits(
     state: State<'_, AppState>,
@@ -546,7 +563,7 @@ mod tests {
 
     #[test]
     fn filters_are_validated_before_the_walk_starts() {
-        use git_core::types::WalkFilter;
+        use git_core::types::{ContentFilter, WalkFilter};
         assert!(validate_filter(&WalkOptions::default()).is_ok());
         let ok = with_filter(WalkFilter {
             text: Some("é".repeat(200)),
@@ -558,11 +575,33 @@ mod tests {
                 "a[1].txt".to_owned(),
                 ":!x".to_owned(),
             ],
+            content: Some(ContentFilter {
+                text: format!("{}\t-S", "é".repeat(197)),
+                lines: true,
+            }),
         });
         assert!(
             validate_filter(&ok).is_ok(),
-            "lengths count characters; paths are literal"
+            "lengths count characters; paths are literal; a tab and a dash are code"
         );
+        for text in [
+            String::new(),
+            "x".repeat(201),
+            "a\nb".to_owned(),
+            "a\rb".to_owned(),
+            "a\0b".to_owned(),
+            "a\u{7f}b".to_owned(),
+        ] {
+            let bad = with_filter(WalkFilter {
+                content: Some(ContentFilter {
+                    text: text.clone(),
+                    lines: false,
+                }),
+                ..WalkFilter::default()
+            });
+            let error = validate_filter(&bad).expect_err(&text);
+            assert_eq!(error.message, "Invalid argument content", "{text:?}");
+        }
         let too_long = with_filter(WalkFilter {
             text: Some("x".repeat(201)),
             ..WalkFilter::default()
