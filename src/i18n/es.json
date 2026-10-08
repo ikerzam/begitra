@@ -494,7 +494,7 @@
     "editNote": "Editar nota",
     "deleteNote": "Borrar nota",
     "noteResolvedTag": "Resuelta",
-    "reopenNote": "Reabrir la nota",
+    "reopenNote": "Reabrir nota",
     "copyNotes": "Copiar las notas como Markdown",
     "notesHeading": "Notas de la revisión: {target}",
     "notesCopied": "Notas de la revisión copiadas como Markdown",
@@ -521,7 +521,10 @@
     "unmergedTitle": "Fichero sin fusionar",
     "unmergedFile": "Este fichero lleva marcas de conflicto. Resuelve el conflicto en el editor y revisa el resultado.",
     "unmergedFileSides": "Este fichero lleva marcas de conflicto. Resuélvelo en el editor, o usa entera la versión de un lado: los cambios del otro lado en él se pierden.",
-    "wouldConflict": "entraría en conflicto"
+    "wouldConflict": "entraría en conflicto",
+    "markFailed": "No se ha podido guardar la marca de revisión de {file}.",
+    "noteFailed": "No se ha podido guardar la nota de {file}.",
+    "reopenFailed": "No se ha podido reabrir la nota de {file}."
   },
   "palette": {
     "placeholder": "Buscar o ejecutar un comando…",

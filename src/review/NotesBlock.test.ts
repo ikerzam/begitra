@@ -45,24 +45,35 @@ describe("NotesBlock", () => {
     review.resolutions = new Map([
       ["src/auth.ts", { reply: "Refreshes the token 60 s before it expires.", at: 2 }],
     ]);
-    const wrapper = mountWithI18n(NotesBlock);
+    const wrapper = mountWithI18n(NotesBlock, { attachTo: document.body });
     const notes = wrapper.findAll("[data-testid='note']");
     expect(notes).toHaveLength(2);
-    const [resolved, open] = notes;
+    // Open notes first, then the resolved ones.
+    const [open, resolved] = notes;
+    expect(open!.attributes("data-path")).toBe("src/cache.ts");
     expect(resolved!.get("[data-testid='note-resolved']").text()).toBe("Resolved");
+    // Reopen comes after edit and delete.
+    expect(resolved!.findAll("button").at(-1)?.attributes("data-testid")).toBe("reopen-note");
     expect(resolved!.get("[data-testid='note-reply']").text()).toBe(
       "Refreshes the token 60 s before it expires.",
     );
     expect(open!.find("[data-testid='note-resolved']").exists()).toBe(false);
     expect(open!.find("[data-testid='reopen-note']").exists()).toBe(false);
-    await resolved!.get("[data-testid='reopen-note']").trigger("click");
+    const reopen = resolved!.get<HTMLButtonElement>("[data-testid='reopen-note']");
+    reopen.element.focus();
+    await reopen.trigger("click");
+    await settled();
     expect(review.resolutions.has("src/auth.ts")).toBe(false);
     expect(wrapper.find("[data-testid='note-resolved']").exists()).toBe(false);
+    // Reopen left with the resolution: the note's edit button holds the focus.
+    const auth = wrapper.get("[data-path='src/auth.ts']");
+    expect(document.activeElement).toBe(auth.get("[data-testid='edit-note']").element);
     // A resolution without a reply shows no quote.
     review.resolutions = new Map([["src/cache.ts", { reply: "", at: 3 }]]);
     await wrapper.vm.$nextTick();
     expect(wrapper.find("[data-testid='note-resolved']").exists()).toBe(true);
     expect(wrapper.find("[data-testid='note-reply']").exists()).toBe(false);
+    wrapper.unmount();
   });
 
   it("says so when the webview offers no clipboard", async () => {

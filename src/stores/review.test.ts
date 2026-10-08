@@ -18,6 +18,7 @@ import {
   type ReviewTarget,
 } from "./review";
 import { useSettingsStore } from "./settings";
+import { useToastsStore } from "./toasts";
 
 function file(path: string, overrides: Partial<FileChange> = {}): FileChange {
   return {
@@ -497,15 +498,32 @@ describe("review store", () => {
     expect(again.isReviewed(first.path)).toBe(false);
   });
 
-  it("reverts a mark the backend refused", async () => {
+  it("reverts a mark, a note and a reopen the backend refused, and says so once", async () => {
     fakeBackend({ failAnnotations: true });
     await openRepository();
     const review = useReviewStore();
+    const toasts = useToastsStore();
     const path = review.files[0]!.path;
     review.toggleReviewed(path);
     expect(review.isReviewed(path)).toBe(true);
     await settled();
     expect(review.isReviewed(path)).toBe(false);
+    expect(toasts.toasts.at(-1)).toMatchObject({
+      kind: "error",
+      key: "review.markFailed",
+      slot: "review-write",
+    });
+
+    review.setNote(path, "Check eviction.");
+    await settled();
+    expect(review.notes.has(path)).toBe(false);
+    review.resolutions = new Map([[path, { reply: "Done.", at: 1 }]]);
+    review.reopenNote(path);
+    await settled();
+    expect(review.resolutions.get(path)?.reply).toBe("Done.");
+    const shown = toasts.toasts.filter((toast) => toast.slot === "review-write");
+    expect(shown).toHaveLength(1);
+    expect(shown[0]).toMatchObject({ key: "review.reopenFailed" });
   });
 
   it("keeps one note per file, loaded with the target", async () => {

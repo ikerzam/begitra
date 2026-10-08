@@ -521,7 +521,10 @@
     "unmergedTitle": "Unmerged file",
     "unmergedFile": "This file carries conflict markers. Resolve the conflict in your editor, then review the result.",
     "unmergedFileSides": "This file carries conflict markers. Resolve it in your editor, or use one side's version whole: the other side's changes to it go.",
-    "wouldConflict": "would conflict"
+    "wouldConflict": "would conflict",
+    "markFailed": "Couldn't save the review mark of {file}.",
+    "noteFailed": "Couldn't save the note on {file}.",
+    "reopenFailed": "Couldn't reopen the note on {file}."
   },
   "palette": {
     "placeholder": "Search or run a command…",

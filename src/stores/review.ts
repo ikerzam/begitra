@@ -25,7 +25,7 @@ import type {
 } from "@/ipc/schemas";
 import type { StreamHandle } from "@/ipc/stream";
 import { fileSides } from "@/review/sides";
-import { shortHash } from "@/shell/format";
+import { baseName, shortHash } from "@/shell/format";
 
 import { useOperationsStore } from "./operations";
 import {
@@ -39,6 +39,7 @@ import {
 } from "./reloads";
 import { useRepoStore } from "./repo";
 import { useSettingsStore, type DiffLayout } from "./settings";
+import { useToastsStore } from "./toasts";
 
 export type ReviewTarget =
   | { kind: "commit"; hash: string }
@@ -211,6 +212,23 @@ function filtersFrom(hide: {
 
 export const useReviewStore = defineStore("review", () => {
   const repo = useRepoStore();
+  const toasts = useToastsStore();
+
+  /**
+   * Says that a mark or a note could not be written, the change it made undone; one such toast
+   * stands at a time, so a store that refuses every write says it once.
+   */
+  function writeFailed(key: string, path: string, failure: unknown): void {
+    const error = toAppError(failure);
+    toasts.push({
+      kind: "error",
+      message: "",
+      key,
+      params: { file: baseName(path) },
+      output: error.detail ?? error.message,
+      slot: "review-write",
+    });
+  }
   const settings = useSettingsStore();
   const operations = useOperationsStore();
 
@@ -674,7 +692,10 @@ export const useReviewStore = defineStore("review", () => {
     const call = on
       ? ipc.setAnnotation(root, current, write)
       : ipc.deleteAnnotation(root, current, write);
-    void call.catch(() => revert());
+    void call.catch((failure: unknown) => {
+      revert();
+      writeFailed("review.markFailed", path, failure);
+    });
   }
 
   /** Marks the file for the content it shows, or clears every mark of a reviewed one. */
@@ -774,7 +795,10 @@ export const useReviewStore = defineStore("review", () => {
       trimmed === ""
         ? ipc.deleteAnnotation(root, current, write)
         : ipc.setAnnotation(root, current, write);
-    void call.catch(revert);
+    void call.catch((failure: unknown) => {
+      revert();
+      writeFailed("review.noteFailed", path, failure);
+    });
   }
 
   /** Removes the resolution of the note on `path`, which shows open again. */
@@ -790,10 +814,11 @@ export const useReviewStore = defineStore("review", () => {
     if (!root || !current) return;
     void ipc
       .deleteAnnotation(root, current, { path, hunk: "", kind: "resolved", value: "" })
-      .catch(() => {
+      .catch((failure: unknown) => {
         const restored = new Map(resolutions.value);
         restored.set(path, before);
         resolutions.value = restored;
+        writeFailed("review.reopenFailed", path, failure);
       });
   }
 

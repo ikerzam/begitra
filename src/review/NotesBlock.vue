@@ -1,9 +1,9 @@
 <script setup lang="ts">
-// The Notes block of the review rail: one note per file of the target (path in mono, the
-// text), "Add note" for the open file, "Copy as Markdown" for them all, and an inline editor
-// to write, change or delete one. A note an agent resolved has its text dimmed, "Resolved"
-// under it and the agent's reply as a quote, and Reopen beside edit and delete
-// (`Review / Notes / Resolved`).
+// The Notes block of the review rail: one note per file of the target (its path, the folder
+// truncating first, and the text), "Add note" for the open file, "Copy as Markdown" for them
+// all, and an inline editor to write, change or delete one. Open notes come first, then the
+// ones an agent resolved: their text dimmed, "Resolved" under it with the agent's reply as a
+// quote, and Reopen after edit and delete, which hands the focus to the note's edit button.
 
 import { CircleCheck, Copy, Pencil, Plus, RotateCcw, Trash2 } from "@lucide/vue";
 import { computed, nextTick, ref } from "vue";
@@ -14,6 +14,7 @@ import IconButton from "@/components/IconButton.vue";
 import Textarea from "@/components/Textarea.vue";
 import { useReviewStore } from "@/stores/review";
 
+import DiffPath from "./DiffPath.vue";
 import { useNotesExport } from "./useNotesExport";
 
 const { t } = useI18n();
@@ -23,11 +24,17 @@ const { canCopy, copyNotes } = useNotesExport();
 const editing = ref<string | null>(null);
 const draft = ref("");
 const editor = ref<{ $el: HTMLTextAreaElement } | null>(null);
+const block = ref<HTMLElement | null>(null);
 
+/** Open notes first, then the resolved ones, each by path. */
 const notes = computed(() =>
   [...review.notes.entries()]
     .map(([path, text]) => ({ path, text, resolution: review.resolutions.get(path) }))
-    .sort((a, b) => a.path.localeCompare(b.path)),
+    .sort(
+      (a, b) =>
+        Number(a.resolution !== undefined) - Number(b.resolution !== undefined) ||
+        a.path.localeCompare(b.path),
+    ),
 );
 const openPath = computed(() => review.selectedPath);
 const canAdd = computed(() => openPath.value !== null && !review.notes.has(openPath.value));
@@ -52,6 +59,17 @@ function cancel(): void {
   draft.value = "";
 }
 
+/** Reopens the note on `path`; its Reopen leaves with the resolution, so the focus goes to the
+ * note's edit button rather than to the page's body. */
+async function reopen(path: string): Promise<void> {
+  review.reopenNote(path);
+  await nextTick();
+  const note = [...(block.value?.querySelectorAll<HTMLElement>("[data-testid='note']") ?? [])].find(
+    (element) => element.dataset["path"] === path,
+  );
+  note?.querySelector<HTMLElement>("[data-testid='edit-note']")?.focus();
+}
+
 function remove(path: string): void {
   review.setNote(path, null);
   if (editing.value === path) cancel();
@@ -69,7 +87,11 @@ function onKeydown(event: KeyboardEvent): void {
 </script>
 
 <template>
-  <div class="flex flex-col gap-2 border-t border-line px-3 pt-3" data-testid="notes-block">
+  <div
+    ref="block"
+    class="flex flex-col gap-2 border-t border-line px-3 pt-3"
+    data-testid="notes-block"
+  >
     <div class="flex items-center justify-between">
       <h3 class="text-lg font-semibold text-fg">{{ t("review.notes") }}</h3>
       <div class="flex items-center gap-1">
@@ -111,25 +133,15 @@ function onKeydown(event: KeyboardEvent): void {
       v-for="note in notes"
       :key="note.path"
       class="group flex flex-col gap-1"
+      :data-path="note.path"
       data-testid="note"
     >
       <div class="flex items-center gap-2">
-        <span
-          class="min-w-0 flex-1 truncate font-mono text-mono-sm"
-          :class="note.resolution ? 'text-fg-muted' : 'text-fg-secondary'"
-        >
-          {{ note.path }}
-        </span>
-        <IconButton
-          v-if="note.resolution"
-          :label="t('review.reopenNote')"
-          :icon="RotateCcw"
-          data-testid="reopen-note"
-          @click="review.reopenNote(note.path)"
-        />
+        <DiffPath :path="note.path" :muted="note.resolution !== undefined" class="flex-1" />
         <IconButton
           :label="t('review.editNote')"
           :icon="Pencil"
+          data-testid="edit-note"
           @click="() => void edit(note.path)"
         />
         <IconButton
@@ -138,9 +150,16 @@ function onKeydown(event: KeyboardEvent): void {
           data-testid="delete-note"
           @click="remove(note.path)"
         />
+        <IconButton
+          v-if="note.resolution"
+          :label="t('review.reopenNote')"
+          :icon="RotateCcw"
+          data-testid="reopen-note"
+          @click="() => void reopen(note.path)"
+        />
       </div>
       <p
-        class="text-md whitespace-pre-wrap select-text"
+        class="text-sm whitespace-pre-wrap select-text"
         :class="note.resolution ? 'text-fg-muted' : 'text-fg'"
       >
         {{ note.text }}
