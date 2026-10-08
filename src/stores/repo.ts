@@ -35,8 +35,13 @@ export interface WalkPosition {
   walkId: string;
   nextIndex: number;
   done: boolean;
-  /** Pages below this index were loaded by an earlier walk and are skipped on arrival. */
-  skipBefore: number;
+  /**
+   * Rows an earlier walk showed, which this one skips on arrival: its first `skipRows` rows.
+   * Rows, not pages, since a walk through git cuts its pages on time.
+   */
+  skipRows: number;
+  /** Rows this walk sent so far, the skipped ones included. */
+  received: number;
 }
 
 export interface Detail {
@@ -156,7 +161,10 @@ export const useRepoStore = defineStore("repo", () => {
   const listingsOut = new Set<number>();
   /** Bumped by each reload of the history: the graph counts the scope again. */
   const historyVersion = ref(0);
-  /** A reloaded walk's first page replaces the rows kept meanwhile (`reloadWalk`). */
+  /**
+   * A reloaded walk's first rows replace the rows kept meanwhile (`reloadWalk`), or its end does
+   * when it lists none.
+   */
   const replacing = ref(false);
   /** The list a listing of the refs asked to animate, armed when the next one is stored. */
   let armNext: MotionList | null = null;
@@ -302,12 +310,12 @@ export const useRepoStore = defineStore("repo", () => {
   }
 
   /**
-   * Starts a walk from the first page. With `skipPages`, the walk repeats the pages an earlier
-   * walk already delivered (the backend drops idle walks after a while) and only appends from
-   * that page on; the first repeated page must still start with the same commit, otherwise
-   * the history changed and the list starts over.
+   * Starts a walk from the first page. With `skipRows`, the walk repeats the rows an earlier walk
+   * already delivered (the backend drops idle walks after a while) and only appends the ones
+   * past them; its first row must still be the first shown, otherwise the history changed and
+   * the list starts over.
    */
-  function startWalk(root: string, skipPages = 0): void {
+  function startWalk(root: string, skipRows = 0): void {
     walkStarted();
     const myGeneration = generation;
     const myWalk = walkSerial;
@@ -321,9 +329,9 @@ export const useRepoStore = defineStore("repo", () => {
     walkHandle = ipc.walkCommits(
       root,
       walkScope.value,
-      (page) => receivePage(page, myGeneration, myWalk, skipPages),
+      (page) => receivePage(page, myGeneration, myWalk, skipRows),
       options,
-      skipPages + PAGES_PER_REQUEST,
+      Math.ceil(skipRows / options.pageSize) + PAGES_PER_REQUEST,
       opId,
     );
     void settleWalk(walkHandle, myGeneration, myWalk, opId);
@@ -397,36 +405,41 @@ export const useRepoStore = defineStore("repo", () => {
     page: WalkPage,
     myGeneration: number,
     myWalk: number,
-    skipBefore?: number,
+    skipRows?: number,
   ): void {
     if (myGeneration !== generation || myWalk !== walkSerial) return;
-    if (replacing.value) {
+    // An empty page that is not the last (git still reading) leaves the kept rows in place.
+    if (replacing.value && (page.commits.length > 0 || page.done)) {
       replacing.value = false;
       commits.value = [];
       selectedIndex.value = -1;
     }
-    const skip = skipBefore ?? walk.value?.skipBefore ?? 0;
-    if (page.index === 0 && skip > 0 && page.commits[0]?.hash !== commits.value[0]?.hash) {
+    const skip = skipRows ?? walk.value?.skipRows ?? 0;
+    const received = page.index === 0 ? 0 : (walk.value?.received ?? 0);
+    const first = page.commits[0];
+    if (skip > 0 && received === 0 && first && first.hash !== commits.value[0]?.hash) {
       // The history changed under the restarted walk: start the list over.
       commits.value = [];
       selectedIndex.value = -1;
       detail.value = null;
-      walk.value = { walkId: page.walkId, nextIndex: 1, done: page.done, skipBefore: 0 };
-      commits.value = page.commits;
-    } else if (page.index >= skip) {
-      commits.value = commits.value.concat(page.commits);
       walk.value = {
         walkId: page.walkId,
         nextIndex: page.index + 1,
         done: page.done,
-        skipBefore: skip,
+        skipRows: 0,
+        received: page.commits.length,
       };
+      commits.value = page.commits;
     } else {
+      // The rows past the ones an earlier walk showed.
+      const fresh = page.commits.slice(Math.max(0, skip - received));
+      if (fresh.length > 0) commits.value = commits.value.concat(fresh);
       walk.value = {
         walkId: page.walkId,
         nextIndex: page.index + 1,
         done: page.done,
-        skipBefore: skip,
+        skipRows: skip,
+        received: received + page.commits.length,
       };
     }
     if (selectedIndex.value >= 0 || commits.value.length === 0) return;
@@ -442,9 +455,12 @@ export const useRepoStore = defineStore("repo", () => {
     }
   }
 
-  /** Ends the wait for a restarted walk's selection: the first row when it was not listed. */
+  /**
+   * Ends the wait for a restarted walk's selection: the first row when it was not listed. A
+   * reload still showing the kept rows (its pages so far empty) waits for its own.
+   */
   function settlePendingSelection(): void {
-    if (pendingSelection === null) return;
+    if (pendingSelection === null || replacing.value) return;
     pendingSelection = null;
     if (selectedIndex.value >= 0) return;
     if (commits.value.length > 0) select(0);
@@ -469,9 +485,9 @@ export const useRepoStore = defineStore("repo", () => {
       const lost = failed.code === "op.unknown_walk" && root !== undefined && position !== null;
       if (lost && !walkRecovered) {
         // The backend dropped the walk (idle for too long, or a timed-out continuation):
-        // start it again and skip the pages already shown.
+        // start it again and skip the rows already shown.
         walkRecovered = true;
-        startWalk(root, position.nextIndex);
+        startWalk(root, commits.value.length);
         return;
       }
       if (replacing.value) {
@@ -488,6 +504,9 @@ export const useRepoStore = defineStore("repo", () => {
       if (current()) {
         streaming.value = false;
         settlePendingSelection();
+        // A reload whose pages so far were empty still shows the kept rows, whose end no scroll
+        // reaches: it asks on by itself.
+        if (replacing.value && canLoadMore.value) loadMore();
       }
     }
   }

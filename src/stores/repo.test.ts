@@ -63,6 +63,11 @@ interface BackendOptions {
   worktreesFail?: boolean;
   /** Per `list_worktrees` call, in order: it waits for `gate`, then answers, or fails. */
   worktreeCalls?: { gate?: Promise<void>; fail?: boolean }[];
+  /**
+   * The rows of each page of the `walk`-th walk (counted from 1), as a walk through git cuts
+   * them on time; 0 is an empty page that is not the last. Past the list, pages of 500.
+   */
+  pageSizes?: (walk: number) => number[];
 }
 
 function mockBackend(options: BackendOptions = {}): Call[] {
@@ -153,11 +158,15 @@ function mockBackend(options: BackendOptions = {}): Call[] {
           });
           seq += 1;
         }
+        const sizes = options.pageSizes?.(walks) ?? [];
+        const sizeOf = (index: number) => sizes[index] ?? 500;
+        const startOf = (index: number) =>
+          Array.from({ length: index }, (_, i) => sizeOf(i)).reduce((sum, size) => sum + size, 0);
         for (let index = first; index < first + maxPages; index += 1) {
-          const start = index * 500;
+          const start = startOf(index);
           if (start >= listed.length) break;
-          const commits = listed.slice(start, start + 500);
-          const done = start + commits.length >= listed.length;
+          const commits = listed.slice(start, start + sizeOf(index));
+          const done = commits.length > 0 && start + commits.length >= listed.length;
           const walkId = `walk-${walks}`;
           messages.push({ kind: "page", seq, data: { walkId, index, commits, done } });
           seq += 1;
@@ -276,7 +285,13 @@ describe("repo store", () => {
     expect(store.refs).toHaveLength(1);
     expect(store.currentBranch?.name).toBe("main");
     expect(store.commits).toHaveLength(1_200);
-    expect(store.walk).toEqual({ walkId: "walk-1", nextIndex: 3, done: true, skipBefore: 0 });
+    expect(store.walk).toEqual({
+      walkId: "walk-1",
+      nextIndex: 3,
+      done: true,
+      skipRows: 0,
+      received: 1_200,
+    });
     expect(store.streaming).toBe(false);
     expect(store.canLoadMore).toBe(false);
     expect(store.selectedIndex).toBe(0);
@@ -319,7 +334,7 @@ describe("repo store", () => {
     expect(store.walk?.done).toBe(true);
     store.loadMore();
     expect(calls.filter((c) => c.cmd === "walk_continue")).toHaveLength(0);
-    store.walk = { walkId: "walk-1", nextIndex: 1, done: false, skipBefore: 0 };
+    store.walk = { walkId: "walk-1", nextIndex: 1, done: false, skipRows: 0, received: 500 };
     store.loadMore();
     await settled();
     const cont = calls.find((c) => c.cmd === "walk_continue");
@@ -474,6 +489,28 @@ describe("repo store, reloaded walks", () => {
     expect(store.detail?.hash).toBe(commit(2).hash);
   });
 
+  it("keeps the rows while the reloaded walk sends empty pages, and asks on by itself", async () => {
+    // Four empty pages fill the first request (a search that finds nothing for a while); the
+    // kept rows' end is never scrolled to, so the store asks for the next pages itself.
+    const calls = mockBackend({ pageSizes: (walk) => (walk === 2 ? [0, 0, 0, 0] : []) });
+    const store = useRepoStore();
+    await store.open("/r");
+    await settled();
+    store.select(2);
+    await settled();
+    const before = store.commits;
+    store.reloadWalk();
+    await settled();
+    await settled();
+    expect(calls.filter((c) => c.cmd === "walk_continue").length).toBeGreaterThan(0);
+    expect(store.reloading).toBe(false);
+    expect(store.commits).not.toBe(before);
+    expect(store.commits.map((c) => c.hash)).toEqual(before.map((c) => c.hash));
+    // The selected commit is listed again: it stays selected.
+    expect(store.selectedIndex).toBe(2);
+    expect(store.walk?.done).toBe(true);
+  });
+
   it("selects the commit the reload names", async () => {
     mockBackend();
     const store = useRepoStore();
@@ -614,7 +651,7 @@ describe("repo store, after the review", () => {
     await settled();
     // Pretend only the first page arrived, then ask for more: the backend lost the walk.
     store.commits = store.commits.slice(0, 500);
-    store.walk = { walkId: "walk-1", nextIndex: 1, done: false, skipBefore: 0 };
+    store.walk = { walkId: "walk-1", nextIndex: 1, done: false, skipRows: 0, received: 500 };
     store.loadMore();
     await settled();
     expect(store.walkError).toBeNull();
@@ -625,7 +662,43 @@ describe("repo store, after the review", () => {
     expect(store.commits.map((c) => c.hash)).toEqual(
       Array.from({ length: 1_200 }, (_, i) => commit(i).hash),
     );
-    expect(store.walk).toEqual({ walkId: "walk-2", nextIndex: 3, done: true, skipBefore: 1 });
+    expect(store.walk).toEqual({
+      walkId: "walk-2",
+      nextIndex: 3,
+      done: true,
+      skipRows: 500,
+      received: 1_200,
+    });
+  });
+
+  it("skips the rows already shown when the restarted walk cuts its pages elsewhere", async () => {
+    // A walk through git closes its pages on time: the second run starts with an empty page and
+    // cuts the rest at other rows than the first did.
+    const calls = mockBackend({
+      loseWalk: true,
+      pageSizes: (walk) => (walk === 2 ? [0, 120, 260, 0, 300] : []),
+    });
+    const store = useRepoStore();
+    await store.open("/r");
+    await settled();
+    store.commits = store.commits.slice(0, 500);
+    store.walk = { walkId: "walk-1", nextIndex: 1, done: false, skipRows: 0, received: 500 };
+    store.select(3);
+    await settled();
+    store.loadMore();
+    await settled();
+    expect(store.walkError).toBeNull();
+    expect(calls.filter((c) => c.cmd === "walk_commits")).toHaveLength(2);
+    // Every commit once, in order: none of the first 500 again, none past them lost.
+    for (let i = 0; i < 4 && store.canLoadMore; i += 1) {
+      store.loadMore();
+      await settled();
+    }
+    expect(store.commits.map((c) => c.hash)).toEqual(
+      Array.from({ length: 1_200 }, (_, i) => commit(i).hash),
+    );
+    expect(store.selectedIndex).toBe(3);
+    expect(store.walk?.done).toBe(true);
   });
 
   it("closes the engine of an open abandoned for another repository", async () => {
