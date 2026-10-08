@@ -20,6 +20,8 @@ export interface RadioOption {
   value: string;
   label: string;
   hint?: string;
+  /** The hint is code (a command, a flag) and takes the mono font. */
+  hintMono?: boolean;
 }
 
 export type RefKind = "local" | "current" | "remote" | "tag" | "head" | "stash";

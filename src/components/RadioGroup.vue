@@ -65,10 +65,13 @@ const name = useId();
       <!-- The label and its hint wrap as one text, anywhere in a long path, under the box. -->
       <span class="min-w-0 wrap-anywhere">
         <span>{{ option.label }}</span>
+        <!-- Read as the radio's description, so not as part of its name too. -->
         <span
           v-if="option.hint"
           :id="`${name}-${option.value}-hint`"
+          aria-hidden="true"
           class="ml-2 text-sm text-fg-muted"
+          :class="{ 'font-mono': option.hintMono }"
         >
           {{ option.hint }}
         </span>

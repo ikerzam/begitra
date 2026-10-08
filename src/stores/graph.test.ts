@@ -91,6 +91,7 @@ function mockBackend(refs: Ref[] = [], pageSize = 1000): Call[] {
           listed = listed.filter((c) => c.author.time >= (filter.since ?? 0));
         }
         if (filter.paths) listed = listed.filter((_c, i) => i % 2 === 0);
+        if (filter.content) listed = listed.filter((_c, i) => i % 3 === 0);
         walked = listed;
         send(args["onPage"] as Channel<unknown>, pages(0, args["maxPages"] as number));
         return null;
@@ -501,12 +502,58 @@ describe("graph store", () => {
     expect(walks()).toBe(1);
     graph.setText("commit 1");
     graph.setScope({ kind: "current" });
+    graph.setCode({ text: "retry", lines: false });
     await settled();
     const before = walks();
     graph.clear();
     await settled();
     expect(walks()).toBe(before + 1);
     expect(graph.isActive).toBe(false);
+    expect(graph.filters.code).toBeNull();
+    expect(graph.matches).toBe(30);
+  });
+
+  it("searches the code through the walk's content, the text as written; a blank one clears it", async () => {
+    const calls = mockBackend();
+    const repo = useRepoStore();
+    const graph = useGraphStore();
+    await repo.open("/r");
+    await settled();
+    const walks = () => calls.filter((c) => c.cmd === "walk_commits");
+    graph.setCode({ text: " decodeTile(", lines: true });
+    await settled();
+    expect(graph.isFiltered).toBe(true);
+    expect(graph.matches).toBe(10);
+    expect(walks().at(-1)?.args["options"]).toEqual({
+      pageSize: 500,
+      order: "lazy",
+      filter: { content: { text: " decodeTile(", lines: true } },
+    });
+    const before = walks().length;
+    // The same search restarts nothing; the choice alone does.
+    graph.setCode({ text: " decodeTile(", lines: true });
+    expect(walks()).toHaveLength(before);
+    graph.setCode({ text: " decodeTile(", lines: false });
+    await settled();
+    expect(walks()).toHaveLength(before + 1);
+    expect(walks().at(-1)?.args["options"]).toMatchObject({
+      filter: { content: { text: " decodeTile(", lines: false } },
+    });
+    // With the path, one walk narrows both.
+    graph.setPath("apps/api");
+    await settled();
+    expect(walks().at(-1)?.args["options"]).toMatchObject({
+      filter: { paths: ["apps/api"], content: { text: " decodeTile(", lines: false } },
+    });
+    // Control characters pasted with the text go, tab aside, and so does what passes 200.
+    graph.setPath("");
+    graph.setCode({ text: `a\u0001\tb\n${"x".repeat(300)}`, lines: true });
+    expect(graph.filters.code).toEqual({ text: `a\tb${"x".repeat(197)}`, lines: true });
+    graph.setCode({ text: " \u0000 ", lines: true });
+    await settled();
+    expect(graph.filters.code).toBeNull();
+    expect(graph.isFiltered).toBe(false);
+    expect(walks().at(-1)?.args["options"]).not.toHaveProperty("filter");
     expect(graph.matches).toBe(30);
   });
 
@@ -545,6 +592,7 @@ describe("file history", () => {
     graph.setText("fix(auth)");
     graph.setAuthor("iker");
     graph.setDateRange("30d");
+    graph.setCode({ text: "retry", lines: false });
     graph.setScope({ kind: "ref", name: "main", fullName: "refs/heads/main" });
     await settled();
     await graph.showHistory("apps/api/src/index.ts");
@@ -554,6 +602,7 @@ describe("file history", () => {
       author: "",
       dateRange: "any",
       path: "apps/api/src/index.ts",
+      code: null,
       scope: { kind: "ref", name: "main", fullName: "refs/heads/main" },
     });
     expect(shell.layoutMode).toBe("graph");

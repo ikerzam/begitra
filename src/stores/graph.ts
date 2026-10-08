@@ -1,7 +1,7 @@
-// The commit graph's filters and counts: the text, scope, author, date range and path the bar
-// shows, turned into the walk scope and filter the repo store restarts with; the authors seen
-// in the loaded commits; the count of the scope for the "N of M commits" line; the two
-// commits pinned as chips (kept in the review store); a file's history, the graph shown
+// The commit graph's filters and counts: the text, scope, author, date range, path and code
+// search the bar shows, turned into the walk scope and filter the repo store restarts with; the
+// authors seen in the loaded commits; the count of the scope for the "N of M commits" line; the
+// two commits pinned as chips (kept in the review store); a file's history, the graph shown
 // filtered by its path; the remote branches hidden from the all-branches walk; and Go to HEAD.
 
 import { defineStore } from "pinia";
@@ -10,7 +10,9 @@ import { computed, nextTick, ref, watch } from "vue";
 import { patternNames } from "@/graph/scopeRefs";
 import * as ipc from "@/ipc/commands";
 import {
+  MAX_CODE_TEXT,
   MAX_SCOPE_NAMES,
+  withoutControlCharacters,
   type CommitCount,
   type CommitNode,
   type WalkFilter,
@@ -44,6 +46,13 @@ const RANGE_DAYS: Record<Exclude<DateRange, "any">, number> = {
   "1y": 365,
 };
 
+/** A search of what the commits change, the text matched as written. */
+export interface CodeSearch {
+  text: string;
+  /** "On a changed line" (`git log -G`) rather than "Added or removed" (`git log -S`). */
+  lines: boolean;
+}
+
 export interface GraphFilters {
   text: string;
   scope: GraphScope;
@@ -52,6 +61,8 @@ export interface GraphFilters {
   dateRange: DateRange;
   /** Repository-relative file or directory; empty for none. */
   path: string;
+  /** The code search; null for none. */
+  code: CodeSearch | null;
 }
 
 export interface AuthorSeen {
@@ -61,7 +72,7 @@ export interface AuthorSeen {
 }
 
 function defaultFilters(): GraphFilters {
-  return { text: "", scope: { kind: "all" }, author: "", dateRange: "any", path: "" };
+  return { text: "", scope: { kind: "all" }, author: "", dateRange: "any", path: "", code: null };
 }
 
 /** A path as git names it: backslashes (typed on Windows) are slashes, no trailing one. */
@@ -112,7 +123,13 @@ export const useGraphStore = defineStore("graph", () => {
   /** Whether a filter narrows the scope (the count line and the empty state depend on it). */
   const isFiltered = computed(() => {
     const f = filters.value;
-    return f.text.trim() !== "" || f.author !== "" || f.dateRange !== "any" || f.path !== "";
+    return (
+      f.text.trim() !== "" ||
+      f.author !== "" ||
+      f.dateRange !== "any" ||
+      f.path !== "" ||
+      f.code !== null
+    );
   });
   /** Whether any control differs from its default, including the scope ("Clear" shows). */
   const isActive = computed(() => isFiltered.value || filters.value.scope.kind !== "all");
@@ -171,6 +188,7 @@ export const useGraphStore = defineStore("graph", () => {
       filter.since = Math.floor(Date.now() / 1000) - RANGE_DAYS[f.dateRange] * 86_400;
     }
     if (f.path !== "") filter.paths = [f.path];
+    if (f.code) filter.content = { text: f.code.text, lines: f.code.lines };
     return Object.keys(filter).length > 0 ? filter : undefined;
   });
 
@@ -274,6 +292,19 @@ export const useGraphStore = defineStore("graph", () => {
     apply();
   }
 
+  /**
+   * The code search, the text as written, spaces included, without the control characters the
+   * engine refuses (pasted with it) and past its longest; a blank text clears it.
+   */
+  function setCode(code: CodeSearch | null): void {
+    const text = withoutControlCharacters(code?.text ?? "").slice(0, MAX_CODE_TEXT);
+    const next = code && text.trim() !== "" ? { text, lines: code.lines } : null;
+    const current = filters.value.code;
+    if (current?.text === next?.text && current?.lines === next?.lines) return;
+    filters.value = { ...filters.value, code: next };
+    apply();
+  }
+
   /** Every control back to its default, the scope included. */
   function clear(): void {
     if (!isActive.value) return;
@@ -282,11 +313,11 @@ export const useGraphStore = defineStore("graph", () => {
   }
 
   /**
-   * A file's history: the graph filtered by `path` alone, the text, author and date cleared
-   * (left there, they would hide commits of the file unsaid) and the scope kept. The path is
-   * git's own (a file's), taken as it is. A `root` other than the open repository's is shown
-   * first, as its "Open repository" does, and starts from its own filters; when it fails to
-   * open, the graph shows the error, unless another open came after it.
+   * A file's history: the graph filtered by `path` alone, the text, author, date and code
+   * search cleared (left there, they would hide commits of the file unsaid) and the scope kept.
+   * The path is git's own (a file's), taken as it is. A `root` other than the open repository's
+   * is shown first, as its "Open repository" does, and starts from its own filters; when it
+   * fails to open, the graph shows the error, unless another open came after it.
    */
   async function showHistory(path: string, root: string | null = null): Promise<void> {
     const fromGraph = shell.layoutMode === "graph";
@@ -308,7 +339,8 @@ export const useGraphStore = defineStore("graph", () => {
       current.text === next.text &&
       current.author === next.author &&
       current.dateRange === next.dateRange &&
-      current.path === next.path;
+      current.path === next.path &&
+      current.code === null;
     if (!unchanged) {
       filters.value = next;
       // From another layout the selected commit rarely touches the file: the first row is
@@ -455,6 +487,7 @@ export const useGraphStore = defineStore("graph", () => {
     setAuthor,
     setDateRange,
     setPath,
+    setCode,
     clear,
     showHistory,
     setDiffBase,

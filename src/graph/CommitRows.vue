@@ -238,6 +238,7 @@ defineExpose({ focus: navigation.focus, revealSelected });
     ref="container"
     role="listbox"
     :aria-label="t('graph.commits')"
+    :aria-busy="props.loading"
     class="commit-rows relative min-h-0 flex-1 overflow-y-auto"
     data-testid="commit-rows"
     @keydown="onKeydown"

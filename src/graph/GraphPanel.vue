@@ -222,9 +222,23 @@ const walkError = computed(() => {
       output: error.detail ?? error.message,
     };
   }
+  if (error.code === "diff.blob_missing") {
+    // A partial clone leaves the object to its remote, which the walk does not ask: trying
+    // again stops at the same place.
+    return {
+      message: last
+        ? t("graph.partialPast", { hash: shortHash(last.hash) })
+        : t("graph.partialStart"),
+      action: "",
+      corrupt: false,
+      output: error.detail ?? error.message,
+    };
+  }
   const text = errorText(error);
   return {
-    message: t("graph.historyFailed", { message: t(text.key, text.params) }),
+    message: t(last ? "graph.historyFailed" : "graph.historyFailedStart", {
+      message: t(text.key, text.params),
+    }),
     action: t("home.retry"),
     corrupt: false,
     output: error.detail ?? "",
@@ -236,10 +250,13 @@ function onWalkErrorAction(): void {
   else repo.restartWalk(repo.walkScope, repo.walkFilter);
 }
 
+/* Empty once the walk can list no more: a search that finds nothing for a while sends empty pages
+   that are not its last, and the rows' prefetch asks for the next ones. */
 const showEmpty = computed(
   () =>
     repo.state.kind === "ready" &&
     !repo.streaming &&
+    !repo.canLoadMore &&
     repo.commits.length === 0 &&
     repo.walkError === null,
 );

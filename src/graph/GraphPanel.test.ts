@@ -141,6 +141,66 @@ describe("GraphPanel filters", () => {
     wrapper.unmount();
   });
 
+  it("searches the code from its popover, the button filled and reading the text", async () => {
+    const calls = fakeBackend();
+    await openRepository();
+    const wrapper = await mountPanel();
+    const button = () => wrapper.get('[data-testid="filter-code"]');
+    expect(button().text()).toBe("Code");
+    expect(button().classes()).not.toContain("bg-selected");
+    await button().trigger("click");
+    const popover = wrapper.get('[data-testid="code-popover"]');
+    await popover.get('[data-testid="code-input"]').setValue("fix(auth)");
+    await popover.get('[data-testid="code-input"]').trigger("keydown", { key: "Enter" });
+    await settled();
+    expect(wrapper.find('[data-testid="code-popover"]').exists()).toBe(false);
+    expect(document.activeElement).toBe(button().element);
+    expect(button().text()).toBe("fix(auth)");
+    expect(button().classes()).toContain("bg-selected");
+    // The choice is in the tooltip and the name, which the label leaves out.
+    expect(button().attributes("data-tooltip")).toBe("Added or removed: fix(auth)");
+    expect(button().attributes("aria-label")).toBe("Code search, Added or removed: fix(auth)");
+    // The value reads in --text over the button's --text-secondary, which keeps the icon's.
+    expect(button().get(".filter-value").classes()).toContain("text-fg");
+    const walk = calls.filter((c) => c.cmd === "walk_commits").at(-1);
+    expect(walk?.args["options"]).toMatchObject({
+      filter: { content: { text: "fix(auth)", lines: false } },
+    });
+    expect(wrapper.findAll('[data-testid="graph-row"]')).toHaveLength(6);
+    expect(wrapper.get('[data-testid="filter-count"]').text()).toBe("6 of 30 commits");
+    await wrapper.get('[data-testid="filter-clear"]').trigger("click");
+    await settled();
+    expect(useGraphStore().filters.code).toBeNull();
+    expect(button().text()).toBe("Code");
+    wrapper.unmount();
+  });
+
+  it("shows skeleton rows, not the empty state, while a search finds nothing yet", async () => {
+    // Six empty pages (git reading for half a minute), then the end: nothing matches.
+    fakeBackend({ searchEmptyPages: 6, searchDelayMs: 1_000 });
+    await openRepository();
+    const wrapper = await mountPanel();
+    useGraphStore().setCode({ text: "never written", lines: false });
+    await settled();
+    expect(wrapper.find('[data-testid="graph-empty"]').exists()).toBe(false);
+    expect(wrapper.findAll('[data-testid="skeleton-row"]').length).toBeGreaterThan(0);
+    // The first request answers four empty pages; the rows ask for the next ones.
+    vi.advanceTimersByTime(1_000);
+    await settled();
+    await flushPromises();
+    expect(useRepoStore().walk?.done).toBe(false);
+    expect(wrapper.find('[data-testid="graph-empty"]').exists()).toBe(false);
+    expect(wrapper.findAll('[data-testid="skeleton-row"]').length).toBeGreaterThan(0);
+    vi.advanceTimersByTime(1_000);
+    await settled();
+    await flushPromises();
+    expect(useRepoStore().walk?.done).toBe(true);
+    expect(wrapper.get('[data-testid="graph-empty"]').text()).toContain(
+      "No commits match these filters.",
+    );
+    wrapper.unmount();
+  });
+
   it("gives Clear filters the focus when nothing matches and nothing else holds it", async () => {
     fakeBackend();
     await openRepository();
@@ -398,6 +458,28 @@ describe("GraphPanel broken history", () => {
     await banner.get("button").trigger("click");
     await flushPromises();
     expect(calls.some((c) => c.cmd === "open_external")).toBe(true);
+    wrapper.unmount();
+  });
+});
+
+describe("GraphPanel partial clone", () => {
+  it("says where a partial clone lacks what the walk reads, with no Try again", async () => {
+    fakeBackend({
+      commits: 1_200,
+      pageSize: 500,
+      failAfterPages: 2,
+      walkFailure: { code: "diff.blob_missing", message: "blob e9fe355 is missing" },
+    });
+    const repo = await openRepository();
+    const wrapper = await mountPanel();
+    expect(repo.commits).toHaveLength(1_000);
+    const banner = wrapper.get('[data-testid="graph-walk-error"]');
+    expect(banner.text()).toContain(
+      "Couldn't read the history past 0000000. This partial clone leaves out the content",
+    );
+    // Only the toggle of git's words: trying again would stop at the same object.
+    const buttons = banner.findAll("button");
+    expect(buttons.map((b) => b.attributes("data-testid"))).toEqual(["error-banner-toggle"]);
     wrapper.unmount();
   });
 });

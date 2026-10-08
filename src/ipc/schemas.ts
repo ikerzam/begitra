@@ -175,12 +175,36 @@ export type WalkOrder = v.InferOutput<typeof WalkOrderSchema>;
 
 const filterText = v.pipe(v.string(), v.maxLength(200));
 
+/** The longest code search the engine takes (`MAX_FILTER_TEXT` in the walk command). */
+export const MAX_CODE_TEXT = 200;
+
+/** A control character but tab: no line of code holds one, and no argument can carry a NUL. */
+const CONTROL_BUT_TAB = /[\u0000-\u0008\u000a-\u001f\u007f-\u009f]/g;
+
+/** `text` without the control characters a code search refuses. */
+export function withoutControlCharacters(text: string): string {
+  return text.replace(CONTROL_BUT_TAB, "");
+}
+
+/** A search of what the commits change (`git log -S`, or `-G` with `lines`). */
+export const ContentFilterSchema = v.object({
+  text: v.pipe(
+    v.string(),
+    v.minLength(1),
+    v.maxLength(MAX_CODE_TEXT),
+    v.check((text) => withoutControlCharacters(text) === text, "a control character"),
+  ),
+  lines: v.boolean(),
+});
+export type ContentFilter = v.InferOutput<typeof ContentFilterSchema>;
+
 export const WalkFilterSchema = v.object({
   text: v.optional(filterText),
   author: v.optional(filterText),
   since: v.optional(v.number()),
   until: v.optional(v.number()),
   paths: v.optional(v.pipe(v.array(v.pipe(v.string(), v.minLength(1))), v.maxLength(20))),
+  content: v.optional(ContentFilterSchema),
 });
 export type WalkFilter = v.InferOutput<typeof WalkFilterSchema>;
 

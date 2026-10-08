@@ -99,8 +99,17 @@ export interface FakeBackendOptions {
   /** Commits in the repository (subject "commit N", authors cycling). Default 30. */
   commits?: number;
   pageSize?: number;
-  /** After this many pages the walk ends with `repo.corrupt_object`. */
+  /** After this many pages the walk ends with `repo.corrupt_object`, or `walkFailure`. */
   failAfterPages?: number;
+  /** The error `failAfterPages` ends the walk with instead of the corrupt object. */
+  walkFailure?: { code: string; message: string; detail?: string };
+  /**
+   * A code search's first pages are empty and not the last, as git's are while it finds nothing
+   * for a while; its rows come after them.
+   */
+  searchEmptyPages?: number;
+  /** A code search answers each request after this many milliseconds. */
+  searchDelayMs?: number;
   /** Commits a ref scope lists (the first N). Default 10. */
   refScopeCommits?: number;
   /** Every diff fails with `diff.blob_missing`. */
@@ -636,8 +645,13 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
       listed = listed.filter((c) => c.author.time >= (filter.since ?? 0));
     }
     if (filter.paths) listed = listed.filter((_c, i) => i % 2 === 0);
+    // The code search finds the text as written in the subject or the body.
+    const code = filter.content?.text;
+    if (code) listed = listed.filter((c) => c.subject.includes(code) || c.body.includes(code));
     return listed;
   };
+  /** What the last `walk_commits` lists, which `walk_continue` goes on with. */
+  let walked: { scope: WalkScope; filter: WalkFilter } = { scope: { kind: "all" }, filter: {} };
   /** HEAD's commit once `move_head` moved it; the listing and the context follow. */
   let movedHead: string | null = null;
   /** The refs `list_refs` answers, HEAD and its branch where `move_head` left them. */
@@ -715,14 +729,22 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
         }
         case "walk_commits":
         case "walk_continue": {
-          const scope = (args["scope"] as WalkScope | undefined) ?? { kind: "all" };
-          const filter = (args["options"] as { filter?: WalkFilter } | undefined)?.filter ?? {};
+          // A continuation lists what the walk it continues was started with.
+          if (cmd === "walk_commits") {
+            walked = {
+              scope: (args["scope"] as WalkScope | undefined) ?? { kind: "all" },
+              filter: (args["options"] as { filter?: WalkFilter } | undefined)?.filter ?? {},
+            };
+          }
+          const { scope, filter } = walked;
           const listed = listFor(scope, filter);
           const first = cmd === "walk_commits" ? 0 : (args["nextIndex"] as number);
           const maxPages = args["maxPages"] as number;
+          const searching = filter.content !== undefined;
+          const emptyPages = searching ? (options.searchEmptyPages ?? 0) : 0;
           const messages: unknown[] = [];
           let seq = 0;
-          if (listed.length === 0) {
+          if (listed.length === 0 && emptyPages === 0) {
             messages.push({
               kind: "page",
               seq,
@@ -734,7 +756,7 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
             if (options.failAfterPages !== undefined && index >= options.failAfterPages) {
               messages.push({
                 kind: "error",
-                error: {
+                error: options.walkFailure ?? {
                   code: "repo.corrupt_object",
                   message: "object 6c1f0ab is missing or corrupt: loose object is corrupt",
                   detail: "error: object file .git/objects/6c/1f0ab is empty",
@@ -743,8 +765,14 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
               send(args["onPage"] as Channel<unknown>, messages);
               return null;
             }
-            const start = index * pageSize;
-            if (start >= listed.length) break;
+            if (index < emptyPages) {
+              const data = { walkId: "w", index, commits: [], done: false };
+              messages.push({ kind: "page", seq, data });
+              seq += 1;
+              continue;
+            }
+            const start = (index - emptyPages) * pageSize;
+            if (start >= listed.length && !(start === 0 && emptyPages > 0)) break;
             const commits = listed.slice(start, start + pageSize);
             const done = start + commits.length >= listed.length;
             messages.push({ kind: "page", seq, data: { walkId: "w", index, commits, done } });
@@ -752,7 +780,11 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
             if (done) break;
           }
           messages.push({ kind: "done" });
-          send(args["onPage"] as Channel<unknown>, messages);
+          send(
+            args["onPage"] as Channel<unknown>,
+            messages,
+            searching ? options.searchDelayMs : undefined,
+          );
           return null;
         }
         case "count_commits": {

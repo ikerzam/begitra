@@ -1,16 +1,15 @@
 <script setup lang="ts">
 // The filter bar of the graph: the repository selector while the open project holds more than
 // one repository, then search, scope (with "Branches matching…" and its popover), the remote
-// branches toggle, author, date range and path, each filled when active; the pinned-commit chips;
-// Go to HEAD, then the count line and "Clear filters" (an icon) once something narrows the
+// branches toggle, author, date range, path and code, each filled when active; the pinned-commit
+// chips; Go to HEAD, then the count line and "Clear filters" (an icon) once something narrows the
 // history, at the end of the bar outside the controls' row, so a narrow panel scrolls the controls
 // and never those.
 
 import { CloudOff, Folder, FunnelX, LocateFixed, Search, X } from "@lucide/vue";
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
-import Button from "@/components/Button.vue";
 import IconButton from "@/components/IconButton.vue";
 import Input from "@/components/Input.vue";
 import Select from "@/components/Select.vue";
@@ -20,7 +19,10 @@ import { formatCount, shortHash } from "@/shell/format";
 import { shortcutRegistry } from "@/shortcuts/registry";
 import { DATE_RANGES, useGraphStore, type DateRange, type GraphScope } from "@/stores/graph";
 import { useProjectsStore } from "@/stores/projects";
+import { useRepoStore } from "@/stores/repo";
 
+import CodeFilter from "./CodeFilter.vue";
+import FilterButton from "./FilterButton.vue";
 import PathPopover from "./PathPopover.vue";
 import PatternPopover from "./PatternPopover.vue";
 import RepoSelect from "./RepoSelect.vue";
@@ -34,6 +36,7 @@ const SEARCH_DEBOUNCE_MS = 200;
 const { t, n, locale } = useI18n();
 const graph = useGraphStore();
 const projects = useProjectsStore();
+const repo = useRepoStore();
 
 const text = ref(graph.filters.text);
 let debounce: ReturnType<typeof setTimeout> | undefined;
@@ -118,10 +121,15 @@ function applyPattern(pattern: string): void {
   graph.setScope(pattern === "" ? { kind: "all" } : { kind: "pattern", pattern });
 }
 
-/** Closing the popover unmounts its focused input: the focus returns to the scope's select. */
-function closePattern(): void {
+/**
+ * Closing the popover unmounts its focused input: the focus returns to the scope's select, once it
+ * reads the new scope, unless the focus already went elsewhere.
+ */
+function closePattern(refocus = true): void {
   patternOpen.value = false;
-  scopeControl.value?.querySelector<HTMLElement>("button")?.focus();
+  if (refocus) {
+    void nextTick(() => scopeControl.value?.querySelector<HTMLElement>("button")?.focus());
+  }
 }
 
 const headKeys = computed(() => shortcutRegistry().hint("go-to-head"));
@@ -152,10 +160,13 @@ const dateValue = computed({
 const pathOpen = ref(false);
 const pathButton = ref<{ $el: HTMLElement } | null>(null);
 
-/** Closing the popover unmounts its focused input: the focus returns to the button. */
-function closePath(): void {
+/**
+ * Closing the popover unmounts its focused input: the focus returns to the button, once it reads
+ * the new path (so the row scrolls it whole into view), unless the focus already went elsewhere.
+ */
+function closePath(refocus = true): void {
   pathOpen.value = false;
-  pathButton.value?.$el.focus();
+  if (refocus) void nextTick(() => pathButton.value?.$el.focus());
 }
 
 const search = ref<{ $el: HTMLElement } | null>(null);
@@ -181,7 +192,7 @@ const countLine = computed(() => {
 
 <template>
   <div
-    class="flex h-bar-top shrink-0 items-center gap-2 border-b border-line"
+    class="filter-bar flex h-bar-top shrink-0 items-center gap-2 border-b border-line"
     data-testid="graph-filters"
   >
     <div class="filter-row relative flex h-full min-w-0 flex-auto">
@@ -241,18 +252,16 @@ const countLine = computed(() => {
           />
         </div>
         <div class="relative shrink-0">
-          <Button
+          <FilterButton
             ref="pathButton"
-            variant="ghost"
             :icon="Folder"
-            :class="{ 'bg-selected text-fg': graph.filters.path !== '' }"
-            aria-haspopup="dialog"
-            :aria-expanded="pathOpen"
+            :label="t('graph.path')"
+            :value="graph.filters.path || null"
+            :active-label="t('graph.pathActive', { path: graph.filters.path })"
+            :expanded="pathOpen"
             data-testid="filter-path"
             @click="pathOpen = !pathOpen"
-          >
-            {{ graph.filters.path || t("graph.path") }}
-          </Button>
+          />
           <PathPopover
             v-if="pathOpen"
             :path="graph.filters.path"
@@ -261,6 +270,7 @@ const countLine = computed(() => {
             @close="closePath"
           />
         </div>
+        <CodeFilter />
         <span
           v-if="graph.diffBase"
           class="flex h-control shrink-0 items-center gap-1 rounded-md bg-selected pl-3 text-md text-fg"
@@ -305,10 +315,11 @@ const countLine = computed(() => {
     />
     <span
       v-if="countLine"
-      class="filter-count truncate text-sm text-fg-muted"
+      class="shrink-0 text-sm whitespace-nowrap text-fg-muted"
       :class="{ 'mr-3': !graph.isActive }"
       data-testid="filter-count"
       aria-live="polite"
+      :aria-busy="repo.streaming"
     >
       {{ countLine }}
     </span>
@@ -324,17 +335,25 @@ const countLine = computed(() => {
 </template>
 
 <style scoped>
+/* The bar is the container its filter buttons measure (`FilterButton`). */
+.filter-bar {
+  container: filter-bar / inline-size;
+}
+
+/* A control focused at the row's edge scrolls into view clear of the edge's fade. */
+.filter-controls {
+  scroll-padding-inline: var(--space-5);
+}
+
 /* Control widths of the filter bar: search 200, then the three selects sized to their content
    (124, 104, 104). None is on the spacing scale. A panel narrower than the bar (the repository
-   selector in front, a narrow window, a high zoom) takes its room, in this order, from the count
-   line, down to nothing; from the search and the repository selector, down to 112 and 96; and
-   from the selects, down to 88, where a label is cut with an ellipsis (the open list shows it
-   whole). Past those widths the controls scroll sideways, "Clear filters" staying at the end: the
+   selector in front, a narrow window, a high zoom) takes its room, in this order, from the search
+   and the repository selector, down to 112 and 96; and from the selects, down to 88, where a
+   label is cut with an ellipsis (the open list shows it whole). Past those widths the controls
+   scroll sideways, while Go to HEAD, the count line and "Clear filters" stay whole at the end:
+   the count line, the answer to the filters just set, is never cut to a fragment ("6 o…"). The
    weights below set the order, since a flex item gives up room in proportion to its weight
    times its width. */
-.filter-count {
-  flex-shrink: 100;
-}
 
 .graph-search {
   flex-shrink: 20;

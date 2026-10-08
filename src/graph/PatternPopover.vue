@@ -1,15 +1,15 @@
 <script setup lang="ts">
 // The popover of the scope's "Branches matching…": a glob over the branches' names (`claude/*`),
-// how many branches it matches as it is typed, and Apply; Enter applies, Escape and a press
-// outside close, an empty pattern returns to every branch. Fixed under the scope's select, as the
-// path's popover hangs from its button.
+// how many branches it matches as it is typed, and Apply; Enter applies, Escape, a press or a
+// scroll outside and the focus leaving close, an empty pattern returns to every branch. Hangs
+// under the scope's select (`useAnchoredPopover`), as the path's popover hangs from its button.
 
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, useTemplateRef } from "vue";
+import { computed, ref, useId, useTemplateRef } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Button from "@/components/Button.vue";
 import Input from "@/components/Input.vue";
-import { hangFrom, viewportSize } from "@/components/placement";
+import { useAnchoredPopover } from "@/components/useAnchoredPopover";
 import { MAX_SCOPE_NAMES } from "@/ipc/schemas";
 import { useRemotesStore } from "@/stores/remotes";
 import { useRepoStore } from "@/stores/repo";
@@ -22,7 +22,8 @@ const props = defineProps<{
   /** The control that opened the popover; presses on it do not count as outside. */
   anchor?: HTMLElement | null;
 }>();
-const emit = defineEmits<{ apply: [pattern: string]; close: [] }>();
+/** `close`'s `refocus` is false when the focus already went elsewhere. */
+const emit = defineEmits<{ apply: [pattern: string]; close: [refocus: boolean] }>();
 
 const { t, n } = useI18n();
 const repo = useRepoStore();
@@ -31,8 +32,14 @@ const root = useTemplateRef<HTMLElement>("root");
 const titleId = useId();
 const hintId = useId();
 const value = ref(props.pattern);
-/* Where it hangs from the select; null until it is measured. */
-const box = ref<{ left: number; top: number } | null>(null);
+// The field takes the focus after the select's list has closed and given its button the focus
+// back.
+const { box, onFocusOut } = useAnchoredPopover(
+  root,
+  () => props.anchor,
+  (refocus) => emit("close", refocus),
+  (popover) => popover.querySelector("input")?.focus(),
+);
 
 /**
  * "4 branches: 3 local, 1 remote", that none matches, or that the graph walks the first 2,000
@@ -60,60 +67,21 @@ const matched = computed(() => {
 
 function apply(): void {
   emit("apply", value.value.trim());
-  emit("close");
+  emit("close", true);
 }
 
 function onKeydown(event: KeyboardEvent): void {
+  // A key that ends an input method's composition is the composition's own.
+  if (event.isComposing) return;
   // Enter on Cancel or Apply is the button's own.
   if (event.key === "Enter" && !(event.target instanceof HTMLButtonElement)) {
     event.preventDefault();
     apply();
   } else if (event.key === "Escape") {
     event.preventDefault();
-    emit("close");
+    emit("close", true);
   }
 }
-
-function onPointerDownOutside(event: PointerEvent): void {
-  if (!root.value || !(event.target instanceof Node)) return;
-  if (root.value.contains(event.target) || props.anchor?.contains(event.target)) return;
-  emit("close");
-}
-
-function place(): void {
-  if (!root.value || !props.anchor) return;
-  const size = root.value.getBoundingClientRect();
-  const spot = hangFrom(
-    props.anchor.getBoundingClientRect(),
-    { width: size.width, height: size.height },
-    viewportSize(),
-  );
-  box.value = { left: spot.left, top: spot.top };
-}
-
-function onResize(): void {
-  void nextTick(place);
-}
-
-function onScroll(event: Event): void {
-  if (event.target instanceof Node && root.value?.contains(event.target)) return;
-  emit("close");
-}
-
-onMounted(() => {
-  document.addEventListener("pointerdown", onPointerDownOutside, true);
-  document.addEventListener("scroll", onScroll, true);
-  window.addEventListener("resize", onResize);
-  place();
-  // After the select's list has closed and given its button the focus back.
-  void nextTick(() => root.value?.querySelector("input")?.focus());
-});
-
-onBeforeUnmount(() => {
-  document.removeEventListener("pointerdown", onPointerDownOutside, true);
-  document.removeEventListener("scroll", onScroll, true);
-  window.removeEventListener("resize", onResize);
-});
 </script>
 
 <template>
@@ -129,6 +97,7 @@ onBeforeUnmount(() => {
     class="pattern-popover fixed z-20 flex flex-col gap-2 rounded-lg border border-line-strong bg-raised p-3 shadow-overlay"
     data-testid="pattern-popover"
     @keydown="onKeydown"
+    @focusout="onFocusOut"
   >
     <span :id="titleId" class="text-sm text-fg-secondary">{{ t("graph.patternTitle") }}</span>
     <Input
@@ -150,7 +119,7 @@ onBeforeUnmount(() => {
       {{ matched }}
     </span>
     <div class="flex justify-end gap-2">
-      <Button variant="ghost" @click="emit('close')">{{ t("dialog.cancel") }}</Button>
+      <Button variant="ghost" @click="emit('close', true)">{{ t("dialog.cancel") }}</Button>
       <Button variant="primary" data-testid="pattern-apply" @click="apply">
         {{ t("graph.apply") }}
       </Button>

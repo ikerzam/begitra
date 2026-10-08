@@ -17,7 +17,21 @@
       "until": 1735689600,
       "paths": [
         "apps/api"
-      ]
+      ],
+      "content": {
+        "text": "refreshToken",
+        "lines": false
+      }
+    }
+  },
+  {
+    "pageSize": 500,
+    "order": "lazy",
+    "filter": {
+      "content": {
+        "text": "decodeTile(\t",
+        "lines": true
+      }
     }
   }
 ]
