@@ -11,6 +11,7 @@ import {
   ComparisonSchema,
   FastForwardSchema,
   GitDetectionSchema,
+  MainForwardSchema,
   MergePreviewSchema,
   CommitContextSchema,
   CommitCountSchema,
@@ -334,6 +335,12 @@ export function setUpstream(
 /** Moves a branch that is not checked out to its upstream's commit, when that is a fast-forward. */
 export function branchFastForward(repo: string, name: string, opId = newOpId("fast-forward")) {
   return call("branch_fast_forward", { repo, name, opId }, FastForwardSchema);
+}
+
+/** Moves the main branch to its upstream as `branchFastForward` moves a branch; null when the
+ * repository has no main branch with an upstream to follow. */
+export function mainFastForward(repo: string, opId = newOpId("main-forward")) {
+  return call("main_fast_forward", { repo, opId }, MainForwardSchema);
 }
 
 export function operationState(repo: string, opId = newOpId("operation")) {

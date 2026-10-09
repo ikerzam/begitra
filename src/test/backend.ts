@@ -26,6 +26,7 @@ import type {
   IndexEntry,
   KeptBy,
   KeptReason,
+  MainForward,
   MergePreview,
   OperationSides,
   OperationState,
@@ -119,6 +120,10 @@ export interface FakeBackendOptions {
   recentGate?: WriteGate;
   /** What `branch_fast_forward` answers; a move of three commits by default. */
   fastForward?: FastForward;
+  /** What `main_fast_forward` answers, or `fail` to reject; none (no main branch) by default. */
+  mainForward?: MainForward | "fail";
+  /** Holds each `main_fast_forward` answer until the test releases it. */
+  mainGate?: WriteGate;
   /** Commits a ref scope lists (the first N). Default 10. */
   refScopeCommits?: number;
   /** Every diff fails with `diff.blob_missing`. */
@@ -1418,6 +1423,20 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
               commits: 3,
             }
           );
+        case "main_fast_forward": {
+          const answer = (): Promise<MainForward> => {
+            if (options.mainForward === "fail") {
+              // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+              return Promise.reject({
+                code: "git.cli_failed",
+                message: "git fetch failed",
+                detail: "fatal: Unable to create '.git/refs/heads/main.lock': File exists.",
+              });
+            }
+            return Promise.resolve(options.mainForward ?? null);
+          };
+          return options.mainGate ? options.mainGate.hold(cmd, answer) : answer();
+        }
         case "recent_branches":
           if (options.failRecentBranches) {
             // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError

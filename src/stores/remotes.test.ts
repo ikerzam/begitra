@@ -7,6 +7,7 @@ import {
   FAKE_PROGRESS,
   fakeBackend,
   settled,
+  writeGate,
   type Call,
   type FakeBackendOptions,
 } from "@/test/backend";
@@ -238,6 +239,119 @@ describe("remotes store", () => {
     expect(useSequencerStore().conflicts).toHaveLength(1);
     // Its fetch moved the remote branches, and a rebase HEAD: the refs are listed again.
     expect(of(stopped, "list_refs").length).toBeGreaterThan(0);
+  });
+
+  describe("with Move main forward", () => {
+    const moved: FakeBackendOptions["mainForward"] = {
+      branch: "main",
+      upstream: "origin/main",
+      outcome: { kind: "moved", from: "a".repeat(40), to: "b".repeat(40), commits: 2 },
+    };
+
+    it("moves main after a fetch and a pull that went through, and says so", async () => {
+      const calls = await open({ mainForward: moved });
+      const store = useRemotesStore();
+      // Off by default: nothing is asked.
+      expect(await store.fetch(null, false)).toBe(true);
+      await settled();
+      expect(of(calls, "main_fast_forward")).toHaveLength(0);
+      await useSettingsStore().update("moveMainAfterFetch", true);
+      const listings = of(calls, "list_refs").length;
+      expect(await store.fetch(null, false)).toBe(true);
+      await settled();
+      expect(of(calls, "main_fast_forward")[0]?.args).toMatchObject({ repo: "/r" });
+      const toasts = useToastsStore().toasts;
+      expect(toasts.slice(-2).map((toast) => toast.key)).toEqual([
+        "remotes.fetchedAll",
+        "branches.fastForwarded",
+      ]);
+      expect(toasts.at(-1)).toMatchObject({
+        kind: "success",
+        params: { branch: "main", upstream: "origin/main", n: 2 },
+      });
+      // The fetch lists the refs, and the move lists them again.
+      expect(of(calls, "list_refs").length).toBeGreaterThanOrEqual(listings + 2);
+      expect(await store.pull({ remote: null, branch: null, rebase: false, ffOnly: true })).toBe(
+        true,
+      );
+      await settled();
+      expect(of(calls, "main_fast_forward")).toHaveLength(2);
+    });
+
+    it("says nothing when main stays, and shows git's words when the move fails", async () => {
+      const calls = await open({
+        mainForward: {
+          branch: "main",
+          upstream: "origin/main",
+          outcome: { kind: "held", worktree: "/r" },
+        },
+      });
+      await useSettingsStore().update("moveMainAfterFetch", true);
+      const store = useRemotesStore();
+      expect(await store.fetch("origin", false)).toBe(true);
+      await settled();
+      expect(of(calls, "main_fast_forward")).toHaveLength(1);
+      expect(useToastsStore().toasts.map((toast) => toast.key)).toEqual(["remotes.fetched"]);
+      clearMocks();
+      fakeBackend({ remotes, mainForward: "fail" });
+      expect(await store.fetch("origin", false)).toBe(true);
+      await settled();
+      const failed = useToastsStore().toasts.at(-1);
+      expect(failed).toMatchObject({ kind: "error", key: "remotes.mainForwardFailed" });
+      expect(failed?.output).toContain("main.lock");
+    });
+
+    it("moves nothing after a fetch that failed", async () => {
+      const calls = await open({ mainForward: moved, failNetwork: true });
+      await useSettingsStore().update("moveMainAfterFetch", true);
+      expect(await useRemotesStore().fetch(null, false)).toBe(false);
+      await settled();
+      expect(of(calls, "main_fast_forward")).toHaveLength(0);
+    });
+
+    it("answers the fetch once main moved, so the next listing reads it moved", async () => {
+      const gate = writeGate();
+      await open({ mainForward: moved, mainGate: gate });
+      await useSettingsStore().update("moveMainAfterFetch", true);
+      let answered = false;
+      const fetching = useRemotesStore()
+        .fetch(null, true)
+        .then((done) => {
+          answered = true;
+          return done;
+        });
+      await settled();
+      expect(gate.waiting).toEqual(["main_fast_forward"]);
+      expect(answered).toBe(false);
+      gate.release();
+      expect(await fetching).toBe(true);
+    });
+
+    it("moves main once at a time, and keeps quiet about a repository left meanwhile", async () => {
+      const gate = writeGate();
+      const calls = await open({ mainForward: moved, mainGate: gate, rootIsPath: true });
+      await useSettingsStore().update("moveMainAfterFetch", true);
+      const store = useRemotesStore();
+      const first = store.fetch(null, false);
+      await settled();
+      const second = store.fetch(null, false);
+      await settled();
+      // The second move waits for the first one's answer.
+      expect(of(calls, "fetch")).toHaveLength(2);
+      expect(gate.waiting).toEqual(["main_fast_forward"]);
+      gate.release();
+      expect(await first).toBe(true);
+      await settled();
+      expect(of(calls, "main_fast_forward")).toHaveLength(2);
+      expect(useToastsStore().toasts.at(-1)?.key).toBe("branches.fastForwarded");
+      const shown = useToastsStore().toasts.length;
+      await useRepoStore().open("/other");
+      await settled();
+      gate.release();
+      expect(await second).toBe(true);
+      await settled();
+      expect(useToastsStore().toasts).toHaveLength(shown);
+    });
   });
 
   it("cancels the network command in flight without a toast", async () => {

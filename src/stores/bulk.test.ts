@@ -108,6 +108,47 @@ describe("a bulk operation", () => {
     );
   });
 
+  it("moves each repository's main after its fetch or pull with the setting on, quietly", async () => {
+    const moved = {
+      branch: "main",
+      upstream: "origin/main",
+      outcome: { kind: "moved" as const, from: "a".repeat(40), to: "b".repeat(40), commits: 1 },
+    };
+    const calls = await showProject(
+      { mainForward: moved, networkErrors: { [infra.path]: signIn } },
+      [api, webAuth, web, infra],
+    );
+    const bulk = useBulkStore();
+    // Off by default.
+    bulk.ask("fetch");
+    await finished(bulk);
+    expect(of(calls, "main_fast_forward")).toHaveLength(0);
+    await useSettingsStore().update("moveMainAfterFetch", true);
+    bulk.dismiss();
+    bulk.ask("fetch");
+    await finished(bulk);
+    // Once per fetch that went through: the worktree rides on its repository's, and the
+    // failed one moves nothing.
+    expect(repos(calls, "main_fast_forward").sort()).toEqual([api.path, web.path].sort());
+    expect(bulk.states.get(api.path)).toEqual({ state: "done", outcome: "fetched" });
+    expect(bulk.states.get(infra.path)).toMatchObject({ state: "failed" });
+    bulk.dismiss();
+    bulk.ask("pull");
+    bulk.confirm();
+    await finished(bulk);
+    expect(repos(calls, "main_fast_forward")).toHaveLength(4);
+  });
+
+  it("leaves the row as its fetch ended when main fails to move", async () => {
+    await useSettingsStore().update("moveMainAfterFetch", true);
+    const calls = await showProject({ mainForward: "fail" }, [api]);
+    const bulk = useBulkStore();
+    bulk.ask("fetch");
+    await finished(bulk);
+    expect(repos(calls, "main_fast_forward")).toEqual([api.path]);
+    expect(bulk.states.get(api.path)).toEqual({ state: "done", outcome: "fetched" });
+  });
+
   it("reads a member's lists again after a pull, not after a fetch", async () => {
     const calls = await showProject({}, [api, web]);
     for (let i = 0; i < 6; i += 1) await settled();

@@ -12,8 +12,8 @@ use std::time::Duration;
 
 use git_core::engine::GitEngine;
 use git_core::types::{
-    Conflict, FastForward, MergeMode, OperationSides, OperationState, Outcome, ResetMode,
-    SequencerAction, Side, SwitchTarget,
+    Conflict, FastForward, MainForward, MergeMode, OperationSides, OperationState, Outcome,
+    ResetMode, SequencerAction, Side, SwitchTarget,
 };
 use tauri::State;
 
@@ -413,6 +413,22 @@ pub async fn branch_fast_forward(
     let app = state.inner().clone();
     run_unregistered(&op_id, DEFAULT_TIMEOUT, move |cancel| {
         app.open(&repo)?.branch_fast_forward(&name, &cancel)
+    })
+    .await
+}
+
+/// Moves the main branch to its upstream as `branch_fast_forward` moves a branch; `None` when
+/// the repository has no main branch with an upstream to follow.
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip(state))]
+pub async fn main_fast_forward(
+    state: State<'_, AppState>,
+    repo: PathBuf,
+    op_id: String,
+) -> Result<Option<MainForward>, AppError> {
+    let app = state.inner().clone();
+    run_unregistered(&op_id, DEFAULT_TIMEOUT, move |cancel| {
+        app.open(&repo)?.main_fast_forward(&cancel)
     })
     .await
 }

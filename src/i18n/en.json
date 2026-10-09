@@ -1240,6 +1240,7 @@
     "pushWaits": "The push waits for the fetch, pull or push that is running, and starts once it ends.",
     "fetched": "Fetched {remote}",
     "fetchedAll": "Fetched every remote",
+    "mainForwardFailed": "Couldn't move the main branch forward",
     "pulled": "Pulled {branch}",
     "pullUpToDate": "{branch} is up to date",
     "pushed": "Pushed {branch} to {remote}",
@@ -1385,7 +1386,9 @@
       "detecting": "Detecting…",
       "looking": "Looking for git on PATH and in common locations",
       "hint": "Empty means the git on PATH.",
-      "notGit": "Not a git executable. Begitra needs git 2.30 or newer; the path above does not run."
+      "notGit": "Not a git executable. Begitra needs git 2.30 or newer; the path above does not run.",
+      "moveMain": "Move main forward",
+      "moveMainHint": "After a fetch or a pull, the main branch moves to its upstream if it has no commits of its own and is not checked out."
     },
     "commands": {
       "title": "Terminal and editor",

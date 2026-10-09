@@ -220,6 +220,7 @@ pub fn run() {
             commands::branches::tag_delete,
             commands::branches::set_upstream,
             commands::branches::branch_fast_forward,
+            commands::branches::main_fast_forward,
             commands::branches::operation_state,
             commands::branches::conflicts,
             commands::branches::mark_resolved,

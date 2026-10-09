@@ -1240,6 +1240,7 @@
     "pushWaits": "El push espera al fetch, pull o push que está en marcha, y empieza en cuanto termine.",
     "fetched": "Traído {remote}",
     "fetchedAll": "Traído de todos los remotos",
+    "mainForwardFailed": "No se pudo avanzar la rama principal",
     "pulled": "Pull de {branch} hecho",
     "pullUpToDate": "{branch} está al día",
     "pushed": "Subida {branch} a {remote}",
@@ -1385,7 +1386,9 @@
       "detecting": "Detectando…",
       "looking": "Buscando git en el PATH y en las ubicaciones habituales",
       "hint": "Vacío significa el git del PATH.",
-      "notGit": "No es un ejecutable de git. Begitra necesita git 2.30 o más nuevo; la ruta de arriba no se ejecuta."
+      "notGit": "No es un ejecutable de git. Begitra necesita git 2.30 o más nuevo; la ruta de arriba no se ejecuta.",
+      "moveMain": "Avanzar main",
+      "moveMainHint": "Tras un fetch o un pull, la rama principal avanza hasta su upstream si no tiene commits propios y no está activa en ninguna carpeta."
     },
     "commands": {
       "title": "Terminal y editor",

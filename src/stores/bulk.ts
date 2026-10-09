@@ -5,7 +5,9 @@
 // the fetches, pulls and pushes that have not finished and the queued ones never start; the end
 // leaves a summary and "Retry failed", which runs the sign-in failures one at a time with
 // prompts allowed. After each member, its summary and lists are read again, and the reads close
-// its engine unless it is the open repository or the one the selection is in.
+// its engine unless it is the open repository or the one the selection is in. With "Move main
+// forward" on, a fetch or a pull that went through moves the repository's main branch after it,
+// without a word: the row reads the fetch's or the pull's outcome.
 
 import { defineStore } from "pinia";
 import { computed, reactive, ref } from "vue";
@@ -24,6 +26,7 @@ import { useFolderStore } from "./folder";
 import { useOperationsStore } from "./operations";
 import { useOverviewStore } from "./overview";
 import { useRepoStore } from "./repo";
+import { useSettingsStore } from "./settings";
 
 /**
  * Members that run at once, all hosts together: a project's members usually share one host, and
@@ -283,6 +286,7 @@ export const useBulkStore = defineStore("bulk", () => {
           );
           handles.set(job.path, handle);
           await handle.done;
+          await followMain(job.path);
           return done(summaryLines.some((line) => line.includes("->")) ? "fetched" : "up-to-date");
         }
         case "pull": {
@@ -299,6 +303,7 @@ export const useBulkStore = defineStore("bulk", () => {
           );
           handles.set(job.path, handle);
           await handle.done;
+          await followMain(job.path);
           return done(outcome === "up-to-date" ? "up-to-date" : "fast-forward");
         }
         case "push": {
@@ -341,6 +346,13 @@ export const useBulkStore = defineStore("bulk", () => {
       const failure = classifyFailure(failed);
       return { state: "failed", ...failure };
     }
+  }
+
+  /** With "Move main forward" on, moves the main branch of the repository at `path`; its answer
+   * and its failure leave the row as its fetch or pull ended. */
+  async function followMain(path: string): Promise<void> {
+    if (!useSettingsStore().values.moveMainAfterFetch) return;
+    await ipc.mainFastForward(path, newOpId("bulk-main")).catch(() => null);
   }
 
   function done(outcome: DoneOutcome, name?: string): MemberRun {

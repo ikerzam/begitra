@@ -756,6 +756,13 @@ export const FastForwardSchema = v.variant("kind", [
 ]);
 export type FastForward = v.InferOutput<typeof FastForwardSchema>;
 
+/** The main branch's fast-forward: the branch, its upstream and what the move did; null when
+ * the repository has no main branch with an upstream to follow. */
+export const MainForwardSchema = v.nullable(
+  v.object({ branch: v.string(), upstream: v.string(), outcome: FastForwardSchema }),
+);
+export type MainForward = v.InferOutput<typeof MainForwardSchema>;
+
 /** How an operation that may stop on conflicts ended. */
 export const OutcomeSchema = v.object({
   kind: OutcomeKindSchema,
@@ -1199,6 +1206,7 @@ export const commandArgs = {
   tag_delete: v.object({ repo: path, name: refName, opId }),
   set_upstream: v.object({ repo: path, branch: refName, upstream: v.nullable(refName), opId }),
   branch_fast_forward: v.object({ repo: path, name: refName, opId }),
+  main_fast_forward: v.object({ repo: path, opId }),
   operation_state: v.object({ repo: path, opId }),
   conflicts: v.object({ repo: path, opId }),
   mark_resolved: v.object({ repo: path, paths: repoPaths, opId }),

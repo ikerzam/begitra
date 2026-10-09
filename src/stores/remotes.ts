@@ -2,7 +2,9 @@
 // and fetch, pull and push streamed: git's progress lines land in the status bar's operation
 // as its detail while the command runs (with a cancel, which kills git), the result becomes a
 // toast ("Pushed main to origin", the refs updated), a pull that stops on conflicts hands over
-// to the sequencer, and a failure is an error toast with git's output one click away.
+// to the sequencer, and a failure is an error toast with git's output one click away. With
+// "Move main forward" on, a fetch or a pull that succeeded moves the main branch to its upstream
+// after it (`followMain`).
 
 import { defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
@@ -15,12 +17,13 @@ import type { NetworkEvent, PullRequest, PushRequest, Remote } from "@/ipc/schem
 import type { StreamHandle } from "@/ipc/stream";
 import { arm } from "@/motion/motion";
 import { isDivergedPull } from "@/remotes/gitWords";
-import { baseName, shellWord, shortHash } from "@/shell/format";
+import { baseName, sameFolder, shellWord, shortHash } from "@/shell/format";
 
 import { useBulkStore } from "./bulk";
 import { useOperationsStore } from "./operations";
 import { useRepoStore } from "./repo";
 import { useSequencerStore } from "./sequencer";
+import { useSettingsStore } from "./settings";
 import { useShellStore } from "./shell";
 import { useToastsStore } from "./toasts";
 
@@ -68,6 +71,7 @@ export const useRemotesStore = defineStore("remotes", () => {
   const shell = useShellStore();
   const operations = useOperationsStore();
   const sequencer = useSequencerStore();
+  const settings = useSettingsStore();
   const toasts = useToastsStore();
 
   const remotes = ref<Remote[]>([]);
@@ -82,6 +86,9 @@ export const useRemotesStore = defineStore("remotes", () => {
   /** The list write in flight (add, remove), as its label. */
   const busy = ref<string | null>(null);
   let serial = 0;
+  /** The main branch's moves after a fetch or a pull, one after another: two at once would race
+   * for its lock and one would fail for nothing. */
+  let mainMoves: Promise<void> = Promise.resolve();
 
   // Another repository's remotes are not this one's: the list goes with the repository.
   watch(
@@ -281,6 +288,45 @@ export const useRemotesStore = defineStore("remotes", () => {
       });
   }
 
+  /**
+   * With "Move main forward" on, moves the main branch of `root` to its upstream after a fetch
+   * or a pull there succeeded, once the moves asked before it are done; the fetch or the pull
+   * answers after the move, so what lists the branches next (the cleanup's dialog) reads main
+   * moved. While `root` is still the open repository, a move shows the fast-forward's toast and
+   * lists the refs again, and a failure shows git's output; up to date, commits of its own, a
+   * worktree that has it checked out and no main branch say nothing.
+   */
+  function followMain(root: string | undefined): Promise<void> {
+    if (!root || !settings.values.moveMainAfterFetch) return mainMoves;
+    mainMoves = mainMoves.then(() => moveMain(root));
+    return mainMoves;
+  }
+
+  async function moveMain(root: string): Promise<void> {
+    const stillOpen = () => sameFolder(root, repo.repo?.root ?? "");
+    try {
+      const answer = await ipc.mainFastForward(root);
+      const outcome = answer?.outcome;
+      if (!answer || outcome?.kind !== "moved" || !stillOpen()) return;
+      void repo.refreshRefs({ arm: "branches" });
+      toasts.push({
+        kind: "success",
+        message: "",
+        key: "branches.fastForwarded",
+        params: { branch: answer.branch, upstream: answer.upstream, n: outcome.commits },
+      });
+    } catch (failure) {
+      if (!stillOpen()) return;
+      const error = toAppError(failure);
+      toasts.push({
+        kind: "error",
+        message: "",
+        key: "remotes.mainForwardFailed",
+        output: error.detail ?? error.message,
+      });
+    }
+  }
+
   /** Cancels the network command in flight (Escape in the status bar). */
   async function cancel(): Promise<void> {
     const current = inFlight.value;
@@ -289,6 +335,7 @@ export const useRemotesStore = defineStore("remotes", () => {
   }
 
   async function fetch(remote: string | null, prune: boolean): Promise<boolean> {
+    const root = repo.repo?.root;
     const result = await network(
       prune ? "operations.fetchingPrune" : "operations.fetching",
       { remote: remote ?? "" },
@@ -305,6 +352,7 @@ export const useRemotesStore = defineStore("remotes", () => {
       output:
         result.kind === "result" && result.summary.length > 0 ? result.summary.join("\n") : "",
     });
+    await followMain(root);
     return true;
   }
 
@@ -363,6 +411,7 @@ export const useRemotesStore = defineStore("remotes", () => {
           : "remotes.pulled",
       params: { branch },
     });
+    await followMain(root);
     return true;
   }
 

@@ -299,6 +299,25 @@ describe("SettingsLayout", () => {
     expect(useSettingsScreenStore().gitState).toBe("error");
   });
 
+  it("turns Move main forward on and off from the Git section, off by default", async () => {
+    const wrapper = await mountSettings();
+    const settings = useSettingsStore();
+    const toggle = wrapper.get('[data-testid="move-main"]');
+    expect(toggle.attributes("role")).toBe("switch");
+    expect(toggle.attributes("aria-label")).toBe("Move main forward");
+    expect(toggle.attributes("aria-checked")).toBe("false");
+    // The hint is the switch's description, not only text beside it.
+    const hint = wrapper.get(`#${toggle.attributes("aria-describedby") ?? ""}`);
+    expect(hint.text()).toBe(
+      "After a fetch or a pull, the main branch moves to its upstream if it has no commits of its own and is not checked out.",
+    );
+    await toggle.trigger("click");
+    expect(settings.values.moveMainAfterFetch).toBe(true);
+    expect(toggle.attributes("aria-checked")).toBe("true");
+    await toggle.trigger("click");
+    expect(settings.values.moveMainAfterFetch).toBe(false);
+  });
+
   it("writes the diff settings at once and the review follows them", async () => {
     const wrapper = await mountSettings();
     const settings = useSettingsStore();

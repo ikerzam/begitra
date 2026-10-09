@@ -166,6 +166,9 @@ export interface Settings {
   fileIcons: boolean;
   /** The graph walks without the remote branches no local branch tracks. */
   graphHideRemotes: boolean;
+  /** After a fetch or a pull, the main branch moves to its upstream when that is a
+   * fast-forward of a branch no worktree has checked out. */
+  moveMainAfterFetch: boolean;
 }
 
 export type DiffLayout = "unified" | "side-by-side";
@@ -242,6 +245,7 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   branchSort: v.picklist(["recent", "name"]),
   fileIcons: v.boolean(),
   graphHideRemotes: v.boolean(),
+  moveMainAfterFetch: v.boolean(),
 };
 
 export const settingsKeys = Object.keys(schemas) as (keyof Settings)[];
@@ -373,6 +377,7 @@ export function defaultSettings(platform: Platform): Settings {
     branchSort: "recent",
     fileIcons: true,
     graphHideRemotes: false,
+    moveMainAfterFetch: false,
   };
 }
 

@@ -88,6 +88,17 @@ describe("settings store", () => {
     expect(again.values.zoom).toBe(125);
   });
 
+  it("leaves main where it is after a fetch by default, and keeps the setting once on", async () => {
+    expect(defaultSettings("windows").moveMainAfterFetch).toBe(false);
+    const store = useSettingsStore();
+    await store.init(memoryStorage({ moveMainAfterFetch: true }), "windows");
+    expect(store.values.moveMainAfterFetch).toBe(true);
+    setActivePinia(createPinia());
+    const invalid = useSettingsStore();
+    await invalid.init(memoryStorage({ moveMainAfterFetch: "yes" }), "windows");
+    expect(invalid.values.moveMainAfterFetch).toBe(false);
+  });
+
   it("shows file icons by default, and keeps them off once turned off", async () => {
     expect(defaultSettings("windows").fileIcons).toBe(true);
     const store = useSettingsStore();

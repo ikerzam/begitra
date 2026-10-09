@@ -8,6 +8,7 @@ import { onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Input from "@/components/Input.vue";
+import Toggle from "@/components/Toggle.vue";
 import { isEditableTarget } from "@/shortcuts/registry";
 import { useSettingsStore } from "@/stores/settings";
 import { useSettingsScreenStore } from "@/stores/settingsScreen";
@@ -151,6 +152,19 @@ defineExpose({
         <hr class="border-line" />
         <SettingsSection :title="t('settings.git.title')">
           <GitField />
+          <SettingsField
+            :label="t('settings.git.moveMain')"
+            :hint="t('settings.git.moveMainHint')"
+            hint-id="settings-move-main-hint"
+          >
+            <Toggle
+              :model-value="settings.values.moveMainAfterFetch"
+              :label="t('settings.git.moveMain')"
+              aria-describedby="settings-move-main-hint"
+              data-testid="move-main"
+              @update:model-value="(on) => void settings.update('moveMainAfterFetch', on)"
+            />
+          </SettingsField>
         </SettingsSection>
         <hr class="border-line" />
         <CommandsSettings />
