@@ -230,6 +230,25 @@ fn a_branch_whose_remote_is_a_url_lists_without_an_upstream() {
 }
 
 #[test]
+fn a_merge_key_without_a_value_lists_without_an_upstream() {
+    // `merge` alone on its line: git refuses to read the file, libgit2 reads a key with no value.
+    let f = Fixture::basic().with_remote();
+    f.git(&["branch", "-q", "bare-merge", "develop"]);
+    let config = f.git_dir().join("config");
+    let mut text = std::fs::read_to_string(&config).expect("read config");
+    text.push_str("[branch \"bare-merge\"]\n\tremote = origin\n\tmerge\n");
+    std::fs::write(&config, text).expect("write config");
+    let refs = refs_at(&f.root);
+    let branch = find(&refs, "refs/heads/bare-merge");
+    assert_eq!(
+        (branch.upstream.as_deref(), branch.ahead, branch.behind),
+        (None, None, None)
+    );
+    let develop = find(&refs, "refs/heads/develop");
+    assert_eq!(develop.upstream.as_deref(), Some("origin/develop"));
+}
+
+#[test]
 fn a_gone_upstream_keeps_its_name_without_counts() {
     let f = Fixture::basic().with_remote();
     f.git(&["branch", "-q", "--track", "topic", "origin/develop"]);

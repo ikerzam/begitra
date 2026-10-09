@@ -337,7 +337,12 @@ fn tracking(repo: &Repository, upstream: &str, local: Oid) -> GitResult<Tracking
 /// may name branches the repository does not hold; callers look up the ones they list.
 pub(super) fn upstreams(repo: &Repository, cancel: &Cancel) -> GitResult<HashMap<String, String>> {
     let config = repo.config()?.snapshot()?;
-    let mut branches = Vec::new();
+    // Each branch's first `branch.<name>.merge` value, the one git takes for the upstream (a
+    // branch merging several refs lists one key per ref), none when it is not UTF-8 or the key
+    // has no value (`merge` alone on its line, which libgit2 reads and git refuses). The entries
+    // come in the order git reads them, so one pass finds every first value, where a lookup of
+    // each branch's values walks the whole configuration again.
+    let mut merges: HashMap<String, Option<String>> = HashMap::new();
     let mut entries = config.entries(Some(r"^branch\..+\.merge$"))?;
     while let Some(entry) = entries.next() {
         let entry = entry?;
@@ -348,19 +353,22 @@ pub(super) fn upstreams(repo: &Repository, cancel: &Cancel) -> GitResult<HashMap
             .and_then(|key| key.strip_prefix("branch."))
             .and_then(|rest| rest.strip_suffix(".merge"));
         if let Some(short) = short {
-            branches.push(short.to_owned());
+            if !merges.contains_key(short) {
+                let merge = if entry.has_value() {
+                    entry.value().ok().map(str::to_owned)
+                } else {
+                    None
+                };
+                merges.insert(short.to_owned(), merge);
+            }
         }
     }
     drop(entries);
-    // A branch merging several refs lists one key per ref.
-    branches.sort_unstable();
-    branches.dedup();
     let mut remotes: HashMap<String, Option<Remote<'_>>> = HashMap::new();
-    let mut upstreams = HashMap::with_capacity(branches.len());
-    for short in branches {
+    let mut upstreams = HashMap::with_capacity(merges.len());
+    for (short, merge) in merges {
         cancel.check()?;
         let remote = config_text(&config, &format!("branch.{short}.remote"))?;
-        let merge = first_text(&config, &format!("branch.{short}.merge"))?;
         let (Some(remote), Some(merge)) = (remote, merge) else {
             continue;
         };
@@ -400,16 +408,6 @@ pub(super) fn upstreams(repo: &Repository, cancel: &Cancel) -> GitResult<HashMap
         }
     }
     Ok(upstreams)
-}
-
-/// The first value of a key the configuration may set several times, as git takes the first
-/// `branch.<name>.merge` for the upstream; none when it is unset or not UTF-8.
-fn first_text(config: &Config, key: &str) -> GitResult<Option<String>> {
-    let mut entries = config.multivar(key, None)?;
-    match entries.next() {
-        Some(entry) => Ok(entry?.value().ok().map(str::to_owned)),
-        None => Ok(None),
-    }
 }
 
 /// The upstream a branch of the remote `.` names: its merge ref when that is a full name, else
