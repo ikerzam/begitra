@@ -17,6 +17,7 @@ mod diff_pages;
 mod filter;
 mod ignore;
 pub mod index_snapshot;
+mod messages;
 pub mod patch;
 mod recent;
 mod refs;
@@ -52,6 +53,7 @@ use crate::types::{
 use crate::types::{BlockResolution, BlockResolved, BlockUndo, ConflictText};
 use crate::types::{BranchToDelete, CleanupCandidates, DeleteOutcome, FastForward, MainForward};
 use crate::types::{IgnoreOutcome, IgnorePlace, IgnoreRule};
+use crate::types::{RecentAuthor, RecentMessages};
 
 /// A repository opened with libgit2.
 ///
@@ -624,6 +626,18 @@ impl GitEngine for Git2Engine {
         cancel: &Cancel,
     ) -> GitResult<ConflictText> {
         conflict_blocks::undo_conflict_block(self, path, undo, cancel)
+    }
+
+    fn recent_messages(&self, author: Option<&str>, cancel: &Cancel) -> GitResult<RecentMessages> {
+        messages::recent_messages(self, author, cancel)
+    }
+
+    fn recent_authors(
+        &self,
+        author: Option<&str>,
+        cancel: &Cancel,
+    ) -> GitResult<Vec<RecentAuthor>> {
+        messages::recent_authors(self, author, cancel)
     }
 
     fn operation_state(&self) -> GitResult<OperationState> {

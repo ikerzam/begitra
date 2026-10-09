@@ -1,0 +1,16 @@
+[
+  [
+    {
+      "name": "Ana Ruiz",
+      "email": "ana@example.com",
+      "commits": 42,
+      "time": 1704000000
+    },
+    {
+      "name": "Luis Pardo",
+      "email": "luis@example.com",
+      "commits": 31,
+      "time": 1703999000
+    }
+  ]
+]

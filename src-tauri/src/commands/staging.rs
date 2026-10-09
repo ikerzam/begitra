@@ -16,7 +16,7 @@ use git_core::error::GitResult;
 use git_core::git2_engine::patch;
 use git_core::types::{
     CommitContext, CommitRequest, IgnoreOutcome, IgnorePlace, IgnoreRule, LineKind, PatchSelection,
-    SelectionTarget,
+    RecentAuthor, RecentMessages, SelectionTarget,
 };
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -402,6 +402,46 @@ pub async fn commit_context(
     let worker = app.clone();
     run_blocking(app.ops(), &op_id, DEFAULT_TIMEOUT, move |cancel| {
         worker.open(&repo)?.commit_context(&cancel)
+    })
+    .await
+}
+
+/// The user's recent commit messages on HEAD's history, for the commit box; `author` is the
+/// box's author line (`commit_context`'s `author`), null when it has none. Reads only.
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip(state))]
+pub async fn recent_messages(
+    state: State<'_, AppState>,
+    repo: PathBuf,
+    author: Option<String>,
+    op_id: String,
+) -> Result<RecentMessages, AppError> {
+    let app = state.inner().clone();
+    let worker = app.clone();
+    run_blocking(app.ops(), &op_id, DEFAULT_TIMEOUT, move |cancel| {
+        worker
+            .open(&repo)?
+            .recent_messages(author.as_deref(), &cancel)
+    })
+    .await
+}
+
+/// The people who wrote the recent commits, after the mailmap, for the commit box's co-authors;
+/// `author`, left out of them, as for `recent_messages`. Reads only.
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip(state))]
+pub async fn recent_authors(
+    state: State<'_, AppState>,
+    repo: PathBuf,
+    author: Option<String>,
+    op_id: String,
+) -> Result<Vec<RecentAuthor>, AppError> {
+    let app = state.inner().clone();
+    let worker = app.clone();
+    run_blocking(app.ops(), &op_id, DEFAULT_TIMEOUT, move |cancel| {
+        worker
+            .open(&repo)?
+            .recent_authors(author.as_deref(), &cancel)
     })
     .await
 }

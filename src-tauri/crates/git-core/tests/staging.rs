@@ -859,6 +859,10 @@ fn the_context_has_the_author_the_template_and_the_head_message() {
     f.git(&["config", "commit.template", "missing-template"]);
     let context = e.commit_context(&Cancel::never()).expect("context");
     assert_eq!(context.template, None);
+    // The author git commits as: `author.email` before `user.email`.
+    f.git(&["config", "author.email", "work@example.com"]);
+    let context = e.commit_context(&Cancel::never()).expect("context");
+    assert_eq!(context.author, "Fixture <work@example.com>");
 }
 
 #[test]

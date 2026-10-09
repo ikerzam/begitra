@@ -1,0 +1,21 @@
+[
+  {
+    "identity": true,
+    "messages": [
+      {
+        "hash": "9f3e2c1a7b5d4e6f8a0b1c2d3e4f5a6b7c8d9e0f",
+        "message": "fix(tiles): keep the cache warm",
+        "time": 1704000000
+      },
+      {
+        "hash": "4c1d2e9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d",
+        "message": "fix(tiles): drop stale entries\n\nThe cache kept them.",
+        "time": 1703990000
+      }
+    ]
+  },
+  {
+    "identity": false,
+    "messages": []
+  }
+]

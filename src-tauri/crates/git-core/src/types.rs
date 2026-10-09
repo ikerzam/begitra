@@ -1117,6 +1117,42 @@ pub enum Side {
     Theirs,
 }
 
+/// The user's recent commit messages, for the commit box.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentMessages {
+    /// Whether the read had an author with an email; without one, no message is the user's.
+    pub identity: bool,
+    /// The distinct messages, newest first.
+    pub messages: Vec<RecentMessage>,
+}
+
+/// A commit message of the user's, with the newest commit that carries it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentMessage {
+    /// The newest commit that carries the message, by commit time.
+    pub hash: String,
+    /// The whole message, without the blank lines around it.
+    pub message: String,
+    /// That commit's author time, Unix seconds.
+    pub time: i64,
+}
+
+/// A person who wrote recent commits, after the repository's mailmap.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentAuthor {
+    /// The name of their newest commit, by commit time.
+    pub name: String,
+    /// Their email after the mailmap, as that commit spells it.
+    pub email: String,
+    /// How many of the commits walked are theirs.
+    pub commits: u32,
+    /// That commit's author time, Unix seconds.
+    pub time: i64,
+}
+
 /// The largest conflicted file read for its blocks: its lines cross to the interface as text.
 pub const CONFLICT_FILE_MAX_BYTES: u64 = 4 * 1024 * 1024;
 

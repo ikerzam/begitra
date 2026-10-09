@@ -76,6 +76,9 @@ pub fn budget(id: &str) -> Option<Duration> {
         // Read after each refs listing, holding the repository's lock that a status or a walk
         // then waits for.
         ("recent_branches", _) => 50,
+        // The commit box's lists fill behind their skeleton rows: a walk on a handle of its own
+        // and, where the repository has a mailmap, one git process for the names.
+        ("recent_messages", _) | ("recent_authors", _) => 250,
         // A code search reads as much history as its text needs: the first match of a recent
         // change is recorded without a budget.
         ("content_history", _) => return None,

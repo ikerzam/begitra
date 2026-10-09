@@ -337,7 +337,7 @@ fn prepared_message(engine: &Git2Engine) -> Option<String> {
         .ok()?;
     ["MERGE_MSG", "SQUASH_MSG"].iter().find_map(|name| {
         let bytes = std::fs::read(git_dir.join(name)).ok()?;
-        if bytes.len() > MAX_TEMPLATE_BYTES {
+        if bytes.len() > MAX_BOX_TEXT_BYTES {
             return None;
         }
         let text = String::from_utf8_lossy(&bytes).trim_end().to_owned();
@@ -345,8 +345,9 @@ fn prepared_message(engine: &Git2Engine) -> Option<String> {
     })
 }
 
-/// Longest `commit.template` shipped to the commit box.
-const MAX_TEMPLATE_BYTES: usize = 64 * 1024;
+/// Longest text shipped to the commit box: a `commit.template`, a prepared message, a recent
+/// message of the user's.
+pub(super) const MAX_BOX_TEXT_BYTES: usize = 64 * 1024;
 
 /// The text of `commit.template`, `~` expanded; a missing setting, a lookup git cannot make
 /// (no home folder to expand `~` into, a broken configuration file) or an unreadable file
@@ -374,7 +375,7 @@ fn template_text(cwd: &Path, cancel: &Cancel) -> GitResult<Option<String>> {
         cwd.join(path)
     };
     match std::fs::read(&path) {
-        Ok(bytes) if bytes.len() > MAX_TEMPLATE_BYTES => {
+        Ok(bytes) if bytes.len() > MAX_BOX_TEXT_BYTES => {
             tracing::warn!(path = %path.display(), bytes = bytes.len(), "commit.template too large");
             Ok(None)
         }

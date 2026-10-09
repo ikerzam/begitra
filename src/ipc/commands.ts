@@ -14,6 +14,8 @@ import {
   MainForwardSchema,
   MergePreviewSchema,
   CommitContextSchema,
+  RecentAuthorSchema,
+  RecentMessagesSchema,
   CommitCountSchema,
   CommitResultSchema,
   ConflictSchema,
@@ -239,6 +241,27 @@ export function commit(repo: string, request: CommitRequest, opId = newOpId("com
 /** The author, the template, HEAD's message and whether HEAD is unborn. */
 export function commitContext(repo: string, opId = newOpId("commit-context")) {
   return call("commit_context", { repo, opId }, CommitContextSchema);
+}
+
+/**
+ * The recent commit messages on HEAD's history of `author` (the commit box's author line, null
+ * when it has none), newest first.
+ */
+export function recentMessages(
+  repo: string,
+  author: string | null,
+  opId = newOpId("recent-messages"),
+) {
+  return call("recent_messages", { repo, author, opId }, RecentMessagesSchema);
+}
+
+/** The people other than `author` who wrote the recent commits, after the mailmap. */
+export function recentAuthors(
+  repo: string,
+  author: string | null,
+  opId = newOpId("recent-authors"),
+) {
+  return call("recent_authors", { repo, author, opId }, v.array(RecentAuthorSchema));
 }
 
 // --- Branches, the sequencer, remotes and the stash -----------------------------------------

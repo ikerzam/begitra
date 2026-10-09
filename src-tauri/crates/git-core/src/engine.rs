@@ -16,6 +16,7 @@ use crate::types::{
 use crate::types::{BlockResolution, BlockResolved, BlockUndo, ConflictText};
 use crate::types::{BranchToDelete, CleanupCandidates, DeleteOutcome, FastForward, MainForward};
 use crate::types::{IgnoreOutcome, IgnorePlace, IgnoreRule};
+use crate::types::{RecentAuthor, RecentMessages};
 
 /// Cooperative cancellation flag checked by long operations between units of work.
 ///
@@ -478,6 +479,22 @@ pub trait GitEngine: Send + Sync {
         undo: &BlockUndo,
         cancel: &Cancel,
     ) -> GitResult<ConflictText>;
+
+    /// The user's recent commit messages: walking at most 500 commits from HEAD in `git log`'s
+    /// order, the first ten distinct messages of the commits whose author email, after git's
+    /// mailmap (`git check-mailmap`), is the email of `author` after it (ASCII case ignored).
+    /// `author` is who git commits as, `Name <email>` as [`GitEngine::commit_context`] reads
+    /// it. A message over 64 KiB, or not UTF-8, is left out. None on an unborn HEAD, and none
+    /// with `identity` false without an author or with an empty email. Reads only.
+    fn recent_messages(&self, author: Option<&str>, cancel: &Cancel) -> GitResult<RecentMessages>;
+
+    /// The people who wrote the recent commits: walking at most 2,000 commits from HEAD and
+    /// the local and remote-tracking branches in `git log`'s order, the authors after git's
+    /// mailmap, one per email (ASCII case ignored) with the name of their newest commit,
+    /// `author` (as for [`GitEngine::recent_messages`]) and authors without an email left out,
+    /// most commits first and then newest first, at most fifty. Reads only.
+    fn recent_authors(&self, author: Option<&str>, cancel: &Cancel)
+        -> GitResult<Vec<RecentAuthor>>;
 
     /// The local branches that can go against the main branch (see [`CleanupCandidates`]): the
     /// local branch named like the one `origin/HEAD` points at, else `main`, else `master`, by

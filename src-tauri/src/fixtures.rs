@@ -15,10 +15,11 @@ use git_core::types::{
     DiffOptions, DiffTarget, Edge, Endpoint, FastForward, FileChange, GitDetection, Hunk,
     IgnoreOutcome, IgnorePlace, IgnoreRule, KeptBy, KeptReason, LineKind, MainForward, MergeMode,
     MergePreview, MergePreviewKind, OperationSides, OperationState, OtherOperation, Outcome,
-    OutcomeKind, PatchSelection, PullRequest, PushRequest, Ref, RefKind, Remote, Repo, ResetMode,
-    SelectedHunk, SelectedLine, SequencerAction, Side, SideName, Signature, Span, StashPush,
-    StatusEntry, StatusOptions, SwitchTarget, WalkFilter, WalkOptions, WalkOrder, WalkScope,
-    WorkingTreeBase, Worktree, WorktreeAdd, WorktreeBranch,
+    OutcomeKind, PatchSelection, PullRequest, PushRequest, RecentAuthor, RecentMessage,
+    RecentMessages, Ref, RefKind, Remote, Repo, ResetMode, SelectedHunk, SelectedLine,
+    SequencerAction, Side, SideName, Signature, Span, StashPush, StatusEntry, StatusOptions,
+    SwitchTarget, WalkFilter, WalkOptions, WalkOrder, WalkScope, WorkingTreeBase, Worktree,
+    WorktreeAdd, WorktreeBranch,
 };
 use serde::Serialize;
 use syntax::{Highlight, Symbol, SymbolKind, Token, TokenClass};
@@ -1288,6 +1289,48 @@ fn write_fixtures() {
                 }],
             },
         ],
+    );
+    write(
+        "recent-messages",
+        &[
+            RecentMessages {
+                identity: true,
+                messages: vec![
+                    RecentMessage {
+                        hash: "9f3e2c1a7b5d4e6f8a0b1c2d3e4f5a6b7c8d9e0f".to_owned(),
+                        message: "fix(tiles): keep the cache warm".to_owned(),
+                        time: 1_704_000_000,
+                    },
+                    RecentMessage {
+                        hash: "4c1d2e9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d".to_owned(),
+                        message: "fix(tiles): drop stale entries\n\nThe cache kept them."
+                            .to_owned(),
+                        time: 1_703_990_000,
+                    },
+                ],
+            },
+            RecentMessages {
+                identity: false,
+                messages: Vec::new(),
+            },
+        ],
+    );
+    write(
+        "recent-authors",
+        &[vec![
+            RecentAuthor {
+                name: "Ana Ruiz".to_owned(),
+                email: "ana@example.com".to_owned(),
+                commits: 42,
+                time: 1_704_000_000,
+            },
+            RecentAuthor {
+                name: "Luis Pardo".to_owned(),
+                email: "luis@example.com".to_owned(),
+                commits: 31,
+                time: 1_703_999_000,
+            },
+        ]],
     );
     write(
         "commit-contexts",

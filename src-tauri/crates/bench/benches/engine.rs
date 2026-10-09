@@ -272,6 +272,45 @@ fn recent_branches(c: &mut Criterion) {
     group.finish();
 }
 
+/// The commit box's helpers, read when their lists open, for the author the box shows (read
+/// once, as the box reads it): the user's recent messages (a walk of at most 500 commits from
+/// HEAD, all of them when none is the user's) and the recent authors (2,000 commits from HEAD
+/// and every branch, also with 2,000 branches whose tips the walk starts from), both named by
+/// `git check-mailmap` where the repository has a mailmap. Each read walks on a handle it
+/// opens, so libgit2's object cache starts empty every time.
+fn commit_helpers(c: &mut Criterion) {
+    let author = |engine: &Git2Engine| {
+        engine
+            .commit_context(&Cancel::never())
+            .expect("commit context")
+            .author
+    };
+    let mut group = c.benchmark_group("recent_messages");
+    for target in present() {
+        let engine = engine(&target.path);
+        let author = author(&engine);
+        group.bench_with_input(BenchmarkId::from_parameter(target.name), &engine, |b, e| {
+            b.iter(|| {
+                e.recent_messages(Some(&author), &Cancel::never())
+                    .expect("recent messages")
+            })
+        });
+    }
+    group.finish();
+    let mut group = c.benchmark_group("recent_authors");
+    for (name, path) in branch_targets() {
+        let engine = engine(&path);
+        let author = author(&engine);
+        group.bench_with_input(BenchmarkId::from_parameter(&name), &engine, |b, e| {
+            b.iter(|| {
+                e.recent_authors(Some(&author), &Cancel::never())
+                    .expect("recent authors")
+            })
+        });
+    }
+    group.finish();
+}
+
 fn walk_first_page(c: &mut Criterion) {
     let mut group = c.benchmark_group("walk_first_page");
     group.sample_size(10);
@@ -1355,6 +1394,7 @@ criterion_group!(
     open,
     refs,
     recent_branches,
+    commit_helpers,
     cleanup_candidates,
     walk_first_page,
     walk_first_page_date_topo,

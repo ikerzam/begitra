@@ -206,6 +206,8 @@ pub fn run() {
             commands::staging::apply_selection,
             commands::staging::commit,
             commands::staging::commit_context,
+            commands::staging::recent_messages,
+            commands::staging::recent_authors,
             commands::branches::branch_create,
             commands::branches::switch,
             commands::branches::branch_rename,

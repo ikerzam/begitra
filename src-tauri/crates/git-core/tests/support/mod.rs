@@ -7,8 +7,9 @@
 #![allow(dead_code)]
 
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::Once;
 
 use tempfile::TempDir;
@@ -30,6 +31,19 @@ fn hermetic() {
             std::env::temp_dir().join("begitra-no-global-config"),
         );
         std::env::set_var("LC_ALL", "C");
+        // git's identity variables, which a hook exports (`GIT_AUTHOR_*`): the engine's own git
+        // (`git var GIT_AUTHOR_IDENT`, a commit) must read the fixture's configuration.
+        for var in [
+            "GIT_AUTHOR_NAME",
+            "GIT_AUTHOR_EMAIL",
+            "GIT_AUTHOR_DATE",
+            "GIT_COMMITTER_NAME",
+            "GIT_COMMITTER_EMAIL",
+            "GIT_COMMITTER_DATE",
+            "EMAIL",
+        ] {
+            std::env::remove_var(var);
+        }
     });
 }
 
@@ -362,6 +376,32 @@ impl Fixture {
             .args(args)
             .output()
             .unwrap_or_else(|error| panic!("cannot run git {args:?}: {error}"));
+        assert!(
+            output.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    }
+
+    /// Runs `git` in the root with `input` on its standard input (a `fast-import` stream); it
+    /// must succeed. Returns trimmed stdout.
+    pub fn git_with_input(&self, args: &[&str], input: &[u8]) -> String {
+        let mut child = self
+            .command(&self.root)
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap_or_else(|error| panic!("cannot run git {args:?}: {error}"));
+        child
+            .stdin
+            .take()
+            .expect("piped stdin")
+            .write_all(input)
+            .expect("write git's input");
+        let output = child.wait_with_output().expect("wait for git");
         assert!(
             output.status.success(),
             "git {args:?} failed: {}",

@@ -177,6 +177,8 @@ export const WalkOrderSchema = v.picklist(["date-topo", "lazy"]);
 export type WalkOrder = v.InferOutput<typeof WalkOrderSchema>;
 
 const filterText = v.pipe(v.string(), v.maxLength(200));
+/** The commit box's author line handed to its helpers; null when the box has none. */
+const helperAuthor = v.nullable(v.pipe(v.string(), v.maxLength(1024)));
 
 /** The longest code search the engine takes (`MAX_FILTER_TEXT` in the walk command). */
 export const MAX_CODE_TEXT = 200;
@@ -570,6 +572,32 @@ export const CommitContextSchema = v.object({
   preparedMessage: v.nullable(v.string()),
 });
 export type CommitContext = v.InferOutput<typeof CommitContextSchema>;
+
+/** A commit message of the user's, with the newest commit that carries it. */
+export const RecentMessageSchema = v.object({
+  hash: v.string(),
+  message: v.string(),
+  /** Unix seconds of the commit's author time. */
+  time: v.number(),
+});
+export type RecentMessage = v.InferOutput<typeof RecentMessageSchema>;
+
+/** The user's recent commit messages; `identity` false when git has no `user.email`. */
+export const RecentMessagesSchema = v.object({
+  identity: v.boolean(),
+  messages: v.array(RecentMessageSchema),
+});
+export type RecentMessages = v.InferOutput<typeof RecentMessagesSchema>;
+
+/** A person who wrote recent commits, after the repository's mailmap. */
+export const RecentAuthorSchema = v.object({
+  name: v.string(),
+  email: v.string(),
+  commits: count,
+  /** Unix seconds of their newest commit's author time. */
+  time: v.number(),
+});
+export type RecentAuthor = v.InferOutput<typeof RecentAuthorSchema>;
 
 /** What `switch` checks out. */
 export const SwitchTargetSchema = v.variant("kind", [
@@ -1219,6 +1247,8 @@ export const commandArgs = {
     opId,
   }),
   commit_context: v.object({ repo: path, opId }),
+  recent_messages: v.object({ repo: path, author: helperAuthor, opId }),
+  recent_authors: v.object({ repo: path, author: helperAuthor, opId }),
   branch_create: v.object({
     repo: path,
     name: refName,
