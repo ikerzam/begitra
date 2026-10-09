@@ -39,6 +39,9 @@ export const errorCodes = [
   "conflict.not_conflicted",
   "conflict.gone",
   "conflict.submodule",
+  "conflict.unreadable",
+  "conflict.file_changed",
+  "conflict.write_failed",
   "ignore.invalid_path",
   "ignore.write_failed",
   "discard.too_large",
@@ -625,6 +628,56 @@ export type OperationSides = v.InferOutput<typeof OperationSidesSchema>;
 /** Which side a conflicted file is taken whole from: git's `--ours` or `--theirs`. */
 export const SideSchema = v.picklist(["ours", "theirs"]);
 export type Side = v.InferOutput<typeof SideSchema>;
+
+/** One side of a conflict block: the label git wrote after its marker, and its lines (indexes
+ * into the file's `lines`, `end` exclusive). */
+export const BlockSideSchema = v.object({ label: v.string(), start: v.number(), end: v.number() });
+export type BlockSide = v.InferOutput<typeof BlockSideSchema>;
+
+/** A conflict block: its marker lines from `start` to before `end`, the current side, the base
+ * the `diff3` and `zdiff3` styles write, and the incoming side. */
+export const ConflictBlockSchema = v.object({
+  start: v.number(),
+  end: v.number(),
+  ours: BlockSideSchema,
+  base: v.nullable(BlockSideSchema),
+  theirs: BlockSideSchema,
+});
+export type ConflictBlock = v.InferOutput<typeof ConflictBlockSchema>;
+
+/** A conflicted file read into its lines and its blocks; `paired` false leaves it no block. */
+export const ConflictTextSchema = v.object({
+  fingerprint: v.string(),
+  utf8: v.boolean(),
+  crlf: v.boolean(),
+  paired: v.boolean(),
+  lines: v.array(v.string()),
+  blocks: v.array(ConflictBlockSchema),
+});
+export type ConflictText = v.InferOutput<typeof ConflictTextSchema>;
+
+/** What a conflict block is rewritten with. */
+export const BlockResolutionSchema = v.variant("kind", [
+  v.object({ kind: v.literal("ours") }),
+  v.object({ kind: v.literal("theirs") }),
+  v.object({ kind: v.literal("both") }),
+  v.object({ kind: v.literal("text"), text: v.pipe(v.string(), v.maxLength(1024 * 1024)) }),
+]);
+export type BlockResolution = v.InferOutput<typeof BlockResolutionSchema>;
+
+/** The bytes a block write replaced (base64), where the replacement lies, and the file that
+ * write left: the block goes back only into that file. */
+export const BlockUndoSchema = v.object({
+  fingerprint: v.pipe(v.string(), v.regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/, "not a blob id")),
+  start: v.number(),
+  lines: v.number(),
+  bytes: v.pipe(v.string(), v.maxLength(6 * 1024 * 1024)),
+});
+export type BlockUndo = v.InferOutput<typeof BlockUndoSchema>;
+
+/** A block written: the file read again and what puts the block back. */
+export const BlockResolvedSchema = v.object({ file: ConflictTextSchema, undo: BlockUndoSchema });
+export type BlockResolved = v.InferOutput<typeof BlockResolvedSchema>;
 
 /** What an ignore rule matches of an untracked path: itself, its extension, its folder. */
 export const IgnoreRuleSchema = v.picklist(["file", "extension", "folder"]);
@@ -1213,6 +1266,16 @@ export const commandArgs = {
   operation_sides: v.object({ repo: path, opId }),
   take_side: v.object({ repo: path, paths: repoPaths, side: SideSchema, opId }),
   restore_conflicts: v.object({ repo: path, paths: repoPaths, opId }),
+  conflict_blocks: v.object({ repo: path, path: repoPath, opId }),
+  resolve_conflict_block: v.object({
+    repo: path,
+    path: repoPath,
+    fingerprint: v.pipe(v.string(), v.regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/, "not a blob id")),
+    block: v.pipe(v.number(), v.integer(), v.minValue(0)),
+    resolution: BlockResolutionSchema,
+    opId,
+  }),
+  undo_conflict_block: v.object({ repo: path, path: repoPath, undo: BlockUndoSchema, opId }),
   cleanup_candidates: v.object({ repo: path, opId }),
   delete_branches: v.object({ repo: path, branches: branchesToDelete, opId }),
   sequencer: v.object({ repo: path, action: SequencerActionSchema, opId }),

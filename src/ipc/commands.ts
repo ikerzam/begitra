@@ -17,6 +17,10 @@ import {
   CommitCountSchema,
   CommitResultSchema,
   ConflictSchema,
+  ConflictTextSchema,
+  BlockResolvedSchema,
+  type BlockResolution,
+  type BlockUndo,
   CleanupCandidatesSchema,
   DeleteOutcomeSchema,
   type BranchToDelete,
@@ -367,6 +371,37 @@ export function operationSides(repo: string, opId = newOpId("sides")) {
  */
 export function takeSide(repo: string, paths: string[], side: Side, opId = newOpId("take-side")) {
   return call("take_side", { repo, paths, side, opId }, v.null());
+}
+
+/** A conflicted file's conflict blocks, read from the working tree. */
+export function conflictBlocks(repo: string, path: string, opId = newOpId("conflict-blocks")) {
+  return call("conflict_blocks", { repo, path, opId }, ConflictTextSchema);
+}
+
+/** Rewrites one conflict block, only while the file still has `fingerprint`. */
+export function resolveConflictBlock(
+  repo: string,
+  path: string,
+  fingerprint: string,
+  block: number,
+  resolution: BlockResolution,
+  opId = newOpId("conflict-block"),
+) {
+  return call(
+    "resolve_conflict_block",
+    { repo, path, fingerprint, block, resolution, opId },
+    BlockResolvedSchema,
+  );
+}
+
+/** Puts back a conflict block a write replaced, while the file is the one that write left. */
+export function undoConflictBlock(
+  repo: string,
+  path: string,
+  undo: BlockUndo,
+  opId = newOpId("conflict-block-undo"),
+) {
+  return call("undo_conflict_block", { repo, path, undo, opId }, ConflictTextSchema);
 }
 
 /** Puts back the conflicts of paths resolved during the operation in progress. */

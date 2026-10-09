@@ -209,7 +209,8 @@
     "repositoryRows": "repositorios",
     "spaceKey": "Espacio",
     "select": "seleccionar",
-    "indexFailed": "No se ha podido leer el índice"
+    "indexFailed": "No se ha podido leer el índice",
+    "conflicts": "conflictos"
   },
   "operations": {
     "opening": "Abriendo {name}",
@@ -273,7 +274,9 @@
     "pushingTag": "Subiendo {tag} a {remote}",
     "deletingOnRemote": "Borrando {name} en {remote}",
     "bringingBack": "Recuperando los cambios descartados",
-    "fastForwarding": "Haciendo fast-forward de la rama"
+    "fastForwarding": "Haciendo fast-forward de la rama",
+    "writingConflictBlock": "Escribiendo un bloque de conflicto de {file}",
+    "undoingConflictBlock": "Restaurando un bloque de conflicto de {file}"
   },
   "home": {
     "title": "Proyectos",
@@ -680,6 +683,8 @@
     "notConflicted": "{path} ya no tiene conflicto: no se escribió nada.",
     "conflictGone": "El conflicto de {path} no se puede recuperar: git ya no guarda sus lados.",
     "submoduleConflict": "{path} es un submódulo: haz checkout del commit que quieras dentro de él y márcalo como resuelto.",
+    "conflictUnreadable": "{path} no se puede leer por bloques de conflicto: resuélvelo entero o en tu editor.",
+    "conflictFileChanged": "{path} cambió en disco desde que se leyó, así que no se escribió nada: se ha vuelto a leer.",
     "ignoreInvalidPath": "Begitra no puede escribir una regla de ignorar para esa ruta.",
     "ignoreWriteFailed": "No se pudo escribir el fichero de reglas de ignorar.",
     "discardTooLarge": "Los ficheros suman más de lo que Begitra guarda en una copia.",
@@ -687,7 +692,8 @@
     "discardBehindLink": "{path} está tras un enlace o una unión, que puede llevar fuera del árbol de trabajo: Begitra no guarda copia de él.",
     "discardCopyFailed": "Begitra no ha podido guardar una copia: {reason}",
     "discardCopyGone": "Los cambios descartados ya no se guardan: su copia se fue con su aviso.",
-    "generic": "{message}"
+    "generic": "{message}",
+    "conflictWriteFailed": "No se pudo escribir {path}, que conserva sus bytes. {reason}"
   },
   "repoRow": {
     "notFound": "no encontrado"
@@ -1458,7 +1464,11 @@
         "markResolved": "Marcar como resuelto",
         "zoom": "Acercar / alejar / restablecer",
         "nextPreviousProjectRepo": "Repositorio siguiente / anterior del proyecto",
-        "overviewFocus": "Resumen del proyecto"
+        "overviewFocus": "Resumen del proyecto",
+        "nextPreviousConflict": "Conflicto siguiente / anterior",
+        "conflictSides": "Usar el lado actual / el que entra",
+        "conflictBoth": "Usar los dos lados",
+        "conflictEdit": "Editar un conflicto"
       }
     },
     "agents": {
@@ -1716,5 +1726,45 @@
       "title": "¿Quitar {name} de {project}?",
       "body": "Ningún otro proyecto lo tiene, así que sale de Begitra. Su carpeta se queda como está y abrirlo de nuevo lo recupera."
     }
+  },
+  "conflictBlocks": {
+    "count": "{n} conflicto | {n} conflictos",
+    "sides": "{ours} es la actual, {theirs} la entrante",
+    "block": "Conflicto {n} de {total}",
+    "line": "línea {line}",
+    "use": {
+      "ref": "Usar la de {name}",
+      "commit": "Usar la de {hash}",
+      "before": "Usar la versión de antes de {hash}",
+      "current": "Usar la actual",
+      "incoming": "Usar la entrante"
+    },
+    "before": "la versión de antes de {hash}",
+    "both": "Los dos",
+    "edit": "Editar",
+    "current": "actual",
+    "incoming": "entrante",
+    "base": "base",
+    "editing": "Editando: las líneas de {ours} y después las de {theirs}, sin los marcadores",
+    "editHint": "{keys} aplica, Esc deja el bloque como estaba",
+    "apply": "Aplicar",
+    "cancel": "Cancelar",
+    "notUtf8": "Editar necesita un fichero UTF-8: un campo de texto cambiaría los bytes de este",
+    "noneLeft": "No queda ningún conflicto en {file}",
+    "noneLeftBody": "Márcalo como resuelto para prepararlo, o revísalo antes en tu editor.",
+    "readAgain": "Volver a leer",
+    "used": {
+      "ref": "Usado el lado de {name} en el conflicto {n} de {file}",
+      "commit": "Usado el lado de {hash} en el conflicto {n} de {file}",
+      "before": "Usada la versión de antes de {hash} en el conflicto {n} de {file}",
+      "current": "Usado el lado actual en el conflicto {n} de {file}",
+      "incoming": "Usado el lado entrante en el conflicto {n} de {file}"
+    },
+    "usedBoth": "Usados los dos lados en el conflicto {n} de {file}",
+    "edited": "Editado el conflicto {n} de {file}",
+    "failed": "No se pudo escribir el conflicto {n} de {file}. {message}",
+    "undoFailed": "No se pudo restaurar el conflicto {n} de {file}. {message}",
+    "editLost": "El conflicto que se editaba en {file} cambió en disco, así que la edición terminó",
+    "showText": "Ver el texto"
   }
 }

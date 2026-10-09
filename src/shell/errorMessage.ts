@@ -46,6 +46,15 @@ export function errorText(
       return { key: "errors.conflictGone", params };
     case "conflict.submodule":
       return { key: "errors.submoduleConflict", params };
+    case "conflict.unreadable":
+      return { key: "errors.conflictUnreadable", params };
+    case "conflict.file_changed":
+      return { key: "errors.conflictFileChanged", params };
+    case "conflict.write_failed":
+      return {
+        key: "errors.conflictWriteFailed",
+        params: { ...params, reason: error.detail ?? "" },
+      };
     case "ignore.invalid_path":
       return { key: "errors.ignoreInvalidPath", params };
     case "ignore.write_failed":

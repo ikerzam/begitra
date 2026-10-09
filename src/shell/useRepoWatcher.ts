@@ -18,6 +18,7 @@ import { useIndexStore } from "@/stores/index";
 import { useRepoStore } from "@/stores/repo";
 import { useChangesStore } from "@/stores/changes";
 import { useCompareStore } from "@/stores/compare";
+import { useConflictBlocksStore } from "@/stores/conflictBlocks";
 import { useRemotesStore } from "@/stores/remotes";
 import { useReviewStore } from "@/stores/review";
 import { useSequencerStore } from "@/stores/sequencer";
@@ -36,6 +37,7 @@ export function useRepoWatcher(): void {
   const worktrees = useWorktreesStore();
   const changes = useChangesStore();
   const sequencer = useSequencerStore();
+  const conflictBlocks = useConflictBlocksStore();
   const remotes = useRemotesStore();
   let unlisten: UnlistenFn | undefined;
   let disposed = false;
@@ -63,6 +65,7 @@ export function useRepoWatcher(): void {
     void worktrees.onRepoChanged(change.kinds);
     changes.onRepoChanged(change);
     sequencer.onRepoChanged(change);
+    conflictBlocks.onRepoChanged(change);
     remotes.onRepoChanged(change.kinds);
     // Branch, upstream and tip; the dirty flag waits until the repository is closed.
     if (change.kinds.includes("refs") || change.kinds.includes("worktrees")) {

@@ -11,11 +11,14 @@ import { comparePaths, covers } from "@/stores/reloads";
 import type {
   Annotation,
   AnnotationWrite,
+  BlockResolution,
+  BlockUndo,
   BranchToDelete,
   CleanupCandidates,
   CommitContext,
   CommitNode,
   Conflict,
+  ConflictText,
   DiffLine,
   DiffTarget,
   FastForward,
@@ -255,6 +258,19 @@ export interface FakeBackendOptions {
   conflicts?: Conflict[];
   /** What `operation_sides` answers; `FAKE_SIDES` while an operation is in progress by default. */
   sides?: OperationSides | null;
+  /**
+   * The conflicted files `conflict_blocks` reads, by path, as lines with git's markers;
+   * `resolve_conflict_block` and `undo_conflict_block` rewrite them as the engine does.
+   */
+  conflictFiles?: Record<string, string[]>;
+  /** `conflict_blocks`, `resolve_conflict_block` and `undo_conflict_block` reject with these. */
+  conflictErrors?: {
+    read?: { code: string; message: string; detail?: string };
+    resolve?: { code: string; message: string; detail?: string };
+    undo?: { code: string; message: string; detail?: string };
+  };
+  /** Holds each conflict block write until the test releases it. */
+  conflictGate?: WriteGate;
   /** `operation_sides`, `take_side` and `restore_conflicts` reject with these errors. */
   sideErrors?: {
     sides?: { code: string; message: string; detail?: string };
@@ -510,6 +526,86 @@ function dropResolution(list: Annotation[], path: string, hunk: string): void {
   if (at >= 0) list.splice(at, 1);
 }
 
+/** A conflicted file of the fake: its lines and the version its fingerprint names. */
+interface FakeConflictFile {
+  lines: string[];
+  version: number;
+}
+
+/** The fingerprint of a fake file's version: a blob id in shape. */
+function fakeFingerprint(version: number): string {
+  return version.toString(16).padStart(40, "c");
+}
+
+/** The fake's reading of a file with git's seven-character markers, as the engine reads it. */
+export function fakeConflictText(file: FakeConflictFile): ConflictText {
+  const blocks: ConflictText["blocks"] = [];
+  let open: {
+    start: number;
+    label: string;
+    base: number | null;
+    baseLabel: string;
+    middle: number | null;
+  } | null = null;
+  let paired = true;
+  file.lines.forEach((line, at) => {
+    if (open === null) {
+      if (line.startsWith("<<<<<<< ")) {
+        open = { start: at, label: line.slice(8), base: null, baseLabel: "", middle: null };
+      }
+      return;
+    }
+    if (line.startsWith("||||||| ") || line === "|||||||") {
+      open.base = at;
+      open.baseLabel = line.slice(8);
+    } else if (line === "=======") {
+      open.middle = at;
+    } else if (line.startsWith(">>>>>>> ")) {
+      if (open.middle === null) paired = false;
+      const middle = open.middle ?? at;
+      const oursEnd = open.base ?? middle;
+      blocks.push({
+        start: open.start,
+        end: at + 1,
+        ours: { label: open.label, start: open.start + 1, end: oursEnd },
+        base:
+          open.base === null ? null : { label: open.baseLabel, start: open.base + 1, end: middle },
+        theirs: { label: line.slice(8), start: middle + 1, end: at },
+      });
+      open = null;
+    }
+  });
+  if (open !== null) paired = false;
+  return {
+    fingerprint: fakeFingerprint(file.version),
+    utf8: true,
+    crlf: false,
+    paired,
+    lines: [...file.lines],
+    blocks: paired ? blocks : [],
+  };
+}
+
+/** The lines `resolution` writes in place of `block` of `text`. */
+function fakeResolution(text: ConflictText, block: number, resolution: BlockResolution): string[] {
+  const found = text.blocks[block];
+  if (!found) return [];
+  const ours = text.lines.slice(found.ours.start, found.ours.end);
+  const theirs = text.lines.slice(found.theirs.start, found.theirs.end);
+  switch (resolution.kind) {
+    case "ours":
+      return ours;
+    case "theirs":
+      return theirs;
+    case "both":
+      return [...ours, ...theirs];
+    case "text": {
+      const body = resolution.text.endsWith("\n") ? resolution.text.slice(0, -1) : resolution.text;
+      return resolution.text === "" ? [] : body.split("\n");
+    }
+  }
+}
+
 export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
   const calls: Call[] = [];
   const total = options.commits ?? 30;
@@ -520,6 +616,12 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
   let remotes: Remote[] = (options.remotes ?? []).map((remote) => ({ ...remote }));
   /** The conflicts a side was taken for, by path, which `restore_conflicts` puts back. */
   const taken = new Map<string, Conflict>();
+  const conflictFiles = new Map<string, FakeConflictFile>(
+    Object.entries(options.conflictFiles ?? {}).map(([path, lines]) => [
+      path,
+      { lines: [...lines], version: 1 },
+    ]),
+  );
   const copyProject = (project: Project): Project => ({
     ...project,
     members: project.members.map((member) => ({ ...member })),
@@ -1330,6 +1432,70 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
           }
           if (options.sides !== undefined) return options.sides;
           return (options.operation ?? "none") === "none" ? null : FAKE_SIDES;
+        case "conflict_blocks": {
+          if (options.conflictErrors?.read) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject(options.conflictErrors.read);
+          }
+          const file = conflictFiles.get(args["path"] as string);
+          if (!file) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({ code: "conflict.not_conflicted", message: "not conflicted" });
+          }
+          return fakeConflictText(file);
+        }
+        case "resolve_conflict_block":
+        case "undo_conflict_block": {
+          const write = (): Promise<unknown> => {
+            const failure =
+              cmd === "undo_conflict_block"
+                ? options.conflictErrors?.undo
+                : options.conflictErrors?.resolve;
+            if (failure) {
+              // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+              return Promise.reject(failure);
+            }
+            const path = args["path"] as string;
+            const file = conflictFiles.get(path);
+            const undo = args["undo"] as BlockUndo | undefined;
+            const asked = cmd === "undo_conflict_block" ? undo?.fingerprint : args["fingerprint"];
+            if (!file || asked !== fakeFingerprint(file.version)) {
+              // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+              return Promise.reject({
+                code: "conflict.file_changed",
+                message: `${path} changed on disk since its conflict blocks were read`,
+              });
+            }
+            if (undo) {
+              const bytes = Uint8Array.from(atob(undo.bytes), (char) => char.charCodeAt(0));
+              const back = new TextDecoder().decode(bytes).replace(/\n$/, "").split("\n");
+              file.lines.splice(undo.start, undo.lines, ...back);
+              file.version += 1;
+              return Promise.resolve(fakeConflictText(file));
+            }
+            const before = fakeConflictText(file);
+            const block = args["block"] as number;
+            const found = before.blocks[block];
+            if (!found) {
+              // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+              return Promise.reject({ code: "internal", message: `no conflict block ${block}` });
+            }
+            const written = fakeResolution(before, block, args["resolution"] as BlockResolution);
+            const replaced = file.lines.splice(found.start, found.end - found.start, ...written);
+            file.version += 1;
+            const encoded = new TextEncoder().encode(`${replaced.join("\n")}\n`);
+            return Promise.resolve({
+              file: fakeConflictText(file),
+              undo: {
+                fingerprint: fakeFingerprint(file.version),
+                start: found.start,
+                lines: written.length,
+                bytes: btoa(Array.from(encoded, (byte) => String.fromCharCode(byte)).join("")),
+              },
+            });
+          };
+          return options.conflictGate ? options.conflictGate.hold(cmd, write) : write();
+        }
         case "take_side": {
           if (options.sideErrors?.take) {
             // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError

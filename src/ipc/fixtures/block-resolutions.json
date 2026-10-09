@@ -1,0 +1,15 @@
+[
+  {
+    "kind": "ours"
+  },
+  {
+    "kind": "theirs"
+  },
+  {
+    "kind": "both"
+  },
+  {
+    "kind": "text",
+    "text": "const a = \"edited\";\n"
+  }
+]

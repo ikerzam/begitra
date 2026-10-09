@@ -8,9 +8,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use git_core::types::{
-    BaseCommit, BlobAt, BlobContent, BranchToDelete, ChangeKind, ChangeSet, CleanupCandidate,
-    CleanupCandidates, CleanupReason, CommitContext, CommitCount, CommitNode, CommitRequest,
-    Comparison, ComparisonRelation, Conflict, ConflictKind, ContentFilter, DeleteOutcome, DiffLine,
+    BaseCommit, BlobAt, BlobContent, BlockResolution, BlockResolved, BlockSide, BlockUndo,
+    BranchToDelete, ChangeKind, ChangeSet, CleanupCandidate, CleanupCandidates, CleanupReason,
+    CommitContext, CommitCount, CommitNode, CommitRequest, Comparison, ComparisonRelation,
+    Conflict, ConflictBlock, ConflictKind, ConflictText, ContentFilter, DeleteOutcome, DiffLine,
     DiffOptions, DiffTarget, Edge, Endpoint, FastForward, FileChange, GitDetection, Hunk,
     IgnoreOutcome, IgnorePlace, IgnoreRule, KeptBy, KeptReason, LineKind, MainForward, MergeMode,
     MergePreview, MergePreviewKind, OperationSides, OperationState, OtherOperation, Outcome,
@@ -700,6 +701,75 @@ fn write_phase7() {
                 worktree: "C:/Users/iker/code/wt-develop".to_owned(),
             },
         ],
+    );
+    let conflict_text = ConflictText {
+        fingerprint: "3524aea498c80ff378d3bff14d23285256f23e1b".to_owned(),
+        utf8: true,
+        crlf: false,
+        paired: true,
+        lines: [
+            "const one = 1;",
+            "<<<<<<< HEAD",
+            "const a = \"main\";",
+            "||||||| merged common ancestors",
+            "const a = \"base\";",
+            "=======",
+            "const a = \"feature\";",
+            ">>>>>>> feature",
+            "const three = 3;",
+        ]
+        .map(str::to_owned)
+        .to_vec(),
+        blocks: vec![ConflictBlock {
+            start: 1,
+            end: 8,
+            ours: BlockSide {
+                label: "HEAD".to_owned(),
+                start: 2,
+                end: 3,
+            },
+            base: Some(BlockSide {
+                label: "merged common ancestors".to_owned(),
+                start: 4,
+                end: 5,
+            }),
+            theirs: BlockSide {
+                label: "feature".to_owned(),
+                start: 6,
+                end: 7,
+            },
+        }],
+    };
+    write("conflict-texts", &[&conflict_text]);
+    write(
+        "block-resolutions",
+        &[
+            BlockResolution::Ours,
+            BlockResolution::Theirs,
+            BlockResolution::Both,
+            BlockResolution::Text {
+                text: "const a = \"edited\";\n".to_owned(),
+            },
+        ],
+    );
+    write(
+        "blocks-resolved",
+        &[BlockResolved {
+            file: ConflictText {
+                fingerprint: "47d277dab03fabd3b1a97d0ef198d90940a877f8".to_owned(),
+                blocks: Vec::new(),
+                lines: ["const one = 1;", "const a = \"feature\";", "const three = 3;"]
+                    .map(str::to_owned)
+                    .to_vec(),
+                ..conflict_text
+            },
+            undo: BlockUndo {
+                fingerprint: "47d277dab03fabd3b1a97d0ef198d90940a877f8".to_owned(),
+                start: 1,
+                lines: 1,
+                bytes: "PDw8PDw8PCBIRUFECmNvbnN0IGEgPSAibWFpbiI7Cnx8fHx8fHwgbWVyZ2VkIGNvbW1vbiBhbmNlc3RvcnMKY29uc3QgYSA9ICJiYXNlIjsKPT09PT09PQpjb25zdCBhID0gImZlYXR1cmUiOwo+Pj4+Pj4+IGZlYXR1cmUK".to_owned(),
+            },
+        }],
     );
     write(
         "main-forwards",

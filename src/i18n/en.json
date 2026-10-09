@@ -209,7 +209,8 @@
     "repositoryRows": "repositories",
     "spaceKey": "Space",
     "select": "select",
-    "indexFailed": "Couldn't read the index"
+    "indexFailed": "Couldn't read the index",
+    "conflicts": "conflicts"
   },
   "operations": {
     "opening": "Opening {name}",
@@ -273,7 +274,9 @@
     "pushingTag": "Pushing {tag} to {remote}",
     "deletingOnRemote": "Deleting {name} on {remote}",
     "bringingBack": "Bringing back discarded changes",
-    "fastForwarding": "Fast-forwarding branch"
+    "fastForwarding": "Fast-forwarding branch",
+    "writingConflictBlock": "Writing a conflict block of {file}",
+    "undoingConflictBlock": "Putting back a conflict block of {file}"
   },
   "home": {
     "title": "Projects",
@@ -680,6 +683,8 @@
     "notConflicted": "{path} is no longer conflicted: nothing was written.",
     "conflictGone": "The conflict of {path} can't be brought back: git no longer holds its sides.",
     "submoduleConflict": "{path} is a submodule: check out the commit you want inside it, then mark it resolved.",
+    "conflictUnreadable": "{path} can't be read for its conflict blocks: resolve it whole or in your editor.",
+    "conflictFileChanged": "{path} changed on disk since it was read, so nothing was written: it was read again.",
     "ignoreInvalidPath": "Begitra can't write an ignore rule for that path.",
     "ignoreWriteFailed": "Couldn't write the ignore file.",
     "discardTooLarge": "The files add up to more than Begitra keeps a copy of.",
@@ -687,7 +692,8 @@
     "discardBehindLink": "{path} is behind a link or a junction, which can lead outside the working tree: Begitra keeps no copy of it.",
     "discardCopyFailed": "Begitra couldn't keep a copy: {reason}",
     "discardCopyGone": "The discarded changes are no longer kept: their copy went with its notification.",
-    "generic": "{message}"
+    "generic": "{message}",
+    "conflictWriteFailed": "Couldn't write {path}, which kept its bytes. {reason}"
   },
   "repoRow": {
     "notFound": "not found"
@@ -1458,7 +1464,11 @@
         "markResolved": "Mark resolved",
         "zoom": "Zoom in / out / reset",
         "nextPreviousProjectRepo": "Next / previous repository of the project",
-        "overviewFocus": "Project overview"
+        "overviewFocus": "Project overview",
+        "nextPreviousConflict": "Next / previous conflict",
+        "conflictSides": "Use the current / incoming side",
+        "conflictBoth": "Use both sides",
+        "conflictEdit": "Edit a conflict"
       }
     },
     "agents": {
@@ -1716,5 +1726,45 @@
       "title": "Remove {name} from {project}?",
       "body": "No other project holds it, so it leaves Begitra. Its folder stays as it is, and opening it again brings it back."
     }
+  },
+  "conflictBlocks": {
+    "count": "{n} conflict | {n} conflicts",
+    "sides": "{ours} is current, {theirs} is incoming",
+    "block": "Conflict {n} of {total}",
+    "line": "line {line}",
+    "use": {
+      "ref": "Use {name}'s",
+      "commit": "Use {hash}'s",
+      "before": "Use the version before {hash}",
+      "current": "Use current",
+      "incoming": "Use incoming"
+    },
+    "before": "the version before {hash}",
+    "both": "Both",
+    "edit": "Edit",
+    "current": "current",
+    "incoming": "incoming",
+    "base": "base",
+    "editing": "Editing: {ours}'s lines, then {theirs}'s, without the markers",
+    "editHint": "{keys} applies, Esc leaves the block as it was",
+    "apply": "Apply",
+    "cancel": "Cancel",
+    "notUtf8": "Edit needs a UTF-8 file: a text field would change this one's bytes",
+    "noneLeft": "No conflict left in {file}",
+    "noneLeftBody": "Mark it resolved to stage it, or check it in your editor first.",
+    "readAgain": "Read again",
+    "used": {
+      "ref": "Used {name}'s side for conflict {n} of {file}",
+      "commit": "Used {hash}'s side for conflict {n} of {file}",
+      "before": "Used the version before {hash} for conflict {n} of {file}",
+      "current": "Used the current side for conflict {n} of {file}",
+      "incoming": "Used the incoming side for conflict {n} of {file}"
+    },
+    "usedBoth": "Used both sides for conflict {n} of {file}",
+    "edited": "Edited conflict {n} of {file}",
+    "failed": "Couldn't write conflict {n} of {file}. {message}",
+    "undoFailed": "Couldn't put back conflict {n} of {file}. {message}",
+    "editLost": "The conflict being edited in {file} changed on disk, so the edit ended",
+    "showText": "Show the text"
   }
 }

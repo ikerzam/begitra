@@ -13,6 +13,7 @@ import { useRepoStore } from "@/stores/repo";
 import { useChangesStore } from "@/stores/changes";
 import { useFolderStore } from "@/stores/folder";
 import { useProjectsStore } from "@/stores/projects";
+import { useConflictBlocksStore } from "@/stores/conflictBlocks";
 import { useSequencerStore } from "@/stores/sequencer";
 import { useCompareStore } from "@/stores/compare";
 import { targetLabel, useReviewStore } from "@/stores/review";
@@ -33,6 +34,7 @@ const changes = useChangesStore();
 const folderView = useFolderStore();
 const projects = useProjectsStore();
 const sequencer = useSequencerStore();
+const conflictBlocks = useConflictBlocksStore();
 const home = useHomeDir();
 
 /** The open repository, or the folder being opened or that failed to open. */
@@ -223,8 +225,19 @@ const hints = computed(() => {
   }
   if (shell.layoutMode === "changes") {
     if (sequencer.inProgress) {
+      // A conflicted file's blocks on screen: n and p move between them.
+      const blocks =
+        conflictBlocks.blocks.length > 0
+          ? [
+              {
+                keys: `${registry.hint("conflict-next")}/${registry.hint("conflict-previous")}`,
+                label: t("statusBar.conflicts"),
+              },
+            ]
+          : [];
       return [
         { keys: "j/k", label: t("statusBar.files") },
+        ...blocks,
         { keys: registry.hint("mark-resolved"), label: t("statusBar.markResolved") },
         { keys: registry.hint("palette"), label: t("statusBar.commands") },
       ];

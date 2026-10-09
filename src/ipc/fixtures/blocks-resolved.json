@@ -1,0 +1,22 @@
+[
+  {
+    "file": {
+      "fingerprint": "47d277dab03fabd3b1a97d0ef198d90940a877f8",
+      "utf8": true,
+      "crlf": false,
+      "paired": true,
+      "lines": [
+        "const one = 1;",
+        "const a = \"feature\";",
+        "const three = 3;"
+      ],
+      "blocks": []
+    },
+    "undo": {
+      "fingerprint": "47d277dab03fabd3b1a97d0ef198d90940a877f8",
+      "start": 1,
+      "lines": 1,
+      "bytes": "PDw8PDw8PCBIRUFECmNvbnN0IGEgPSAibWFpbiI7Cnx8fHx8fHwgbWVyZ2VkIGNvbW1vbiBhbmNlc3RvcnMKY29uc3QgYSA9ICJiYXNlIjsKPT09PT09PQpjb25zdCBhID0gImZlYXR1cmUiOwo+Pj4+Pj4+IGZlYXR1cmUK"
+    }
+  }
+]

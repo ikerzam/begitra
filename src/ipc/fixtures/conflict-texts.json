@@ -1,0 +1,40 @@
+[
+  {
+    "fingerprint": "3524aea498c80ff378d3bff14d23285256f23e1b",
+    "utf8": true,
+    "crlf": false,
+    "paired": true,
+    "lines": [
+      "const one = 1;",
+      "<<<<<<< HEAD",
+      "const a = \"main\";",
+      "||||||| merged common ancestors",
+      "const a = \"base\";",
+      "=======",
+      "const a = \"feature\";",
+      ">>>>>>> feature",
+      "const three = 3;"
+    ],
+    "blocks": [
+      {
+        "start": 1,
+        "end": 8,
+        "ours": {
+          "label": "HEAD",
+          "start": 2,
+          "end": 3
+        },
+        "base": {
+          "label": "merged common ancestors",
+          "start": 4,
+          "end": 5
+        },
+        "theirs": {
+          "label": "feature",
+          "start": 6,
+          "end": 7
+        }
+      }
+    ]
+  }
+]

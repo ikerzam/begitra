@@ -74,6 +74,18 @@
     "message": "Sample message for conflict.submodule"
   },
   {
+    "code": "conflict.unreadable",
+    "message": "Sample message for conflict.unreadable"
+  },
+  {
+    "code": "conflict.file_changed",
+    "message": "Sample message for conflict.file_changed"
+  },
+  {
+    "code": "conflict.write_failed",
+    "message": "Sample message for conflict.write_failed"
+  },
+  {
     "code": "ignore.invalid_path",
     "message": "Sample message for ignore.invalid_path"
   },

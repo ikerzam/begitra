@@ -40,8 +40,10 @@ import { useShortcutHint } from "@/shortcuts/useShortcut";
 import { useCodeTheme } from "@/shell/useTheme";
 import { lineKey, type ChangeList } from "@/stores/changes";
 import { useReviewStore, type ReviewTarget } from "@/stores/review";
+import { useConflictBlocksStore } from "@/stores/conflictBlocks";
 import { useSequencerStore } from "@/stores/sequencer";
 
+import ConflictBlocks from "./ConflictBlocks.vue";
 import type { DiscardRequest } from "./discard";
 import { useChanges, useOpenRepositoryChanges } from "./useChanges";
 import { findKeyOf, useChangesFind } from "./useChangesFind";
@@ -54,6 +56,7 @@ const changes = useChanges();
 const openRepository = useOpenRepositoryChanges();
 const review = useReviewStore();
 const sequencer = useSequencerStore();
+const conflictBlocks = useConflictBlocksStore();
 
 const root = computed(() => changes.root);
 const opener = useFileOpener(root);
@@ -299,7 +302,7 @@ defineExpose({ actOnSelection, selectedCount });
           v-if="conflicted"
           variant="ghost"
           :icon="Check"
-          :disabled="sequencer.busy"
+          :disabled="sequencer.busy || conflictBlocks.busy"
           data-testid="mark-resolved"
           @click="() => file && void sequencer.markResolved([file.path])"
         >
@@ -350,6 +353,11 @@ defineExpose({ actOnSelection, selectedCount });
     <div v-else-if="changes.error" class="flex-1" data-testid="changes-viewer-failed"></div>
     <EmptyState v-else-if="!file" class="flex-1" :message="t('changes.noFile')" />
     <ImageDiff v-else-if="isImage && root && target" :root="root" :target="target" :file="file" />
+    <ConflictBlocks
+      v-else-if="guard === 'unmerged' && conflicted && root"
+      :file="file"
+      :root="root"
+    />
     <DiffGuard
       v-else-if="guard"
       :file="file"

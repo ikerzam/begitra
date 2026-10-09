@@ -12,8 +12,9 @@ use std::time::Duration;
 
 use git_core::engine::GitEngine;
 use git_core::types::{
-    Conflict, FastForward, MainForward, MergeMode, OperationSides, OperationState, Outcome,
-    ResetMode, SequencerAction, Side, SwitchTarget,
+    BlockResolution, BlockResolved, BlockUndo, Conflict, ConflictText, FastForward, MainForward,
+    MergeMode, OperationSides, OperationState, Outcome, ResetMode, SequencerAction, Side,
+    SwitchTarget, CONFLICT_FILE_MAX_BYTES,
 };
 use tauri::State;
 
@@ -505,15 +506,43 @@ pub async fn operation_sides(
 fn validate_conflict_paths(paths: &[String]) -> Result<(), AppError> {
     validate_paths("paths", paths)?;
     for path in paths {
-        let backslash = cfg!(windows) && path.contains('\\');
-        if backslash || path.split('/').any(str::is_empty) {
-            return Err(AppError::invalid_argument(
-                "paths",
-                "a path not spelled as git lists it",
-            ));
-        }
+        spelled_as_git_lists("paths", path)?;
     }
     Ok(())
+}
+
+/// A conflicted path as git lists it: forward slashes, no empty segment.
+fn spelled_as_git_lists(field: &str, path: &str) -> Result<(), AppError> {
+    let backslash = cfg!(windows) && path.contains('\\');
+    if backslash || path.split('/').any(str::is_empty) {
+        return Err(AppError::invalid_argument(
+            field,
+            "a path not spelled as git lists it",
+        ));
+    }
+    Ok(())
+}
+
+/// One conflicted path, validated as the conflict list's paths are.
+fn validate_conflict_path(path: &str) -> Result<(), AppError> {
+    validate_paths("path", &[path.to_owned()])?;
+    spelled_as_git_lists("path", path)
+}
+
+/// The most a conflict block's text or the block put back may hold: the largest file read for
+/// its blocks (in bytes, or base64 characters for the block put back).
+const MAX_BLOCK_BYTES: usize = CONFLICT_FILE_MAX_BYTES as usize;
+
+/// A conflicted file's fingerprint: the git blob id of its bytes, as the blocks were read.
+fn validate_fingerprint(field: &str, value: &str) -> Result<(), AppError> {
+    let hex = value
+        .bytes()
+        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
+    if hex && matches!(value.len(), 40 | 64) {
+        Ok(())
+    } else {
+        Err(AppError::invalid_argument(field, "not a blob id"))
+    }
 }
 
 /// Takes conflicted paths whole from one side, resolved: its version, or the file deleted
@@ -551,6 +580,78 @@ pub async fn restore_conflicts(
     let app = state.inner().clone();
     run_unregistered(&op_id, WRITE_TIMEOUT, move |cancel| {
         app.open(&repo)?.restore_conflicts(&paths, &cancel)
+    })
+    .await
+}
+
+/// The conflict blocks of a conflicted path's file in the working tree.
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip(state))]
+pub async fn conflict_blocks(
+    state: State<'_, AppState>,
+    repo: PathBuf,
+    path: String,
+    op_id: String,
+) -> Result<ConflictText, AppError> {
+    validate_conflict_path(&path)?;
+    let app = state.inner().clone();
+    let worker = app.clone();
+    run_blocking(app.ops(), &op_id, DEFAULT_TIMEOUT, move |cancel| {
+        worker.open(&repo)?.conflict_blocks(&path, &cancel)
+    })
+    .await
+}
+
+/// Rewrites one conflict block of a conflicted path's file, only while the file is the one
+/// its fingerprint names; the answer carries the file read again and what puts the block back.
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip(state, resolution))]
+pub async fn resolve_conflict_block(
+    state: State<'_, AppState>,
+    repo: PathBuf,
+    path: String,
+    fingerprint: String,
+    block: usize,
+    resolution: BlockResolution,
+    op_id: String,
+) -> Result<BlockResolved, AppError> {
+    validate_conflict_path(&path)?;
+    validate_fingerprint("fingerprint", &fingerprint)?;
+    if let BlockResolution::Text { text } = &resolution {
+        if text.len() > MAX_BLOCK_BYTES {
+            return Err(AppError::invalid_argument(
+                "resolution",
+                "a text over 4 MiB",
+            ));
+        }
+    }
+    let app = state.inner().clone();
+    run_unregistered(&op_id, DEFAULT_TIMEOUT, move |cancel| {
+        app.open(&repo)?
+            .resolve_conflict_block(&path, &fingerprint, block, &resolution, &cancel)
+    })
+    .await
+}
+
+/// Puts back the conflict block a `resolve_conflict_block` replaced, while the file is the one
+/// that write left (the undo's fingerprint).
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip(state, undo))]
+pub async fn undo_conflict_block(
+    state: State<'_, AppState>,
+    repo: PathBuf,
+    path: String,
+    undo: BlockUndo,
+    op_id: String,
+) -> Result<ConflictText, AppError> {
+    validate_conflict_path(&path)?;
+    validate_fingerprint("undo", &undo.fingerprint)?;
+    if undo.bytes.len() > MAX_BLOCK_BYTES / 3 * 4 + 4 {
+        return Err(AppError::invalid_argument("undo", "a block over 4 MiB"));
+    }
+    let app = state.inner().clone();
+    run_unregistered(&op_id, DEFAULT_TIMEOUT, move |cancel| {
+        app.open(&repo)?.undo_conflict_block(&path, &undo, &cancel)
     })
     .await
 }
