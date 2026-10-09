@@ -22,12 +22,21 @@ const props = withDefaults(
     id?: string;
     /** Accessible name when no visible label element points at the control. */
     label?: string;
+    /** The id of the text that describes the control (its hint). */
+    describedBy?: string;
     disabled?: boolean;
     size?: ControlSize;
     /** A control whose value narrows something is filled with `--bg-selected`. */
     active?: boolean;
   }>(),
-  { id: undefined, label: undefined, disabled: false, size: "md", active: false },
+  {
+    id: undefined,
+    label: undefined,
+    describedBy: undefined,
+    disabled: false,
+    size: "md",
+    active: false,
+  },
 );
 
 const model = defineModel<string>({ default: "" });
@@ -197,6 +206,7 @@ function onKeydown(event: KeyboardEvent): void {
       :aria-controls="open ? listId : undefined"
       :aria-activedescendant="open && current >= 0 ? `${listId}-${current}` : undefined"
       :aria-label="props.label"
+      :aria-describedby="props.describedBy"
       :disabled="props.disabled"
       class="flex w-full min-w-0 items-center rounded-sm border pr-6 pl-3 text-left text-md text-fg enabled:hover:bg-hover disabled:border-line disabled:text-fg-disabled"
       :class="[
