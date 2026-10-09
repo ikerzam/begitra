@@ -36,6 +36,8 @@ import type {
   Outcome,
   PatchSelection,
   Project,
+  RecentAuthor,
+  RecentMessages,
   Ref,
   Remote,
   RepoSummary,
@@ -224,6 +226,14 @@ export interface FakeBackendOptions {
    * parent, no template); `head` gives HEAD's commit until `move_head` moves it.
    */
   commitContext?: Partial<CommitContext>;
+  /** What `recent_messages` answers; two messages of the user's by default. */
+  recentMessages?: RecentMessages;
+  /** What `recent_authors` answers; two authors by default. */
+  recentAuthors?: RecentAuthor[];
+  /** `recent_messages` and `recent_authors` reject with this error. */
+  helperError?: { code: string; message: string; detail?: string };
+  /** Holds each `recent_messages` and `recent_authors` answer until the test releases it. */
+  helperGate?: WriteGate;
   /**
    * `move_head` finds HEAD moved to this commit first (a commit made outside the app) and
    * refuses with `refs.head_moved`.
@@ -525,6 +535,29 @@ function dropResolution(list: Annotation[], path: string, hunk: string): void {
   const at = list.findIndex((a) => a.path === path && a.hunk === hunk && a.kind === "resolved");
   if (at >= 0) list.splice(at, 1);
 }
+
+/** The user's recent messages the fake answers by default. */
+export const FAKE_RECENT_MESSAGES: RecentMessages = {
+  identity: true,
+  messages: [
+    {
+      hash: "9f3e2c1a7b5d4e6f8a0b1c2d3e4f5a6b7c8d9e0f",
+      message: "fix(tiles): keep the cache warm",
+      time: 1_704_000_000,
+    },
+    {
+      hash: "4c1d2e9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d",
+      message: "fix(tiles): drop stale entries\n\nThe cache kept them.",
+      time: 1_703_990_000,
+    },
+  ],
+};
+
+/** The recent authors the fake answers by default. */
+export const FAKE_RECENT_AUTHORS: RecentAuthor[] = [
+  { name: "Ana Ruiz", email: "ana@example.com", commits: 42, time: 1_704_000_000 },
+  { name: "Luis Pardo", email: "luis@example.com", commits: 31, time: 1_703_999_000 },
+];
 
 /** A conflicted file of the fake: its lines and the version its fingerprint names. */
 interface FakeConflictFile {
@@ -1708,6 +1741,21 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
         case "stash_drop":
           if (options.stashGone) return stashGone(args);
           return null;
+        case "recent_messages":
+        case "recent_authors": {
+          const answer = (): Promise<unknown> => {
+            if (options.helperError) {
+              // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+              return Promise.reject(options.helperError);
+            }
+            return Promise.resolve(
+              cmd === "recent_messages"
+                ? (options.recentMessages ?? FAKE_RECENT_MESSAGES)
+                : (options.recentAuthors ?? FAKE_RECENT_AUTHORS),
+            );
+          };
+          return options.helperGate ? options.helperGate.hold(cmd, answer) : answer();
+        }
         case "commit_context": {
           if (options.commitContextError) {
             // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError

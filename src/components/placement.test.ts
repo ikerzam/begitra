@@ -89,6 +89,23 @@ describe("hangFrom", () => {
     expect(hangFrom(low, rows, viewport)).toEqual({ left: 100, top: 676, height: 120 });
   });
 
+  it("hangs above the control when asked, and under it when the room above is short", () => {
+    const low = { left: 100, top: 800, right: 196, bottom: 828 };
+    expect(hangFrom(low, rows, viewport, "top")).toEqual({ left: 100, top: 676, height: 120 });
+    const high = { left: 100, top: 50, right: 196, bottom: 78 };
+    expect(hangFrom(high, rows, viewport, "top")).toEqual({ left: 100, top: 82, height: 120 });
+    // Neither side fits: the one with more room, cut to it, the asked one on a tie.
+    const short = { width: 1440, height: 600 };
+    const tall = { width: 96, height: 290 };
+    const middle = { left: 100, top: 286, right: 196, bottom: 314 };
+    expect(hangFrom(middle, tall, short, "top")).toEqual({ left: 100, top: EDGE, height: 274 });
+    expect(hangFrom(control, { width: 0, height: 0 }, viewport, "top")).toEqual({
+      left: 100,
+      top: 96,
+      height: null,
+    });
+  });
+
   it("takes the side with more room and cuts its height to it when neither fits", () => {
     const short = { width: 1440, height: 600 };
     const tall = { width: 96, height: 290 };

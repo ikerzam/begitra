@@ -1781,5 +1781,15 @@
     "everyHour": "cada hora en segundo plano",
     "stopped": "detenido en segundo plano: hace falta iniciar sesión",
     "signIn": "{name} dejó de traerse en segundo plano: su remoto pide iniciar sesión. Un Fetch a mano la pide."
+  },
+  "commitHelpers": {
+    "recent": "Mensajes recientes",
+    "coAuthor": "Añadir un coautor",
+    "filter": "Filtrar por nombre o email",
+    "noMessages": "Aún no hay commits tuyos en esta rama",
+    "noIdentity": "Configura user.email para ver tus mensajes",
+    "noAuthors": "No hay más autores en el historial reciente",
+    "noMatch": "Ningún autor coincide",
+    "failed": "No se pudo leer la lista"
   }
 }

@@ -1781,5 +1781,15 @@
     "everyHour": "every hour in the background",
     "stopped": "stopped in the background: sign-in needed",
     "signIn": "{name} stopped fetching in the background: its remote asks for a sign-in. A Fetch by hand asks for it."
+  },
+  "commitHelpers": {
+    "recent": "Recent messages",
+    "coAuthor": "Add a co-author",
+    "filter": "Filter by name or email",
+    "noMessages": "No commit of yours on this branch yet",
+    "noIdentity": "Set user.email to see your messages",
+    "noAuthors": "No other author in the recent history",
+    "noMatch": "No author matches",
+    "failed": "Couldn't read the list"
   }
 }

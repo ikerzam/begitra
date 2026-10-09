@@ -78,22 +78,27 @@ export const HANG_GAP = 4;
 
 /**
  * Where a popup hanging from a control goes (a select's options, a tooltip), given its
- * natural size: under the control, above it when it fits there and not under, else on the side
- * with more room with its height cut to that room; lined up with the control's left edge, or
- * with its right edge when the popup would cross the window's right and fits that way, then
- * kept inside the window. `height` is the height to show, null when nothing is laid out yet.
+ * natural size: on the `prefer`red side of the control (under it by default), on the other
+ * side when it fits there and not on its own, else on the side with more room with its height
+ * cut to that room; lined up with the control's left edge, or with its right edge when the
+ * popup would cross the window's right and fits that way, then kept inside the window.
+ * `height` is the height to show, null when nothing is laid out yet.
  */
 export function hangFrom(
   control: Box,
   size: Size,
   viewport: Size,
+  prefer: "bottom" | "top" = "bottom",
 ): { left: number; top: number; height: number | null } {
   if (size.width === 0 && size.height === 0) {
-    return { left: control.left, top: control.bottom + HANG_GAP, height: null };
+    const top = prefer === "bottom" ? control.bottom + HANG_GAP : control.top - HANG_GAP;
+    return { left: control.left, top, height: null };
   }
   const below = viewport.height - EDGE - control.bottom - HANG_GAP;
   const above = control.top - HANG_GAP - EDGE;
-  const under = size.height <= below || (size.height > above && below >= above);
+  const [own, other] = prefer === "bottom" ? [below, above] : [above, below];
+  const stays = size.height <= own || (size.height > other && own >= other);
+  const under = prefer === "bottom" ? stays : !stays;
   const height = Math.max(0, Math.min(size.height, under ? below : above));
   const top = under ? control.bottom + HANG_GAP : control.top - HANG_GAP - height;
   const crosses = control.left + size.width > viewport.width - EDGE;

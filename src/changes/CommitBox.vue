@@ -1,9 +1,10 @@
 <script setup lang="ts">
 // The commit box under the lists: the subject with its count past 72 characters, the
 // description, "Amend last commit" (HEAD's message borrowed into an empty box, off on an unborn
-// branch) and "Sign off" as icon toggles beside the author line git will use (or the commit being
-// amended), and "Commit" with ⌘↵, enabled only with a subject and something to commit. A commit
-// never pushes by itself: while the open repository's branch has commits to push, or no upstream
+// branch) and "Sign off" as icon toggles, then the recent messages and the co-authors
+// (`CommitHelpers`), beside the author line git will use (or the commit being amended), and
+// "Commit" with ⌘↵, enabled only with a subject and something to commit. A commit never
+// pushes by itself: while the open repository's branch has commits to push, or no upstream
 // to push to, the last row starts with Push (Publish), the top bar's push, also on a clean tree.
 // A narrow column drops the ⌘↵ hint (the status bar keeps it) and then shortens Push's label, so
 // Commit stays inside the column. When Push leaves with the focus on it, the lists take the focus.
@@ -26,6 +27,7 @@ import { shortHash } from "@/shell/format";
 import { useShortcutHint } from "@/shortcuts/useShortcut";
 import { useRepoStore } from "@/stores/repo";
 
+import CommitHelpers from "./CommitHelpers.vue";
 import { useChanges, useOpenRepositoryChanges } from "./useChanges";
 
 const props = withDefaults(
@@ -177,6 +179,7 @@ function onSubjectKeydown(event: KeyboardEvent): void {
           data-testid="commit-signoff"
           @click="changes.setDraft({ signoff: !changes.draft.signoff })"
         />
+        <CommitHelpers :inert="inert" :unborn="unborn" />
       </div>
       <span
         class="min-w-0 flex-1 truncate text-sm"

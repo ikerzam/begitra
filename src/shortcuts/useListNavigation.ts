@@ -53,6 +53,13 @@ export function isListKeydown(event: KeyboardEvent): boolean {
   return !(event.target instanceof Element && event.target.closest('[role="menu"]'));
 }
 
+/** 1 for the bare down arrow, -1 for the up one, 0 for any other: a field's list, where j and k
+ * are letters. */
+export function arrowStep(event: KeyboardEvent): 1 | -1 | 0 {
+  if (hasModifier(event)) return 0;
+  return event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+}
+
 /** 1 for the key that moves to the next row, -1 for the previous one's, 0 for any other. */
 export function rowStep(event: KeyboardEvent): 1 | -1 | 0 {
   if (isBound(event, "ArrowDown", "next-row")) return 1;
