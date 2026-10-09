@@ -16,6 +16,7 @@ use crate::types::{
 use crate::types::{BlockResolution, BlockResolved, BlockUndo, ConflictText};
 use crate::types::{BranchToDelete, CleanupCandidates, DeleteOutcome, FastForward, MainForward};
 use crate::types::{IgnoreOutcome, IgnorePlace, IgnoreRule};
+use crate::types::{LocalChanges, Switched};
 use crate::types::{RecentAuthor, RecentMessages};
 
 /// Cooperative cancellation flag checked by long operations between units of work.
@@ -299,20 +300,33 @@ pub trait GitEngine: Send + Sync {
     fn commit_context(&self, cancel: &Cancel) -> GitResult<CommitContext>;
 
     /// Creates a branch at `start` (`git branch`), checking it out at once when asked
-    /// (`git switch -c`), and taking `start` as its upstream with `track` (`--track`),
-    /// whatever `branch.autoSetupMerge` says.
+    /// (`git switch -c`, the local changes in its way treated as [`GitEngine::switch`] treats
+    /// them), and taking `start` as its upstream with `track` (`--track`), whatever
+    /// `branch.autoSetupMerge` says.
     fn branch_create(
         &self,
         name: &str,
         start: &str,
         checkout: bool,
         track: bool,
+        local_changes: LocalChanges,
         cancel: &Cancel,
-    ) -> GitResult<()>;
+    ) -> GitResult<Switched>;
 
-    /// Switches to a branch or a detached revision (`git switch`); git's refusal when local
-    /// changes would be overwritten is [`GitError::Cli`] with its message and nothing changes.
-    fn switch(&self, target: &SwitchTarget, cancel: &Cancel) -> GitResult<()>;
+    /// Switches to a branch or a detached revision (`git switch`). git's refusal because
+    /// local changes are in the way is [`GitError::LocalChanges`] with its message, and
+    /// nothing changes, with [`LocalChanges::Refuse`]; when git refuses,
+    /// [`LocalChanges::Carry`] stashes the changes (the untracked files when git names them),
+    /// switches and applies them back, staged ones staged, and [`LocalChanges::Leave`] stashes
+    /// them with the untracked files and switches. A switch that does not happen after the
+    /// stash puts the changes back and fails with git's error; one that fails with HEAD moved
+    /// (a post-checkout hook) happened, git's words in [`Switched::notice`].
+    fn switch(
+        &self,
+        target: &SwitchTarget,
+        local_changes: LocalChanges,
+        cancel: &Cancel,
+    ) -> GitResult<Switched>;
 
     /// Renames a branch (`git branch -m`).
     fn branch_rename(&self, from: &str, to: &str, cancel: &Cancel) -> GitResult<()>;
@@ -322,10 +336,20 @@ pub trait GitEngine: Send + Sync {
     fn branch_delete(&self, name: &str, force: bool, cancel: &Cancel) -> GitResult<()>;
 
     /// Merges a revision into HEAD; a stop on conflicts is an [`Outcome`], not an error.
-    fn merge(&self, rev: &str, mode: MergeMode, cancel: &Cancel) -> GitResult<Outcome>;
+    /// `autostash` sets the local changes aside and applies them back after
+    /// (`--autostash`); a refusal because local changes are in the way is
+    /// [`GitError::LocalChanges`].
+    fn merge(
+        &self,
+        rev: &str,
+        mode: MergeMode,
+        autostash: bool,
+        cancel: &Cancel,
+    ) -> GitResult<Outcome>;
 
-    /// Rebases HEAD onto a revision, never interactively.
-    fn rebase(&self, onto: &str, cancel: &Cancel) -> GitResult<Outcome>;
+    /// Rebases HEAD onto a revision, never interactively; `autostash` and the refusal as for
+    /// [`GitEngine::merge`].
+    fn rebase(&self, onto: &str, autostash: bool, cancel: &Cancel) -> GitResult<Outcome>;
 
     /// Resets HEAD (`--soft`, `--mixed`, `--hard`); the reflog keeps the previous HEAD.
     fn reset(&self, rev: &str, mode: ResetMode, cancel: &Cancel) -> GitResult<()>;
@@ -405,6 +429,12 @@ pub trait GitEngine: Send + Sync {
     /// while no operation is in progress, for an octopus merge (no one name says either side),
     /// and when the state files cannot be read or name no full hash.
     fn operation_sides(&self) -> GitResult<Option<OperationSides>>;
+
+    /// The commit of the stash a merge or a rebase that stopped holds aside (git's autostash:
+    /// `MERGE_AUTOSTASH`, a rebase's `autostash`), which git applies back when the operation is
+    /// committed, ends or is aborted, and keeps in the stash list when it does not come back
+    /// cleanly; `None` otherwise.
+    fn held_aside(&self) -> GitResult<Option<String>>;
 
     /// Takes each conflicted path, spelled as git lists it, whole from `side`: that side's
     /// index entry (its blob and its mode), resolved, and the file written from it; or the file

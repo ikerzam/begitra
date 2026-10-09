@@ -437,7 +437,7 @@ fn a_conflicting_pop_reports_the_conflicts_and_keeps_the_stash() {
     // neither a rebase nor another apply is a stop, and nothing is in progress.
     assert_eq!(e.operation_state().expect("state"), OperationState::None);
     let error = e
-        .rebase("HEAD~1", &never())
+        .rebase("HEAD~1", false, &never())
         .expect_err("refused over an unmerged file");
     match &error {
         GitError::Cli { stderr, .. } => assert!(

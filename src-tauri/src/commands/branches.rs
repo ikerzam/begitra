@@ -12,9 +12,9 @@ use std::time::Duration;
 
 use git_core::engine::GitEngine;
 use git_core::types::{
-    BlockResolution, BlockResolved, BlockUndo, Conflict, ConflictText, FastForward, MainForward,
-    MergeMode, OperationSides, OperationState, Outcome, ResetMode, SequencerAction, Side,
-    SwitchTarget, CONFLICT_FILE_MAX_BYTES,
+    BlockResolution, BlockResolved, BlockUndo, Conflict, ConflictText, FastForward, LocalChanges,
+    MainForward, MergeMode, OperationSides, OperationState, Outcome, ResetMode, SequencerAction,
+    Side, SwitchTarget, Switched, CONFLICT_FILE_MAX_BYTES,
 };
 use tauri::State;
 
@@ -133,10 +133,12 @@ fn validate_message(field: &str, message: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Creates a branch at a start point, checking it out when asked, and tracking the start
-/// point (a remote-tracking branch) with `track`.
+/// Creates a branch at a start point, checking it out when asked (the local changes in the
+/// way as `local_changes` says), and tracking the start point (a remote-tracking branch) with
+/// `track`.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state))]
+#[allow(clippy::too_many_arguments)]
 pub async fn branch_create(
     state: State<'_, AppState>,
     repo: PathBuf,
@@ -144,35 +146,44 @@ pub async fn branch_create(
     start: String,
     checkout: bool,
     track: bool,
+    local_changes: LocalChanges,
     op_id: String,
-) -> Result<(), AppError> {
+) -> Result<Switched, AppError> {
     validate_name("name", &name)?;
     validate_rev("start", &start)?;
+    if !checkout && local_changes != LocalChanges::Refuse {
+        return Err(AppError::invalid_argument(
+            "localChanges",
+            "local changes go somewhere only with a checkout",
+        ));
+    }
     let app = state.inner().clone();
     run_unregistered(&op_id, WRITE_TIMEOUT, move |cancel| {
         app.open(&repo)?
-            .branch_create(&name, &start, checkout, track, &cancel)
+            .branch_create(&name, &start, checkout, track, local_changes, &cancel)
     })
     .await
 }
 
-/// Switches to a branch or a detached revision; git's refusal of a dirty switch comes back
-/// as `git.cli_failed` with its message.
+/// Switches to a branch or a detached revision, the local changes in its way as
+/// `local_changes` says; git's refusal over them comes back as `git.local_changes` with its
+/// words.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state))]
 pub async fn switch(
     state: State<'_, AppState>,
     repo: PathBuf,
     target: SwitchTarget,
+    local_changes: LocalChanges,
     op_id: String,
-) -> Result<(), AppError> {
+) -> Result<Switched, AppError> {
     match &target {
         SwitchTarget::Branch { name } => validate_name("name", name)?,
         SwitchTarget::Detached { rev } => validate_rev("rev", rev)?,
     }
     let app = state.inner().clone();
     run_unregistered(&op_id, WRITE_TIMEOUT, move |cancel| {
-        app.open(&repo)?.switch(&target, &cancel)
+        app.open(&repo)?.switch(&target, local_changes, &cancel)
     })
     .await
 }
@@ -215,7 +226,8 @@ pub async fn branch_delete(
     .await
 }
 
-/// Merges a revision into HEAD; a stop on conflicts is an outcome, not an error.
+/// Merges a revision into HEAD, setting the local changes aside with `autostash`; a stop on
+/// conflicts is an outcome, not an error.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state))]
 pub async fn merge(
@@ -223,29 +235,32 @@ pub async fn merge(
     repo: PathBuf,
     rev: String,
     mode: MergeMode,
+    autostash: bool,
     op_id: String,
 ) -> Result<Outcome, AppError> {
     validate_rev("rev", &rev)?;
     let app = state.inner().clone();
     run_unregistered(&op_id, WRITE_TIMEOUT, move |cancel| {
-        app.open(&repo)?.merge(&rev, mode, &cancel)
+        app.open(&repo)?.merge(&rev, mode, autostash, &cancel)
     })
     .await
 }
 
-/// Rebases HEAD onto a revision, never interactively.
+/// Rebases HEAD onto a revision, never interactively, setting the local changes aside with
+/// `autostash`.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state))]
 pub async fn rebase(
     state: State<'_, AppState>,
     repo: PathBuf,
     onto: String,
+    autostash: bool,
     op_id: String,
 ) -> Result<Outcome, AppError> {
     validate_rev("onto", &onto)?;
     let app = state.inner().clone();
     run_unregistered(&op_id, WRITE_TIMEOUT, move |cancel| {
-        app.open(&repo)?.rebase(&onto, &cancel)
+        app.open(&repo)?.rebase(&onto, autostash, &cancel)
     })
     .await
 }
@@ -496,6 +511,23 @@ pub async fn operation_sides(
     let worker = app.clone();
     run_blocking(app.ops(), &op_id, DEFAULT_TIMEOUT, move |_cancel| {
         worker.open(&repo)?.operation_sides()
+    })
+    .await
+}
+
+/// The commit of the stash a merge or a rebase that stopped holds aside (git's autostash),
+/// which comes back when the operation ends; null otherwise.
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip(state))]
+pub async fn held_aside(
+    state: State<'_, AppState>,
+    repo: PathBuf,
+    op_id: String,
+) -> Result<Option<String>, AppError> {
+    let app = state.inner().clone();
+    let worker = app.clone();
+    run_blocking(app.ops(), &op_id, DEFAULT_TIMEOUT, move |_cancel| {
+        worker.open(&repo)?.held_aside()
     })
     .await
 }

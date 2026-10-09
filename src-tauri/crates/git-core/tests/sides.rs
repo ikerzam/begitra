@@ -115,7 +115,7 @@ fn names_a_merges_sides_and_none_without_an_operation() {
     conflicting(&mut f);
     let e = engine(&f);
     assert_eq!(e.operation_sides().expect("sides"), None);
-    e.merge("other", MergeMode::Default, &never())
+    e.merge("other", MergeMode::Default, false, &never())
         .expect("stops");
     assert_eq!(
         e.operation_sides().expect("sides"),
@@ -139,7 +139,7 @@ fn names_a_merges_sides_and_none_without_an_operation() {
         .expect("abort");
     // A name may hold a quote: it runs to the message's last one.
     f.git(&["branch", "it's", "other"]);
-    e.merge("it's", MergeMode::Default, &never())
+    e.merge("it's", MergeMode::Default, false, &never())
         .expect("stops");
     let sides = e.operation_sides().expect("sides").expect("a merge");
     assert_eq!(sides.theirs, named("it's"));
@@ -152,14 +152,16 @@ fn names_a_merges_sides_and_none_without_an_operation() {
         ("v-other", named("v-other")),
         ("origin/other", named("origin/other")),
     ] {
-        e.merge(rev, MergeMode::Default, &never()).expect("stops");
+        e.merge(rev, MergeMode::Default, false, &never())
+            .expect("stops");
         let sides = e.operation_sides().expect("sides").expect("a merge");
         assert_eq!(sides.theirs, theirs, "{rev}");
         e.sequencer(SequencerAction::Abort, &never())
             .expect("abort");
     }
     let hash = f.rev("other");
-    e.merge(&hash, MergeMode::Default, &never()).expect("stops");
+    e.merge(&hash, MergeMode::Default, false, &never())
+        .expect("stops");
     let sides = e.operation_sides().expect("sides").expect("a merge");
     assert_eq!(
         sides.theirs,
@@ -185,7 +187,7 @@ fn names_a_pulls_merge_by_the_remote_tracking_branch_that_holds_it() {
     // Another remote branch at the same commit is not the one the message names.
     f.git(&["update-ref", "refs/remotes/origin/aaa", "other"]);
     let e = engine(&f);
-    e.merge("FETCH_HEAD", MergeMode::Default, &never())
+    e.merge("FETCH_HEAD", MergeMode::Default, false, &never())
         .expect("stops");
     assert_eq!(
         e.operation_sides().expect("sides"),
@@ -240,7 +242,7 @@ fn names_a_rebases_sides_the_branch_rebased_onto_and_the_branch_rebased() {
     // A local branch names the tip before a remote-tracking one does.
     f.git(&["update-ref", "refs/remotes/a-remote/x", "main"]);
     f.git(&["switch", "-q", "other"]);
-    let outcome = e.rebase("main", &never()).expect("stops");
+    let outcome = e.rebase("main", false, &never()).expect("stops");
     assert_eq!(outcome.kind, OutcomeKind::Conflicts);
     // Git's --ours is main here: the names, not "ours" and "theirs", say which is which.
     assert_eq!(
@@ -254,7 +256,7 @@ fn names_a_rebases_sides_the_branch_rebased_onto_and_the_branch_rebased() {
         .expect("abort");
     // Started at the hash, which names no branch in HEAD's reflog: a local branch at it, before
     // the remote-tracking one.
-    e.rebase(&f.rev("main"), &never()).expect("stops");
+    e.rebase(&f.rev("main"), false, &never()).expect("stops");
     let sides = e.operation_sides().expect("sides").expect("a rebase");
     assert_eq!(sides.ours, named("main"));
     e.sequencer(SequencerAction::Abort, &never())
@@ -264,7 +266,7 @@ fn names_a_rebases_sides_the_branch_rebased_onto_and_the_branch_rebased() {
     f.write("README.md", "# Detached\n");
     let onto = f.commit("detached readme");
     f.git(&["switch", "-q", "other"]);
-    e.rebase(&onto, &never()).expect("stops");
+    e.rebase(&onto, false, &never()).expect("stops");
     let sides = e.operation_sides().expect("sides").expect("a rebase");
     assert_eq!(
         sides.ours,
@@ -278,7 +280,7 @@ fn names_a_rebases_sides_the_branch_rebased_onto_and_the_branch_rebased() {
         .expect("abort");
     // Onto a remote-tracking branch's tip, as a pull's rebase goes: by that branch's name.
     f.git(&["update-ref", "refs/remotes/origin/up", &onto]);
-    e.rebase(&onto, &never()).expect("stops");
+    e.rebase(&onto, false, &never()).expect("stops");
     let sides = e.operation_sides().expect("sides").expect("a rebase");
     assert_eq!(sides.ours, named("origin/up"));
     e.sequencer(SequencerAction::Abort, &never())
@@ -290,7 +292,7 @@ fn names_a_rebases_sides_the_branch_rebased_onto_and_the_branch_rebased() {
     f.write("extra.txt", "extra\n");
     f.commit("other extra");
     f.git(&["switch", "-q", "--detach", "other"]);
-    e.rebase("main", &never()).expect("stops");
+    e.rebase("main", false, &never()).expect("stops");
     let sides = e.operation_sides().expect("sides").expect("a rebase");
     assert_eq!(sides.ours, named("main"));
     assert_eq!(
@@ -319,7 +321,7 @@ fn names_a_rebases_base_by_the_name_it_was_started_with() {
     f.git(&["branch", "aaa-next", "main"]);
     f.git(&["switch", "-q", "feature"]);
     let e = engine(&f);
-    e.rebase("main", &never()).expect("stops");
+    e.rebase("main", false, &never()).expect("stops");
     // HEAD's reflog: "rebase (start): checkout main".
     let sides = e.operation_sides().expect("sides").expect("a rebase");
     assert_eq!(sides.ours, named("main"));
@@ -339,7 +341,7 @@ fn names_a_pulls_rebase_base_by_the_upstream_of_the_branch_rebased() {
     // A pull's rebase starts at the fetched hash, which names no branch in the reflog.
     let onto = f.rev("origin/main");
     let e = engine(&f);
-    e.rebase(&onto, &never()).expect("stops");
+    e.rebase(&onto, false, &never()).expect("stops");
     let sides = e.operation_sides().expect("sides").expect("a rebase");
     assert_eq!(sides.ours, named("origin/main"));
     assert_eq!(sides.theirs, named("other"));
@@ -436,7 +438,7 @@ fn names_a_merge_into_a_branch_whose_name_holds_a_quote() {
     f.write("f.txt", "quote\n");
     f.commit("quote f");
     let e = engine(&f);
-    e.merge("other", MergeMode::Default, &never())
+    e.merge("other", MergeMode::Default, false, &never())
         .expect("stops");
     // MERGE_MSG: "Merge branch 'other' into it's".
     let sides = e.operation_sides().expect("sides").expect("a merge");
@@ -515,7 +517,7 @@ fn names_the_sides_from_a_linked_worktrees_own_state() {
     f.git(&["worktree", "add", "-q", &folder_arg, "work"]);
     let linked = Git2Engine::open(&folder).expect("open the linked worktree");
     linked
-        .merge("other", MergeMode::Default, &never())
+        .merge("other", MergeMode::Default, false, &never())
         .expect("stops");
     assert_eq!(
         linked.operation_sides().expect("sides"),
@@ -535,7 +537,7 @@ fn takes_each_kind_whole_from_ours() {
     let mut f = Fixture::basic();
     four_kinds(&mut f);
     let e = engine(&f);
-    e.merge("theirs", MergeMode::Default, &never())
+    e.merge("theirs", MergeMode::Default, false, &never())
         .expect("stops");
     e.take_side(&paths(&FOUR), Side::Ours, &never())
         .expect("taken");
@@ -560,7 +562,7 @@ fn takes_each_kind_whole_from_theirs() {
     let mut f = Fixture::basic();
     four_kinds(&mut f);
     let e = engine(&f);
-    e.merge("theirs", MergeMode::Default, &never())
+    e.merge("theirs", MergeMode::Default, false, &never())
         .expect("stops");
     e.take_side(&paths(&FOUR), Side::Theirs, &never())
         .expect("taken");
@@ -603,7 +605,7 @@ fn takes_a_side_and_puts_it_back_for_names_with_spaces_dashes_and_beyond_ascii()
     }
     f.commit("ours");
     let e = engine(&f);
-    e.merge("theirs", MergeMode::Default, &never())
+    e.merge("theirs", MergeMode::Default, false, &never())
         .expect("stops");
     let at_stop = stages(&f);
     e.take_side(&paths(&names), Side::Theirs, &never())
@@ -638,7 +640,7 @@ fn takes_a_sides_mode_where_the_file_system_keeps_none() {
     f.write("run.sh", "echo ours\n");
     f.commit("ours run");
     let e = engine(&f);
-    e.merge("theirs", MergeMode::Default, &never())
+    e.merge("theirs", MergeMode::Default, false, &never())
         .expect("stops");
     let at_stop = stages(&f);
     e.take_side(&paths(&["run.sh"]), Side::Theirs, &never())
@@ -666,7 +668,7 @@ fn refuses_a_path_that_is_not_conflicted_before_git_runs() {
     let mut f = Fixture::basic();
     four_kinds(&mut f);
     let e = engine(&f);
-    e.merge("theirs", MergeMode::Default, &never())
+    e.merge("theirs", MergeMode::Default, false, &never())
         .expect("stops");
     f.write("README.md", "an edit\n");
     let error = e
@@ -720,7 +722,7 @@ fn takes_theirs_with_its_executable_bit_where_the_file_system_has_none() {
     f.remove("du.sh");
     f.commit("ours scripts");
     let e = engine(&f);
-    e.merge("theirs", MergeMode::Default, &never())
+    e.merge("theirs", MergeMode::Default, false, &never())
         .expect("stops");
     let wanted: Vec<String> = list.iter().map(|path| entry(&f, 3, path)).collect();
     assert_eq!(wanted[0].split(' ').next(), Some("100755"));
@@ -747,7 +749,7 @@ fn takes_theirs_with_its_own_line_endings_under_autocrlf() {
     f.commit("ours endings");
     f.git(&["config", "core.autocrlf", "true"]);
     let e = engine(&f);
-    e.merge("theirs", MergeMode::Default, &never())
+    e.merge("theirs", MergeMode::Default, false, &never())
         .expect("stops");
     let list = ["lf-to-crlf.txt", "crlf-to-lf.txt"];
     let wanted: Vec<String> = list.iter().map(|path| entry(&f, 3, path)).collect();
@@ -777,7 +779,7 @@ fn deletes_a_file_the_side_taken_never_had_and_puts_it_back() {
     f.write("dir/new.txt", "new from ours\n");
     f.commit("ours adds dir/new.txt");
     let e = engine(&f);
-    e.merge("theirs", MergeMode::Default, &never())
+    e.merge("theirs", MergeMode::Default, false, &never())
         .expect("stops");
     assert_eq!(
         f.git(&["diff", "--name-only", "--diff-filter=U"]),
@@ -810,7 +812,7 @@ fn takes_a_side_for_conflicts_outside_the_sparse_checkout() {
     f.commit("ours sparse");
     f.git(&["sparse-checkout", "set", "--cone", "in"]);
     let e = engine(&f);
-    e.merge("theirs", MergeMode::Default, &never())
+    e.merge("theirs", MergeMode::Default, false, &never())
         .expect("stops");
     e.take_side(&paths(&["out/b.txt", "out/c.txt"]), Side::Theirs, &never())
         .expect("taken");
@@ -836,7 +838,7 @@ fn refuses_a_submodule_conflict_before_git_runs() {
     point(&"3".repeat(40));
     f.git(&["commit", "-q", "-m", "ours sub"]);
     let e = engine(&f);
-    e.merge("theirs", MergeMode::Default, &never())
+    e.merge("theirs", MergeMode::Default, false, &never())
         .expect("stops");
     let at_stop = stages(&f);
     assert_eq!(at_stop, vec![("sub".to_owned(), vec![1, 2, 3])]);
@@ -860,7 +862,7 @@ fn puts_each_kind_back_as_git_left_it_at_the_stop() {
     let mut f = Fixture::basic();
     four_kinds(&mut f);
     let e = engine(&f);
-    e.merge("theirs", MergeMode::Default, &never())
+    e.merge("theirs", MergeMode::Default, false, &never())
         .expect("stops");
     let at_stop = stages(&f);
     let files_at_stop: Vec<Option<String>> = FOUR.iter().map(|path| read(&f, path)).collect();
@@ -902,7 +904,7 @@ fn takes_a_rename_to_two_names_from_each_side_and_puts_it_back() {
         let mut f = Fixture::basic();
         renamed_apart(&mut f);
         let e = engine(&f);
-        e.merge("theirs", MergeMode::Default, &never())
+        e.merge("theirs", MergeMode::Default, false, &never())
             .expect("stops");
         let at_stop = stages(&f);
         assert_eq!(
@@ -947,7 +949,7 @@ fn leaves_a_path_still_conflicted_as_it_is() {
     let mut f = Fixture::basic();
     four_kinds(&mut f);
     let e = engine(&f);
-    e.merge("theirs", MergeMode::Default, &never())
+    e.merge("theirs", MergeMode::Default, false, &never())
         .expect("stops");
     // A conflict half resolved by hand: nothing to bring back, and the edit stays.
     f.write("a.txt", "a by hand\n");
@@ -980,7 +982,7 @@ fn puts_back_only_the_paths_it_is_given() {
         f.commit(round);
     }
     let e = engine(&f);
-    e.merge("theirs", MergeMode::Default, &never())
+    e.merge("theirs", MergeMode::Default, false, &never())
         .expect("stops");
     e.take_side(&paths(&names), Side::Theirs, &never())
         .expect("taken");
@@ -1020,7 +1022,7 @@ fn puts_back_more_paths_than_one_command_line_holds() {
         f.commit(round);
     }
     let e = engine(&f);
-    e.merge("theirs", MergeMode::Default, &never())
+    e.merge("theirs", MergeMode::Default, false, &never())
         .expect("stops");
     e.take_side(&names, Side::Theirs, &never()).expect("taken");
     assert!(e.conflicts(&never()).expect("conflicts").is_empty());
@@ -1059,7 +1061,7 @@ fn writes_every_file_it_brought_back_when_git_cannot_write_one() {
     let mut f = Fixture::basic();
     held_and_deleted(&mut f);
     let e = engine(&f);
-    e.merge("theirs", MergeMode::Default, &never())
+    e.merge("theirs", MergeMode::Default, false, &never())
         .expect("stops");
     let both = paths(&["held/a.txt", "d.txt"]);
     e.take_side(&both, Side::Theirs, &never()).expect("taken");
@@ -1083,7 +1085,7 @@ fn names_a_conflict_git_no_longer_holds_after_putting_back_the_others() {
     let mut f = Fixture::basic();
     four_kinds(&mut f);
     let e = engine(&f);
-    e.merge("theirs", MergeMode::Default, &never())
+    e.merge("theirs", MergeMode::Default, false, &never())
         .expect("stops");
     e.take_side(&paths(&["a.txt"]), Side::Ours, &never())
         .expect("taken");
@@ -1106,7 +1108,7 @@ fn reports_gits_refusal_to_bring_back_with_its_words() {
     let mut f = Fixture::basic();
     four_kinds(&mut f);
     let e = engine(&f);
-    e.merge("theirs", MergeMode::Default, &never())
+    e.merge("theirs", MergeMode::Default, false, &never())
         .expect("stops");
     e.take_side(&paths(&["a.txt"]), Side::Ours, &never())
         .expect("taken");
@@ -1163,7 +1165,7 @@ fn a_committed_resolution_cannot_be_put_back() {
     let mut f = Fixture::basic();
     conflicting(&mut f);
     let e = engine(&f);
-    e.merge("other", MergeMode::Default, &never())
+    e.merge("other", MergeMode::Default, false, &never())
         .expect("stops");
     e.take_side(&paths(&["README.md"]), Side::Theirs, &never())
         .expect("taken");

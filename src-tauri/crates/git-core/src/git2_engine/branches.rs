@@ -10,12 +10,13 @@ use std::path::PathBuf;
 
 use git2::{ErrorCode, Oid, ReferenceType, Repository, RepositoryState};
 
-use super::{cleanup, refs, sequencer, worktrees, Git2Engine};
-use crate::cli::{run_git_env, CliExit, WRITE_ENV};
+use super::{cleanup, local_changes, refs, sequencer, worktrees, Git2Engine};
+use crate::cli::{run_git_env, run_git_env_within, CliExit, WRITE_ENV};
 use crate::engine::{Cancel, GitEngine};
 use crate::error::{GitError, GitResult};
 use crate::types::{
-    FastForward, MainForward, MergeMode, Outcome, OutcomeKind, ResetMode, SwitchTarget,
+    FastForward, LocalChanges, MainForward, MergeMode, Outcome, OutcomeKind, ResetMode,
+    SwitchTarget, Switched,
 };
 
 /// Runs `git <args>` in the root with the write environment.
@@ -33,19 +34,37 @@ fn git_ok(engine: &Git2Engine, args: &[&str], cancel: &Cancel) -> GitResult<()> 
     }
 }
 
+/// Runs a switch, stopped past the limit of a step of a carry (which may run with no cancel):
+/// a non-zero status is [`GitError::Cli`], and a clean one answers the `error:` lines git wrote
+/// as it went past them (a file another program holds, which keeps its old content).
+fn git_switch(engine: &Git2Engine, args: &[&str], cancel: &Cancel) -> GitResult<Option<String>> {
+    let root = &GitEngine::repo(engine).root;
+    let exit = run_git_env_within(root, args, &WRITE_ENV, cancel, local_changes::STEP_LIMIT)?;
+    if exit.status != Some(0) {
+        return Err(exit.into_failure(args));
+    }
+    let errors: Vec<&str> = exit
+        .stderr
+        .lines()
+        .filter(|line| line.starts_with("error:"))
+        .collect();
+    Ok((!errors.is_empty()).then(|| errors.join("\n")))
+}
+
 /// See [`GitEngine::branch_create`]. A tracking branch from a remote-tracking ref needs the one
 /// remote that fetches it: git checks that only after `switch -c` rewrote the index and the
 /// working tree (two remotes that claim the ref, or none), and leaves them half switched, so
 /// the remote is asked of libgit2 first.
-#[tracing::instrument(level = "debug", skip_all, fields(name, start, checkout, track))]
+#[tracing::instrument(level = "debug", skip_all, fields(name = %name, start = %start, checkout = checkout, track = track, local_changes = ?local_changes))]
 pub(super) fn branch_create(
     engine: &Git2Engine,
     name: &str,
     start: &str,
     checkout: bool,
     track: bool,
+    local_changes: LocalChanges,
     cancel: &Cancel,
-) -> GitResult<()> {
+) -> GitResult<Switched> {
     if track && start.starts_with("refs/remotes/") {
         engine.with_repo(|repo| match repo.branch_remote_name(start) {
             Ok(_) => Ok(()),
@@ -68,18 +87,30 @@ pub(super) fn branch_create(
         args.push(name);
     }
     args.push(start);
-    git_ok(engine, &args, cancel)
+    if !checkout {
+        git_ok(engine, &args, cancel)?;
+        return Ok(Switched::default());
+    }
+    local_changes::switch_with(engine, name, local_changes, cancel, |cancel| {
+        git_switch(engine, &args, cancel)
+    })
 }
 
 /// See [`GitEngine::switch`].
-#[tracing::instrument(level = "debug", skip_all, fields(target = ?target))]
-pub(super) fn switch(engine: &Git2Engine, target: &SwitchTarget, cancel: &Cancel) -> GitResult<()> {
-    match target {
-        SwitchTarget::Branch { name } => git_ok(engine, &["switch", "--", name], cancel),
-        SwitchTarget::Detached { rev } => {
-            git_ok(engine, &["switch", "--detach", "--", rev], cancel)
-        }
-    }
+#[tracing::instrument(level = "debug", skip_all, fields(target = ?target, local_changes = ?local_changes))]
+pub(super) fn switch(
+    engine: &Git2Engine,
+    target: &SwitchTarget,
+    local_changes: LocalChanges,
+    cancel: &Cancel,
+) -> GitResult<Switched> {
+    let (name, args) = match target {
+        SwitchTarget::Branch { name } => (name, vec!["switch", "--", name.as_str()]),
+        SwitchTarget::Detached { rev } => (rev, vec!["switch", "--detach", "--", rev.as_str()]),
+    };
+    local_changes::switch_with(engine, name, local_changes, cancel, |cancel| {
+        git_switch(engine, &args, cancel)
+    })
 }
 
 /// See [`GitEngine::branch_rename`].
@@ -426,14 +457,16 @@ fn rejected_as_non_fast_forward(stderr: &str) -> bool {
 
 /// See [`GitEngine::merge`]: the kind is read from where HEAD went, not from git's words
 /// (which follow the user's language).
-#[tracing::instrument(level = "debug", skip_all, fields(rev, mode = ?mode))]
+#[tracing::instrument(level = "debug", skip_all, fields(rev = %rev, mode = ?mode, autostash = autostash))]
 pub(super) fn merge(
     engine: &Git2Engine,
     rev: &str,
     mode: MergeMode,
+    autostash: bool,
     cancel: &Cancel,
 ) -> GitResult<Outcome> {
     let before = sequencer::head_hash(engine)?;
+    let held = local_changes::stash_before(engine)?;
     let target = engine.with_repo(|repo| Ok(super::resolve_commit(repo, rev)?.to_string()))?;
     let mut args = vec!["merge"];
     match mode {
@@ -441,11 +474,18 @@ pub(super) fn merge(
         MergeMode::FfOnly => args.push("--ff-only"),
         MergeMode::NoFf => args.push("--no-ff"),
     }
+    if autostash {
+        args.push("--autostash");
+    }
     args.push("--");
     args.push(rev);
     let exit = git(engine, &args, cancel)?;
-    let outcome = sequencer::outcome(engine, &args, exit, OutcomeKind::Merged, None, cancel)?;
+    let created = local_changes::created_autostash(&exit);
+    let outcome = sequencer::outcome(engine, &args, exit, OutcomeKind::Merged, None, cancel)
+        .map_err(|error| local_changes::named_unless_conflicted(engine, error, cancel))
+        .map_err(|error| local_changes::rescued(engine, error, &held, created.as_deref()))?;
     let outcome = sequencer::after_autostash(engine, outcome, cancel)?;
+    let outcome = local_changes::after_operation(engine, outcome, &held, created.as_deref());
     if outcome.kind != OutcomeKind::Merged {
         return Ok(outcome);
     }
@@ -458,13 +498,28 @@ pub(super) fn merge(
 }
 
 /// See [`GitEngine::rebase`].
-#[tracing::instrument(level = "debug", skip_all, fields(onto))]
-pub(super) fn rebase(engine: &Git2Engine, onto: &str, cancel: &Cancel) -> GitResult<Outcome> {
+#[tracing::instrument(level = "debug", skip_all, fields(onto = %onto, autostash = autostash))]
+pub(super) fn rebase(
+    engine: &Git2Engine,
+    onto: &str,
+    autostash: bool,
+    cancel: &Cancel,
+) -> GitResult<Outcome> {
     let before = sequencer::head_hash(engine)?;
-    let args = ["rebase", "--", onto];
+    let held = local_changes::stash_before(engine)?;
+    let mut args = vec!["rebase"];
+    if autostash {
+        args.push("--autostash");
+    }
+    args.push("--");
+    args.push(onto);
     let exit = git(engine, &args, cancel)?;
-    let outcome = sequencer::outcome(engine, &args, exit, OutcomeKind::Done, None, cancel)?;
+    let created = local_changes::created_autostash(&exit);
+    let outcome = sequencer::outcome(engine, &args, exit, OutcomeKind::Done, None, cancel)
+        .map_err(|error| local_changes::named_unless_conflicted(engine, error, cancel))
+        .map_err(|error| local_changes::rescued(engine, error, &held, created.as_deref()))?;
     let outcome = sequencer::after_autostash(engine, outcome, cancel)?;
+    let outcome = local_changes::after_operation(engine, outcome, &held, created.as_deref());
     if outcome.kind == OutcomeKind::Done && outcome.hash == before {
         return Ok(Outcome {
             kind: OutcomeKind::UpToDate,

@@ -1,0 +1,57 @@
+[
+  {
+    "stash": null,
+    "conflicts": [],
+    "kept": null,
+    "notice": null,
+    "unstaged": false
+  },
+  {
+    "stash": "c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7",
+    "conflicts": [],
+    "kept": null,
+    "notice": null,
+    "unstaged": false
+  },
+  {
+    "stash": "c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7",
+    "conflicts": [
+      {
+        "path": "apps/api/src/auth/middleware.ts",
+        "kind": "both-modified"
+      },
+      {
+        "path": "apps/api/src/auth/refresh.ts",
+        "kind": "deleted-by-them"
+      },
+      {
+        "path": "docs/auth.md",
+        "kind": "both-added"
+      }
+    ],
+    "kept": null,
+    "notice": null,
+    "unstaged": false
+  },
+  {
+    "stash": "c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7",
+    "conflicts": [],
+    "kept": "notes/tile-cache.md already exists, no checkout\nerror: could not restore untracked files from stash",
+    "notice": null,
+    "unstaged": false
+  },
+  {
+    "stash": null,
+    "conflicts": [],
+    "kept": null,
+    "notice": null,
+    "unstaged": true
+  },
+  {
+    "stash": null,
+    "conflicts": [],
+    "kept": null,
+    "notice": "Switched to branch 'develop'\ngit-lfs was not found on your path",
+    "unstaged": false
+  }
+]

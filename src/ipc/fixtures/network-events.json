@@ -47,7 +47,8 @@
             "path": "docs/auth.md",
             "kind": "both-added"
           }
-        ]
+        ],
+        "stash": null
       }
     }
   },

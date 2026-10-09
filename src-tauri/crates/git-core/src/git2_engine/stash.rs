@@ -4,7 +4,9 @@
 //! paths (git keeps the stash then), like the sequencer's stops; the listing is part of `refs`.
 
 use super::{sequencer, Git2Engine};
-use crate::cli::{run_git_env, run_git_with_input, CliExit, WRITE_ENV};
+use std::time::Duration;
+
+use crate::cli::{run_git_env, run_git_env_within, run_git_with_input, CliExit, WRITE_ENV};
 use crate::engine::{Cancel, GitEngine};
 use crate::error::{GitError, GitResult};
 use crate::types::{Outcome, OutcomeKind, StashPush};
@@ -81,7 +83,7 @@ pub(super) fn stash_push(
 }
 
 /// The newest stash's hash (`refs/stash`), or `None` without a stash; read through libgit2.
-fn stash_tip(engine: &Git2Engine) -> GitResult<Option<String>> {
+pub(super) fn stash_tip(engine: &Git2Engine) -> GitResult<Option<String>> {
     engine.with_repo(|repo| match repo.find_reference("refs/stash") {
         Ok(reference) => Ok(reference.target().map(|oid| oid.to_string())),
         Err(error) if error.code() == git2::ErrorCode::NotFound => Ok(None),
@@ -101,6 +103,7 @@ fn apply_commit(engine: &Git2Engine, stash: &str, cancel: &Cancel) -> GitResult<
             kind: OutcomeKind::Done,
             hash: sequencer::head_hash(engine)?,
             conflicts: Vec::new(),
+            stash: None,
         });
     }
     let conflicts = sequencer::conflicts(engine, cancel)?;
@@ -110,6 +113,7 @@ fn apply_commit(engine: &Git2Engine, stash: &str, cancel: &Cancel) -> GitResult<
             kind: OutcomeKind::Conflicts,
             hash: sequencer::head_hash(engine)?,
             conflicts,
+            stash: None,
         });
     }
     Err(failed(&args, exit))
@@ -145,9 +149,32 @@ pub(super) fn stash_pop(engine: &Git2Engine, stash: &str, cancel: &Cancel) -> Gi
 /// `git stash drop` refuses a commit.
 #[tracing::instrument(level = "debug", skip_all, fields(stash = %stash))]
 pub(super) fn stash_drop(engine: &Git2Engine, stash: &str, cancel: &Cancel) -> GitResult<()> {
+    drop_stash(engine, stash, cancel, None)
+}
+
+/// [`stash_drop`] for a step that no cancel stops: git is stopped past `limit`.
+#[tracing::instrument(level = "debug", skip_all, fields(stash = %stash))]
+pub(super) fn stash_drop_within(
+    engine: &Git2Engine,
+    stash: &str,
+    limit: Duration,
+) -> GitResult<()> {
+    drop_stash(engine, stash, &Cancel::never(), Some(limit))
+}
+
+fn drop_stash(
+    engine: &Git2Engine,
+    stash: &str,
+    cancel: &Cancel,
+    limit: Option<Duration>,
+) -> GitResult<()> {
     let reference = stash_ref(position_of(engine, stash)?);
     let args = ["stash", "drop", "-q", reference.as_str()];
-    let exit = run_git_env(&GitEngine::repo(engine).root, &args, &WRITE_ENV, cancel)?;
+    let root = &GitEngine::repo(engine).root;
+    let exit = match limit {
+        Some(limit) => run_git_env_within(root, &args, &WRITE_ENV, cancel, limit)?,
+        None => run_git_env(root, &args, &WRITE_ENV, cancel)?,
+    };
     if exit.status == Some(0) {
         Ok(())
     } else {

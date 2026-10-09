@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::{sequencer, Git2Engine};
+use super::{local_changes, sequencer, Git2Engine};
 use crate::cli::{
     network_env, run_git_env, run_git_env_within, run_git_streaming, CliExit, WRITE_ENV,
 };
@@ -297,9 +297,11 @@ const FINISH_LIMIT: std::time::Duration = std::time::Duration::from_secs(600);
 /// brought nothing to merge is refused, as `git pull` refuses it: [`GitError::RefNotFound`]
 /// naming the upstream's branch when the branch has one (it left the remote), no upstream
 /// otherwise. A fast-forward-only pull runs `git merge --ff-only --no-autostash FETCH_HEAD`
-/// whatever `pull.ff` and `merge.autoStash` say: an autostash applied back after the
-/// fast-forward could conflict, and a local change in the way refuses instead.
-#[tracing::instrument(level = "debug", skip_all, fields(remote = ?request.remote, branch = ?request.branch, rebase = request.rebase, ff_only = request.ff_only, prompts = ?prompts))]
+/// whatever `pull.ff` and `merge.autoStash` say, unless the request asks for the autostash:
+/// one applied back after the fast-forward could conflict, so a local change in the way
+/// refuses until the user chooses to set it aside. git's refusal over local changes, in
+/// either half, is [`GitError::LocalChanges`].
+#[tracing::instrument(level = "debug", skip_all, fields(remote = ?request.remote, branch = ?request.branch, rebase = request.rebase, ff_only = request.ff_only, autostash = request.autostash, prompts = ?prompts))]
 pub(super) fn pull(
     engine: &Git2Engine,
     request: &PullRequest,
@@ -341,6 +343,7 @@ pub(super) fn pull(
     let root = &GitEngine::repo(engine).root;
     let never = Cancel::never();
     let env = pull_env(prompts);
+    let held = local_changes::stash_before(engine)?;
     if request.rebase {
         let Some(onto) = fetched.first() else {
             return Err(GitError::Git(
@@ -354,10 +357,18 @@ pub(super) fn pull(
         }
         let fork = fork_point(engine, request, &never)?;
         let upstream = fork.as_deref().unwrap_or(onto);
-        let args = ["rebase", "--onto", onto, upstream];
+        let mut args = vec!["rebase"];
+        if request.autostash {
+            args.push("--autostash");
+        }
+        args.extend(["--onto", onto, upstream]);
         let exit = run_git_env_within(root, &args, &env, &never, FINISH_LIMIT)?;
-        let outcome = sequencer::outcome(engine, &args, exit, OutcomeKind::Done, None, &never)?;
+        let created = local_changes::created_autostash(&exit);
+        let outcome = sequencer::outcome(engine, &args, exit, OutcomeKind::Done, None, &never)
+            .map_err(|error| local_changes::named_unless_conflicted(engine, error, &never))
+            .map_err(|error| local_changes::rescued(engine, error, &held, created.as_deref()))?;
         let outcome = sequencer::after_autostash(engine, outcome, &never)?;
+        let outcome = local_changes::after_operation(engine, outcome, &held, created.as_deref());
         if outcome.kind == OutcomeKind::Done && outcome.hash == before {
             return Ok(Outcome {
                 kind: OutcomeKind::UpToDate,
@@ -369,7 +380,11 @@ pub(super) fn pull(
     let mut args = vec!["merge"];
     if request.ff_only {
         args.push("--ff-only");
-        args.push("--no-autostash");
+        args.push(if request.autostash {
+            "--autostash"
+        } else {
+            "--no-autostash"
+        });
     } else {
         match pull_ff(engine)?.as_deref() {
             Some("only") => args.push("--ff-only"),
@@ -378,10 +393,17 @@ pub(super) fn pull(
             None => {}
         }
     }
+    if request.autostash && !request.ff_only {
+        args.push("--autostash");
+    }
     args.push("FETCH_HEAD");
     let exit = run_git_env_within(root, &args, &env, &never, FINISH_LIMIT)?;
-    let outcome = sequencer::outcome(engine, &args, exit, OutcomeKind::Merged, None, &never)?;
+    let created = local_changes::created_autostash(&exit);
+    let outcome = sequencer::outcome(engine, &args, exit, OutcomeKind::Merged, None, &never)
+        .map_err(|error| local_changes::named_unless_conflicted(engine, error, &never))
+        .map_err(|error| local_changes::rescued(engine, error, &held, created.as_deref()))?;
     let outcome = sequencer::after_autostash(engine, outcome, &never)?;
+    let outcome = local_changes::after_operation(engine, outcome, &held, created.as_deref());
     if outcome.kind != OutcomeKind::Merged {
         return Ok(outcome);
     }

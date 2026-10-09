@@ -343,6 +343,7 @@ mod tests {
             branch: None,
             rebase: false,
             ff_only: true,
+            autostash: false,
         };
         assert!(validate_pull(&request).is_ok());
         let both = PullRequest {

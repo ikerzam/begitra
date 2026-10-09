@@ -7,7 +7,8 @@ use git_core::engine::{Cancel, GitEngine};
 use git_core::error::GitError;
 use git_core::git2_engine::Git2Engine;
 use git_core::types::{
-    ConflictKind, MergeMode, OperationState, OutcomeKind, ResetMode, SequencerAction, SwitchTarget,
+    ConflictKind, LocalChanges, MergeMode, OperationState, OutcomeKind, ResetMode, SequencerAction,
+    SwitchTarget,
 };
 use support::canonical;
 use support::Fixture;
@@ -34,18 +35,39 @@ fn read(f: &Fixture, relative: &str) -> String {
 fn creates_a_branch_from_a_start_point_with_and_without_checkout() {
     let f = Fixture::basic();
     let e = engine(&f);
-    e.branch_create("feature/one", "v1", false, false, &never())
-        .expect("create");
+    e.branch_create(
+        "feature/one",
+        "v1",
+        false,
+        false,
+        LocalChanges::Refuse,
+        &never(),
+    )
+    .expect("create");
     assert_eq!(f.rev("feature/one"), f.rev("v1^{commit}"));
     assert_eq!(head_ref(&f), "refs/heads/main");
-    e.branch_create("feature/two", "v1", true, false, &never())
-        .expect("create and switch");
+    e.branch_create(
+        "feature/two",
+        "v1",
+        true,
+        false,
+        LocalChanges::Refuse,
+        &never(),
+    )
+    .expect("create and switch");
     assert_eq!(head_ref(&f), "refs/heads/feature/two");
     assert_eq!(f.head(), f.rev("v1^{commit}"));
     // The tree of v1 has no docs folder.
     assert!(!f.root.join("docs/guide.md").exists());
     let error = e
-        .branch_create("feature/one", "main", false, false, &never())
+        .branch_create(
+            "feature/one",
+            "main",
+            false,
+            false,
+            LocalChanges::Refuse,
+            &never(),
+        )
         .expect_err("exists already");
     assert!(matches!(error, GitError::Cli { .. }), "{error:?}");
 }
@@ -58,6 +80,7 @@ fn switches_to_a_branch_and_to_a_detached_revision() {
         &SwitchTarget::Branch {
             name: "develop".to_owned(),
         },
+        LocalChanges::Refuse,
         &never(),
     )
     .expect("switch");
@@ -66,6 +89,7 @@ fn switches_to_a_branch_and_to_a_detached_revision() {
         &SwitchTarget::Detached {
             rev: "v1".to_owned(),
         },
+        LocalChanges::Refuse,
         &never(),
     )
     .expect("detach");
@@ -85,6 +109,7 @@ fn a_switch_that_would_overwrite_local_changes_is_refused() {
             &SwitchTarget::Detached {
                 rev: "d1".to_owned(),
             },
+            LocalChanges::Refuse,
             &never(),
         )
         .or_else(|_| {
@@ -92,12 +117,13 @@ fn a_switch_that_would_overwrite_local_changes_is_refused() {
                 &SwitchTarget::Detached {
                     rev: f.rev("develop~1"),
                 },
+                LocalChanges::Refuse,
                 &never(),
             )
         })
         .expect_err("refused");
     match error {
-        GitError::Cli { stderr, .. } => {
+        GitError::LocalChanges { stderr, .. } => {
             assert!(stderr.contains("would be overwritten"), "{stderr}");
         }
         other => panic!("unexpected {other:?}"),
@@ -223,13 +249,20 @@ fn sets_and_unsets_the_upstream() {
 fn names_with_slashes_and_unicode_work_and_a_dash_is_a_name_not_an_option() {
     let f = Fixture::basic();
     let e = engine(&f);
-    e.branch_create("feat/ünïcödé/x", "main", false, false, &never())
-        .expect("unicode");
+    e.branch_create(
+        "feat/ünïcödé/x",
+        "main",
+        false,
+        false,
+        LocalChanges::Refuse,
+        &never(),
+    )
+    .expect("unicode");
     assert_eq!(f.rev("feat/ünïcödé/x"), f.head());
     // git itself refuses a name that starts with a dash as invalid; the bridge refuses it
     // earlier. Here the engine passes it after `--` so it is never read as an option.
     let error = e
-        .branch_create("-x", "main", false, false, &never())
+        .branch_create("-x", "main", false, false, LocalChanges::Refuse, &never())
         .expect_err("invalid name");
     assert!(matches!(error, GitError::Cli { .. }), "{error:?}");
     assert!(!f.try_git(&["rev-parse", "--verify", "refs/heads/-x"]).0);
@@ -243,7 +276,7 @@ fn merges_fast_forward_no_ff_and_ff_only() {
     let e = engine(&f);
     // main is ahead of develop (m1 merged develop): merging develop is up to date.
     let outcome = e
-        .merge("develop", MergeMode::Default, &never())
+        .merge("develop", MergeMode::Default, false, &never())
         .expect("merge");
     assert_eq!(outcome.kind, OutcomeKind::UpToDate);
     // A branch one commit ahead of main: fast-forward.
@@ -251,12 +284,16 @@ fn merges_fast_forward_no_ff_and_ff_only() {
     f.write("ahead.txt", "a\n");
     let ahead_tip = f.commit("ahead");
     f.git(&["switch", "-q", "main"]);
-    let outcome = e.merge("ahead", MergeMode::Default, &never()).expect("ff");
+    let outcome = e
+        .merge("ahead", MergeMode::Default, false, &never())
+        .expect("ff");
     assert_eq!(outcome.kind, OutcomeKind::FastForward);
     assert_eq!(f.head(), ahead_tip);
     // Reset main back and merge with --no-ff: a merge commit.
     f.git(&["reset", "-q", "--hard", "main~1"]);
-    let outcome = e.merge("ahead", MergeMode::NoFf, &never()).expect("no-ff");
+    let outcome = e
+        .merge("ahead", MergeMode::NoFf, false, &never())
+        .expect("no-ff");
     assert_eq!(outcome.kind, OutcomeKind::Merged);
     assert_eq!(f.git(&["rev-parse", "HEAD^2"]), ahead_tip);
     assert_eq!(outcome.hash.as_deref(), Some(f.head().as_str()));
@@ -266,14 +303,14 @@ fn merges_fast_forward_no_ff_and_ff_only() {
     f.commit("diverged");
     f.git(&["switch", "-q", "main"]);
     let error = e
-        .merge("diverged", MergeMode::FfOnly, &never())
+        .merge("diverged", MergeMode::FfOnly, false, &never())
         .expect_err("not a fast-forward");
     assert!(matches!(error, GitError::Cli { .. }), "{error:?}");
     assert_eq!(e.operation_state().expect("state"), OperationState::None);
     // A revision that names nothing (a path, a typo) is `refs.not_found`, before git runs.
     for wrong in ["src/lib.rs", "no-such-branch"] {
         let error = e
-            .merge(wrong, MergeMode::Default, &never())
+            .merge(wrong, MergeMode::Default, false, &never())
             .expect_err("nothing to merge");
         assert_eq!(error.code(), "refs.not_found", "{wrong}: {error:?}");
     }
@@ -296,7 +333,7 @@ fn a_merge_with_conflicts_stops_and_the_sequencer_finishes_or_abandons_it() {
     let e = engine(&f);
     let before = f.head();
     let outcome = e
-        .merge("other", MergeMode::Default, &never())
+        .merge("other", MergeMode::Default, false, &never())
         .expect("stops");
     assert_eq!(outcome.kind, OutcomeKind::Conflicts);
     assert_eq!(outcome.conflicts.len(), 1);
@@ -319,7 +356,7 @@ fn a_merge_with_conflicts_stops_and_the_sequencer_finishes_or_abandons_it() {
     assert_eq!(read(&f, "README.md"), "# Main\n");
     assert_eq!(e.operation_state().expect("state"), OperationState::None);
     // Again, resolve and continue.
-    e.merge("other", MergeMode::Default, &never())
+    e.merge("other", MergeMode::Default, false, &never())
         .expect("stops");
     f.write("README.md", "# Both\n");
     e.mark_resolved(&["README.md".to_owned()], &never())
@@ -347,13 +384,13 @@ fn rebases_cleanly_and_stops_on_conflicts_with_skip_and_continue() {
     f.commit("topic one");
     f.write("topic.txt", "one\ntwo\n");
     f.commit("topic two");
-    let outcome = e.rebase("main", &never()).expect("rebase");
+    let outcome = e.rebase("main", false, &never()).expect("rebase");
     assert_eq!(outcome.kind, OutcomeKind::Done);
     assert_eq!(f.git(&["rev-parse", "HEAD~2"]), f.rev("main"));
     assert_eq!(f.git(&["rev-list", "--count", "main..HEAD"]), "2");
     // Again onto the same base: up to date, nothing moved.
     let tip = f.head();
-    let outcome = e.rebase("main", &never()).expect("nothing to do");
+    let outcome = e.rebase("main", false, &never()).expect("nothing to do");
     assert_eq!(outcome.kind, OutcomeKind::UpToDate);
     assert_eq!(f.head(), tip);
     // A conflicting rebase: topic2 edits README as main did.
@@ -366,7 +403,7 @@ fn rebases_cleanly_and_stops_on_conflicts_with_skip_and_continue() {
     f.write("README.md", "# Main\n");
     f.commit("main readme");
     f.git(&["switch", "-q", "topic2"]);
-    let outcome = e.rebase("main", &never()).expect("stops");
+    let outcome = e.rebase("main", false, &never()).expect("stops");
     assert_eq!(outcome.kind, OutcomeKind::Conflicts);
     assert_eq!(outcome.conflicts[0].path, "README.md");
     assert_eq!(e.operation_state().expect("state"), OperationState::Rebase);
@@ -489,7 +526,7 @@ fn conflict_kinds_follow_the_porcelain() {
     f.write("d.txt", "d ours\n");
     f.commit("ours");
     let outcome = e
-        .merge("theirs", MergeMode::Default, &never())
+        .merge("theirs", MergeMode::Default, false, &never())
         .expect("stops");
     assert_eq!(outcome.kind, OutcomeKind::Conflicts);
     let kinds: Vec<(String, ConflictKind)> = outcome
@@ -565,7 +602,7 @@ fn an_autostash_that_conflicts_after_a_clean_rebase_is_a_stop() {
     f.git(&["switch", "-q", "topic"]);
     f.write("README.md", "# Dirty\n");
     // git rebases (exit 0), then says the autostash conflicted and keeps it in the stash.
-    let outcome = e.rebase("main", &never()).expect("rebased");
+    let outcome = e.rebase("main", false, &never()).expect("rebased");
     assert_eq!(outcome.kind, OutcomeKind::Conflicts, "{outcome:?}");
     assert_eq!(outcome.conflicts[0].path, "README.md");
     assert_eq!(e.operation_state().expect("state"), OperationState::None);
@@ -589,6 +626,7 @@ fn creates_a_branch_that_tracks_a_remote_branch_whatever_auto_setup_merge_says()
         "refs/remotes/origin/develop",
         true,
         true,
+        LocalChanges::Refuse,
         &never(),
     )
     .expect("create, switch and track");
@@ -604,6 +642,7 @@ fn creates_a_branch_that_tracks_a_remote_branch_whatever_auto_setup_merge_says()
         "refs/remotes/origin/main",
         false,
         true,
+        LocalChanges::Refuse,
         &never(),
     )
     .expect("create and track");
@@ -632,6 +671,7 @@ fn a_tracked_branch_from_a_ref_two_remotes_claim_is_refused_before_anything_chan
             "refs/remotes/origin/develop",
             checkout,
             true,
+            LocalChanges::Refuse,
             &never(),
         )
         .expect_err("ambiguous upstream");
@@ -663,6 +703,7 @@ fn a_tracked_branch_from_a_ref_no_remote_fetches_is_refused_before_anything_chan
         "refs/remotes/stale/develop",
         true,
         true,
+        LocalChanges::Refuse,
         &never(),
     )
     .expect_err("no remote fetches it");

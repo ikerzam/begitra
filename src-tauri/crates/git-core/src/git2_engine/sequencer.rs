@@ -3,8 +3,10 @@
 
 use git2::RepositoryState;
 
-use super::Git2Engine;
-use crate::cli::{run_git_cancellable, run_git_env, CliExit, WRITE_ENV};
+use super::{local_changes, Git2Engine};
+use std::time::Duration;
+
+use crate::cli::{run_git_cancellable, run_git_env, run_git_env_within, CliExit, WRITE_ENV};
 use crate::engine::{Cancel, GitEngine};
 use crate::error::{GitError, GitResult};
 use crate::types::{Conflict, ConflictKind, OperationState, Outcome, OutcomeKind, SequencerAction};
@@ -70,20 +72,32 @@ pub(super) fn parse_conflicts(output: &[u8]) -> Vec<Conflict> {
     conflicts
 }
 
+/// The status that lists the conflicted paths, read without taking the index lock.
+const CONFLICTS: [&str; 5] = [
+    "--no-optional-locks",
+    "status",
+    "--porcelain=v2",
+    "-z",
+    "--untracked-files=no",
+];
+
 /// See [`GitEngine::conflicts`]: `git status --porcelain=v2 -z`'s `u` records, read without
 /// taking the index lock.
 pub(super) fn conflicts(engine: &Git2Engine, cancel: &Cancel) -> GitResult<Vec<Conflict>> {
+    let exit = run_git_cancellable(&GitEngine::repo(engine).root, &CONFLICTS, cancel)?;
+    conflicts_of(exit)
+}
+
+/// [`conflicts`] for a step that no cancel stops: git is stopped past `limit`.
+pub(super) fn conflicts_within(engine: &Git2Engine, limit: Duration) -> GitResult<Vec<Conflict>> {
     let root = &GitEngine::repo(engine).root;
-    let args = [
-        "--no-optional-locks",
-        "status",
-        "--porcelain=v2",
-        "-z",
-        "--untracked-files=no",
-    ];
-    let exit = run_git_cancellable(root, &args, cancel)?;
+    let exit = run_git_env_within(root, &CONFLICTS, &[], &Cancel::never(), limit)?;
+    conflicts_of(exit)
+}
+
+fn conflicts_of(exit: CliExit) -> GitResult<Vec<Conflict>> {
     if exit.status != Some(0) {
-        return Err(exit.into_failure(&args));
+        return Err(exit.into_failure(&CONFLICTS));
     }
     Ok(parse_conflicts(&exit.stdout))
 }
@@ -134,6 +148,7 @@ pub(super) fn outcome(
             kind: done,
             hash: head_hash(engine)?,
             conflicts: Vec::new(),
+            stash: None,
         });
     }
     if exit.status == Some(1) && operation_state(engine)? != OperationState::None {
@@ -146,6 +161,7 @@ pub(super) fn outcome(
                 kind: OutcomeKind::Conflicts,
                 hash,
                 conflicts: conflicted,
+                stash: None,
             });
         }
     }
@@ -175,7 +191,9 @@ pub(super) fn after_autostash(
 }
 
 /// See [`GitEngine::sequencer`]: the command of the operation in progress; a merge has no
-/// skip, and nothing in progress is an error of the caller's, not git's.
+/// skip, and nothing in progress is an error of the caller's, not git's. A continue, skip or
+/// abort that ends the operation applies what its autostash holds aside: the outcome says
+/// whether git kept that stash.
 pub(super) fn sequencer(
     engine: &Git2Engine,
     action: SequencerAction,
@@ -211,8 +229,12 @@ pub(super) fn sequencer(
         SequencerAction::Continue => Some(marks(engine, cancel)?),
         _ => None,
     };
-    let exit = run_git_env(root, &args, &WRITE_ENV, cancel)?;
-    outcome(
+    let held = local_changes::stash_before(engine)?;
+    // A continue or an abort git fails after letting go of what it held aside (a merge's abort
+    // whose reset fails) leaves it listed again, named in the error.
+    let rescued = |error| local_changes::rescued(engine, error, &held, None);
+    let exit = run_git_env(root, &args, &WRITE_ENV, cancel).map_err(rescued)?;
+    let outcome = outcome(
         engine,
         &args,
         exit,
@@ -220,6 +242,9 @@ pub(super) fn sequencer(
         before.as_ref(),
         cancel,
     )
+    .map_err(rescued)?;
+    let outcome = after_autostash(engine, outcome, cancel)?;
+    Ok(local_changes::after_operation(engine, outcome, &held, None))
 }
 
 #[cfg(test)]

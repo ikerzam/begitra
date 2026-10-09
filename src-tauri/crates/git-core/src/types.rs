@@ -1037,6 +1037,47 @@ pub struct Outcome {
     pub hash: Option<String>,
     /// The conflicted paths when it stopped on conflicts.
     pub conflicts: Vec<Conflict>,
+    /// The commit of the stash git kept when the changes it had set aside (an autostash) did
+    /// not come back cleanly: with conflicts when `kind` is `conflicts`, not applied at all or
+    /// only in part otherwise. None when they came back whole or none were set aside.
+    #[serde(default)]
+    pub stash: Option<String>,
+}
+
+/// How a switch treats the changes git says are in its way.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LocalChanges {
+    /// As git does: the switch is refused.
+    #[default]
+    Refuse,
+    /// When git refuses: stashed (with the untracked files when git names them), switched,
+    /// then popped on the new branch.
+    Carry,
+    /// Stashed with the untracked files, then switched; the stash stays.
+    Leave,
+}
+
+/// What a switch did with the local changes.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Switched {
+    /// The commit of the stash that holds the changes: left there, or kept because they came
+    /// back with conflicts or not whole.
+    pub stash: Option<String>,
+    /// The conflicted paths when the carried changes came back with conflicts.
+    pub conflicts: Vec<Conflict>,
+    /// git's words when part of the carried changes, or all of them, did not come back (an
+    /// untracked file the branch tracks): only the stash holds that part.
+    pub kept: Option<String>,
+    /// git's words when it reported a failure after switching (a post-checkout hook), or
+    /// errors while switching it went past (a file it could not rewrite).
+    #[serde(default)]
+    pub notice: Option<String>,
+    /// The carried changes came back whole, but what was staged did not apply on the new
+    /// commit and came back unstaged.
+    #[serde(default)]
+    pub unstaged: bool,
 }
 
 /// The operation a repository is in the middle of.
@@ -1436,6 +1477,10 @@ pub struct PullRequest {
     /// and `merge.ff` say: a bulk pull never makes a merge commit. Refused with `rebase`.
     #[serde(default)]
     pub ff_only: bool,
+    /// Set the local changes aside for the merge or the rebase and apply them back after
+    /// (`--autostash`); without it a fast-forward-only pull runs `--no-autostash`.
+    #[serde(default)]
+    pub autostash: bool,
 }
 
 /// A push request: `git push [--delete] [--set-upstream] [--force-with-lease] [remote [ref]]`,

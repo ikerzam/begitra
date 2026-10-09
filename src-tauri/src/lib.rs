@@ -227,6 +227,7 @@ pub fn run() {
             commands::branches::conflicts,
             commands::branches::mark_resolved,
             commands::branches::operation_sides,
+            commands::branches::held_aside,
             commands::branches::take_side,
             commands::branches::restore_conflicts,
             commands::branches::conflict_blocks,

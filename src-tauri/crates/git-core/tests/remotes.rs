@@ -237,6 +237,7 @@ fn fetches_with_prune_and_pulls_with_and_without_rebase() {
                 branch: Some("develop".to_owned()),
                 rebase: false,
                 ff_only: false,
+                autostash: false,
             },
             Prompts::Allowed,
             &mut |_| {},
@@ -257,6 +258,7 @@ fn fetches_with_prune_and_pulls_with_and_without_rebase() {
                 branch: Some("develop".to_owned()),
                 rebase: true,
                 ff_only: false,
+                autostash: false,
             },
             Prompts::Allowed,
             &mut |_| {},
@@ -314,6 +316,7 @@ fn a_pull_tells_a_fast_forward_from_a_merge_and_says_up_to_date() {
         branch: Some("main".to_owned()),
         rebase: false,
         ff_only: false,
+        autostash: false,
     };
     let outcome = e
         .pull(&request, Prompts::Allowed, &mut |_| {}, &never())
@@ -355,6 +358,7 @@ fn a_pull_tells_a_fast_forward_from_a_merge_and_says_up_to_date() {
                 branch: Some("develop".to_owned()),
                 rebase: false,
                 ff_only: false,
+                autostash: false,
             },
             Prompts::Allowed,
             &mut |_| {},
@@ -384,6 +388,7 @@ fn a_fast_forward_only_pull_moves_says_up_to_date_or_refuses_whatever_the_config
         branch: None,
         rebase: false,
         ff_only: true,
+        autostash: false,
     };
     let outcome = e
         .pull(&request, Prompts::Allowed, &mut |_| {}, &never())
@@ -487,6 +492,7 @@ fn nothing_may_prompt_in_a_fetch_pull_or_push_that_asks_so_and_a_local_remote_wo
         branch: Some("main".to_owned()),
         rebase: false,
         ff_only: true,
+        autostash: false,
     };
     let push_probe = PushRequest {
         remote: Some("probe".to_owned()),
@@ -602,6 +608,7 @@ fn a_bulk_pull_checks_out_what_it_brought_with_nothing_allowed_to_prompt() {
         branch: None,
         rebase: false,
         ff_only: true,
+        autostash: false,
     };
     let outcome = e
         .pull(&request, Prompts::Never, &mut |_| {}, &never())
@@ -632,12 +639,13 @@ fn a_fast_forward_only_pull_never_stashes_whatever_merge_autostash_says() {
         branch: None,
         rebase: false,
         ff_only: true,
+        autostash: false,
     };
     let error = e
         .pull(&request, Prompts::Never, &mut |_| {}, &never())
         .expect_err("the local change is in the way");
     match &error {
-        GitError::Cli { stderr, .. } => {
+        GitError::LocalChanges { stderr, .. } => {
             assert!(stderr.contains("would be overwritten"), "{stderr}");
         }
         other => panic!("unexpected {other:?}"),
@@ -649,6 +657,91 @@ fn a_fast_forward_only_pull_never_stashes_whatever_merge_autostash_says() {
         fs::read_to_string(f.root.join("README.md")).expect("readme"),
         "# Fixture\nlocal edit\n"
     );
+    f.tick();
+}
+
+#[test]
+fn a_fast_forward_only_pull_sets_the_changes_aside_when_asked() {
+    let mut f = Fixture::basic().with_remote();
+    let e = engine(&f);
+    let tip = upstream_one_ahead(
+        &mut f,
+        "README.md",
+        "# Fixture
+from upstream
+",
+    );
+    f.write(
+        "README.md",
+        "# Fixture
+local edit
+",
+    );
+    let request = PullRequest {
+        remote: None,
+        branch: None,
+        rebase: false,
+        ff_only: true,
+        autostash: true,
+    };
+    // The change conflicts with what the fast-forward brought: git keeps its autostash.
+    let outcome = e
+        .pull(&request, Prompts::Never, &mut |_| {}, &never())
+        .expect("pulled");
+    assert_eq!(outcome.kind, OutcomeKind::Conflicts, "{outcome:?}");
+    assert_eq!(outcome.conflicts[0].path, "README.md");
+    let stash = outcome.stash.expect("the stash git kept");
+    assert!(f.git(&["stash", "list", "--format=%H"]).starts_with(&stash));
+    assert_eq!(f.head(), tip);
+    f.git(&["reset", "-q", "--hard"]);
+    f.git(&["stash", "drop", "-q"]);
+    f.tick();
+}
+
+#[test]
+fn a_rebasing_pull_refused_over_local_changes_sets_them_aside_when_asked() {
+    let mut f = Fixture::basic().with_remote();
+    let e = engine(&f);
+    upstream_one_ahead(
+        &mut f,
+        "README.md",
+        "# Fixture
+from upstream
+",
+    );
+    f.write(
+        "docs/notes.md",
+        "local
+",
+    );
+    f.git(&["add", "docs/notes.md"]);
+    f.commit("a local commit");
+    f.write(
+        "src/lib.rs",
+        "pub fn one() -> u32 {
+    11
+}
+",
+    );
+    let mut request = PullRequest {
+        remote: None,
+        branch: None,
+        rebase: true,
+        ff_only: false,
+        autostash: false,
+    };
+    let error = e
+        .pull(&request, Prompts::Never, &mut |_| {}, &never())
+        .expect_err("refused");
+    assert_eq!(error.code(), "git.local_changes", "{error:?}");
+    request.autostash = true;
+    let outcome = e
+        .pull(&request, Prompts::Never, &mut |_| {}, &never())
+        .expect("rebased");
+    assert_eq!(outcome.kind, OutcomeKind::Done, "{outcome:?}");
+    assert_eq!(outcome.stash, None);
+    assert_eq!(f.git(&["rev-parse", "HEAD~1"]), f.rev("origin/main"));
+    assert_eq!(f.git(&["status", "--porcelain"]), " M src/lib.rs");
     f.tick();
 }
 
@@ -667,6 +760,7 @@ fn a_pull_whose_upstream_left_the_remote_says_which_ref_was_not_fetched() {
         branch: None,
         rebase: false,
         ff_only: true,
+        autostash: false,
     };
     let error = e
         .pull(&request, Prompts::Never, &mut |_| {}, &never())
@@ -727,6 +821,7 @@ fn a_branch_that_starts_with_a_plus_never_forces() {
                 branch: Some("+develop".to_owned()),
                 rebase: false,
                 ff_only: false,
+                autostash: false,
             },
             Prompts::Allowed,
             &mut |_| {},

@@ -3,12 +3,14 @@
     "remote": null,
     "branch": null,
     "rebase": false,
-    "ffOnly": true
+    "ffOnly": true,
+    "autostash": true
   },
   {
     "remote": "origin",
     "branch": "main",
     "rebase": true,
-    "ffOnly": false
+    "ffOnly": false,
+    "autostash": false
   }
 ]

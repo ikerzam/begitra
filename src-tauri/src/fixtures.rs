@@ -18,8 +18,8 @@ use git_core::types::{
     OutcomeKind, PatchSelection, PullRequest, PushRequest, RecentAuthor, RecentMessage,
     RecentMessages, Ref, RefKind, Remote, Repo, ResetMode, SelectedHunk, SelectedLine,
     SequencerAction, Side, SideName, Signature, Span, StashPush, StatusEntry, StatusOptions,
-    SwitchTarget, WalkFilter, WalkOptions, WalkOrder, WalkScope, WorkingTreeBase, Worktree,
-    WorktreeAdd, WorktreeBranch,
+    SwitchTarget, Switched, WalkFilter, WalkOptions, WalkOrder, WalkScope, WorkingTreeBase,
+    Worktree, WorktreeAdd, WorktreeBranch,
 };
 use serde::Serialize;
 use syntax::{Highlight, Symbol, SymbolKind, Token, TokenClass};
@@ -456,7 +456,10 @@ fn app_errors() -> Vec<AppError> {
         .iter()
         .map(|code| {
             let error = AppError::new(code, format!("Sample message for {code}"));
-            if matches!(*code, codes::GIT_CLI_FAILED | codes::REPO_CORRUPT_OBJECT) {
+            if matches!(
+                *code,
+                codes::GIT_CLI_FAILED | codes::GIT_LOCAL_CHANGES | codes::REPO_CORRUPT_OBJECT
+            ) {
                 error.with_detail("fatal: raw output")
             } else {
                 error
@@ -664,26 +667,73 @@ fn write_phase7() {
                 kind: OutcomeKind::FastForward,
                 hash: Some("9f3e2c1a7b5d4e6f8a0b1c2d3e4f5a6b7c8d9e0f".to_owned()),
                 conflicts: Vec::new(),
+                stash: None,
             },
             Outcome {
                 kind: OutcomeKind::Merged,
                 hash: Some("a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4".to_owned()),
                 conflicts: Vec::new(),
+                stash: None,
             },
             Outcome {
                 kind: OutcomeKind::Done,
                 hash: Some("7f8e9d0a1b2c3d4e5f67890a1b2c3d4e5f678901".to_owned()),
                 conflicts: Vec::new(),
+                stash: None,
             },
             Outcome {
                 kind: OutcomeKind::UpToDate,
                 hash: None,
                 conflicts: Vec::new(),
+                stash: None,
             },
             Outcome {
                 kind: OutcomeKind::Conflicts,
                 hash: None,
                 conflicts: conflicts.clone(),
+                stash: None,
+            },
+            // The changes came back with conflicts: git kept its autostash.
+            Outcome {
+                kind: OutcomeKind::Conflicts,
+                hash: Some("9f3e2c1a7b5d4e6f8a0b1c2d3e4f5a6b7c8d9e0f".to_owned()),
+                conflicts: conflicts.clone(),
+                stash: Some("c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7".to_owned()),
+            },
+        ],
+    );
+    write(
+        "switched",
+        &[
+            Switched::default(),
+            Switched {
+                stash: Some("c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7".to_owned()),
+                ..Switched::default()
+            },
+            Switched {
+                stash: Some("c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7".to_owned()),
+                conflicts: conflicts.clone(),
+                ..Switched::default()
+            },
+            Switched {
+                stash: Some("c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7".to_owned()),
+                kept: Some(
+                    "notes/tile-cache.md already exists, no checkout\nerror: could not restore untracked files from stash"
+                        .to_owned(),
+                ),
+                ..Switched::default()
+            },
+            // Carried whole, what was staged back unstaged.
+            Switched {
+                unstaged: true,
+                ..Switched::default()
+            },
+            // A switch that happened, then a post-checkout hook that failed.
+            Switched {
+                notice: Some(
+                    "Switched to branch 'develop'\ngit-lfs was not found on your path".to_owned(),
+                ),
+                ..Switched::default()
             },
         ],
     );
@@ -1013,12 +1063,14 @@ fn write_phase7() {
                 branch: None,
                 rebase: false,
                 ff_only: true,
+                autostash: true,
             },
             PullRequest {
                 remote: Some("origin".to_owned()),
                 branch: Some("main".to_owned()),
                 rebase: true,
                 ff_only: false,
+                autostash: false,
             },
         ],
     );
@@ -1090,6 +1142,7 @@ fn write_phase7() {
                         kind: OutcomeKind::Conflicts,
                         hash: None,
                         conflicts: conflicts.clone(),
+                        stash: None,
                     },
                 },
             },

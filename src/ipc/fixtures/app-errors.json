@@ -58,6 +58,11 @@
     "detail": "fatal: raw output"
   },
   {
+    "code": "git.local_changes",
+    "message": "Sample message for git.local_changes",
+    "detail": "fatal: raw output"
+  },
+  {
     "code": "stash.not_found",
     "message": "Sample message for stash.not_found"
   },

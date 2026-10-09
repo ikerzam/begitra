@@ -17,6 +17,7 @@ mod diff_pages;
 mod filter;
 mod ignore;
 pub mod index_snapshot;
+mod local_changes;
 mod messages;
 pub mod patch;
 mod recent;
@@ -53,6 +54,7 @@ use crate::types::{
 use crate::types::{BlockResolution, BlockResolved, BlockUndo, ConflictText};
 use crate::types::{BranchToDelete, CleanupCandidates, DeleteOutcome, FastForward, MainForward};
 use crate::types::{IgnoreOutcome, IgnorePlace, IgnoreRule};
+use crate::types::{LocalChanges, Switched};
 use crate::types::{RecentAuthor, RecentMessages};
 
 /// A repository opened with libgit2.
@@ -531,13 +533,19 @@ impl GitEngine for Git2Engine {
         start: &str,
         checkout: bool,
         track: bool,
+        local_changes: LocalChanges,
         cancel: &Cancel,
-    ) -> GitResult<()> {
-        branches::branch_create(self, name, start, checkout, track, cancel)
+    ) -> GitResult<Switched> {
+        branches::branch_create(self, name, start, checkout, track, local_changes, cancel)
     }
 
-    fn switch(&self, target: &SwitchTarget, cancel: &Cancel) -> GitResult<()> {
-        branches::switch(self, target, cancel)
+    fn switch(
+        &self,
+        target: &SwitchTarget,
+        local_changes: LocalChanges,
+        cancel: &Cancel,
+    ) -> GitResult<Switched> {
+        branches::switch(self, target, local_changes, cancel)
     }
 
     fn branch_rename(&self, from: &str, to: &str, cancel: &Cancel) -> GitResult<()> {
@@ -548,12 +556,18 @@ impl GitEngine for Git2Engine {
         branches::branch_delete(self, name, force, cancel)
     }
 
-    fn merge(&self, rev: &str, mode: MergeMode, cancel: &Cancel) -> GitResult<Outcome> {
-        branches::merge(self, rev, mode, cancel)
+    fn merge(
+        &self,
+        rev: &str,
+        mode: MergeMode,
+        autostash: bool,
+        cancel: &Cancel,
+    ) -> GitResult<Outcome> {
+        branches::merge(self, rev, mode, autostash, cancel)
     }
 
-    fn rebase(&self, onto: &str, cancel: &Cancel) -> GitResult<Outcome> {
-        branches::rebase(self, onto, cancel)
+    fn rebase(&self, onto: &str, autostash: bool, cancel: &Cancel) -> GitResult<Outcome> {
+        branches::rebase(self, onto, autostash, cancel)
     }
 
     fn reset(&self, rev: &str, mode: ResetMode, cancel: &Cancel) -> GitResult<()> {
@@ -650,6 +664,10 @@ impl GitEngine for Git2Engine {
 
     fn operation_sides(&self) -> GitResult<Option<OperationSides>> {
         sides::operation_sides(self)
+    }
+
+    fn held_aside(&self) -> GitResult<Option<String>> {
+        local_changes::held_aside(self)
     }
 
     fn take_side(&self, paths: &[String], side: Side, cancel: &Cancel) -> GitResult<()> {

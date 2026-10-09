@@ -2,22 +2,26 @@
   {
     "kind": "fast-forward",
     "hash": "9f3e2c1a7b5d4e6f8a0b1c2d3e4f5a6b7c8d9e0f",
-    "conflicts": []
+    "conflicts": [],
+    "stash": null
   },
   {
     "kind": "merged",
     "hash": "a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4",
-    "conflicts": []
+    "conflicts": [],
+    "stash": null
   },
   {
     "kind": "done",
     "hash": "7f8e9d0a1b2c3d4e5f67890a1b2c3d4e5f678901",
-    "conflicts": []
+    "conflicts": [],
+    "stash": null
   },
   {
     "kind": "up-to-date",
     "hash": null,
-    "conflicts": []
+    "conflicts": [],
+    "stash": null
   },
   {
     "kind": "conflicts",
@@ -35,6 +39,26 @@
         "path": "docs/auth.md",
         "kind": "both-added"
       }
-    ]
+    ],
+    "stash": null
+  },
+  {
+    "kind": "conflicts",
+    "hash": "9f3e2c1a7b5d4e6f8a0b1c2d3e4f5a6b7c8d9e0f",
+    "conflicts": [
+      {
+        "path": "apps/api/src/auth/middleware.ts",
+        "kind": "both-modified"
+      },
+      {
+        "path": "apps/api/src/auth/refresh.ts",
+        "kind": "deleted-by-them"
+      },
+      {
+        "path": "docs/auth.md",
+        "kind": "both-added"
+      }
+    ],
+    "stash": "c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7"
   }
 ]

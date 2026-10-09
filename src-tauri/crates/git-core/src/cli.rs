@@ -772,6 +772,21 @@ pub fn run_git_with_input_within(
     )
 }
 
+/// [`run_git_with_input_within`] with extra environment variables (see [`WRITE_ENV`]).
+#[tracing::instrument(level = "debug", skip_all, fields(cwd = %cwd.display(), args = ?Redacted(args), input_bytes = input.len(), limit = ?limit))]
+pub fn run_git_env_with_input_within(
+    cwd: &Path,
+    args: &[&str],
+    env: &[(&str, &str)],
+    input: Vec<u8>,
+    cancel: &Cancel,
+    limit: Duration,
+) -> GitResult<CliExit> {
+    let mut command = command(cwd, args);
+    command.envs(env.iter().copied());
+    run_polled(command, joined(args), cancel, Some(limit), Some(input))
+}
+
 /// [`run_git_with_input`] with extra environment variables (see [`run_git_env`]) that answers at
 /// `budget` with what git wrote so far: past it the tree is stopped and the exit holds the
 /// output read until then, with no status. For a batch that writes each answer as it ends

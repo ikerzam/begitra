@@ -93,6 +93,16 @@ pub enum GitError {
         /// Standard error output, verbatim.
         stderr: String,
     },
+    /// git refused a switch, a merge, a rebase or a pull because changes in the working tree or
+    /// the index are in the way; nothing changed. git's words name the files, when it names
+    /// any.
+    #[error("git {command} refused: local changes are in the way: {stderr}")]
+    LocalChanges {
+        /// The arguments that were passed, joined by spaces, for diagnostics.
+        command: String,
+        /// Standard error output, verbatim.
+        stderr: String,
+    },
     /// The stash named by this commit is no longer in the stash list: it was applied or
     /// dropped, or its entry deleted from the stash's reflog, since the list was read.
     #[error("stash {0} is no longer in the stash list")]
@@ -172,6 +182,7 @@ impl GitError {
             GitError::WorktreeDirty(_) => "worktree.dirty",
             GitError::GitNotStarted { .. } => "git.not_started",
             GitError::Cli { .. } => "git.cli_failed",
+            GitError::LocalChanges { .. } => "git.local_changes",
             GitError::StashNotFound(_) => "stash.not_found",
             GitError::NotConflicted(_) => "conflict.not_conflicted",
             GitError::ConflictGone(_) => "conflict.gone",
@@ -197,13 +208,13 @@ impl GitError {
             | GitError::BlobUnreadable { reason, .. }
             | GitError::IgnoreWriteFailed { reason, .. }
             | GitError::ConflictWriteFailed { reason, .. } => Some(reason),
-            GitError::Cli { stderr, .. } => Some(stderr),
+            GitError::Cli { stderr, .. } | GitError::LocalChanges { stderr, .. } => Some(stderr),
             _ => None,
         }
     }
 
     /// Every code an engine error can carry, for the tests that keep the IPC list in sync.
-    pub const CODES: [&'static str; 25] = [
+    pub const CODES: [&'static str; 26] = [
         "repo.not_found",
         "repo.invalid",
         "repo.corrupt_object",
@@ -218,6 +229,7 @@ impl GitError {
         "worktree.dirty",
         "git.not_started",
         "git.cli_failed",
+        "git.local_changes",
         "stash.not_found",
         "conflict.not_conflicted",
         "conflict.gone",
@@ -326,6 +338,10 @@ mod tests {
             GitError::GitNotStarted {
                 command: String::new(),
                 reason: String::new(),
+            },
+            GitError::LocalChanges {
+                command: String::new(),
+                stderr: String::new(),
             },
             GitError::Cli {
                 command: String::new(),
