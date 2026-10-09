@@ -132,6 +132,7 @@ describe("SyncButtons", () => {
       branch: null,
       rebase: false,
       ffOnly: true,
+      autostash: false,
     });
     wrapper.unmount();
   });

@@ -213,7 +213,13 @@ describe("fetch in the background", () => {
     await settled();
     expect(fetched(calls)).toEqual([api.path, infra.path]);
     const remotes = useRemotesStore();
-    const pulling = remotes.pull({ remote: null, branch: null, rebase: false, ffOnly: true });
+    const pulling = remotes.pull({
+      remote: null,
+      branch: null,
+      rebase: false,
+      ffOnly: true,
+      autostash: false,
+    });
     await Promise.resolve();
     const waiting = useOperationsStore().current;
     expect(waiting?.label).toBe("operations.waitingForBackgroundFetch");
@@ -230,7 +236,13 @@ describe("fetch in the background", () => {
     stop = useBackgroundFetchStore().begin();
     await settled();
     const remotes = useRemotesStore();
-    const pulling = remotes.pull({ remote: null, branch: null, rebase: false, ffOnly: true });
+    const pulling = remotes.pull({
+      remote: null,
+      branch: null,
+      rebase: false,
+      ffOnly: true,
+      autostash: false,
+    });
     await Promise.resolve();
     await remotes.cancel();
     expect(await pulling).toBe(false);

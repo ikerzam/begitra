@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ShortcutRegistry, setShortcutRegistry } from "@/shortcuts/registry";
 import { useBranchesStore } from "@/stores/branches";
+import { useLocalChangesStore } from "@/stores/localChanges";
 import { useIndexStore } from "@/stores/index";
 import { useRecentBranchesStore } from "@/stores/recentBranches";
 import { useProjectsStore } from "@/stores/projects";
@@ -101,9 +102,9 @@ describe("PaletteOverlay", () => {
   it("checks out the previous branch as the picker does, local changes in the way", async () => {
     const switches = await checkoutPrevious({ recentBranches: ["develop"], dirtySwitch: true });
     expect(switches).toEqual([{ kind: "branch", name: "develop" }]);
-    expect(useBranchesStore().prompt).toMatchObject({
-      kind: "dirtySwitch",
-      target: { name: "develop" },
+    expect(useLocalChangesStore().prompt).toMatchObject({
+      operation: "switch",
+      target: "develop",
     });
   });
 

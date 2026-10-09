@@ -199,6 +199,7 @@
     "changesFailed": "Couldn't read the working tree",
     "operationInProgress": "{operation} in progress · {n} conflict | {operation} in progress · {n} conflicts",
     "operationClean": "{operation} in progress",
+    "conflictCount": "{n} conflict | {n} conflicts",
     "cancelOperation": "cancel {what}",
     "markResolved": "mark resolved",
     "network": {
@@ -631,6 +632,8 @@
       "stash-changes": "Stash changes…",
       "continue-operation": "Continue the operation",
       "abort-operation": "Abort the operation…",
+      "keep-kept-stash": "Keep the stash of your changes",
+      "drop-kept-stash": "Drop the stash of your changes…",
       "new-project": "New project…",
       "edit-project": "Edit project…",
       "show-project-overview": "Show project overview",
@@ -674,6 +677,7 @@
     "gitNotStarted": "git could not be started. {message} Set the git executable in Settings.",
     "indexLock": "git could not take the index lock (index.lock). Another git process may be running; if none is, delete .git/index.lock and try again. {message}",
     "gitFailed": "git reported an error. {message}",
+    "localChanges": "git refused: local changes are in the way.",
     "spawnFailed": "The command could not be started. {message}",
     "notOnDisk": "{path} is not on disk.",
     "externalRefused": "Begitra opens only the pages of the code hosts it knows and the files of your repositories.",
@@ -1064,9 +1068,6 @@
       "hard": "Hard",
       "hardHint": "drops the index and the working tree changes",
       "reset": "Reset {mode}",
-      "dirtySwitchTitle": "Local changes would be overwritten",
-      "dirtySwitchBody": "git refused to switch to {name}: your local changes would be overwritten. Stash them (untracked files included), switch, then pop the stash when you are back.",
-      "stashAndSwitch": "Stash and switch",
       "deleteOnRemoteToo": "Delete {ref} too",
       "deleteTagTitle": "Delete tag {name}?",
       "deleteTagBody": "The tag is deleted. Tags have no reflog: the toast keeps its hash, and git tag brings it back until git gc runs.",
@@ -1085,6 +1086,7 @@
     "copyTagName": "Copy tag name",
     "nameCopied": "Name {name} copied",
     "detached": "HEAD detached at {name}",
+    "switchNotice": "Switched to {name}, but git reported an error",
     "tagDeleted": "Deleted tag {name}",
     "tagDeletedWas": "Deleted tag {name}; it pointed at {hash}",
     "menuTag": "Tag actions",
@@ -1158,6 +1160,7 @@
       "conflicts": "{n} conflict | {n} conflicts",
       "hint": "Resolve the files, mark them, then continue.",
       "hintClean": "Every conflict is marked resolved; continue or abort.",
+      "hintNoOperation": "Resolve the files and mark them.",
       "resolve": "Resolve…",
       "continue": "Continue",
       "skip": "Skip",
@@ -1791,5 +1794,58 @@
     "noAuthors": "No other author in the recent history",
     "noMatch": "No author matches",
     "failed": "Couldn't read the list"
+  },
+  "localChanges": {
+    "title": "Local changes in the way",
+    "switch": {
+      "changed": "git won't switch to {target} while these files have changes:",
+      "untracked": "git won't switch to {target} while these untracked files are in the way:",
+      "unnamed": "git won't switch to {target} while the working tree has changes."
+    },
+    "merge": {
+      "changed": "git won't merge {target} into {branch} while these files have changes:",
+      "untracked": "git won't merge {target} into {branch} while these untracked files are in the way:",
+      "unnamed": "git won't merge {target} into {branch} while the working tree has changes."
+    },
+    "pull": {
+      "changed": "git won't pull {target} into {branch} while these files have changes:",
+      "untracked": "git won't pull {target} into {branch} while these untracked files are in the way:",
+      "unnamed": "git won't pull {target} into {branch} while the working tree has changes."
+    },
+    "rebase": {
+      "changed": "git won't rebase {branch} onto {target} while these files have changes:",
+      "untracked": "git won't rebase {branch} onto {target} while these untracked files are in the way:",
+      "unnamed": "git won't rebase {branch} onto {target} while the working tree has changes."
+    },
+    "moveThem": "Move or delete them, then try again.",
+    "more": "and {n} more",
+    "bring": "Bring my changes",
+    "leave": "Leave them in a stash",
+    "aside": {
+      "merge": "Set them aside and merge",
+      "rebase": "Set them aside and rebase",
+      "pull": "Set them aside and pull"
+    },
+    "close": "Close",
+    "switchedWith": "Switched to {name} with your changes",
+    "switchedWithDetached": "HEAD detached at {name} with your changes",
+    "switchedUnstaged": "Switched to {name} with your changes. What was staged is unstaged now: it did not apply there.",
+    "switchedUnstagedDetached": "HEAD detached at {name} with your changes. What was staged is unstaged now: it did not apply there.",
+    "switchedLeft": "Switched to {name}. Your changes are in a stash ({hash}).",
+    "switchedLeftDetached": "HEAD detached at {name}. Your changes are in a stash ({hash}).",
+    "switchedKept": "Switched to {name}. Not all of your changes came back; the stash ({hash}) still holds them.",
+    "switchedKeptDetached": "HEAD detached at {name}. Not all of your changes came back; the stash ({hash}) still holds them.",
+    "stashKept": "Your changes stayed in a stash ({hash}).",
+    "openStashes": "Show stashes",
+    "backTitle": "Your changes came back with conflicts · {n} file | Your changes came back with conflicts · {n} files",
+    "backHint": "They are still in a stash. Resolve the files and mark them.",
+    "backResolvedTitle": "Your changes are back",
+    "backResolvedHint": "The stash still holds a copy of them.",
+    "keepIt": "Keep it",
+    "dropStash": "Drop the stash…",
+    "heldAside": {
+      "merge": "Your other changes come back when the merge is committed or aborted.",
+      "rebase": "Your other changes come back when the rebase ends or is aborted."
+    }
   }
 }

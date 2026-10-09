@@ -18,6 +18,7 @@ import { useBranchesStore } from "@/stores/branches";
 import { useRecentBranchesStore } from "@/stores/recentBranches";
 import { useCleanupStore } from "@/stores/cleanup";
 import { useIndexStore } from "@/stores/index";
+import { useLocalChangesStore } from "@/stores/localChanges";
 import { useChangesStore } from "@/stores/changes";
 import { useRemotesStore } from "@/stores/remotes";
 import { useSequencerStore } from "@/stores/sequencer";
@@ -60,6 +61,7 @@ export function usePaletteActions(): PaletteActions {
   const recentBranches = useRecentBranchesStore();
   const toasts = useToastsStore();
   const sequencer = useSequencerStore();
+  const localChanges = useLocalChangesStore();
   const stash = useStashStore();
   const projects = useProjectsStore();
   const projectDialogs = useProjectDialogsStore();
@@ -160,10 +162,19 @@ export function usePaletteActions(): PaletteActions {
     cleanUpBranches: () => void cleanup.open(),
     openRemotes: () => remotes.openSheet(),
     openStashes: () => stash.openSheet(),
-    inOperation: () => sequencer.inProgress,
+    // Conflicts with no operation (a stash that came back with them) have nothing to continue.
+    inOperation: () => sequencer.operation !== "none",
     sequencer: (action) => {
       if (action === "abort") sequencer.askAbort();
       else void sequencer.act("continue");
+    },
+    hasKeptStash: (action) =>
+      localChanges.keptShown &&
+      sequencer.conflictCount === 0 &&
+      (action === "keep" || localChanges.canDrop),
+    keptStash: (action) => {
+      if (action === "keep") localChanges.forget();
+      else localChanges.askDrop();
     },
     inChanges: () => shell.layoutMode === "changes",
     changesAll: (action) => {

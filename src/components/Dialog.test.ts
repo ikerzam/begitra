@@ -140,6 +140,36 @@ describe("Dialog", () => {
     expect(document.activeElement).toBe(confirm);
   });
 
+  it("focuses the confirm when asked, so ↵ runs it, and puts other actions before it", () => {
+    wrapper = mountWithI18n(Dialog, {
+      props: {
+        title: "Local changes in the way",
+        confirmLabel: "Bring my changes",
+        focusConfirm: true,
+      },
+      slots: { actions: "<button data-testid='other-way'>Leave them in a stash</button>" },
+      attachTo: document.body,
+    });
+    const confirm = wrapper.get("[data-testid='dialog-confirm']");
+    expect(document.activeElement).toBe(confirm.element);
+    const order = wrapper
+      .findAll("[role='dialog'] button")
+      .map((button) => button.attributes("data-testid"));
+    expect(order).toEqual(["dialog-cancel", "other-way", "dialog-confirm"]);
+  });
+
+  it("has no confirm when it only informs, and focuses its one button", () => {
+    wrapper = mountWithI18n(Dialog, {
+      props: { title: "Local changes in the way", cancelLabel: "Close", noConfirm: true },
+      slots: { default: "<button data-testid='toggle'>Show git output</button>" },
+      attachTo: document.body,
+    });
+    expect(wrapper.find("[data-testid='dialog-confirm']").exists()).toBe(false);
+    const close = wrapper.get("[data-testid='dialog-cancel']");
+    expect(close.text()).toBe("Close");
+    expect(document.activeElement).toBe(close.element);
+  });
+
   it("can disable the confirm button", () => {
     wrapper = mountWithI18n(Dialog, {
       props: { title: "Add worktree", confirmDisabled: true },

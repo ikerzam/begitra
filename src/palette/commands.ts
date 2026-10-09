@@ -110,6 +110,10 @@ export interface PaletteActions {
   /** Whether an operation stopped on conflicts is in progress. */
   inOperation: () => boolean;
   sequencer: (action: "continue" | "abort") => void;
+  /** Whether the banner of a stash git kept, the changes back from it, offers the action. */
+  hasKeptStash: (action: "keep" | "drop") => boolean;
+  /** That banner's "Keep it" and "Drop the stash…". */
+  keptStash: (action: "keep" | "drop") => void;
   openSettings: () => Promise<void>;
   addWorktree: () => void;
   /** Whether some worktree entry can be pruned (its folder is gone). */
@@ -545,6 +549,18 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       labelKey: "palette.commandsById.abort-operation",
       enabled: () => withRepo() && actions.inOperation(),
       run: () => actions.sequencer("abort"),
+    },
+    {
+      id: "keep-kept-stash",
+      labelKey: "palette.commandsById.keep-kept-stash",
+      enabled: () => withRepo() && actions.hasKeptStash("keep"),
+      run: () => actions.keptStash("keep"),
+    },
+    {
+      id: "drop-kept-stash",
+      labelKey: "palette.commandsById.drop-kept-stash",
+      enabled: () => withRepo() && actions.hasKeptStash("drop"),
+      run: () => actions.keptStash("drop"),
     },
     {
       id: "toggle-overview",

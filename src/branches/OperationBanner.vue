@@ -2,8 +2,10 @@
 // The banner under the top bar while an operation is in progress: the
 // operation and its source, the conflict count, the hint, "Resolve…" from any other screen,
 // "Skip" where git has one, "Abort <operation>…" (confirmed once) and "Continue" (disabled
-// while a conflict remains). A refused continue shows git's words under the banner. The
-// confirmation of a conflicted file taken whole from one side, asked from any screen, is here.
+// while a conflict remains). A refused continue shows git's words under the banner, and a stash
+// git's autostash holds aside the line that says when the changes come back; conflicts that
+// came back from a kept stash are KeptStashBanner's. The confirmation of a conflicted file
+// taken whole from one side, asked from any screen, is here.
 
 import { GitMerge } from "@lucide/vue";
 import { computed, watch } from "vue";
@@ -11,13 +13,13 @@ import { useI18n } from "vue-i18n";
 
 import Button from "@/components/Button.vue";
 import Dialog from "@/components/Dialog.vue";
-import ErrorBanner from "@/components/ErrorBanner.vue";
-import { errorText } from "@/shell/errorMessage";
 import { useChangesStore } from "@/stores/changes";
+import { useLocalChangesStore } from "@/stores/localChanges";
 import { useRepoStore } from "@/stores/repo";
 import { useSequencerStore } from "@/stores/sequencer";
 import { useShellStore } from "@/stores/shell";
 
+import SequencerFailure from "./SequencerFailure.vue";
 import { useSideTexts } from "./useSideTexts";
 
 const { t } = useI18n();
@@ -26,6 +28,15 @@ const changes = useChangesStore();
 const repo = useRepoStore();
 const shell = useShellStore();
 const sideTexts = useSideTexts();
+const localChanges = useLocalChangesStore();
+
+/** When the changes git's autostash holds aside come back. */
+const heldAside = computed(() =>
+  sequencer.heldAside !== null &&
+  (sequencer.operation === "merge" || sequencer.operation === "rebase")
+    ? t(`localChanges.heldAside.${sequencer.operation}`)
+    : "",
+);
 
 /** The confirmation of a side taken, while its file is still conflicted. */
 const takeDialog = computed(() => {
@@ -65,18 +76,11 @@ const title = computed(() => {
   return `${t(`sequencer.banner.${sequencer.operation}`, { branch: branch.value })}${suffix}`;
 });
 
-const hint = computed(() =>
-  sequencer.conflictCount > 0 ? t("sequencer.banner.hint") : t("sequencer.banner.hintClean"),
-);
-
-const failure = computed(() => {
-  const error = sequencer.error;
-  if (!error) return null;
-  const text = errorText(error);
-  return {
-    message: t("sequencer.banner.failed", { message: t(text.key, text.params) }),
-    output: error.detail ?? error.message,
-  };
+/** What to do next; with no operation (a stash that came back with conflicts) nothing to
+ * continue. */
+const hint = computed(() => {
+  if (sequencer.operation === "none") return t("sequencer.banner.hintNoOperation");
+  return sequencer.conflictCount > 0 ? t("sequencer.banner.hint") : t("sequencer.banner.hintClean");
 });
 
 // The merge's source comes from the message git prepared, which the changes screen loads;
@@ -97,7 +101,7 @@ function confirmAbort(): void {
 
 <template>
   <div
-    v-if="sequencer.inProgress"
+    v-if="sequencer.inProgress && !localChanges.keptShown"
     role="status"
     class="flex flex-col border-b border-line bg-raised"
     data-testid="operation-banner"
@@ -105,8 +109,15 @@ function confirmAbort(): void {
     <div class="flex h-bar-top items-center gap-3 px-3 whitespace-nowrap">
       <GitMerge :size="16" :stroke-width="1.5" aria-hidden="true" class="shrink-0 text-warn" />
       <span class="text-md font-medium text-fg" data-testid="operation-title">{{ title }}</span>
-      <span class="min-w-0 truncate text-md text-fg-secondary" data-testid="operation-hint">
+      <span class="min-w-0 truncate text-sm text-fg-muted" data-testid="operation-hint">
         {{ hint }}
+      </span>
+      <span
+        v-if="heldAside"
+        class="min-w-0 truncate text-sm text-fg-muted"
+        data-testid="operation-held-aside"
+      >
+        {{ heldAside }}
       </span>
       <div class="ml-auto flex items-center gap-3">
         <Button
@@ -146,9 +157,7 @@ function confirmAbort(): void {
         </Button>
       </div>
     </div>
-    <div v-if="failure" class="px-3 pb-3" data-testid="operation-failed">
-      <ErrorBanner :message="failure.message" :output="failure.output" open />
-    </div>
+    <SequencerFailure />
   </div>
   <!-- Outside the banner's live region, which would read a dialog in it once more. -->
   <Dialog

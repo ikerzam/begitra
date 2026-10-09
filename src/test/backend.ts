@@ -33,11 +33,12 @@ import type {
   MergePreview,
   OperationSides,
   OperationState,
-  Outcome,
+  OutcomeInput,
   PatchSelection,
   Project,
   RecentAuthor,
   RecentMessages,
+  SwitchedInput,
   Ref,
   Remote,
   RepoSummary,
@@ -259,7 +260,8 @@ export interface FakeBackendOptions {
   /** The remotes `remotes` answers; `remote_add` and `remote_remove` change the list. */
   remotes?: Remote[];
   /** What the operations that may stop on conflicts answer; done on a new commit by default. */
-  outcome?: Outcome;
+  /** What an operation that may stop answers, as the engine sends it. */
+  outcome?: OutcomeInput;
   /**
    * What `operation_state` and `conflicts` answer; `take_side` takes paths out of the conflicts
    * and `restore_conflicts` puts them back.
@@ -268,6 +270,8 @@ export interface FakeBackendOptions {
   conflicts?: Conflict[];
   /** What `operation_sides` answers; `FAKE_SIDES` while an operation is in progress by default. */
   sides?: OperationSides | null;
+  /** What `held_aside` answers: the stash a stopped merge or rebase holds aside; none by default. */
+  heldAside?: string | null;
   /**
    * The conflicted files `conflict_blocks` reads, by path, as lines with git's markers;
    * `resolve_conflict_block` and `undo_conflict_block` rewrite them as the engine does.
@@ -305,8 +309,14 @@ export interface FakeBackendOptions {
   };
   /** Apply, pop and drop reject with `stash.not_found` (the stash went outside the app). */
   stashGone?: boolean;
-  /** `switch` rejects with git's "would be overwritten" message. */
+  /** `switch` (and a create that checks out) refuses with git's "would be overwritten". */
   dirtySwitch?: boolean;
+  /** What a switch or a create that checks out answers; nothing stashed by default. */
+  switched?: SwitchedInput;
+  /** `merge`, `rebase` and `pull`, as named, refuse without `autostash` over local changes. */
+  localChangesIn?: ("merge" | "rebase" | "pull")[];
+  /** The refusal names untracked files in the way, which no autostash takes. */
+  untrackedInTheWay?: boolean;
   /** `branch_delete` without force rejects with "not fully merged". */
   unmergedBranch?: boolean;
   /** The network commands stream these lines, then fail with a rejected push. */
@@ -520,6 +530,36 @@ export function fakeCommit(n: number): CommitNode {
     overflow: 0,
   };
 }
+
+/** git's refusals over local changes, as the engine sends them (`git.local_changes`). */
+export const LOCAL_CHANGES_REFUSAL = {
+  checkout: {
+    code: "git.local_changes",
+    message: "git switch refused: local changes are in the way",
+    detail:
+      "error: Your local changes to the following files would be overwritten by checkout:\n\tsrc/a.ts\nPlease commit your changes or stash them before you switch branches.\nAborting",
+  },
+  merge: {
+    code: "git.local_changes",
+    message: "git merge refused: local changes are in the way",
+    detail:
+      "error: Your local changes to the following files would be overwritten by merge:\n\tsrc/a.ts\n\tsrc/b.ts\nPlease commit your changes or stash them before you merge.\nAborting",
+  },
+  rebase: {
+    code: "git.local_changes",
+    message: "git rebase refused: local changes are in the way",
+    detail: "error: cannot rebase: You have unstaged changes.\nerror: Please commit or stash them.",
+  },
+  untracked: {
+    code: "git.local_changes",
+    message: "git merge refused: local changes are in the way",
+    detail:
+      "error: The following untracked working tree files would be overwritten by merge:\n\tnotes/tile-cache.md\nPlease move or remove them before you merge.\nAborting",
+  },
+} as const;
+
+/** A switch that had nothing to stash. */
+const NOTHING_SWITCHED: SwitchedInput = { stash: null, conflicts: [], kept: null };
 
 /** What the backend answers for a stash that is no longer in the list. */
 function stashGone(args: Record<string, unknown>): Promise<never> {
@@ -1401,7 +1441,11 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
             // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
             return Promise.reject(options.writeErrors[args["repo"] as string]);
           }
-          return null;
+          if (args["checkout"] && options.dirtySwitch && args["localChanges"] === "refuse") {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject(LOCAL_CHANGES_REFUSAL.checkout);
+          }
+          return options.switched ?? NOTHING_SWITCHED;
         case "tag_delete":
           return FAKE_TAG_OBJECT;
         case "branch_rename":
@@ -1415,16 +1459,11 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
             // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
             return Promise.reject(options.writeErrors[args["repo"] as string]);
           }
-          if (options.dirtySwitch) {
+          if (options.dirtySwitch && args["localChanges"] === "refuse") {
             // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
-            return Promise.reject({
-              code: "git.cli_failed",
-              message: "git switch failed",
-              detail:
-                "error: Your local changes to the following files would be overwritten by checkout:\n\tsrc/a.ts\nPlease commit your changes or stash them before you switch branches.\nAborting",
-            });
+            return Promise.reject(LOCAL_CHANGES_REFUSAL.checkout);
           }
-          return null;
+          return options.switched ?? NOTHING_SWITCHED;
         case "branch_delete":
           if (options.writeErrors?.[args["repo"] as string]) {
             // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
@@ -1441,6 +1480,24 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
           return null;
         case "merge":
         case "rebase":
+          if (options.localChangesIn?.includes(cmd) && !args["autostash"]) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject(
+              options.untrackedInTheWay
+                ? LOCAL_CHANGES_REFUSAL.untracked
+                : cmd === "rebase"
+                  ? LOCAL_CHANGES_REFUSAL.rebase
+                  : LOCAL_CHANGES_REFUSAL.merge,
+            );
+          }
+          if (options.stashGone) return stashGone(args);
+          return (
+            options.outcome ?? {
+              kind: "done",
+              hash: FAKE_OUTCOME_HASH,
+              conflicts: [] as Conflict[],
+            }
+          );
         case "cherry_pick":
         case "revert":
         case "sequencer":
@@ -1458,6 +1515,8 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
           return options.operation ?? "none";
         case "conflicts":
           return (options.conflicts ?? []).map((conflict) => ({ ...conflict }));
+        case "held_aside":
+          return options.heldAside ?? null;
         case "operation_sides":
           if (options.sideErrors?.sides) {
             // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
@@ -1696,8 +1755,20 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
             data: { kind: "progress", line },
           }));
           const repoError = options.networkErrors?.[args["repo"] as string];
+          const pullRequest = args["request"] as { autostash?: boolean } | undefined;
           if (repoError) {
             messages.push({ kind: "error", error: repoError });
+          } else if (
+            cmd === "pull" &&
+            options.localChangesIn?.includes("pull") &&
+            !pullRequest?.autostash
+          ) {
+            messages.push({
+              kind: "error",
+              error: options.untrackedInTheWay
+                ? LOCAL_CHANGES_REFUSAL.untracked
+                : LOCAL_CHANGES_REFUSAL.merge,
+            });
           } else if (options.failNetwork) {
             messages.push({
               kind: "error",

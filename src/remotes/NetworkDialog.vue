@@ -92,6 +92,7 @@ function confirm(): void {
       branch: remoteBranch.value,
       rebase: rebase.value,
       ffOnly: false,
+      autostash: false,
     });
   }
 }

@@ -76,6 +76,8 @@ interface ActionOptions {
   canUndoDiscard?: boolean;
   /** HEAD left a local branch that still exists. */
   previousBranch?: boolean;
+  /** The banner of a kept stash shows, the stash listed or not yet. */
+  keptStash?: "none" | "listed" | "unlisted";
 }
 
 function actions(options: ActionOptions | boolean = {}): PaletteActions & { calls: string[] } {
@@ -89,6 +91,7 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
     canRedo = false,
     canUndoDiscard = false,
     previousBranch = false,
+    keptStash = "none",
   } = typeof options === "boolean" ? { hasRepository: options } : options;
   const calls: string[] = [];
   const record = (name: string) => () => {
@@ -229,6 +232,11 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
     inOperation: () => false,
     sequencer: (action) => {
       calls.push(`sequencer:${action}`);
+    },
+    hasKeptStash: (action) =>
+      keptStash === "listed" || (keptStash === "unlisted" && action === "keep"),
+    keptStash: (action) => {
+      calls.push(`keptStash:${action}`);
     },
     swapComparison: record("swapComparison"),
     inGraph: () => true,

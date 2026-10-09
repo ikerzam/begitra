@@ -5,6 +5,7 @@ import { defineComponent, h, nextTick } from "vue";
 
 import type { Ref, Remote } from "@/ipc/schemas";
 import { heldWorktreeOf, targetName, useBranchesStore } from "@/stores/branches";
+import { useLocalChangesStore } from "@/stores/localChanges";
 import { useRemotesStore } from "@/stores/remotes";
 import { useRepoStore } from "@/stores/repo";
 import { memoryStorage, useSettingsStore } from "@/stores/settings";
@@ -142,33 +143,34 @@ describe("the actions of a ref by its kind", () => {
     expect(of(calls, "switch")).toHaveLength(1);
   });
 
-  it("offers Stash and switch when local changes refuse the tracking checkout, then makes the branch", async () => {
+  it("asks how local changes go when they refuse the tracking checkout, then makes the branch", async () => {
     await open({
       writeErrors: {
         "/r": {
-          code: "git.cli_failed",
-          message: "git switch failed",
-          detail: "error: Your local changes to the following files would be overwritten",
+          code: "git.local_changes",
+          message: "git switch refused: local changes are in the way",
+          detail:
+            "error: Your local changes to the following files would be overwritten by checkout:\n\tsrc/a.ts",
         },
       },
     });
     const branches = useBranchesStore();
+    const localChanges = useLocalChangesStore();
     const x = { remote: "origin", branch: "feature/x" };
     expect(await branches.checkoutRemote("refs/remotes/origin/feature/x", x)).toBe(false);
-    expect(branches.prompt).toMatchObject({
-      kind: "dirtySwitch",
-      target: { kind: "branch", name: "feature/x" },
-      tracking: { fullName: "refs/remotes/origin/feature/x", remote: x },
-    });
+    expect(localChanges.prompt).toMatchObject({ operation: "switch", target: "feature/x" });
     expect(useToastsStore().toasts).toHaveLength(0);
     clearMocks();
     const clean = fakeBackend({ refs, remotes });
-    const prompt = branches.prompt;
-    if (prompt?.kind !== "dirtySwitch") throw new Error("no prompt");
-    expect(await branches.stashAndSwitch(prompt.target, prompt.tracking)).toBe(true);
-    expect(of(clean, "stash_push")).toHaveLength(1);
-    expect(of(clean, "branch_create")[0]?.args).toMatchObject({ name: "feature/x", track: true });
+    await localChanges.choose("leave");
+    expect(of(clean, "branch_create")[0]?.args).toMatchObject({
+      name: "feature/x",
+      start: "refs/remotes/origin/feature/x",
+      track: true,
+      localChanges: "leave",
+    });
     expect(of(clean, "switch")).toHaveLength(0);
+    expect(of(clean, "stash_push")).toHaveLength(0);
   });
 
   it("deletes the upstream too once the local branch is gone, never after a refusal", async () => {

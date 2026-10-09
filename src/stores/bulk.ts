@@ -309,7 +309,7 @@ export const useBulkStore = defineStore("bulk", () => {
           let outcome: string | null = null;
           const handle = ipc.pull(
             job.path,
-            { remote: null, branch: null, rebase: false, ffOnly: true },
+            { remote: null, branch: null, rebase: false, ffOnly: true, autostash: false },
             (event) => {
               if (event.kind === "outcome") outcome = event.outcome.kind;
               onEvent(job.path)(event);
@@ -348,10 +348,10 @@ export const useBulkStore = defineStore("bulk", () => {
           return done(nothing ? "up-to-date" : "pushed");
         }
         case "switch":
-          await ipc.switchTo(job.path, { kind: "branch", name: branch.value ?? "" }, id);
+          await ipc.switchTo(job.path, { kind: "branch", name: branch.value ?? "" }, "refuse", id);
           return done("switched", branch.value ?? "");
         case "create":
-          await ipc.branchCreate(job.path, branch.value ?? "", "HEAD", true, false, id);
+          await ipc.branchCreate(job.path, branch.value ?? "", "HEAD", true, false, "refuse", id);
           return done("created", branch.value ?? "");
         default:
           return { state: "stopped" };

@@ -64,6 +64,7 @@ describe("checkArgs", () => {
         start: "main",
         checkout: true,
         track: false,
+        localChanges: "refuse",
         opId: "op",
       });
     expect(create("feature/tile-cache")).toBeTruthy();

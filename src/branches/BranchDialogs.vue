@@ -1,17 +1,16 @@
 <script setup lang="ts">
 // The dialogs of the branch actions, one at a time from `branches.prompt`: create (name,
-// checkout), rename, set upstream, tag, reset (soft, mixed or hard, as radios)
-// and "Stash and switch" after a dirty switch was refused; the deletes of a branch and of a
-// tag are DeleteDialogs', the undo of a pushed commit UndoCommitDialog's, a branch another
-// worktree holds HeldWorktreeDialog's. Each confirms through the store. The cleanup's dialog,
-// CleanupDialog, comes from its own store.
+// checkout), rename, set upstream, tag and reset (soft, mixed or hard, as radios); the deletes of
+// a branch and of a tag are DeleteDialogs', the undo of a pushed commit UndoCommitDialog's, a
+// branch another worktree holds HeldWorktreeDialog's. Each confirms through the store. The
+// cleanup's dialog, CleanupDialog, and the question of local changes in git's way,
+// LocalChangesDialog, come from their own stores.
 
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Checkbox from "@/components/Checkbox.vue";
 import Dialog from "@/components/Dialog.vue";
-import ErrorBanner from "@/components/ErrorBanner.vue";
 import Input from "@/components/Input.vue";
 import RadioGroup from "@/components/RadioGroup.vue";
 import Select from "@/components/Select.vue";
@@ -19,7 +18,7 @@ import Textarea from "@/components/Textarea.vue";
 import type { RadioOption, SelectOption } from "@/components/types";
 import type { ResetMode } from "@/ipc/schemas";
 import { shortHash } from "@/shell/format";
-import { targetName, useBranchesStore } from "@/stores/branches";
+import { useBranchesStore } from "@/stores/branches";
 import { useChangesStore } from "@/stores/changes";
 import { useCleanupStore } from "@/stores/cleanup";
 import { useRepoStore } from "@/stores/repo";
@@ -27,6 +26,7 @@ import { useRepoStore } from "@/stores/repo";
 import CleanupDialog from "./CleanupDialog.vue";
 import DeleteDialogs from "./DeleteDialogs.vue";
 import HeldWorktreeDialog from "./HeldWorktreeDialog.vue";
+import LocalChangesDialog from "./LocalChangesDialog.vue";
 import { validName } from "./names";
 import UndoCommitDialog from "./UndoCommitDialog.vue";
 
@@ -119,9 +119,6 @@ function confirm(): void {
       break;
     case "reset":
       void branches.reset(prompt.rev, mode.value);
-      break;
-    case "dirtySwitch":
-      void branches.stashAndSwitch(prompt.target, prompt.tracking);
       break;
   }
 }
@@ -250,21 +247,7 @@ function confirm(): void {
 
     <UndoCommitDialog v-else-if="branches.prompt.kind === 'undoCommit'" />
     <HeldWorktreeDialog v-else-if="branches.prompt.kind === 'heldElsewhere'" />
-    <Dialog
-      v-else-if="branches.prompt.kind === 'dirtySwitch'"
-      :title="t('branches.dialogs.dirtySwitchTitle')"
-      :body="t('branches.dialogs.dirtySwitchBody', { name: targetName(branches.prompt.target) })"
-      :confirm-label="t('branches.dialogs.stashAndSwitch')"
-      data-testid="dirty-switch-dialog"
-      @confirm="confirm"
-      @cancel="branches.dismiss()"
-    >
-      <ErrorBanner
-        :message="t('branches.failed', { message: '' }).trim()"
-        :output="branches.prompt.output"
-        open
-      />
-    </Dialog>
   </template>
+  <LocalChangesDialog />
   <CleanupDialog v-if="cleanup.isOpen" />
 </template>

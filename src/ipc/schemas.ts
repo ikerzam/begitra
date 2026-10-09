@@ -35,6 +35,7 @@ export const errorCodes = [
   "worktree.dirty",
   "git.not_started",
   "git.cli_failed",
+  "git.local_changes",
   "stash.not_found",
   "conflict.not_conflicted",
   "conflict.gone",
@@ -849,8 +850,37 @@ export const OutcomeSchema = v.object({
   kind: OutcomeKindSchema,
   hash: v.nullable(v.string()),
   conflicts: v.array(ConflictSchema),
+  /**
+   * The commit of the stash git kept when the changes it set aside did not come back cleanly:
+   * with conflicts when `kind` is `conflicts`, not applied at all otherwise.
+   */
+  stash: v.optional(v.nullable(v.string()), null),
 });
 export type Outcome = v.InferOutput<typeof OutcomeSchema>;
+/** An outcome as the backend sends it, the fields with defaults optional. */
+export type OutcomeInput = v.InferInput<typeof OutcomeSchema>;
+
+/** How a switch treats the changes git says are in its way. */
+export const LocalChangesSchema = v.picklist(["refuse", "carry", "leave"]);
+export type LocalChanges = v.InferOutput<typeof LocalChangesSchema>;
+
+/** What a switch did with the local changes. */
+export const SwitchedSchema = v.object({
+  /** The stash that holds them: left there, or kept after a carry that did not apply cleanly. */
+  stash: v.nullable(v.string()),
+  /** The conflicted paths when the carried changes came back with conflicts. */
+  conflicts: v.array(ConflictSchema),
+  /** git's words when part of the carried changes did not come back: only the stash holds it. */
+  kept: v.nullable(v.string()),
+  /** git's words when it reported a failure after switching (a post-checkout hook), or errors
+   * while switching it went past (a file it could not rewrite). */
+  notice: v.optional(v.nullable(v.string()), null),
+  /** The carried changes came back whole, but what was staged came back unstaged. */
+  unstaged: v.optional(v.boolean(), false),
+});
+export type Switched = v.InferOutput<typeof SwitchedSchema>;
+/** A switch's answer as the backend sends it, the fields with defaults optional. */
+export type SwitchedInput = v.InferInput<typeof SwitchedSchema>;
 
 export const RemoteSchema = v.object({
   name: v.string(),
@@ -867,6 +897,8 @@ export const PullRequestSchema = v.object({
   rebase: v.boolean(),
   /** Move the branch only as a fast-forward, whatever `pull.ff` says; never with `rebase`. */
   ffOnly: v.boolean(),
+  /** Set the local changes aside for the merge or the rebase (git's `--autostash`). */
+  autostash: v.boolean(),
 });
 export type PullRequest = v.InferOutput<typeof PullRequestSchema>;
 
@@ -1249,26 +1281,40 @@ export const commandArgs = {
   commit_context: v.object({ repo: path, opId }),
   recent_messages: v.object({ repo: path, author: helperAuthor, opId }),
   recent_authors: v.object({ repo: path, author: helperAuthor, opId }),
-  branch_create: v.object({
-    repo: path,
-    name: refName,
-    start: revision,
-    checkout: v.boolean(),
-    track: v.boolean(),
-    opId,
-  }),
+  branch_create: v.pipe(
+    v.object({
+      repo: path,
+      name: refName,
+      start: revision,
+      checkout: v.boolean(),
+      track: v.boolean(),
+      localChanges: LocalChangesSchema,
+      opId,
+    }),
+    v.check(
+      (args) => args.checkout || args.localChanges === "refuse",
+      "local changes go somewhere only with a checkout",
+    ),
+  ),
   switch: v.object({
     repo: path,
     target: v.variant("kind", [
       v.object({ kind: v.literal("branch"), name: refName }),
       v.object({ kind: v.literal("detached"), rev: revision }),
     ]),
+    localChanges: LocalChangesSchema,
     opId,
   }),
   branch_rename: v.object({ repo: path, from: refName, to: refName, opId }),
   branch_delete: v.object({ repo: path, name: refName, force: v.boolean(), opId }),
-  merge: v.object({ repo: path, rev: revision, mode: MergeModeSchema, opId }),
-  rebase: v.object({ repo: path, onto: revision, opId }),
+  merge: v.object({
+    repo: path,
+    rev: revision,
+    mode: MergeModeSchema,
+    autostash: v.boolean(),
+    opId,
+  }),
+  rebase: v.object({ repo: path, onto: revision, autostash: v.boolean(), opId }),
   reset: v.object({ repo: path, rev: revision, mode: ResetModeSchema, opId }),
   move_head: v.object({
     repo: path,
@@ -1294,6 +1340,7 @@ export const commandArgs = {
   conflicts: v.object({ repo: path, opId }),
   mark_resolved: v.object({ repo: path, paths: repoPaths, opId }),
   operation_sides: v.object({ repo: path, opId }),
+  held_aside: v.object({ repo: path, opId }),
   take_side: v.object({ repo: path, paths: repoPaths, side: SideSchema, opId }),
   restore_conflicts: v.object({ repo: path, paths: repoPaths, opId }),
   conflict_blocks: v.object({ repo: path, path: repoPath, opId }),
@@ -1327,6 +1374,7 @@ export const commandArgs = {
         branch: v.nullable(refName),
         rebase: v.boolean(),
         ffOnly: v.boolean(),
+        autostash: v.boolean(),
       }),
       v.check((request) => !(request.rebase && request.ffOnly), "a rebase and a fast-forward only"),
     ),

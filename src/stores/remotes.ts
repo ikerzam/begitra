@@ -21,6 +21,7 @@ import { baseName, sameFolder, shellWord, shortHash } from "@/shell/format";
 
 import { useBackgroundFetchStore } from "./backgroundFetch";
 import { useBulkStore } from "./bulk";
+import { useLocalChangesStore } from "./localChanges";
 import { useOperationsStore, type NetworkCommand } from "./operations";
 import { useRepoStore } from "./repo";
 import { useSequencerStore } from "./sequencer";
@@ -72,6 +73,7 @@ export const useRemotesStore = defineStore("remotes", () => {
   const shell = useShellStore();
   const operations = useOperationsStore();
   const sequencer = useSequencerStore();
+  const localChanges = useLocalChangesStore();
   const settings = useSettingsStore();
   const toasts = useToastsStore();
 
@@ -270,7 +272,8 @@ export const useRemotesStore = defineStore("remotes", () => {
   /**
    * Runs a streamed network command once the repository's fetch in the background, if one
    * runs, has ended: the progress lines become the operation's detail, the result page is kept
-   * for the caller, and the terminal message settles the promise.
+   * for the caller, and the terminal message settles the promise; a failure `onError` takes
+   * shows no toast.
    */
   async function network(
     command: NetworkCommand,
@@ -278,6 +281,7 @@ export const useRemotesStore = defineStore("remotes", () => {
     params: Record<string, string>,
     start: (root: string, onEvent: (event: NetworkEvent) => void, opId: string) => StreamHandle,
     explain?: (error: AppError) => Explained | null,
+    onError?: (error: AppError) => boolean,
   ): Promise<NetworkEvent | null> {
     const root = repo.repo?.root;
     if (!root || refusedWhileBusy()) return null;
@@ -307,7 +311,7 @@ export const useRemotesStore = defineStore("remotes", () => {
       .then(() => last)
       .catch((failure: unknown) => {
         const error = toAppError(failure);
-        if (error.code !== "op.cancelled") {
+        if (error.code !== "op.cancelled" && !onError?.(error)) {
           const readable: Explained = explain?.(error) ?? {
             key: "remotes.networkFailed",
             params: { message: error.message },
@@ -405,7 +409,9 @@ export const useRemotesStore = defineStore("remotes", () => {
   /**
    * Pulls as `request` says. A fast-forward-only pull that git refuses because the branch
    * diverged says so and offers "Pull…", the dialog where a merge or a rebase is chosen, on that
-   * branch in the repository the pull ran in.
+   * branch in the repository the pull ran in. One git refuses over local changes asks to set
+   * them aside and pull again (`autostash`), naming what it pulls: the remote branch asked for,
+   * or the upstream. A stash git kept goes to the banner, or to a toast without conflicts.
    */
   async function pull(request: PullRequest): Promise<boolean> {
     // Refused while another command runs, the dialog stays open for a second try.
@@ -432,6 +438,19 @@ export const useRemotesStore = defineStore("remotes", () => {
       },
       (root, onEvent, opId) => ipc.pull(root, request, onEvent, opId),
       explain,
+      (error) => {
+        if (error.code !== "git.local_changes") return false;
+        localChanges.ask({
+          operation: "pull",
+          target:
+            request.remote && request.branch
+              ? `${request.remote}/${request.branch}`
+              : upstream || branch,
+          detail: error.detail ?? error.message,
+          run: () => pull({ ...request, autostash: true }),
+        });
+        return true;
+      },
     );
     if (!result) {
       // git may have refused and still left the merge or the rebase in progress; its fetch may
@@ -440,6 +459,7 @@ export const useRemotesStore = defineStore("remotes", () => {
       void repo.refreshRefs();
       return false;
     }
+    if (result.kind === "outcome" && root) localChanges.absorb(root, result.outcome);
     if (result.kind === "outcome" && result.outcome.kind === "conflicts") {
       void repo.refreshRefs();
       sequencer.absorb(result.outcome);

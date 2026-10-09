@@ -38,6 +38,8 @@ export function errorText(
       return { key: "errors.gitNotStarted", params };
     case "git.cli_failed":
       return { key: "errors.gitFailed", params };
+    case "git.local_changes":
+      return { key: "errors.localChanges", params };
     case "stash.not_found":
       return { key: "errors.stashNotFound", params };
     case "conflict.not_conflicted":

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, useId, useTemplateRef, type Component } from "vue";
+import { computed, onBeforeUnmount, onMounted, useId, useTemplateRef, type Component } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Button from "./Button.vue";
@@ -24,6 +24,14 @@ const props = withDefaults(
     /** The confirmed action runs and cannot be stopped: the buttons, Escape and a press
      * outside do nothing, and a sweeping bar shows at the footer's start. */
     busy?: boolean;
+    /** No confirm: a dialog that only informs closes with its cancel button, which has the
+     * focus. */
+    noConfirm?: boolean;
+    /** The confirm takes the focus when the dialog opens, so ↵ runs it (a choice that loses
+     * nothing); otherwise the first control has it. */
+    focusConfirm?: boolean;
+    /** Ids of the content that describes the dialog after its body (a list it names). */
+    describedBy?: string[];
   }>(),
   {
     body: "",
@@ -34,6 +42,9 @@ const props = withDefaults(
     confirmIcon: undefined,
     size: "md",
     busy: false,
+    noConfirm: false,
+    focusConfirm: false,
+    describedBy: () => [],
   },
 );
 
@@ -45,6 +56,11 @@ const panel = useTemplateRef<HTMLElement>("panel");
 const titleId = useId();
 const bodyId = `${titleId}-body`;
 const trap = useFocusTrap(panel);
+
+/** The body, then the content the caller names. */
+const description = computed(
+  () => [...(props.body ? [bodyId] : []), ...props.describedBy].join(" ") || undefined,
+);
 
 let previouslyFocused: Element | null = null;
 
@@ -94,7 +110,7 @@ onBeforeUnmount(() => {
       aria-modal="true"
       tabindex="-1"
       :aria-labelledby="titleId"
-      :aria-describedby="props.body ? bodyId : undefined"
+      :aria-describedby="description"
       :data-variant="props.variant"
       :data-size="props.size"
       :aria-busy="props.busy ? 'true' : undefined"
@@ -129,21 +145,27 @@ onBeforeUnmount(() => {
           :label="props.confirmLabel"
           data-testid="dialog-busy"
         />
+        <!-- A dialog with no confirm closes on ↵: its cancel takes the focus. -->
         <Button
           size="lg"
           variant="secondary"
           :disabled="props.busy"
+          :data-autofocus="props.noConfirm ? '' : undefined"
           data-testid="dialog-cancel"
           @click="emit('cancel')"
         >
           {{ props.cancelLabel || t("dialog.cancel") }}
         </Button>
+        <!-- Another way through, between cancel and confirm ("Leave them in a stash"). -->
+        <slot name="actions" />
         <Button
+          v-if="!props.noConfirm"
           size="lg"
           class="max-w-full"
           :variant="props.variant === 'destructive' ? 'destructive' : 'primary'"
           :disabled="props.confirmDisabled || props.busy"
           :icon="props.confirmIcon"
+          :data-autofocus="props.focusConfirm ? '' : undefined"
           data-testid="dialog-confirm"
           @click="emit('confirm')"
         >

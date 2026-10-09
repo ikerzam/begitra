@@ -94,11 +94,13 @@ const operationText = computed(() => {
   return current.detail ? `${text} · ${current.detail}` : text;
 });
 
-/** The operation stopped on conflicts, for the changes screen's slot. */
+/** The operation stopped on conflicts, for the changes screen's slot; conflicts no operation
+ * holds (changes that came back from a stash) by their count alone. */
 const stoppedText = computed(() => {
   if (!sequencer.inProgress || shell.layoutMode !== "changes" || projects.view !== null) return "";
-  const operation = t(`sequencer.operations.${sequencer.operation}`);
   const n = sequencer.conflictCount;
+  if (sequencer.operation === "none") return t("statusBar.conflictCount", { n }, n);
+  const operation = t(`sequencer.operations.${sequencer.operation}`);
   return n > 0
     ? t("statusBar.operationInProgress", { operation, n }, n)
     : t("statusBar.operationClean", { operation });

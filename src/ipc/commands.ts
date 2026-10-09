@@ -40,6 +40,8 @@ import {
   type Side,
   type StashPush,
   type SwitchTarget,
+  type LocalChanges,
+  SwitchedSchema,
   ChangeSetSchema,
   DiffPageSchema,
   HighlightSchema,
@@ -273,14 +275,27 @@ export function branchCreate(
   start: string,
   checkout: boolean,
   track = false,
+  localChanges: LocalChanges = "refuse",
   opId = newOpId("branch-create"),
 ) {
-  return call("branch_create", { repo, name, start, checkout, track, opId }, v.null());
+  return call(
+    "branch_create",
+    { repo, name, start, checkout, track, localChanges, opId },
+    SwitchedSchema,
+  );
 }
 
-/** Switches to a branch or a detached revision; a dirty switch is git's refusal. */
-export function switchTo(repo: string, target: SwitchTarget, opId = newOpId("switch")) {
-  return call("switch", { repo, target, opId }, v.null());
+/**
+ * Switches to a branch or a detached revision, the local changes in its way as `localChanges`
+ * says; git's refusal over them is `git.local_changes`.
+ */
+export function switchTo(
+  repo: string,
+  target: SwitchTarget,
+  localChanges: LocalChanges = "refuse",
+  opId = newOpId("switch"),
+) {
+  return call("switch", { repo, target, localChanges, opId }, SwitchedSchema);
 }
 
 export function branchRename(repo: string, from: string, to: string, opId = newOpId("rename")) {
@@ -298,12 +313,20 @@ export function branchDelete(
 }
 
 /** Merges `rev` into HEAD; a stop on conflicts is an outcome. */
-export function merge(repo: string, rev: string, mode: MergeMode, opId = newOpId("merge")) {
-  return call("merge", { repo, rev, mode, opId }, OutcomeSchema);
+/** Merges `rev` into HEAD; `autostash` sets the local changes aside (git's `--autostash`). */
+export function merge(
+  repo: string,
+  rev: string,
+  mode: MergeMode,
+  autostash = false,
+  opId = newOpId("merge"),
+) {
+  return call("merge", { repo, rev, mode, autostash, opId }, OutcomeSchema);
 }
 
-export function rebase(repo: string, onto: string, opId = newOpId("rebase")) {
-  return call("rebase", { repo, onto, opId }, OutcomeSchema);
+/** Rebases HEAD onto `onto`; `autostash` as for `merge`. */
+export function rebase(repo: string, onto: string, autostash = false, opId = newOpId("rebase")) {
+  return call("rebase", { repo, onto, autostash, opId }, OutcomeSchema);
 }
 
 export function reset(repo: string, rev: string, mode: ResetMode, opId = newOpId("reset")) {
@@ -386,6 +409,14 @@ export function markResolved(repo: string, paths: string[], opId = newOpId("reso
 /** The names of the operation's two sides; null while no operation is in progress. */
 export function operationSides(repo: string, opId = newOpId("sides")) {
   return call("operation_sides", { repo, opId }, v.nullable(OperationSidesSchema));
+}
+
+/**
+ * The commit of the stash a merge or a rebase that stopped holds aside (git's autostash), which
+ * comes back when the operation ends; null otherwise.
+ */
+export function heldAside(repo: string, opId = newOpId("held-aside")) {
+  return call("held_aside", { repo, opId }, v.nullable(v.string()));
 }
 
 /**

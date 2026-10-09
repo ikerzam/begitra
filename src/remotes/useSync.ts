@@ -99,7 +99,13 @@ export function useSync() {
     const plan = pull.value;
     if (plan.kind === "dialog") remotes.ask({ kind: "pull", branch: plan.branch });
     else if (plan.kind === "pull") {
-      await remotes.pull({ remote: null, branch: null, rebase: false, ffOnly: true });
+      await remotes.pull({
+        remote: null,
+        branch: null,
+        rebase: false,
+        ffOnly: true,
+        autostash: false,
+      });
     }
   }
 

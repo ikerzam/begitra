@@ -127,6 +127,8 @@ function backend(
     emptyIndex?: boolean;
     /** A merge stopped on this conflicted path. */
     conflict?: string;
+    /** This path conflicted with no operation in progress (a stash that came back). */
+    stashConflict?: string;
     /** The commit `main` and `origin/main` point at; the test moves it to fake a commit outside. */
     tip?: { index: number };
     /** A file marked reviewed for another content than the diff shows. */
@@ -404,8 +406,10 @@ function backend(
         };
       case "operation_state":
         return options.conflict ? "merge" : "none";
-      case "conflicts":
-        return options.conflict ? [{ path: options.conflict, kind: "both-modified" }] : [];
+      case "conflicts": {
+        const path = options.conflict ?? options.stashConflict;
+        return path ? [{ path, kind: "both-modified" }] : [];
+      }
       case "mark_resolved":
       case "switch":
         return null;
@@ -995,6 +999,19 @@ describe("AppShell", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "1", ctrlKey: true }));
     await settle();
     expect(wrapper.find('[data-testid="graph-focus"]').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("counts the conflicts no operation holds in the status bar", async () => {
+    backend({ stashConflict: "src/app.ts" });
+    const shell = useShellStore();
+    const wrapper = mountWithI18n(AppShell, { attachTo: document.body });
+    shell.setWindowWidth(1440);
+    await useRepoStore().open("/r");
+    await settle();
+    await shell.setLayoutMode("changes");
+    await settle();
+    expect(wrapper.get('[data-testid="status-stopped"]').text()).toBe("1 conflict");
     wrapper.unmount();
   });
 

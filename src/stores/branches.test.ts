@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { Ref } from "@/ipc/schemas";
 import {
+  FAKE_OUTCOME_HASH,
   FAKE_TAG_OBJECT,
   fakeBackend,
   fakeCommit,
@@ -15,7 +16,8 @@ import {
 
 import { AppError } from "@/ipc/errors";
 
-import { isDirtySwitch, isUnmergedDelete, useBranchesStore } from "./branches";
+import { isUnmergedDelete, useBranchesStore } from "./branches";
+import { useLocalChangesStore } from "./localChanges";
 import { useOperationsStore } from "./operations";
 import { useRepoStore } from "./repo";
 import { useSequencerStore } from "./sequencer";
@@ -46,8 +48,6 @@ afterEach(() => {
 describe("branches store", () => {
   it("recognises git's refusals in its own words", () => {
     const error = (detail: string) => new AppError("git.cli_failed", "failed", detail);
-    expect(isDirtySwitch(error("Your local changes would be overwritten by checkout"))).toBe(true);
-    expect(isDirtySwitch(error("fatal: invalid reference: nope"))).toBe(false);
     expect(isUnmergedDelete(error("error: the branch 'x' is not fully merged"))).toBe(true);
     expect(isUnmergedDelete(error("error: branch 'x' not found"))).toBe(false);
   });
@@ -79,25 +79,203 @@ describe("branches store", () => {
     expect(of(calls, "switch")).toHaveLength(1);
   });
 
-  it("offers Stash and switch when git refuses a dirty switch, then stashes and switches", async () => {
-    await open({ dirtySwitch: true });
+  it("asks how local changes go when git refuses a switch, then carries them over", async () => {
+    const calls = await open({ dirtySwitch: true });
     const branches = useBranchesStore();
+    const localChanges = useLocalChangesStore();
     const done = await branches.checkout({ kind: "branch", name: "develop" });
     expect(done).toBe(false);
-    expect(branches.prompt).toMatchObject({ kind: "dirtySwitch", target: { name: "develop" } });
-    expect((branches.prompt as { output: string }).output).toContain("would be overwritten");
+    expect(localChanges.prompt).toMatchObject({ operation: "switch", target: "develop" });
+    expect(localChanges.prompt?.detail).toContain("would be overwritten");
     expect(useToastsStore().toasts).toHaveLength(0);
-    clearMocks();
-    const clean = fakeBackend();
-    await branches.stashAndSwitch({ kind: "branch", name: "develop" });
+    await localChanges.choose("carry");
     await settled();
-    expect(branches.prompt).toBeNull();
-    expect(of(clean, "stash_push")[0]?.args["request"]).toEqual({
-      message: null,
-      includeUntracked: true,
-      paths: [],
+    expect(localChanges.prompt).toBeNull();
+    expect(of(calls, "switch").map((call) => call.args["localChanges"])).toEqual([
+      "refuse",
+      "carry",
+    ]);
+    expect(useToastsStore().toasts.at(-1)?.key).toBe("localChanges.switchedWith");
+    expect(localChanges.kept).toBeNull();
+  });
+
+  it("leaves the changes in a stash, its toast naming it", async () => {
+    const stash = "c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7";
+    const calls = await open({
+      dirtySwitch: true,
+      switched: { stash, conflicts: [], kept: null },
     });
-    expect(of(clean, "switch")).toHaveLength(1);
+    const localChanges = useLocalChangesStore();
+    await useBranchesStore().checkout({ kind: "branch", name: "develop" });
+    await localChanges.choose("leave");
+    await settled();
+    expect(of(calls, "switch").at(-1)?.args["localChanges"]).toBe("leave");
+    const toast = useToastsStore().toasts.at(-1);
+    expect(toast?.key).toBe("localChanges.switchedLeft");
+    expect(toast?.params).toEqual({ name: "develop", hash: "c4d5e6f" });
+    expect(localChanges.kept).toBeNull();
+  });
+
+  it("opens the changes screen when the carried changes come back with conflicts", async () => {
+    const stash = "c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7";
+    await open({
+      dirtySwitch: true,
+      switched: { stash, conflicts: [{ path: "src/a.ts", kind: "both-modified" }], kept: null },
+    });
+    const localChanges = useLocalChangesStore();
+    await useBranchesStore().checkout({ kind: "branch", name: "develop" });
+    await localChanges.choose("carry");
+    await settled();
+    expect(localChanges.kept).toEqual({ root: "/r", stash });
+    expect(useShellStore().layoutMode).toBe("changes");
+    expect(useToastsStore().toasts).toHaveLength(0);
+  });
+
+  it("says in a toast that stays when what was staged came back unstaged", async () => {
+    await open({
+      dirtySwitch: true,
+      switched: { stash: null, conflicts: [], kept: null, unstaged: true },
+    });
+    await useBranchesStore().checkout({ kind: "branch", name: "develop" });
+    await useLocalChangesStore().choose("carry");
+    await settled();
+    expect(useToastsStore().toasts.at(-1)).toMatchObject({
+      kind: "info",
+      key: "localChanges.switchedUnstaged",
+      params: { name: "develop" },
+      sticky: true,
+    });
+  });
+
+  it("names a detached HEAD in the toast of a carry", async () => {
+    await open({ dirtySwitch: true });
+    await useBranchesStore().checkout({ kind: "detached", rev: "refs/tags/v1.2.0" });
+    await useLocalChangesStore().choose("carry");
+    await settled();
+    expect(useToastsStore().toasts.at(-1)).toMatchObject({
+      key: "localChanges.switchedWithDetached",
+      params: { name: "v1.2.0", hash: "" },
+    });
+  });
+
+  it("keeps the banner out when git kept part of the changes that came back with conflicts", async () => {
+    const stash = "c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7";
+    await open({
+      dirtySwitch: true,
+      switched: {
+        stash,
+        conflicts: [{ path: "src/a.ts", kind: "both-modified" }],
+        kept: "new.txt already exists, no checkout",
+      },
+    });
+    const localChanges = useLocalChangesStore();
+    await useBranchesStore().checkout({ kind: "branch", name: "develop" });
+    await localChanges.choose("carry");
+    await settled();
+    // The stash holds what no file does: its banner's drop would lose it.
+    expect(localChanges.kept).toBeNull();
+    expect(useShellStore().layoutMode).toBe("changes");
+    expect(useToastsStore().toasts.at(-1)).toMatchObject({
+      key: "localChanges.switchedKept",
+      sticky: true,
+      output: "new.txt already exists, no checkout",
+    });
+  });
+
+  it("says in a toast that stays what git reported after a switch it made", async () => {
+    await open({
+      switched: { stash: null, conflicts: [], kept: null, notice: "post-checkout says no" },
+    });
+    expect(await useBranchesStore().checkout({ kind: "branch", name: "develop" })).toBe(true);
+    expect(useToastsStore().toasts).toHaveLength(1);
+    expect(useToastsStore().toasts.at(-1)).toMatchObject({
+      kind: "error",
+      key: "branches.switchNotice",
+      params: { name: "develop" },
+      sticky: true,
+      output: "post-checkout says no",
+    });
+  });
+
+  it("keeps the banner for carried changes back with conflicts when only a hook failed", async () => {
+    const stash = "c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7";
+    await open({
+      dirtySwitch: true,
+      switched: {
+        stash,
+        conflicts: [{ path: "src/a.ts", kind: "both-modified" }],
+        kept: null,
+        notice: "post-checkout says no",
+      },
+    });
+    const localChanges = useLocalChangesStore();
+    await useBranchesStore().checkout({ kind: "branch", name: "develop" });
+    await localChanges.choose("carry");
+    await settled();
+    expect(localChanges.kept).toEqual({ root: "/r", stash });
+    expect(useToastsStore().toasts.map((toast) => toast.key)).toEqual(["branches.switchNotice"]);
+  });
+
+  it("says in a toast that stays when git kept part of the carried changes", async () => {
+    const stash = "c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7";
+    await open({
+      dirtySwitch: true,
+      switched: { stash, conflicts: [], kept: "new.txt already exists, no checkout" },
+    });
+    await useBranchesStore().checkout({ kind: "branch", name: "develop" });
+    await useLocalChangesStore().choose("carry");
+    await settled();
+    const toast = useToastsStore().toasts.at(-1);
+    expect(toast).toMatchObject({
+      key: "localChanges.switchedKept",
+      sticky: true,
+      output: "new.txt already exists, no checkout",
+    });
+  });
+
+  it("sets the changes aside and merges again when local changes refuse a merge", async () => {
+    const calls = await open({ localChangesIn: ["merge"] });
+    const localChanges = useLocalChangesStore();
+    expect(await useBranchesStore().merge("develop", "default")).toBeNull();
+    expect(localChanges.prompt).toMatchObject({ operation: "merge", target: "develop" });
+    expect(useToastsStore().toasts).toHaveLength(0);
+    await localChanges.choose("aside");
+    await settled();
+    expect(of(calls, "merge").map((call) => call.args["autostash"])).toEqual([false, true]);
+  });
+
+  it("names a ref the palette passes in full by its short name", async () => {
+    await open({ localChangesIn: ["merge", "rebase"] });
+    const localChanges = useLocalChangesStore();
+    await useBranchesStore().merge("refs/heads/develop", "default");
+    expect(localChanges.prompt).toMatchObject({ operation: "merge", target: "develop" });
+    localChanges.dismiss();
+    await useBranchesStore().rebase("refs/remotes/origin/main");
+    expect(localChanges.prompt).toMatchObject({ operation: "rebase", target: "origin/main" });
+  });
+
+  it("keeps the stash git's autostash kept with conflicts, and toasts one kept without", async () => {
+    const stash = "c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7";
+    await open({
+      outcome: {
+        kind: "conflicts",
+        hash: null,
+        conflicts: [{ path: "src/a.ts", kind: "both-modified" }],
+        stash,
+      },
+    });
+    const localChanges = useLocalChangesStore();
+    await useBranchesStore().merge("develop", "default", true);
+    expect(localChanges.kept).toEqual({ root: "/r", stash });
+    clearMocks();
+    localChanges.forget();
+    const other = "d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7c4";
+    fakeBackend({
+      outcome: { kind: "done", hash: FAKE_OUTCOME_HASH, conflicts: [], stash: other },
+    });
+    await useBranchesStore().rebase("develop", true);
+    expect(localChanges.kept).toBeNull();
+    expect(useToastsStore().toasts.map((toast) => toast.key)).toContain("localChanges.stashKept");
   });
 
   it("creates a branch, checking it out when asked, and renames one", async () => {

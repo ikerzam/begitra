@@ -9,6 +9,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import BranchDialogs from "@/branches/BranchDialogs.vue";
+import KeptStashBanner from "@/branches/KeptStashBanner.vue";
 import OperationBanner from "@/branches/OperationBanner.vue";
 import ChangesLayout from "@/changes/ChangesLayout.vue";
 import { useSyncActions } from "@/remotes/useSyncActions";
@@ -433,6 +434,7 @@ function removeFromProject(): void {
     />
     <TabRow v-if="tabRowShown" @shown="focusLayout" />
     <OperationBanner />
+    <KeptStashBanner @released="focusLayout" />
     <div class="relative flex min-h-0 flex-1">
       <SidebarRail v-if="shell.sidebarView !== null" />
       <!-- The panel follows its rail in the tab order, before the layout beside it. The layouts

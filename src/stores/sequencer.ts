@@ -1,6 +1,7 @@
 // The operation in progress (a merge, a rebase, a cherry-pick or a revert stopped on
-// conflicts, or a stash apply that conflicted) with its two sides by name and its conflicted
-// paths, for the banner on every screen and the conflicts list of the changes screen; continue,
+// conflicts, or a stash apply that conflicted) with its two sides by name, its conflicted paths
+// and the stash git's autostash holds aside while it is stopped, for the banner on every screen
+// and the conflicts list of the changes screen; continue,
 // skip and abort through the sequencer commands, "mark resolved" (`git add`) per file, and a
 // file taken whole from one side (asked once, with "Undo" in the toast, which closes when the
 // sequencer runs). Reloaded after every branch or history write that may have stopped, and when
@@ -45,6 +46,8 @@ export const useSequencerStore = defineStore("sequencer", () => {
   /** The operation's two sides by name; null without an operation. */
   const sides = ref<OperationSides | null>(null);
   const conflicts = ref<Conflict[]>([]);
+  /** The commit of the stash a stopped merge or rebase holds aside (git's autostash); null. */
+  const heldAside = ref<string | null>(null);
   const loaded = ref(false);
   const busy = ref(false);
   /** The last failed sequencer action or resolution, for the banner. */
@@ -56,6 +59,13 @@ export const useSequencerStore = defineStore("sequencer", () => {
   /** The toast that offers to undo the last side taken: one at a time. */
   let undoToast: number | null = null;
   let serial = 0;
+  /** What else reads an action's outcome (the stash git kept), registered by its store. */
+  const readers: ((root: string, outcome: Outcome) => void)[] = [];
+
+  /** Hands every outcome of a continue, skip or abort to `reader` as well. */
+  function onOutcome(reader: (root: string, outcome: Outcome) => void): void {
+    readers.push(reader);
+  }
 
   /** Something is in progress: an operation with its state files, or conflicted paths. */
   const inProgress = computed(() => operation.value !== "none" || conflicts.value.length > 0);
@@ -77,23 +87,27 @@ export const useSequencerStore = defineStore("sequencer", () => {
       operation.value = "none";
       sides.value = null;
       conflicts.value = [];
+      heldAside.value = null;
       loaded.value = false;
       return;
     }
     serial += 1;
     const mine = serial;
     try {
-      const [state, named, paths] = await Promise.all([
+      const [state, named, paths, held] = await Promise.all([
         ipc.operationState(root),
         // Sides that cannot be named leave the conflicts and the banner as they are, without
         // the two "Use … version" actions.
         ipc.operationSides(root).catch(() => null),
         ipc.conflicts(root),
+        // A stash that cannot be read leaves the banner without its line.
+        ipc.heldAside(root).catch(() => null),
       ]);
       if (mine !== serial) return;
       operation.value = state;
       sides.value = named;
       conflicts.value = paths;
+      heldAside.value = held;
       loaded.value = true;
     } catch (failure) {
       if (mine !== serial) return;
@@ -122,6 +136,7 @@ export const useSequencerStore = defineStore("sequencer", () => {
     try {
       const outcome = await ipc.sequencer(root, action, opId);
       absorb(outcome);
+      for (const read of readers) read(root, outcome);
       // A step that stops again may have moved HEAD (a rebase's next pick): the refs say.
       if (outcome.kind === "conflicts") void repo.refreshRefs();
       else repo.reloadWalk(outcome.hash ?? undefined);
@@ -270,6 +285,7 @@ export const useSequencerStore = defineStore("sequencer", () => {
     operation,
     sides,
     conflicts,
+    heldAside,
     loaded,
     busy,
     error,
@@ -281,6 +297,7 @@ export const useSequencerStore = defineStore("sequencer", () => {
     canSkip,
     load,
     absorb,
+    onOutcome,
     act,
     markResolved,
     askTakeSide,

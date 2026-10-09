@@ -199,6 +199,7 @@
     "changesFailed": "No se pudo leer el árbol de trabajo",
     "operationInProgress": "{operation} en curso · {n} conflicto | {operation} en curso · {n} conflictos",
     "operationClean": "{operation} en curso",
+    "conflictCount": "{n} conflicto | {n} conflictos",
     "cancelOperation": "cancelar {what}",
     "markResolved": "marcar resuelto",
     "network": {
@@ -631,6 +632,8 @@
       "stash-changes": "Guardar los cambios en el stash…",
       "continue-operation": "Continuar la operación",
       "abort-operation": "Abortar la operación…",
+      "keep-kept-stash": "Conservar el stash de tus cambios",
+      "drop-kept-stash": "Borrar el stash de tus cambios…",
       "new-project": "Nuevo proyecto…",
       "edit-project": "Editar proyecto…",
       "show-project-overview": "Mostrar el resumen del proyecto",
@@ -674,6 +677,7 @@
     "gitNotStarted": "No se ha podido iniciar git. {message} Indica el ejecutable de git en Ajustes.",
     "indexLock": "git no ha podido bloquear el índice (index.lock). Puede haber otro git en marcha; si no lo hay, borra .git/index.lock y vuelve a intentarlo. {message}",
     "gitFailed": "git devolvió un error. {message}",
+    "localChanges": "git se negó: hay cambios locales en medio.",
     "spawnFailed": "No se pudo iniciar el comando. {message}",
     "notOnDisk": "{path} no está en el disco.",
     "externalRefused": "Begitra solo abre páginas de los servicios de código que conoce y los archivos de tus repositorios.",
@@ -1064,9 +1068,6 @@
       "hard": "Hard",
       "hardHint": "descarta los cambios del índice y del árbol de trabajo",
       "reset": "Reset {mode}",
-      "dirtySwitchTitle": "Se sobrescribirían cambios locales",
-      "dirtySwitchBody": "git se negó a cambiar a {name}: se sobrescribirían tus cambios locales. Guárdalos en el stash (ficheros sin seguimiento incluidos), cambia de rama y saca el stash al volver.",
-      "stashAndSwitch": "Guardar en el stash y cambiar",
       "deleteOnRemoteToo": "Borrar también {ref}",
       "deleteTagTitle": "¿Borrar la etiqueta {name}?",
       "deleteTagBody": "La etiqueta se borra. Las etiquetas no tienen reflog: el aviso guarda su hash, y git tag la recupera hasta que pase git gc.",
@@ -1085,6 +1086,7 @@
     "copyTagName": "Copiar el nombre de la etiqueta",
     "nameCopied": "Nombre {name} copiado",
     "detached": "HEAD separado en {name}",
+    "switchNotice": "Cambiado a {name}, pero git informó de un error",
     "tagDeleted": "Borrada la etiqueta {name}",
     "tagDeletedWas": "Borrada la etiqueta {name}; apuntaba a {hash}",
     "menuTag": "Acciones de la etiqueta",
@@ -1158,6 +1160,7 @@
       "conflicts": "{n} conflicto | {n} conflictos",
       "hint": "Resuelve los ficheros, márcalos y continúa.",
       "hintClean": "Todos los conflictos están marcados como resueltos; continúa o aborta.",
+      "hintNoOperation": "Resuelve los ficheros y márcalos.",
       "resolve": "Resolver…",
       "continue": "Continuar",
       "skip": "Saltar",
@@ -1791,5 +1794,58 @@
     "noAuthors": "No hay más autores en el historial reciente",
     "noMatch": "Ningún autor coincide",
     "failed": "No se pudo leer la lista"
+  },
+  "localChanges": {
+    "title": "Cambios locales en medio",
+    "switch": {
+      "changed": "git no cambiará a {target} mientras estos ficheros tengan cambios:",
+      "untracked": "git no cambiará a {target} mientras estos ficheros sin seguimiento estén en medio:",
+      "unnamed": "git no cambiará a {target} mientras el árbol de trabajo tenga cambios."
+    },
+    "merge": {
+      "changed": "git no fusionará {target} en {branch} mientras estos ficheros tengan cambios:",
+      "untracked": "git no fusionará {target} en {branch} mientras estos ficheros sin seguimiento estén en medio:",
+      "unnamed": "git no fusionará {target} en {branch} mientras el árbol de trabajo tenga cambios."
+    },
+    "pull": {
+      "changed": "git no hará pull de {target} en {branch} mientras estos ficheros tengan cambios:",
+      "untracked": "git no hará pull de {target} en {branch} mientras estos ficheros sin seguimiento estén en medio:",
+      "unnamed": "git no hará pull de {target} en {branch} mientras el árbol de trabajo tenga cambios."
+    },
+    "rebase": {
+      "changed": "git no hará rebase de {branch} sobre {target} mientras estos ficheros tengan cambios:",
+      "untracked": "git no hará rebase de {branch} sobre {target} mientras estos ficheros sin seguimiento estén en medio:",
+      "unnamed": "git no hará rebase de {branch} sobre {target} mientras el árbol de trabajo tenga cambios."
+    },
+    "moveThem": "Muévelos o bórralos y vuelve a intentarlo.",
+    "more": "y {n} más",
+    "bring": "Traer mis cambios",
+    "leave": "Dejarlos en un stash",
+    "aside": {
+      "merge": "Apartarlos y fusionar",
+      "rebase": "Apartarlos y hacer rebase",
+      "pull": "Apartarlos y hacer pull"
+    },
+    "close": "Cerrar",
+    "switchedWith": "Cambiado a {name} con tus cambios",
+    "switchedWithDetached": "HEAD separado en {name} con tus cambios",
+    "switchedUnstaged": "Cambiado a {name} con tus cambios. Lo preparado ya no lo está: no se podía aplicar allí.",
+    "switchedUnstagedDetached": "HEAD separado en {name} con tus cambios. Lo preparado ya no lo está: no se podía aplicar allí.",
+    "switchedLeft": "Cambiado a {name}. Tus cambios están en un stash ({hash}).",
+    "switchedLeftDetached": "HEAD separado en {name}. Tus cambios están en un stash ({hash}).",
+    "switchedKept": "Cambiado a {name}. No todos tus cambios han vuelto; el stash ({hash}) aún los guarda.",
+    "switchedKeptDetached": "HEAD separado en {name}. No todos tus cambios han vuelto; el stash ({hash}) aún los guarda.",
+    "stashKept": "Tus cambios se quedaron en un stash ({hash}).",
+    "openStashes": "Ver los stashes",
+    "backTitle": "Tus cambios han vuelto con conflictos · {n} fichero | Tus cambios han vuelto con conflictos · {n} ficheros",
+    "backHint": "Siguen en un stash. Resuelve los ficheros y márcalos.",
+    "backResolvedTitle": "Tus cambios han vuelto",
+    "backResolvedHint": "El stash aún guarda una copia.",
+    "keepIt": "Conservarlo",
+    "dropStash": "Borrar el stash…",
+    "heldAside": {
+      "merge": "Tus otros cambios volverán cuando la fusión se confirme o se aborte.",
+      "rebase": "Tus otros cambios volverán cuando el rebase termine o se aborte."
+    }
   }
 }

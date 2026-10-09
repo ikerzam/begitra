@@ -213,6 +213,7 @@ describe("NetworkDialog", () => {
       branch: "develop",
       rebase: true,
       ffOnly: false,
+      autostash: false,
     });
     wrapper.unmount();
   });

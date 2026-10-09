@@ -201,6 +201,7 @@ describe("a bulk operation", () => {
       branch: null,
       rebase: false,
       ffOnly: true,
+      autostash: false,
     });
     expect(bulk.summary).toMatchObject({ done: 4, skipped: 1, failed: 0 });
     expect(useOperationsStore().current).toBeUndefined();

@@ -15,12 +15,24 @@ import { heldBy, undoPlan, type UndoPlan } from "@/branches/undoPlan";
 import * as ipc from "@/ipc/commands";
 import { toAppError, type AppError } from "@/ipc/errors";
 import { newOpId } from "@/ipc/invoke";
-import type { CommitContext, MergeMode, Outcome, ResetMode, SwitchTarget } from "@/ipc/schemas";
+import type {
+  CommitContext,
+  MergeMode,
+  Outcome,
+  ResetMode,
+  Switched,
+  SwitchTarget,
+} from "@/ipc/schemas";
 import { arm } from "@/motion/motion";
 import { baseName, sameFolder, shellWord, shortHash } from "@/shell/format";
 
 import { draftIsBlank, messageOf, useChangesStore } from "./changes";
 import { useOperationsStore } from "./operations";
+import {
+  useLocalChangesStore,
+  type LocalChangesChoice,
+  type LocalChangesOperation,
+} from "./localChanges";
 import { useRecentBranchesStore } from "./recentBranches";
 import { useRemotesStore } from "./remotes";
 import { headTarget, useRepoStore } from "./repo";
@@ -59,12 +71,7 @@ export type BranchPrompt =
   /** The last commit is on `remote` already: its undo asks first. */
   | { kind: "undoCommit"; hash: string; label: string; remote: string }
   /** The branch is checked out in the worktree at `path`: git checks it out in one only. */
-  | { kind: "heldElsewhere"; branch: string; path: string }
-  /**
-   * git refused the switch because of local changes: "Stash and switch". `tracking` is a
-   * remote branch's checkout, which makes the local branch that tracks it.
-   */
-  | { kind: "dirtySwitch"; target: SwitchTarget; output: string; tracking?: Tracking };
+  | { kind: "heldElsewhere"; branch: string; path: string };
 
 /**
  * The last undo of HEAD's commit, for "Redo": the repository, the branch it moved (its full
@@ -98,12 +105,6 @@ export function targetName(target: SwitchTarget): string {
   return target.rev.replace(/^refs\/(?:heads|tags|remotes)\//, "");
 }
 
-/** git's refusal of a switch that would overwrite local changes, in its own words. */
-export function isDirtySwitch(error: AppError): boolean {
-  const output = `${error.message}\n${error.detail ?? ""}`;
-  return /would be overwritten|local changes|uncommitted changes/i.test(output);
-}
-
 /**
  * The folder git names when it refuses a branch another worktree holds ("is already used by
  * worktree at '<path>'", "is already checked out at" before git 2.42); null for another refusal.
@@ -125,6 +126,7 @@ export const useBranchesStore = defineStore("branches", () => {
   const sequencer = useSequencerStore();
   const toasts = useToastsStore();
   const recentBranches = useRecentBranchesStore();
+  const localChanges = useLocalChangesStore();
 
   const prompt = ref<BranchPrompt | null>(null);
   /** The write in flight, as its status bar label; null between writes. */
@@ -198,8 +200,13 @@ export const useBranchesStore = defineStore("branches", () => {
     repo.reloadWalk(hash ?? undefined, listing);
   }
 
-  /** An outcome: conflicts hand over to the sequencer on the changes screen; the rest toast. */
+  /**
+   * An outcome: conflicts hand over to the sequencer on the changes screen; the rest toast. A
+   * stash git's autostash kept, or changes it holds aside, go to the banner.
+   */
   function settle(outcome: Outcome, key: string, params: Record<string, string>): void {
+    const root = repo.repo?.root;
+    if (root) localChanges.absorb(root, outcome);
     if (outcome.kind === "conflicts") {
       // A rebase or a pick of several commits moved HEAD before it stopped.
       void repo.refreshRefs();
@@ -230,9 +237,9 @@ export const useBranchesStore = defineStore("branches", () => {
   }
 
   /**
-   * Switches; a refusal because of local changes prompts "Stash and switch". A branch another
-   * worktree holds is not asked of git: the prompt offers that worktree, as it does when git
-   * refuses one the listing did not know.
+   * Switches; a refusal because of local changes asks how they go ("Bring my changes", "Leave
+   * them in a stash"). A branch another worktree holds is not asked of git: the prompt offers
+   * that worktree, as it does when git refuses one the listing did not know.
    */
   async function checkout(target: SwitchTarget): Promise<boolean> {
     const held = target.kind === "branch" ? heldElsewhere(target.name) : null;
@@ -240,39 +247,58 @@ export const useBranchesStore = defineStore("branches", () => {
       ask({ kind: "heldElsewhere", branch: target.name, path: held });
       return false;
     }
-    const done = await write(
+    const switched = await write(
       "operations.switching",
-      async (root, opId) => {
-        await ipc.switchTo(root, target, opId);
-        return true;
-      },
+      (root, opId) => ipc.switchTo(root, target, "refuse", opId),
       (error) => {
         const holder = heldWorktreeOf(error);
         if (holder !== null && target.kind === "branch") {
           ask({ kind: "heldElsewhere", branch: target.name, path: holder });
           return true;
         }
-        if (!isDirtySwitch(error)) return false;
-        ask({ kind: "dirtySwitch", target, output: error.detail ?? error.message });
-        return true;
+        return askLocalChanges(error, targetName(target), (choice) => switchWith(target, choice));
       },
     );
-    if (done) {
+    if (switched) {
       headMoved();
-      toasts.push({
-        kind: "success",
-        message: "",
-        key: target.kind === "detached" ? "branches.detached" : "branches.switched",
-        params: { name: targetName(target) },
-      });
+      pushSwitched(
+        target.kind === "detached" ? "branches.detached" : "branches.switched",
+        targetName(target),
+        switched,
+      );
     }
-    return done === true;
+    return switched !== null;
+  }
+
+  /**
+   * The toast of a switch with no local changes in its way: a success, or, when git reported a
+   * failure after switching, its notice.
+   */
+  function pushSwitched(key: string, name: string, switched: Switched): void {
+    if (switched.notice !== null) pushNotice(name, switched.notice);
+    else toasts.push({ kind: "success", message: "", key, params: { name } });
+  }
+
+  /**
+   * git reported a failure after a switch it made (a post-checkout hook, such as Git LFS's): an
+   * error toast that stays, since the files the hook writes may be missing, with git's words.
+   */
+  function pushNotice(name: string, notice: string | null): void {
+    if (notice === null) return;
+    toasts.push({
+      kind: "error",
+      message: "",
+      key: "branches.switchNotice",
+      params: { name },
+      output: notice,
+      sticky: true,
+    });
   }
 
   /**
    * Checks out a remote branch as `git checkout <branch>` would: the local branch of its name
    * when one exists (nothing when it is the current one), else a new one that tracks it; a
-   * refusal because of local changes prompts "Stash and switch" as a switch does.
+   * refusal because of local changes asks how they go, as a switch does.
    */
   async function checkoutRemote(fullName: string, remote: RemoteBranch): Promise<boolean> {
     const local = repo.refs.find(
@@ -282,59 +308,112 @@ export const useBranchesStore = defineStore("branches", () => {
     if (local) return checkout({ kind: "branch", name: local.name });
     dismiss();
     const target: SwitchTarget = { kind: "branch", name: remote.branch };
-    const done = await write(
+    const switched = await write(
       "operations.creatingBranch",
-      async (root, opId) => {
-        await ipc.branchCreate(root, remote.branch, fullName, true, true, opId);
-        return true;
-      },
-      (error) => {
-        if (!isDirtySwitch(error)) return false;
-        ask({
-          kind: "dirtySwitch",
-          target,
-          output: error.detail ?? error.message,
-          tracking: { fullName, remote },
-        });
-        return true;
-      },
+      (root, opId) => ipc.branchCreate(root, remote.branch, fullName, true, true, "refuse", opId),
+      (error) =>
+        askLocalChanges(error, remote.branch, (choice) =>
+          switchWith(target, choice, { fullName, remote }),
+        ),
     );
-    if (done) {
+    if (switched) {
       headMoved(null, { arm: "branches" });
-      toasts.push({
-        kind: "success",
-        message: "",
-        key: "branches.switched",
-        params: { name: remote.branch },
-      });
+      pushSwitched("branches.switched", remote.branch, switched);
     }
-    return done === true;
+    return switched !== null;
   }
 
-  /** Stashes everything (untracked included), then switches; the stash stays for the user. */
-  async function stashAndSwitch(target: SwitchTarget, tracking?: Tracking): Promise<boolean> {
-    dismiss();
-    const stashed = await write("operations.stashing", async (root, opId) => {
-      await ipc.stashPush(root, { message: null, includeUntracked: true, paths: [] }, opId);
-      return true;
+  /**
+   * The question a refusal over local changes asks ("Local changes in the way"), with `run` as
+   * the way through; false for another refusal, which the caller's toast shows.
+   */
+  function askLocalChanges(
+    error: AppError,
+    target: string,
+    run: (choice: LocalChangesChoice) => Promise<unknown>,
+    operation: LocalChangesOperation = "switch",
+  ): boolean {
+    if (error.code !== "git.local_changes") return false;
+    localChanges.ask({ operation, target, detail: error.detail ?? error.message, run });
+    return true;
+  }
+
+  /**
+   * Switches again with the local changes carried over or left in a stash, the way chosen in
+   * "Local changes in the way"; `tracking` is a remote branch's checkout, which makes the local
+   * branch that tracks it, and `create` a new branch at its start.
+   */
+  async function switchWith(
+    target: SwitchTarget,
+    choice: LocalChangesChoice,
+    tracking?: Tracking,
+    create?: { start: string },
+  ): Promise<boolean> {
+    const mode = choice === "leave" ? "leave" : "carry";
+    const name = tracking ? tracking.remote.branch : targetName(target);
+    let root = "";
+    const switched = await write(
+      tracking || create ? "operations.creatingBranch" : "operations.switching",
+      (at, opId) => {
+        root = at;
+        if (tracking) {
+          return ipc.branchCreate(at, name, tracking.fullName, true, true, mode, opId);
+        }
+        if (create) return ipc.branchCreate(at, name, create.start, true, false, mode, opId);
+        return ipc.switchTo(at, target, mode, opId);
+      },
+    );
+    if (!switched) return false;
+    headMoved(null, tracking || create ? { arm: "branches" } : {});
+    const stash = switched.stash;
+    if (switched.conflicts.length > 0) {
+      // The changes came back with conflicts: the changes screen takes over, and the banner says
+      // the stash keeps them. Not when git also refused a part, which only the stash holds: its
+      // "Drop the stash…" would lose it, and the toast says so instead.
+      sequencer.absorb({ kind: "conflicts", hash: null, conflicts: switched.conflicts, stash });
+      void shell.setLayoutMode("changes");
+      if (stash && switched.kept === null) {
+        localChanges.keep(root, stash);
+        pushNotice(name, switched.notice);
+        return true;
+      }
+    }
+    // Left in a stash, kept there when they did not come back whole (git's words in a toast that
+    // stays), or brought along (saying so when what was staged came back unstaged); a failure git
+    // reported in a toast of its own.
+    const way =
+      mode === "leave" ? "Left" : stash ? "Kept" : switched.unstaged ? "Unstaged" : "With";
+    const detached = target.kind === "detached" && !tracking && !create;
+    toasts.push({
+      kind: way === "Kept" || way === "Unstaged" ? "info" : "success",
+      message: "",
+      key: `localChanges.switched${way}${detached ? "Detached" : ""}`,
+      params: { name, hash: stash ? shortHash(stash) : "" },
+      ...(switched.kept === null ? {} : { output: switched.kept }),
+      sticky: way === "Kept" || way === "Unstaged",
     });
-    if (!stashed) return false;
-    return tracking ? checkoutRemote(tracking.fullName, tracking.remote) : checkout(target);
+    pushNotice(name, switched.notice);
+    return true;
   }
 
   async function create(name: string, start: string, checkoutIt: boolean): Promise<boolean> {
     dismiss();
-    const done = await write("operations.creatingBranch", async (root, opId) => {
-      await ipc.branchCreate(root, name, start, checkoutIt, false, opId);
-      return true;
-    });
-    if (done) {
+    const created = await write(
+      "operations.creatingBranch",
+      (root, opId) => ipc.branchCreate(root, name, start, checkoutIt, false, "refuse", opId),
+      (error) =>
+        checkoutIt &&
+        askLocalChanges(error, name, (choice) =>
+          switchWith({ kind: "branch", name }, choice, undefined, { start }),
+        ),
+    );
+    if (created) {
       // The new branch's row comes with the listing, which has its figures.
       if (checkoutIt) headMoved(null, { arm: "branches" });
       else void repo.refreshRefs({ arm: "branches" });
-      toasts.push({ kind: "success", message: "", key: "branches.created", params: { name } });
+      pushSwitched("branches.created", name, created);
     }
-    return done === true;
+    return created !== null;
   }
 
   async function rename(from: string, to: string): Promise<boolean> {
@@ -411,8 +490,9 @@ export const useBranchesStore = defineStore("branches", () => {
   async function history(
     label: string,
     run: (root: string, opId: string) => Promise<Outcome>,
+    onError?: (error: AppError) => boolean,
   ): Promise<Outcome | null> {
-    const outcome = await write(label, run);
+    const outcome = await write(label, run, onError);
     if (!outcome) {
       void sequencer.load();
       void repo.refreshRefs();
@@ -420,9 +500,18 @@ export const useBranchesStore = defineStore("branches", () => {
     return outcome;
   }
 
-  async function merge(rev: string, mode: MergeMode): Promise<Outcome | null> {
-    const outcome = await history("operations.merging", (root, opId) =>
-      ipc.merge(root, rev, mode, opId),
+  /** Merges `rev`; a refusal over local changes asks to set them aside and merge (`autostash`). */
+  async function merge(rev: string, mode: MergeMode, autostash = false): Promise<Outcome | null> {
+    const outcome = await history(
+      "operations.merging",
+      (root, opId) => ipc.merge(root, rev, mode, autostash, opId),
+      (error) =>
+        askLocalChanges(
+          error,
+          targetName({ kind: "detached", rev }),
+          () => merge(rev, mode, true),
+          "merge",
+        ),
     );
     if (outcome) {
       settle(outcome, "branches.merged", { rev, into: repo.currentBranch?.name ?? "HEAD" });
@@ -430,9 +519,18 @@ export const useBranchesStore = defineStore("branches", () => {
     return outcome;
   }
 
-  async function rebase(onto: string): Promise<Outcome | null> {
-    const outcome = await history("operations.rebasing", (root, opId) =>
-      ipc.rebase(root, onto, opId),
+  /** Rebases onto `onto`; a refusal over local changes asks as for a merge. */
+  async function rebase(onto: string, autostash = false): Promise<Outcome | null> {
+    const outcome = await history(
+      "operations.rebasing",
+      (root, opId) => ipc.rebase(root, onto, autostash, opId),
+      (error) =>
+        askLocalChanges(
+          error,
+          targetName({ kind: "detached", rev: onto }),
+          () => rebase(onto, true),
+          "rebase",
+        ),
     );
     if (outcome) {
       settle(outcome, "branches.rebased", { onto, branch: repo.currentBranch?.name ?? "HEAD" });
@@ -782,7 +880,7 @@ export const useBranchesStore = defineStore("branches", () => {
     fastForward,
     checkout,
     checkoutRemote,
-    stashAndSwitch,
+    switchWith,
     create,
     rename,
     remove,
