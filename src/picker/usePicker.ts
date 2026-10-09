@@ -1,5 +1,7 @@
-// The rows of the picker from the open repository: Branches (local first, the current one
-// marked, ahead/behind or the worktree folder as context), Tags (the short hash as context),
+// The rows of the picker from the open repository: Recent branches when the caller gives them
+// (the checkout's: the local branches HEAD left most recently, in that order, then left out of
+// Branches), Branches (local first, the current one marked, ahead/behind or the worktree folder
+// as context), Tags (the short hash as context),
 // Worktrees (the branch as context), Recent commits (the loaded commits, short hash and
 // subject, relative date); a query shaped like `A..B` or `A...B` yields the Range group with
 // its endpoints instead. Pure over its inputs so it is unit-tested on data.
@@ -11,7 +13,8 @@ import { matchesQuery } from "@/palette/usePalette";
 import { shortHash } from "@/shell/format";
 import type { PickerChoice } from "@/stores/picker";
 
-export type PickerSection = "range" | "endpoints" | "branches" | "tags" | "worktrees" | "commits";
+export type PickerSection =
+  "range" | "endpoints" | "recent" | "branches" | "tags" | "worktrees" | "commits";
 
 export interface PickerRow {
   key: string;
@@ -65,6 +68,8 @@ export interface PickerInputs {
   recentLimit?: number;
   /** Whether a typed `A..B` yields the Range group (not in compare mode). Default true. */
   ranges?: boolean;
+  /** Local branch names for Recent branches, newest first (the checkout's); none by default. */
+  recent?: readonly string[];
 }
 
 /** Rows for the query, grouped as branches, tags, worktrees and recent commits. */
@@ -76,22 +81,35 @@ export function pickerRows(inputs: PickerInputs): PickerRow[] {
   const branches = inputs.refs.filter(
     (ref) => ref.kind === "local-branch" || ref.kind === "remote-branch",
   );
-  for (const ref of branches) {
-    if (!matchesQuery(ref.name, query)) continue;
+  const branchRow = (ref: GitRef, section: PickerSection): PickerRow => {
     const parts: string[] = [];
     if (ref.isCurrent) parts.push(inputs.words.current);
     if (ref.worktree && !ref.isCurrent) parts.push(`${inputs.words.worktree} ${ref.worktree}`);
     else if (ref.upstream && ref.ahead !== null && ref.behind !== null) {
       parts.push(`↑${ref.ahead} ↓${ref.behind}`);
     }
-    rows.push({
+    return {
+      // One key in either group: a branch is in one of them, and the cursor follows its key.
       key: `branch:${ref.fullName}`,
-      section: "branches",
+      section,
       label: ref.name,
       context: parts.join(" "),
       lane: inputs.lanes.get(ref.fullName) ?? 0,
       choice: { kind: "revision", rev: ref.fullName, label: ref.name },
-    });
+    };
+  };
+  // Recent branches, in their order, as the listing knows them: a name the listing no longer
+  // has (deleted since the read) is left out.
+  const recent = new Set<string>();
+  for (const name of inputs.recent ?? []) {
+    const ref = branches.find((entry) => entry.kind === "local-branch" && entry.name === name);
+    if (!ref || ref.isCurrent || recent.has(ref.fullName)) continue;
+    recent.add(ref.fullName);
+    if (matchesQuery(ref.name, query)) rows.push(branchRow(ref, "recent"));
+  }
+  for (const ref of branches) {
+    if (recent.has(ref.fullName) || !matchesQuery(ref.name, query)) continue;
+    rows.push(branchRow(ref, "branches"));
   }
   for (const ref of inputs.refs.filter((r) => r.kind === "tag")) {
     if (!matchesQuery(ref.name, query)) continue;

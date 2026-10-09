@@ -30,6 +30,7 @@ import { relativeDate } from "@/shell/format";
 import { useExternal } from "@/shell/useExternal";
 import { useNow } from "@/shell/useNow";
 import { usePickerStore } from "@/stores/picker";
+import { useRecentBranchesStore } from "@/stores/recentBranches";
 import { useRepoStore } from "@/stores/repo";
 
 import {
@@ -42,6 +43,7 @@ import {
 
 const { t } = useI18n();
 const picker = usePickerStore();
+const recentBranches = useRecentBranchesStore();
 const repo = useRepoStore();
 const external = useExternal();
 const now = useNow();
@@ -84,6 +86,10 @@ const title = computed(() => {
 });
 /** Ranges make no sense for a comparison side or a branch action: refs and commits only. */
 const compareMode = computed(() => picker.mode?.kind !== "diff-from");
+/** The checkout lists the branches HEAD left most recently first. */
+const checkingOut = computed(
+  () => picker.mode?.kind === "branch-action" && picker.mode.action === "checkout",
+);
 
 function ago(seconds: number): string {
   const rel = relativeDate(seconds, now.value);
@@ -100,12 +106,14 @@ const rows = computed(() =>
     ago,
     words: { current: t("picker.current"), worktree: t("picker.worktreeAt") },
     ranges: !compareMode.value,
+    recent: checkingOut.value ? recentBranches.branches : [],
   }),
 );
 
 const sectionLabels: Record<PickerSection, string> = {
   range: t("picker.range"),
   endpoints: t("picker.endpoints"),
+  recent: t("picker.recentBranches"),
   branches: t("picker.branches"),
   tags: t("picker.tags"),
   worktrees: t("picker.worktrees"),
@@ -113,7 +121,15 @@ const sectionLabels: Record<PickerSection, string> = {
 };
 
 const sections = computed(() => {
-  const order: PickerSection[] = ["range", "endpoints", "branches", "tags", "worktrees", "commits"];
+  const order: PickerSection[] = [
+    "range",
+    "endpoints",
+    "recent",
+    "branches",
+    "tags",
+    "worktrees",
+    "commits",
+  ];
   let offset = 0;
   return order
     .map((id) => {
@@ -138,6 +154,7 @@ const isEmpty = computed(() => !loading.value && rows.value.length === 0);
 const icons: Record<PickerSection, Component> = {
   range: GitCompare,
   endpoints: GitBranch,
+  recent: GitBranch,
   branches: GitBranch,
   tags: Tag,
   worktrees: ListTree,
@@ -155,14 +172,36 @@ function optionId(index: number): string {
   return `picker-option-${index}`;
 }
 
-watch(rows, () => {
-  cursor.value = 0;
+/** Whether the user moved the cursor since the query last changed. */
+let moved = false;
+
+function moveTo(index: number): void {
+  cursor.value = index;
+  moved = true;
+}
+
+// Rows that change under the same query (the refs or the recent branches landing while the
+// picker is open) keep a cursor the user moved on its row, or the nearest one when its row
+// goes, so Enter chooses what is highlighted; one the user did not move stays on the first row.
+// Typing goes back to the first row.
+let rowsQuery = query.value;
+watch(rows, (now, before) => {
+  const typed = query.value !== rowsQuery;
+  rowsQuery = query.value;
+  if (typed) moved = false;
+  if (!moved) {
+    cursor.value = 0;
+    return;
+  }
+  const key = before[cursor.value]?.key;
+  const at = key === undefined ? -1 : now.findIndex((row) => row.key === key);
+  cursor.value = at >= 0 ? at : Math.min(cursor.value, Math.max(now.length - 1, 0));
 });
 
 function move(step: number): void {
   const count = rows.value.length;
   if (count === 0) return;
-  cursor.value = (((cursor.value + step) % count) + count) % count;
+  moveTo((((cursor.value + step) % count) + count) % count);
 }
 
 function chooseCurrent(): void {
@@ -182,11 +221,11 @@ function onKeydown(event: KeyboardEvent): void {
       break;
     case "Home":
       event.preventDefault();
-      cursor.value = 0;
+      moveTo(0);
       break;
     case "End":
       event.preventDefault();
-      cursor.value = Math.max(0, rows.value.length - 1);
+      moveTo(Math.max(0, rows.value.length - 1));
       break;
     case "Enter":
       event.preventDefault();
@@ -237,7 +276,9 @@ watch(cursor, (index) => {
       @mousedown="holdFocus"
     >
       <div class="flex items-center justify-between gap-3 px-3 pt-3">
-        <h2 class="text-md font-semibold text-fg" data-testid="picker-title">{{ title }}</h2>
+        <h2 id="picker-title" class="text-md font-semibold text-fg" data-testid="picker-title">
+          {{ title }}
+        </h2>
         <IconButton :label="t('picker.close')" :icon="X" @click="picker.close()" />
       </div>
       <div class="px-3 py-2">
@@ -278,6 +319,7 @@ watch(cursor, (index) => {
         id="picker-list"
         ref="list"
         role="listbox"
+        aria-labelledby="picker-title"
         class="min-h-0 flex-1 overflow-y-auto p-1"
         data-testid="picker-list"
       >
@@ -293,8 +335,18 @@ watch(cursor, (index) => {
         <template v-else-if="loading">
           <SkeletonRow v-for="n in 6" :key="n" :index="n" height="list" />
         </template>
-        <template v-for="section in sections" :key="section.id">
-          <p class="picker-section text-sm text-fg-muted" role="presentation">
+        <!-- Groups of options, each labelled by its header (the ARIA grouped listbox). -->
+        <div
+          v-for="section in sections"
+          :key="section.id"
+          role="group"
+          :aria-labelledby="`picker-section-${section.id}`"
+        >
+          <p
+            :id="`picker-section-${section.id}`"
+            class="picker-section text-sm text-fg-muted"
+            role="presentation"
+          >
             {{ section.label }}
           </p>
           <div
@@ -307,7 +359,7 @@ watch(cursor, (index) => {
             class="flex h-control items-center gap-2 rounded-sm px-2 text-md text-fg"
             :class="cursor === section.offset + index ? 'bg-selected' : 'hover:bg-hover'"
             data-testid="picker-row"
-            @mousemove="cursor = section.offset + index"
+            @mousemove="moveTo(section.offset + index)"
             @click="() => void picker.choose(row.choice)"
           >
             <component
@@ -321,7 +373,7 @@ watch(cursor, (index) => {
             <span class="flex-1 truncate">{{ row.label }}</span>
             <span v-if="row.context" class="truncate text-sm text-fg-muted">{{ row.context }}</span>
           </div>
-        </template>
+        </div>
         <p
           v-if="isEmpty && !refsError"
           class="picker-empty flex items-center justify-center px-3 text-center text-md text-fg-secondary"

@@ -198,6 +198,9 @@ export const ContentFilterSchema = v.object({
 });
 export type ContentFilter = v.InferOutput<typeof ContentFilterSchema>;
 
+/** The local branches HEAD left most recently, newest first. */
+export const RecentBranchesSchema = v.array(v.string());
+
 export const WalkFilterSchema = v.object({
   text: v.optional(filterText),
   author: v.optional(filterText),
@@ -1067,6 +1070,7 @@ export const commandArgs = {
   open_repository: v.object({ path, opId }),
   close_repository: v.object({ root: path }),
   list_refs: v.object({ repo: path, opId }),
+  recent_branches: v.object({ repo: path, opId }),
   status: v.object({ repo: path, options: StatusOptionsSchema, opId }),
   merge_base: v.object({ repo: path, a: v.string(), b: v.string(), opId }),
   refs_containing: v.object({

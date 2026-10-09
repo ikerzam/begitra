@@ -132,6 +132,19 @@ export function usePalette(options: PaletteOptions): Palette {
     { flush: "sync" },
   );
 
+  // Rows that change under the same query (a command offered or withdrawn by an answer that lands
+  // while the palette is open) keep the cursor on its row, or the nearest one when its row goes,
+  // moved or not, so Enter runs what is highlighted.
+  let rowsQuery = query.value;
+  watch(rows, (now, before) => {
+    const typed = query.value !== rowsQuery;
+    rowsQuery = query.value;
+    if (typed) return;
+    const id = before[cursor.value]?.command.id;
+    const at = id === undefined ? -1 : now.findIndex((row) => row.command.id === id);
+    cursor.value = at >= 0 ? at : Math.min(cursor.value, Math.max(now.length - 1, 0));
+  });
+
   function clampCursor(): void {
     const count = rows.value.length;
     cursor.value = count === 0 ? 0 : Math.min(Math.max(cursor.value, 0), count - 1);

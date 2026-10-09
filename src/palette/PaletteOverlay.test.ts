@@ -4,12 +4,14 @@ import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ShortcutRegistry, setShortcutRegistry } from "@/shortcuts/registry";
+import { useBranchesStore } from "@/stores/branches";
 import { useIndexStore } from "@/stores/index";
+import { useRecentBranchesStore } from "@/stores/recentBranches";
 import { useProjectsStore } from "@/stores/projects";
 import { useRepoStore } from "@/stores/repo";
 import { memoryStorage, useSettingsStore } from "@/stores/settings";
 import { useShellStore } from "@/stores/shell";
-import { fakeBackend } from "@/test/backend";
+import { fakeBackend, writeGate } from "@/test/backend";
 import { entryOf, projectOf } from "@/test/entries";
 import { mountWithI18n } from "@/test/mount";
 
@@ -74,6 +76,87 @@ describe("PaletteOverlay", () => {
     expect(useRepoStore().repo?.root).toBe(infra.path);
     expect(useSettingsStore().values.paletteRecents).toEqual([]);
     wrapper.unmount();
+  });
+
+  /** Opens `/r` on `options`, runs "Checkout previous branch" from the palette, answers the calls. */
+  async function checkoutPrevious(options: Parameters<typeof fakeBackend>[0]) {
+    clearMocks();
+    const calls = fakeBackend(options);
+    await useRepoStore().open("/r");
+    await flushPromises();
+    useShellStore().openPalette();
+    const wrapper = mountWithI18n(PaletteOverlay, { attachTo: document.body });
+    await flushPromises();
+    const input = wrapper.get('[data-testid="palette-input"]');
+    await input.setValue("checkout previous");
+    expect(wrapper.findAll('[data-testid="palette-row"]')[0]?.text()).toBe(
+      "Checkout previous branch",
+    );
+    await input.trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    wrapper.unmount();
+    return calls.filter((call) => call.cmd === "switch").map((call) => call.args["target"]);
+  }
+
+  it("checks out the previous branch as the picker does, local changes in the way", async () => {
+    const switches = await checkoutPrevious({ recentBranches: ["develop"], dirtySwitch: true });
+    expect(switches).toEqual([{ kind: "branch", name: "develop" }]);
+    expect(useBranchesStore().prompt).toMatchObject({
+      kind: "dirtySwitch",
+      target: { name: "develop" },
+    });
+  });
+
+  it("opens the held-by-a-worktree dialog when git says another worktree has the branch", async () => {
+    const switches = await checkoutPrevious({
+      recentBranches: ["develop"],
+      writeErrors: {
+        "/r": {
+          code: "git.cli_failed",
+          message: "git switch failed",
+          detail: "fatal: 'develop' is already used by worktree at 'C:/wt/dev'",
+        },
+      },
+    });
+    expect(switches).toEqual([{ kind: "branch", name: "develop" }]);
+    expect(useBranchesStore().prompt).toEqual({
+      kind: "heldElsewhere",
+      branch: "develop",
+      path: "C:/wt/dev",
+    });
+  });
+
+  it("offers no previous branch right after a switch, until the list is read again", async () => {
+    clearMocks();
+    const gate = writeGate();
+    fakeBackend({ recentBranches: ["develop"], recentGate: gate });
+    const recent = useRecentBranchesStore();
+    await useRepoStore().open("/r");
+    await flushPromises();
+    gate.release();
+    await flushPromises();
+    const offered = () => {
+      useShellStore().openPalette();
+      const wrapper = mountWithI18n(PaletteOverlay, { attachTo: document.body });
+      return wrapper;
+    };
+    const run = offered();
+    await run.get('[data-testid="palette-input"]').setValue("checkout previous");
+    await run.get('[data-testid="palette-input"]').trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    run.unmount();
+    // The switch went through: the list from before names the branch just entered.
+    expect(recent.previous).toBeNull();
+    expect(gate.waiting).toEqual(["recent_branches"]);
+    const again = offered();
+    await again.get('[data-testid="palette-input"]').setValue("checkout previous");
+    expect(again.findAll('[data-testid="palette-row"]').map((r) => r.text())).not.toContain(
+      "Checkout previous branch",
+    );
+    again.unmount();
+    gate.release();
+    await flushPromises();
+    expect(recent.previous).toBe("develop");
   });
 
   it("lists the commands with their hints, filters, runs with enter and closes", async () => {

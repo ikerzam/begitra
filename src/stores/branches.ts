@@ -21,6 +21,7 @@ import { baseName, sameFolder, shellWord, shortHash } from "@/shell/format";
 
 import { draftIsBlank, messageOf, useChangesStore } from "./changes";
 import { useOperationsStore } from "./operations";
+import { useRecentBranchesStore } from "./recentBranches";
 import { useRemotesStore } from "./remotes";
 import { headTarget, useRepoStore } from "./repo";
 import { useSequencerStore } from "./sequencer";
@@ -123,6 +124,7 @@ export const useBranchesStore = defineStore("branches", () => {
   const operations = useOperationsStore();
   const sequencer = useSequencerStore();
   const toasts = useToastsStore();
+  const recentBranches = useRecentBranchesStore();
 
   const prompt = ref<BranchPrompt | null>(null);
   /** The write in flight, as its status bar label; null between writes. */
@@ -192,6 +194,7 @@ export const useBranchesStore = defineStore("branches", () => {
 
   /** HEAD moved: the refs and the history follow, on `hash` when given. */
   function headMoved(hash?: string | null, listing: { arm?: "branches" } = {}): void {
+    recentBranches.headMoved();
     repo.reloadWalk(hash ?? undefined, listing);
   }
 

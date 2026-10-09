@@ -188,6 +188,26 @@ pub async fn list_refs(
     .await
 }
 
+/// Most branches the checkout picker lists as recent.
+const RECENT_BRANCHES: usize = 5;
+
+/// The local branches HEAD of the repository at `repo` left most recently, newest first, at most
+/// [`RECENT_BRANCHES`].
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip(state))]
+pub async fn recent_branches(
+    state: State<'_, AppState>,
+    repo: PathBuf,
+    op_id: String,
+) -> Result<Vec<String>, AppError> {
+    let app = state.inner().clone();
+    let worker = app.clone();
+    run_blocking(app.ops(), &op_id, DEFAULT_TIMEOUT, move |_cancel| {
+        worker.open(&repo)?.recent_branches(RECENT_BRANCHES)
+    })
+    .await
+}
+
 /// Reports the working tree status of the repository at `repo`.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip(state))]

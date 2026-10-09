@@ -41,6 +41,7 @@ import {
   ProjectOpenSchema,
   ProjectSchema,
   AppInfoSchema,
+  RecentBranchesSchema,
   RefSchema,
   RepoSchema,
   ScanMessageSchema,
@@ -134,6 +135,11 @@ export function mergeBase(repo: string, a: string, b: string, opId = newOpId("me
  */
 export function refsContaining(repo: string, commit: string, opId = newOpId("contains")) {
   return call("refs_containing", { repo, commit, opId }, v.array(v.string()));
+}
+
+/** The local branches HEAD left most recently, newest first (at most five). */
+export function recentBranches(repo: string, opId = newOpId("recent")) {
+  return call("recent_branches", { repo, opId }, RecentBranchesSchema);
 }
 
 /** The merge base, the counts of commits only on each side and the relation of two revisions. */

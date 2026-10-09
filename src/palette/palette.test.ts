@@ -1,4 +1,4 @@
-import { computed, ref } from "vue";
+import { computed, nextTick, ref } from "vue";
 import { describe, expect, it, vi } from "vitest";
 
 import { paletteCommands, type PaletteActions } from "./commands";
@@ -10,6 +10,7 @@ const labels: Record<string, string> = {
   "palette.commandsById.review-focus": "Switch to review focus",
   "palette.commandsById.changes-focus": "Show changes",
   "palette.commandsById.checkout": "Checkout…",
+  "palette.commandsById.checkout-previous": "Checkout previous branch",
   "palette.commandsById.create-branch": "Create branch…",
   "palette.commandsById.merge-into": "Merge into current branch…",
   "palette.commandsById.rebase-onto": "Rebase current branch onto…",
@@ -73,6 +74,8 @@ interface ActionOptions {
   canRedo?: boolean;
   /** The last discard's toast stands with its Undo. */
   canUndoDiscard?: boolean;
+  /** HEAD left a local branch that still exists. */
+  previousBranch?: boolean;
 }
 
 function actions(options: ActionOptions | boolean = {}): PaletteActions & { calls: string[] } {
@@ -85,6 +88,7 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
     several = false,
     canRedo = false,
     canUndoDiscard = false,
+    previousBranch = false,
   } = typeof options === "boolean" ? { hasRepository: options } : options;
   const calls: string[] = [];
   const record = (name: string) => () => {
@@ -193,6 +197,8 @@ function actions(options: ActionOptions | boolean = {}): PaletteActions & { call
     branchAction: (action) => {
       calls.push(`branch:${action}`);
     },
+    hasPreviousBranch: () => previousBranch,
+    checkoutPrevious: record("checkoutPrevious"),
     network: (action) => {
       calls.push(`network:${action}`);
     },
@@ -349,6 +355,18 @@ describe("usePalette", () => {
     palette.query.value = "rev focus";
     expect(palette.rows.value.map((r) => r.label)).toEqual(["Switch to review focus"]);
     expect(palette.isEmpty.value).toBe(false);
+  });
+
+  it("goes back to the previous branch while there is one, with no key of its own", async () => {
+    const without = setup({}).palette.rows.value.map((r) => r.command.id);
+    expect(without).not.toContain("checkout-previous");
+    const { palette, acts } = setup({ previousBranch: true });
+    const ids = palette.rows.value.map((r) => r.command.id);
+    expect(ids.indexOf("checkout-previous")).toBe(ids.indexOf("checkout") + 1);
+    const previous = palette.rows.value.find((r) => r.command.id === "checkout-previous");
+    expect(previous?.command.shortcutId).toBeUndefined();
+    await previous?.command.run();
+    expect(acts.calls).toEqual(["checkoutPrevious"]);
   });
 
   it("offers the commands of a project of several repositories, and runs them", async () => {
@@ -573,6 +591,39 @@ describe("usePalette", () => {
     if (!row) throw new Error("missing open-editor");
     await palette.run(row);
     expect(recents.value).toEqual(["open-editor", "graph-focus"]);
+  });
+
+  it("keeps the cursor on its row when a command is offered or withdrawn above it", async () => {
+    const offered = ref(false);
+    const acts = { ...actions(), hasPreviousBranch: () => offered.value };
+    const palette = usePalette({
+      commands: computed(() => paletteCommands(acts)),
+      translate: (k) => labels[k] ?? k,
+      onClose: () => {},
+    });
+    palette.query.value = "branch";
+    await nextTick();
+    const ids = () => palette.rows.value.map((r) => r.command.id);
+    const highlighted = () => palette.rows.value[palette.cursor.value]?.command.id;
+    // Untouched on the first row: a command offered above leaves the highlight where it was.
+    const first = ids()[0];
+    offered.value = true;
+    await nextTick();
+    expect(ids().indexOf("checkout-previous")).toBe(0);
+    expect(highlighted()).toBe(first);
+    // A moved one too.
+    palette.cursor.value = 2;
+    const chosen = highlighted();
+    offered.value = false;
+    await nextTick();
+    expect(highlighted()).toBe(chosen);
+    // On the command when it goes: the row that takes its place.
+    offered.value = true;
+    await nextTick();
+    palette.cursor.value = 0;
+    offered.value = false;
+    await nextTick();
+    expect(highlighted()).toBe(first);
   });
 
   it("reacts to command changes", () => {

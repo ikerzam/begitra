@@ -15,6 +15,7 @@ import { folderKey } from "@/shell/format";
 import { useExternal } from "@/shell/useExternal";
 import { useOpenFolder } from "@/shell/useOpenFolder";
 import { useBranchesStore } from "@/stores/branches";
+import { useRecentBranchesStore } from "@/stores/recentBranches";
 import { useCleanupStore } from "@/stores/cleanup";
 import { useIndexStore } from "@/stores/index";
 import { useChangesStore } from "@/stores/changes";
@@ -56,6 +57,7 @@ export function usePaletteActions(): PaletteActions {
   const remotes = useRemotesStore();
   const cleanup = useCleanupStore();
   const branches = useBranchesStore();
+  const recentBranches = useRecentBranchesStore();
   const toasts = useToastsStore();
   const sequencer = useSequencerStore();
   const stash = useStashStore();
@@ -140,6 +142,11 @@ export function usePaletteActions(): PaletteActions {
     showWorktrees: () => worktrees.show(),
     showChanges: () => shell.setLayoutMode("changes"),
     branchAction: (action) => picker.open({ kind: "branch-action", action }),
+    hasPreviousBranch: () => recentBranches.previous !== null,
+    checkoutPrevious: () => {
+      const name = recentBranches.previous;
+      if (name !== null) void branches.checkout({ kind: "branch", name });
+    },
     undoLastCommit: () => void branches.undoLastCommit(),
     canRedoUndone: () => branches.canRedo,
     redoUndoneCommit: () => void branches.redoUndone(),

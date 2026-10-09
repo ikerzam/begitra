@@ -85,6 +85,10 @@ export interface PaletteActions {
   changesAll: (action: "stage" | "unstage" | "discard") => void;
   /** Opens the picker for a branch action on the chosen ref. */
   branchAction: (action: "checkout" | "merge" | "rebase" | "create") => void;
+  /** Whether HEAD left a local branch that still exists, for "Checkout previous branch". */
+  hasPreviousBranch: () => boolean;
+  /** Checks out the branch HEAD left last, as the picker's checkout does. */
+  checkoutPrevious: () => void;
   /** "Push…" and "Pull…" for the current branch: the dialogs. */
   network: (action: "push" | "pull") => void;
   /** Fetch, Pull and Push as the graph's buttons do, a toast saying why when they cannot. */
@@ -429,6 +433,13 @@ export function paletteCommands(actions: PaletteActions): PaletteCommand[] {
       labelKey: "palette.commandsById.checkout",
       enabled: withRepo,
       run: () => actions.branchAction("checkout"),
+    },
+    // No key: a single key that switches branches is how a stray keystroke does it.
+    {
+      id: "checkout-previous",
+      labelKey: "palette.commandsById.checkout-previous",
+      enabled: () => withRepo() && actions.hasPreviousBranch(),
+      run: () => actions.checkoutPrevious(),
     },
     {
       id: "create-branch",

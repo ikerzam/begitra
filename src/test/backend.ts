@@ -110,6 +110,12 @@ export interface FakeBackendOptions {
   searchEmptyPages?: number;
   /** A code search answers each request after this many milliseconds. */
   searchDelayMs?: number;
+  /** What `recent_branches` answers; none by default. */
+  recentBranches?: string[];
+  /** `recent_branches` rejects. */
+  failRecentBranches?: boolean;
+  /** Holds each `recent_branches` answer until the test releases it. */
+  recentGate?: WriteGate;
   /** Commits a ref scope lists (the first N). Default 10. */
   refScopeCommits?: number;
   /** Every diff fails with `diff.blob_missing`. */
@@ -1398,6 +1404,14 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
             });
           return options.writeGate ? options.writeGate.hold(cmd, deleteThem) : deleteThem();
         }
+        case "recent_branches":
+          if (options.failRecentBranches) {
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+            return Promise.reject({ code: "internal", message: "reflog exploded" });
+          }
+          return options.recentGate
+            ? options.recentGate.hold(cmd, () => [...(options.recentBranches ?? [])])
+            : [...(options.recentBranches ?? [])];
         case "refs_containing": {
           const commit = String(args["commit"]);
           if (options.containingFailure) {

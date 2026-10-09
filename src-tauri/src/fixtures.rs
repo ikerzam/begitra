@@ -1238,6 +1238,10 @@ fn write_fixtures() {
     );
     write("app-errors", &app_errors());
     write(
+        "recent-branches",
+        &vec!["claude/fix-auth".to_owned(), "main".to_owned()],
+    );
+    write(
         "forge-hosts",
         &ForgeHosts {
             hosts: crate::links::FORGE_HOSTS.to_vec(),

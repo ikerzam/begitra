@@ -36,6 +36,7 @@ import { useRemotesStore } from "@/stores/remotes";
 import { useSequencerStore } from "@/stores/sequencer";
 import { useStashStore } from "@/stores/stash";
 import { usePickerStore } from "@/stores/picker";
+import { useRecentBranchesStore } from "@/stores/recentBranches";
 import { useRepoStore } from "@/stores/repo";
 import { useReviewStore } from "@/stores/review";
 import { useProjectsStore } from "@/stores/projects";
@@ -82,6 +83,9 @@ const remotes = useRemotesStore();
 const stash = useStashStore();
 const sequencer = useSequencerStore();
 const operations = useOperationsStore();
+// Made with the shell, so the recent branches are read with the first listing of the refs and
+// the palette's "Checkout previous branch" has them when it opens.
+useRecentBranchesStore();
 const { openFolder, addFolder } = useOpenFolder();
 const external = useExternal();
 const syncActions = useSyncActions();
