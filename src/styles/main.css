@@ -48,7 +48,7 @@
   /* What a click acts on shows the hand; disabled, the arrow. Roles rather than a class on each
      component, so every list row and control follows. More specific than `.select-text`, so a
      button inside copyable text keeps the hand. */
-  button:not(:disabled),
+  button:not(:disabled, [aria-disabled="true"]),
   a[href],
   summary,
   select,

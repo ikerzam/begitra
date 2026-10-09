@@ -82,6 +82,36 @@ describe("ContextMenu", () => {
     expect(remove?.attributes("data-destructive")).toBe("true");
   });
 
+  it("lands on a disabled item that says why, and describes it by its reason", async () => {
+    wrapper = mountWithI18n(ContextMenu, {
+      attachTo: document.body,
+      slots: {
+        default: () => [
+          h(ContextMenuItem, { label: "Set upstream…" }),
+          h(ContextMenuItem, { label: "Checkout", disabled: true }),
+          h(ContextMenuItem, {
+            label: "Fast-forward to origin/develop",
+            disabled: true,
+            context: "2 commits of its own",
+          }),
+          h(ContextMenuItem, { label: "Push" }),
+        ],
+      },
+    });
+    const menu = wrapper;
+    // The first item has the focus as the menu opens.
+    expect(focusedLabel()).toBe("Set upstream…");
+    // The plain disabled item is skipped, the one with a reason is not.
+    await menu.trigger("keydown", { key: "ArrowDown" });
+    const explained = document.activeElement as HTMLElement;
+    expect(explained.getAttribute("aria-disabled")).toBe("true");
+    const reason = document.getElementById(explained.getAttribute("aria-describedby") ?? "");
+    expect(reason?.textContent).toBe("2 commits of its own");
+    expect(reason?.getAttribute("aria-hidden")).toBe("true");
+    await menu.trigger("keydown", { key: "ArrowDown" });
+    expect(focusedLabel()).toBe("Push");
+  });
+
   it("moves with the arrow keys, skips disabled items and wraps around", async () => {
     const menu = mountMenu();
     await menu.trigger("keydown", { key: "ArrowDown" });

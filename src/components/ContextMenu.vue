@@ -44,9 +44,13 @@ watch(
   },
 );
 
+/**
+ * The items the arrows reach: the enabled ones, and a disabled one that says why (its context),
+ * so the reason can be read; one without a reason is skipped.
+ */
 function items(): HTMLElement[] {
   const nodes = root.value?.querySelectorAll<HTMLElement>(
-    '[role="menuitem"]:not([aria-disabled="true"])',
+    '[role="menuitem"]:not([aria-disabled="true"]), [role="menuitem"][data-explained="true"]',
   );
   return nodes ? Array.from(nodes) : [];
 }
@@ -146,8 +150,10 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-/* A context menu is at least 220px wide. */
+/* A context menu is at least 220px wide, and never wider than the window less its 8px margins:
+   a long branch name truncates its label rather than leave the window. */
 .context-menu {
   min-width: 220px;
+  max-width: calc(100vw - 16px);
 }
 </style>
