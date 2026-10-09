@@ -200,7 +200,7 @@ fn content(bytes: Vec<u8>) -> BlobContent {
 }
 
 /// Standard base64 with padding, without a dependency.
-fn base64(bytes: &[u8]) -> String {
+pub(super) fn base64(bytes: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
@@ -224,9 +224,63 @@ fn base64(bytes: &[u8]) -> String {
     out
 }
 
+/// The bytes of standard base64 with padding; `None` for text that is not.
+pub(super) fn base64_decode(text: &str) -> Option<Vec<u8>> {
+    fn value(byte: u8) -> Option<u32> {
+        let found = match byte {
+            b'A'..=b'Z' => byte - b'A',
+            b'a'..=b'z' => byte - b'a' + 26,
+            b'0'..=b'9' => byte - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        };
+        Some(u32::from(found))
+    }
+    let bytes = text.as_bytes();
+    if !bytes.len().is_multiple_of(4) {
+        return None;
+    }
+    let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
+    let chunks = bytes.chunks(4);
+    let last = chunks.len().saturating_sub(1);
+    for (index, chunk) in chunks.enumerate() {
+        let padding = chunk.iter().rev().take_while(|byte| **byte == b'=').count();
+        if padding > 2 || (padding > 0 && index != last) {
+            return None;
+        }
+        let mut n = 0u32;
+        for byte in &chunk[..4 - padding] {
+            n = (n << 6) | value(*byte)?;
+        }
+        n <<= 6 * padding as u32;
+        let decoded = [(n >> 16) as u8, (n >> 8) as u8, n as u8];
+        out.extend_from_slice(&decoded[..3 - padding]);
+    }
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn base64_decodes_what_it_encodes_and_refuses_the_rest() {
+        for sample in [
+            &b""[..],
+            b"f",
+            b"fo",
+            b"foo",
+            b"foobar",
+            &[0xff, 0x00, 0x10, 0x0d, 0x0a],
+        ] {
+            assert_eq!(base64_decode(&base64(sample)).as_deref(), Some(sample));
+        }
+        assert_eq!(base64_decode("Zg="), None);
+        assert_eq!(base64_decode("Z=g="), None);
+        assert_eq!(base64_decode("Zg==Zg=="), None);
+        assert_eq!(base64_decode("Z!=="), None);
+    }
 
     #[test]
     fn base64_matches_the_standard_alphabet_and_padding() {

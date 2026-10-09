@@ -111,6 +111,23 @@ pub enum GitError {
     /// deleted it would delete its folder, untracked files included.
     #[error("{0} is a submodule: check out the commit wanted inside it, then mark it resolved")]
     SubmoduleConflict(String),
+    /// A conflicted file whose blocks are not read: not a regular file (a symbolic link, a
+    /// folder, gone from the working tree), or larger than the blocks are read for.
+    #[error("{0} cannot be read for its conflict blocks")]
+    ConflictUnreadable(String),
+    /// A conflicted file changed on disk since its blocks were read (saved in an editor): a
+    /// block written from the old reading would take that edit, so nothing was written.
+    #[error("{0} changed on disk since its conflict blocks were read")]
+    ConflictFileChanged(String),
+    /// A conflict block could not be written: the file kept its bytes, since the write goes
+    /// through a file beside it renamed over it.
+    #[error("could not write {path}: {reason}")]
+    ConflictWriteFailed {
+        /// The path as asked.
+        path: String,
+        /// The operating system's reason.
+        reason: String,
+    },
     /// An ignore rule asked for a path it cannot be written for: absolute, outside the
     /// working tree, missing from it or tracked (a rule would not untrack it), or a rule the
     /// path has nothing for (an extension, a folder). Nothing was written.
@@ -159,6 +176,9 @@ impl GitError {
             GitError::NotConflicted(_) => "conflict.not_conflicted",
             GitError::ConflictGone(_) => "conflict.gone",
             GitError::SubmoduleConflict(_) => "conflict.submodule",
+            GitError::ConflictUnreadable(_) => "conflict.unreadable",
+            GitError::ConflictFileChanged(_) => "conflict.file_changed",
+            GitError::ConflictWriteFailed { .. } => "conflict.write_failed",
             GitError::IgnoreInvalidPath { .. } => "ignore.invalid_path",
             GitError::IgnoreWriteFailed { .. } => "ignore.write_failed",
             GitError::Cancelled => "op.cancelled",
@@ -175,14 +195,15 @@ impl GitError {
             | GitError::CorruptObject { reason, .. }
             | GitError::GitNotStarted { reason, .. }
             | GitError::BlobUnreadable { reason, .. }
-            | GitError::IgnoreWriteFailed { reason, .. } => Some(reason),
+            | GitError::IgnoreWriteFailed { reason, .. }
+            | GitError::ConflictWriteFailed { reason, .. } => Some(reason),
             GitError::Cli { stderr, .. } => Some(stderr),
             _ => None,
         }
     }
 
     /// Every code an engine error can carry, for the tests that keep the IPC list in sync.
-    pub const CODES: [&'static str; 22] = [
+    pub const CODES: [&'static str; 25] = [
         "repo.not_found",
         "repo.invalid",
         "repo.corrupt_object",
@@ -201,6 +222,9 @@ impl GitError {
         "conflict.not_conflicted",
         "conflict.gone",
         "conflict.submodule",
+        "conflict.unreadable",
+        "conflict.file_changed",
+        "conflict.write_failed",
         "ignore.invalid_path",
         "ignore.write_failed",
         "op.cancelled",
@@ -312,6 +336,12 @@ mod tests {
             GitError::NotConflicted(String::new()),
             GitError::ConflictGone(String::new()),
             GitError::SubmoduleConflict(String::new()),
+            GitError::ConflictUnreadable(String::new()),
+            GitError::ConflictFileChanged(String::new()),
+            GitError::ConflictWriteFailed {
+                path: String::new(),
+                reason: String::new(),
+            },
             GitError::IgnoreInvalidPath {
                 path: String::new(),
                 reason: String::new(),

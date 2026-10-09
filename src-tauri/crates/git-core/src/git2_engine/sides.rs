@@ -352,21 +352,26 @@ fn state_oids(path: &Path) -> Vec<Oid> {
 
 /// A conflict stage of a path: its mode and blob, as `git ls-files -u` prints them.
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct Stage {
-    mode: String,
-    hash: String,
+pub(super) struct Stage {
+    pub(super) mode: String,
+    pub(super) hash: String,
 }
 
 /// A path's entries in the index's conflict stages.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-struct Unmerged {
+pub(super) struct Unmerged {
     /// Stages 1 (the base), 2 (ours) and 3 (theirs).
     stages: [Option<Stage>; 3],
 }
 
 impl Unmerged {
+    /// Stage 1, the version both sides started from; none for a path both added.
+    pub(super) fn base(&self) -> Option<&Stage> {
+        self.stages[0].as_ref()
+    }
+
     /// The stage of `side`, when that side has the path.
-    fn stage(&self, side: Side) -> Option<&Stage> {
+    pub(super) fn stage(&self, side: Side) -> Option<&Stage> {
         match side {
             Side::Ours => self.stages[1].as_ref(),
             Side::Theirs => self.stages[2].as_ref(),
@@ -374,7 +379,7 @@ impl Unmerged {
     }
 
     /// Whether one of the stages is a submodule (mode 160000).
-    fn is_submodule(&self) -> bool {
+    pub(super) fn is_submodule(&self) -> bool {
         self.stages
             .iter()
             .flatten()
@@ -416,7 +421,10 @@ fn parse_unmerged(output: &[u8]) -> HashMap<String, Unmerged> {
 }
 
 /// The conflicted paths of the index with their stages.
-fn unmerged(engine: &Git2Engine, cancel: &Cancel) -> GitResult<HashMap<String, Unmerged>> {
+pub(super) fn unmerged(
+    engine: &Git2Engine,
+    cancel: &Cancel,
+) -> GitResult<HashMap<String, Unmerged>> {
     const ARGS: [&str; 3] = ["ls-files", "-u", "-z"];
     let exit = judged(&ARGS, run_git_cancellable(root(engine), &ARGS, cancel)?)?;
     Ok(parse_unmerged(&exit.stdout))

@@ -49,6 +49,12 @@ pub mod codes {
     pub const CONFLICT_GONE: &str = "conflict.gone";
     /// A side was asked for a submodule's conflict; git did not run.
     pub const CONFLICT_SUBMODULE: &str = "conflict.submodule";
+    /// A conflicted file is not read for its blocks: not a regular file, or too large.
+    pub const CONFLICT_UNREADABLE: &str = "conflict.unreadable";
+    /// A conflicted file changed on disk since its blocks were read; nothing was written.
+    pub const CONFLICT_FILE_CHANGED: &str = "conflict.file_changed";
+    /// A conflict block could not be written; the file kept its bytes. `detail` carries why.
+    pub const CONFLICT_WRITE_FAILED: &str = "conflict.write_failed";
     /// An ignore rule was asked for a path it cannot be written for (absolute, outside the
     /// working tree, missing, tracked) or that has nothing for the rule; nothing was written.
     pub const IGNORE_INVALID_PATH: &str = "ignore.invalid_path";
@@ -101,7 +107,7 @@ pub mod codes {
 
     /// Every code, in the order of the frontend's `errorCodes` (`src/ipc/schemas.ts`); the
     /// contract test compares the two lists through the `app-errors` fixture.
-    pub const ALL: [&str; 38] = [
+    pub const ALL: [&str; 41] = [
         REPO_NOT_FOUND,
         REPO_INVALID,
         REPO_CORRUPT_OBJECT,
@@ -120,6 +126,9 @@ pub mod codes {
         CONFLICT_NOT_CONFLICTED,
         CONFLICT_GONE,
         CONFLICT_SUBMODULE,
+        CONFLICT_UNREADABLE,
+        CONFLICT_FILE_CHANGED,
+        CONFLICT_WRITE_FAILED,
         IGNORE_INVALID_PATH,
         IGNORE_WRITE_FAILED,
         DISCARD_TOO_LARGE,

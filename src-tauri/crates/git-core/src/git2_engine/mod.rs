@@ -9,6 +9,7 @@ mod branches;
 mod cleanup;
 mod cli_walk;
 mod compare;
+mod conflict_blocks;
 mod contains;
 mod count;
 mod diff;
@@ -48,6 +49,7 @@ use crate::types::{
     ResetMode, SelectionTarget, SequencerAction, Side, StashPush, StatusEntry, StatusOptions,
     SwitchTarget, WalkOptions, WalkScope, Worktree, WorktreeAdd,
 };
+use crate::types::{BlockResolution, BlockResolved, BlockUndo, ConflictText};
 use crate::types::{BranchToDelete, CleanupCandidates, DeleteOutcome, FastForward, MainForward};
 use crate::types::{IgnoreOutcome, IgnorePlace, IgnoreRule};
 
@@ -598,6 +600,30 @@ impl GitEngine for Git2Engine {
 
     fn main_fast_forward(&self, cancel: &Cancel) -> GitResult<Option<MainForward>> {
         branches::main_fast_forward(self, cancel)
+    }
+
+    fn conflict_blocks(&self, path: &str, cancel: &Cancel) -> GitResult<ConflictText> {
+        conflict_blocks::conflict_blocks(self, path, cancel)
+    }
+
+    fn resolve_conflict_block(
+        &self,
+        path: &str,
+        fingerprint: &str,
+        block: usize,
+        resolution: &BlockResolution,
+        cancel: &Cancel,
+    ) -> GitResult<BlockResolved> {
+        conflict_blocks::resolve_conflict_block(self, path, fingerprint, block, resolution, cancel)
+    }
+
+    fn undo_conflict_block(
+        &self,
+        path: &str,
+        undo: &BlockUndo,
+        cancel: &Cancel,
+    ) -> GitResult<ConflictText> {
+        conflict_blocks::undo_conflict_block(self, path, undo, cancel)
     }
 
     fn operation_state(&self) -> GitResult<OperationState> {

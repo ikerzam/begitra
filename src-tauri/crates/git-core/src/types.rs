@@ -1117,6 +1117,99 @@ pub enum Side {
     Theirs,
 }
 
+/// The largest conflicted file read for its blocks: its lines cross to the interface as text.
+pub const CONFLICT_FILE_MAX_BYTES: u64 = 4 * 1024 * 1024;
+
+/// A conflicted file in the working tree, read into its lines and its conflict blocks.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictText {
+    /// The git blob id of the file's bytes as read: a write asks for it, so a file saved
+    /// elsewhere since is never overwritten.
+    pub fingerprint: String,
+    /// The bytes are UTF-8; otherwise `lines` replaces what is not, and only the sides, which
+    /// are copied as bytes, are written back.
+    pub utf8: bool,
+    /// Most lines end with CRLF: a text written in a block takes that ending.
+    pub crlf: bool,
+    /// Every marker has its pair; otherwise `blocks` is empty.
+    pub paired: bool,
+    /// Every line of the file, without its line ending.
+    pub lines: Vec<String>,
+    /// The conflict blocks, in the file's order.
+    pub blocks: Vec<ConflictBlock>,
+}
+
+/// One conflict block: indexes into [`ConflictText::lines`], `end` exclusive.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictBlock {
+    /// The `<<<<<<<` line.
+    pub start: u32,
+    /// The line after the `>>>>>>>` line.
+    pub end: u32,
+    /// The current side: the lines between `<<<<<<<` and the next marker.
+    pub ours: BlockSide,
+    /// The common ancestor's lines after `|||||||`, which `diff3` and `zdiff3` write.
+    pub base: Option<BlockSide>,
+    /// The incoming side: the lines between `=======` and `>>>>>>>`.
+    pub theirs: BlockSide,
+}
+
+/// The lines of one side of a block, and the label git wrote after its marker.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockSide {
+    /// What follows the marker (`HEAD`, a branch, a commit and its subject); may be empty.
+    pub label: String,
+    /// The side's first line.
+    pub start: u32,
+    /// The line after its last.
+    pub end: u32,
+}
+
+/// What a conflict block is rewritten with.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", tag = "kind")]
+pub enum BlockResolution {
+    /// The current side's lines.
+    Ours,
+    /// The incoming side's lines.
+    Theirs,
+    /// The current side's lines, then the incoming side's.
+    Both,
+    /// A text, its lines split on `\n` and written with the file's line ending.
+    Text {
+        /// The text; a newline at its end adds no empty line.
+        text: String,
+    },
+}
+
+/// A block rewritten: the file read again, and what puts the block back.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockResolved {
+    /// The file after the write.
+    pub file: ConflictText,
+    /// The bytes the write replaced, for [`crate::engine::GitEngine::undo_conflict_block`].
+    pub undo: BlockUndo,
+}
+
+/// The bytes of a block a write replaced, and where its replacement lies in the file the write
+/// left.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockUndo {
+    /// The fingerprint of the file the write left: the block goes back only into that file.
+    pub fingerprint: String,
+    /// The replacement's first line.
+    pub start: u32,
+    /// How many lines the replacement has.
+    pub lines: u32,
+    /// The block's bytes, its markers included, base64.
+    pub bytes: String,
+}
+
 /// What an ignore rule matches of an untracked path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]

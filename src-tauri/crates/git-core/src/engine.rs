@@ -13,6 +13,7 @@ use crate::types::{
     PushRequest, Ref, Remote, Repo, ResetMode, SelectionTarget, SequencerAction, Side, StashPush,
     StatusEntry, StatusOptions, SwitchTarget, WalkOptions, WalkScope, Worktree, WorktreeAdd,
 };
+use crate::types::{BlockResolution, BlockResolved, BlockUndo, ConflictText};
 use crate::types::{BranchToDelete, CleanupCandidates, DeleteOutcome, FastForward, MainForward};
 use crate::types::{IgnoreOutcome, IgnorePlace, IgnoreRule};
 
@@ -427,6 +428,56 @@ pub trait GitEngine: Send + Sync {
     ///
     /// [`GitError::ConflictGone`]: crate::error::GitError::ConflictGone
     fn restore_conflicts(&self, paths: &[String], cancel: &Cancel) -> GitResult<()>;
+
+    /// The conflict blocks of a conflicted `path` (spelled as git lists it), read from its file
+    /// in the working tree with git's marker rules: the marker character the
+    /// `conflict-marker-size` attribute's number of times (7 without it), then a space for
+    /// `<<<<<<<` and `>>>>>>>` and white space or the line's end for `|||||||` and `=======`.
+    /// A block whose lines one of the versions git merged holds (stage 1, 2 or 3) is the file's
+    /// own text, not a block. When no block pairs at the attribute's size, the size of the
+    /// file's own `<<<<<<<` lines is tried (the attribute may have changed in the merge, and a
+    /// `resolve` merge does not read it). A file whose markers do not pair reads with no block
+    /// ([`ConflictText::paired`] false). A path git does not list as conflicted is
+    /// [`GitError::NotConflicted`]; a conflict git writes no markers for (a side deleted the
+    /// file, a link, a submodule, a binary file as git tells it from the three versions, a file
+    /// the attributes give to `-merge`, `merge=binary` or a driver of the user's) and a file
+    /// over 4 MiB, missing, or under a folder that leads out of the working tree are
+    /// [`GitError::ConflictUnreadable`].
+    ///
+    /// [`GitError::NotConflicted`]: crate::error::GitError::NotConflicted
+    /// [`GitError::ConflictUnreadable`]: crate::error::GitError::ConflictUnreadable
+    fn conflict_blocks(&self, path: &str, cancel: &Cancel) -> GitResult<ConflictText>;
+
+    /// Rewrites block `block` of a conflicted `path` with `resolution`, only while the file's
+    /// bytes still have `fingerprint` ([`GitError::ConflictFileChanged`] otherwise, nothing
+    /// written): a side's lines copied as the file's bytes, both sides the current one first,
+    /// a text written with the file's line ending. The block's markers go with it; the index
+    /// is untouched, so the path stays conflicted until it is marked resolved. At the file's
+    /// end the side's own file decides whether the last line ends, as `git checkout --ours`
+    /// or `--theirs` writes it. The write goes through a file beside it renamed over it, so a
+    /// failed one ([`GitError::ConflictWriteFailed`]) leaves the file whole. The answer is
+    /// the file read again and what [`GitEngine::undo_conflict_block`] puts back.
+    ///
+    /// [`GitError::ConflictWriteFailed`]: crate::error::GitError::ConflictWriteFailed
+    ///
+    /// [`GitError::ConflictFileChanged`]: crate::error::GitError::ConflictFileChanged
+    fn resolve_conflict_block(
+        &self,
+        path: &str,
+        fingerprint: &str,
+        block: usize,
+        resolution: &BlockResolution,
+        cancel: &Cancel,
+    ) -> GitResult<BlockResolved>;
+
+    /// Puts back the block a [`GitEngine::resolve_conflict_block`] replaced, while the file is
+    /// the one that write left (the undo's own fingerprint).
+    fn undo_conflict_block(
+        &self,
+        path: &str,
+        undo: &BlockUndo,
+        cancel: &Cancel,
+    ) -> GitResult<ConflictText>;
 
     /// The local branches that can go against the main branch (see [`CleanupCandidates`]): the
     /// local branch named like the one `origin/HEAD` points at, else `main`, else `master`, by
