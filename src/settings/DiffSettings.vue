@@ -40,10 +40,12 @@ function setHide(key: keyof HideByDefault, value: boolean): void {
     <SettingsField
       :label="t('settings.diff.ignoreWhitespace')"
       :hint="t('settings.diff.ignoreWhitespaceHint')"
+      hint-id="settings-ignore-whitespace-hint"
     >
       <Toggle
         :model-value="settings.values.diffIgnoreWhitespace"
         :label="t('settings.diff.ignoreWhitespace')"
+        aria-describedby="settings-ignore-whitespace-hint"
         data-testid="diff-ignore-whitespace"
         @update:model-value="(on) => void settings.update('diffIgnoreWhitespace', on)"
       />
@@ -56,10 +58,15 @@ function setHide(key: keyof HideByDefault, value: boolean): void {
         @update:model-value="(on) => void settings.update('diffWrap', on)"
       />
     </SettingsField>
-    <SettingsField :label="t('settings.diff.wholeFile')" :hint="t('settings.diff.wholeFileHint')">
+    <SettingsField
+      :label="t('settings.diff.wholeFile')"
+      :hint="t('settings.diff.wholeFileHint')"
+      hint-id="settings-whole-file-hint"
+    >
       <Toggle
         :model-value="settings.values.diffWholeFile"
         :label="t('settings.diff.wholeFile')"
+        aria-describedby="settings-whole-file-hint"
         data-testid="diff-whole-file"
         @update:model-value="(on) => void settings.update('diffWholeFile', on)"
       />
