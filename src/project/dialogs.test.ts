@@ -255,6 +255,34 @@ describe("the edit dialog", () => {
     wrapper.unmount();
   });
 
+  it("sets how often the project fetches in the background, Save enabled by that alone", async () => {
+    const { calls, wrapper } = await editing();
+    const button = q<HTMLButtonElement>(
+      '[data-testid="edit-project-fetch"] [data-testid="select-button"]',
+    );
+    if (!button) throw new Error("no fetch field");
+    expect(button.textContent?.trim()).toBe("Only by hand");
+    const hint = document.getElementById(button.getAttribute("aria-describedby") ?? "");
+    expect(hint?.textContent).toContain("In the background while the project is open");
+    const save = () =>
+      q<HTMLButtonElement>('[data-testid="edit-project-dialog"] [data-testid="dialog-confirm"]');
+    expect(save()?.disabled).toBe(true);
+    button.click();
+    await flush();
+    q<HTMLElement>(
+      '[data-testid="edit-project-fetch"] [data-testid="option"][data-value="15"]',
+    )?.click();
+    await flush();
+    expect(button.textContent?.trim()).toBe("Every 15 minutes");
+    expect(save()?.disabled).toBe(false);
+    save()?.click();
+    await flush();
+    expect(useSettingsStore().values.backgroundFetch).toEqual({ "1": 15 });
+    expect(of(calls, "project_rename")).toHaveLength(0);
+    expect(of(calls, "project_set_members")).toHaveLength(0);
+    wrapper.unmount();
+  });
+
   it("keeps a folder project's own repositories fixed and edits the ones added by hand", async () => {
     const own = folderProjectOf(20, GEO, [api.path, infra.path], [spike.path, webAuth.path]);
     const { calls, wrapper } = await editing([own, ...base.slice(1)], 20);

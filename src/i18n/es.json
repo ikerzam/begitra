@@ -276,7 +276,8 @@
     "bringingBack": "Recuperando los cambios descartados",
     "fastForwarding": "Haciendo fast-forward de la rama",
     "writingConflictBlock": "Escribiendo un bloque de conflicto de {file}",
-    "undoingConflictBlock": "Restaurando un bloque de conflicto de {file}"
+    "undoingConflictBlock": "Restaurando un bloque de conflicto de {file}",
+    "waitingForBackgroundFetch": "Esperando al fetch en segundo plano"
   },
   "home": {
     "title": "Proyectos",
@@ -1314,7 +1315,8 @@
       "upstreamGonePush": "{upstream} ya no está en su remoto: Push… vuelve a publicar {branch}."
     },
     "group": "Sincronizar con el remoto",
-    "pushWithCount": "Push {n}"
+    "pushWithCount": "Push {n}",
+    "fetchTipBackground": "Fetch de todos los remotos ({when}; {background})"
   },
   "stash": {
     "title": "Stashes",
@@ -1705,7 +1707,14 @@
       "noneFound": "El escaneo de su carpeta aún no ha encontrado ningún repositorio.",
       "foundHint": "Los escaneos de la carpeta mantienen estos: un repositorio clonado en ella entra y uno borrado de ella sale.",
       "byHand": "Añadidos a mano",
-      "leaving": "Sale de Begitra al guardar: ningún otro proyecto lo tiene. | Salen de Begitra al guardar: ningún otro proyecto los tiene."
+      "leaving": "Sale de Begitra al guardar: ningún otro proyecto lo tiene. | Salen de Begitra al guardar: ningún otro proyecto los tiene.",
+      "fetch": {
+        "label": "Fetch",
+        "byHand": "Solo a mano",
+        "everyMinutes": "Cada {n} minutos",
+        "everyHour": "Cada hora",
+        "hint": "En segundo plano mientras el proyecto está abierto. Un remoto que pide iniciar sesión se trae a mano."
+      }
     },
     "loadFailed": "No se ha podido leer la lista de repositorios. {message}",
     "checklistNothing": "No hay ningún repositorio que añadir.",
@@ -1766,5 +1775,11 @@
     "undoFailed": "No se pudo restaurar el conflicto {n} de {file}. {message}",
     "editLost": "El conflicto que se editaba en {file} cambió en disco, así que la edición terminó",
     "showText": "Ver el texto"
+  },
+  "backgroundFetch": {
+    "everyMinutes": "cada {n} minutos en segundo plano",
+    "everyHour": "cada hora en segundo plano",
+    "stopped": "detenido en segundo plano: hace falta iniciar sesión",
+    "signIn": "{name} dejó de traerse en segundo plano: su remoto pide iniciar sesión. Un Fetch a mano la pide."
   }
 }

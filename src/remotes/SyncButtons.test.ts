@@ -3,10 +3,15 @@ import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Ref as GitRef, Remote } from "@/ipc/schemas";
+import { useBackgroundFetchStore } from "@/stores/backgroundFetch";
+import { useIndexStore } from "@/stores/index";
+import { useProjectsStore } from "@/stores/projects";
 import { useRemotesStore } from "@/stores/remotes";
 import { useRepoStore } from "@/stores/repo";
+import { memoryStorage, useSettingsStore } from "@/stores/settings";
 import { useToastsStore } from "@/stores/toasts";
 import { fakeBackend, fakeCommit, type FakeBackendOptions } from "@/test/backend";
+import { entryOf, projectOf, summaryOf, worktreeOf } from "@/test/entries";
 import { mountWithI18n } from "@/test/mount";
 
 import SyncButtons from "./SyncButtons.vue";
@@ -66,6 +71,42 @@ afterEach(() => {
 });
 
 describe("SyncButtons", () => {
+  it("says the project's fetch in the background, or that it stopped for a sign-in", async () => {
+    await useSettingsStore().init(
+      memoryStorage({ activeProject: 1, backgroundFetch: { "1": 15 } }),
+      "windows",
+    );
+    const { wrapper, button } = await mountButtons({
+      remotes: [origin(NOW - 300)],
+      projects: [projectOf(1, "R", ["/r"])],
+    });
+    await useProjectsStore().load();
+    await settled();
+    expect(button("fetch").attributes("data-tooltip")).toBe(
+      "Fetch all remotes (fetched 5m ago; every 15 minutes in the background)",
+    );
+    useBackgroundFetchStore().stopped = new Set(["/r"]);
+    await settled();
+    expect(button("fetch").attributes("data-tooltip")).toBe(
+      "Fetch all remotes (fetched 5m ago; stopped in the background: sign-in needed)",
+    );
+    wrapper.unmount();
+  });
+
+  it("says the latest fetch of the repository a worktree belongs to", async () => {
+    const { wrapper, button } = await mountButtons({
+      remotes: [origin(NOW - 3 * 3600)],
+      repositories: [
+        entryOf("/main", { summary: summaryOf({ fetchedAt: NOW - 120 }) }),
+        worktreeOf("/r", "/main", { summary: summaryOf({ fetchedAt: NOW - 3 * 3600 }) }),
+      ],
+    });
+    await useIndexStore().load();
+    await settled();
+    expect(button("fetch").attributes("data-tooltip")).toBe("Fetch all remotes (fetched 2m ago)");
+    wrapper.unmount();
+  });
+
   it("fetches every remote, saying when the repository last fetched", async () => {
     const { wrapper, button, of } = await mountButtons({ remotes: [origin(NOW - 300)] });
     const fetch = button("fetch");

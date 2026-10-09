@@ -99,6 +99,17 @@ describe("settings store", () => {
     expect(invalid.values.moveMainAfterFetch).toBe(false);
   });
 
+  it("fetches every project by hand by default, and keeps an interval per project", async () => {
+    expect(defaultSettings("windows").backgroundFetch).toEqual({});
+    const store = useSettingsStore();
+    await store.init(memoryStorage({ backgroundFetch: { "3": 15, "7": 60 } }), "windows");
+    expect(store.values.backgroundFetch).toEqual({ "3": 15, "7": 60 });
+    setActivePinia(createPinia());
+    const invalid = useSettingsStore();
+    await invalid.init(memoryStorage({ backgroundFetch: { "3": 10 } }), "windows");
+    expect(invalid.values.backgroundFetch).toEqual({});
+  });
+
   it("shows file icons by default, and keeps them off once turned off", async () => {
     expect(defaultSettings("windows").fileIcons).toBe(true);
     const store = useSettingsStore();

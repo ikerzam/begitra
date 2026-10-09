@@ -274,11 +274,9 @@ const hints = computed(() => {
 const cancelHint = computed(() => {
   const current = operations.current;
   if (!current?.cancellable) return null;
-  const what = current.label.includes("push")
-    ? "push"
-    : current.label.includes("pull")
-      ? "pull"
-      : "fetch";
+  const what =
+    current.cancels ??
+    (current.label.includes("push") ? "push" : current.label.includes("pull") ? "pull" : "fetch");
   return {
     keys: "esc",
     label: t("statusBar.cancelOperation", { what: t(`statusBar.network.${what}`) }),

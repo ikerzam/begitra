@@ -276,7 +276,8 @@
     "bringingBack": "Bringing back discarded changes",
     "fastForwarding": "Fast-forwarding branch",
     "writingConflictBlock": "Writing a conflict block of {file}",
-    "undoingConflictBlock": "Putting back a conflict block of {file}"
+    "undoingConflictBlock": "Putting back a conflict block of {file}",
+    "waitingForBackgroundFetch": "Waiting for the fetch in the background"
   },
   "home": {
     "title": "Projects",
@@ -1314,7 +1315,8 @@
       "upstreamGonePush": "{upstream} is gone from its remote: Push… publishes {branch} again."
     },
     "group": "Sync with the remote",
-    "pushWithCount": "Push {n}"
+    "pushWithCount": "Push {n}",
+    "fetchTipBackground": "Fetch all remotes ({when}; {background})"
   },
   "stash": {
     "title": "Stashes",
@@ -1705,7 +1707,14 @@
       "noneFound": "The scan of its folder has found no repository yet.",
       "foundHint": "The folder's scans keep these: a repository cloned into it joins, one deleted from it leaves.",
       "byHand": "Added by hand",
-      "leaving": "Leaves Begitra when you save: no other project holds it. | Leave Begitra when you save: no other project holds them."
+      "leaving": "Leaves Begitra when you save: no other project holds it. | Leave Begitra when you save: no other project holds them.",
+      "fetch": {
+        "label": "Fetch",
+        "byHand": "Only by hand",
+        "everyMinutes": "Every {n} minutes",
+        "everyHour": "Every hour",
+        "hint": "In the background while the project is open. A remote that asks for a sign-in is fetched by hand."
+      }
     },
     "loadFailed": "Couldn't read the list of repositories. {message}",
     "checklistNothing": "No repository to add.",
@@ -1766,5 +1775,11 @@
     "undoFailed": "Couldn't put back conflict {n} of {file}. {message}",
     "editLost": "The conflict being edited in {file} changed on disk, so the edit ended",
     "showText": "Show the text"
+  },
+  "backgroundFetch": {
+    "everyMinutes": "every {n} minutes in the background",
+    "everyHour": "every hour in the background",
+    "stopped": "stopped in the background: sign-in needed",
+    "signIn": "{name} stopped fetching in the background: its remote asks for a sign-in. A Fetch by hand asks for it."
   }
 }

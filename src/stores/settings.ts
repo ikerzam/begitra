@@ -169,9 +169,21 @@ export interface Settings {
   /** After a fetch or a pull, the main branch moves to its upstream when that is a
    * fast-forward of a branch no worktree has checked out. */
   moveMainAfterFetch: boolean;
+  /** Each project's interval of the fetch in the background, in minutes, by project id; a
+   * project without one is fetched by hand only. */
+  backgroundFetch: Record<string, FetchInterval>;
 }
 
 export type DiffLayout = "unified" | "side-by-side";
+
+/** The intervals of the fetch in the background, in minutes, in the order the field offers. */
+export const fetchIntervals = [5, 15, 30, 60] as const;
+export type FetchInterval = (typeof fetchIntervals)[number];
+
+/** How an interval reads, as the key of its words: an hour as an hour, the rest in minutes. */
+export function intervalWords(minutes: FetchInterval): "everyHour" | "everyMinutes" {
+  return minutes === 60 ? "everyHour" : "everyMinutes";
+}
 
 /** The weight steps in the order the settings screen offers them. */
 export const fontWeights: readonly FontWeight[] = ["light", "regular", "medium", "semibold"];
@@ -246,6 +258,7 @@ const schemas: { [K in keyof Settings]: v.GenericSchema<unknown, Settings[K]> } 
   fileIcons: v.boolean(),
   graphHideRemotes: v.boolean(),
   moveMainAfterFetch: v.boolean(),
+  backgroundFetch: v.record(v.string(), v.picklist(fetchIntervals)),
 };
 
 export const settingsKeys = Object.keys(schemas) as (keyof Settings)[];
@@ -378,6 +391,7 @@ export function defaultSettings(platform: Platform): Settings {
     fileIcons: true,
     graphHideRemotes: false,
     moveMainAfterFetch: false,
+    backgroundFetch: {},
   };
 }
 

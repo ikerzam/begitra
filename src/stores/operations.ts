@@ -16,6 +16,8 @@ export interface Operation {
   detail?: string;
   /** The operation can be cancelled from the status bar (Escape). */
   cancellable?: boolean;
+  /** The network command Escape cancels, for the status bar's hint. */
+  cancels?: NetworkCommand;
   /** Units done so far, when known. */
   done?: number;
   /** Units expected, when known. */
@@ -28,8 +30,12 @@ export interface Operation {
 export interface OperationExtra {
   params?: Record<string, string>;
   cancellable?: boolean;
+  cancels?: NetworkCommand;
   background?: boolean;
 }
+
+/** The network commands the status bar can name. */
+export type NetworkCommand = "fetch" | "pull" | "push";
 
 export const useOperationsStore = defineStore("operations", () => {
   const operations = ref<Operation[]>([]);
@@ -60,6 +66,7 @@ export const useOperationsStore = defineStore("operations", () => {
         label,
         params: extra.params,
         cancellable: extra.cancellable,
+        cancels: extra.cancels,
         background: extra.background,
         total,
         done: total === undefined ? undefined : 0,

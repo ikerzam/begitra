@@ -22,6 +22,7 @@ import { precheck, type BulkPlan, type PlanItem } from "@/project/precheck";
 import type { BulkKind, DoneOutcome, MemberRun } from "@/project/run";
 import { sameFolder } from "@/shell/format";
 
+import { useBackgroundFetchStore } from "./backgroundFetch";
 import { useFolderStore } from "./folder";
 import { useOperationsStore } from "./operations";
 import { useOverviewStore } from "./overview";
@@ -75,6 +76,12 @@ export const useBulkStore = defineStore("bulk", () => {
   const handles = new Map<string, StreamHandle>();
   let inFlight = 0;
   let opId: string | null = null;
+  /** Stop was pressed: a member still waiting for a fetch in the background never starts. */
+  let stopping = false;
+  /** Settles when Stop is pressed, so a member waiting for a fetch in the background stops
+   * waiting and the run can end; that fetch goes on. */
+  let stopSignal: Promise<void> = Promise.resolve();
+  let signalStop: () => void = () => undefined;
 
   const names = computed(() => new Map(overview.rows.map((row) => [row.path, row.name])));
   const nameOf = (path: string) => names.value.get(path) ?? path;
@@ -186,6 +193,10 @@ export const useBulkStore = defineStore("bulk", () => {
   }
 
   function begin(): void {
+    stopping = false;
+    stopSignal = new Promise((resolve) => {
+      signalStop = resolve;
+    });
     running.value = queue.length > 0;
     if (!running.value) return;
     opId = newOpId("bulk");
@@ -203,7 +214,6 @@ export const useBulkStore = defineStore("bulk", () => {
       const lane = job.prompts ? SIGN_IN_LANE : job.family;
       inFlight += 1;
       families.add(lane);
-      states.set(job.path, { state: "running", progress: null });
       void run(job)
         .then((end) => {
           states.set(job.path, end);
@@ -264,8 +274,13 @@ export const useBulkStore = defineStore("bulk", () => {
     };
   }
 
-  /** Runs `job`'s operation and says how it ended. */
+  /** Runs `job`'s operation once its repository's fetch in the background, if one runs, has
+   * ended (the row reads queued meanwhile), and says how it ended. */
   async function run(job: Job): Promise<MemberRun> {
+    const background = useBackgroundFetchStore().idle(job.path);
+    if (background) await Promise.race([background, stopSignal]);
+    if (stopping) return { state: "stopped" };
+    states.set(job.path, { state: "running", progress: null });
     const runKind = kind.value;
     const batch = !job.prompts;
     const id = newOpId(`bulk-${runKind ?? "op"}`);
@@ -286,6 +301,7 @@ export const useBulkStore = defineStore("bulk", () => {
           );
           handles.set(job.path, handle);
           await handle.done;
+          useBackgroundFetchStore().resume(job.path);
           await followMain(job.path);
           return done(summaryLines.some((line) => line.includes("->")) ? "fetched" : "up-to-date");
         }
@@ -362,6 +378,8 @@ export const useBulkStore = defineStore("bulk", () => {
   /** Cancels the network operations that run and drops the queued ones (switch and new
    * branch, which cannot be cancelled, finish). */
   async function stop(): Promise<void> {
+    stopping = true;
+    signalStop();
     for (const job of queue.splice(0)) {
       for (const path of [job.path, ...job.riders]) states.set(path, { state: "stopped" });
     }

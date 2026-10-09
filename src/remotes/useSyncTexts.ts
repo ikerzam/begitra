@@ -1,6 +1,6 @@
 // The words of Fetch, Pull and Push from the plans `useSync` reads: each button's accessible
-// name with its count, its tooltip (where it goes, or Fetch's last fetch), and why it is
-// unavailable. The top bar shows the three; the commit box its Push. A count stays while a command
+// name with its count, its tooltip (where it goes, or Fetch's last fetch and its fetch in
+// the background), and why it is unavailable. The top bar shows the three; the commit box its Push. A count stays while a command
 // runs or the remotes are read, so a button keeps its width through a push.
 
 import { computed } from "vue";
@@ -8,7 +8,9 @@ import { useI18n } from "vue-i18n";
 
 import { relativeDate } from "@/shell/format";
 import { useNow } from "@/shell/useNow";
+import { useBackgroundFetchStore } from "@/stores/backgroundFetch";
 import { useRepoStore } from "@/stores/repo";
+import { intervalWords } from "@/stores/settings";
 
 import type { SyncRefusal } from "./syncPlan";
 import type { useSync } from "./useSync";
@@ -17,7 +19,7 @@ import type { useSync } from "./useSync";
 export interface SyncButtonText {
   /** The accessible name, with the count ("Push, 2 commits to send"). */
   label: string;
-  /** Where it goes, or Fetch's last fetch. */
+  /** Where it goes, or Fetch's last fetch and the project's fetch in the background. */
   tooltip: string;
   /** The count beside the icon; 0 for none. */
   count: number;
@@ -36,6 +38,7 @@ const COUNT_CAP = 999;
 export function useSyncTexts(sync: ReturnType<typeof useSync>) {
   const { t, n } = useI18n();
   const repo = useRepoStore();
+  const background = useBackgroundFetchStore();
   const now = useNow();
 
   const branchName = () => repo.currentBranch?.name ?? repo.repo?.currentBranch ?? "";
@@ -57,18 +60,41 @@ export function useSyncTexts(sync: ReturnType<typeof useSync>) {
   /** A refusal that passes (a command running, the remotes being read) keeps the count. */
   const passing = (reason: SyncRefusal) => reason === "busy" || reason === "readingRemotes";
 
+  /** The open project's fetch in the background: its interval, or that it stopped here for a
+   * sign-in; empty without one. */
+  function inBackground(): string {
+    const minutes = background.interval;
+    if (minutes === null) return "";
+    const root = repo.repo?.root;
+    if (root && background.stoppedFor(root)) return t("backgroundFetch.stopped");
+    return t(`backgroundFetch.${intervalWords(minutes)}`, { n: minutes });
+  }
+
+  /** The repository's last fetch: its remotes' own, or a later one of its repository or another
+   * worktree of it, whose remote-tracking refs it shares. */
+  function lastFetch(): number | null {
+    const own = sync.fetchedAt.value;
+    const root = repo.repo?.root;
+    const family = root ? background.lastFetchOf(root) : null;
+    if (own === null) return family;
+    return family === null ? own : Math.max(own, family);
+  }
+
   const fetch = computed<SyncButtonText>(() => {
     const plan = sync.fetch.value;
-    const at = sync.fetchedAt.value;
+    const at = lastFetch();
     let when = t("remotes.neverFetched");
     if (at !== null) {
       const rel = relativeDate(at, now.value);
       const ago = rel.unit === "now" ? t("date.now") : t(`date.${rel.unit}`, { n: rel.n });
       when = t("remotes.fetchedAgo", { ago });
     }
+    const scheduled = inBackground();
     return {
       label: t("sync.fetch"),
-      tooltip: t("sync.fetchTip", { when }),
+      tooltip: scheduled
+        ? t("sync.fetchTipBackground", { when, background: scheduled })
+        : t("sync.fetchTip", { when }),
       count: 0,
       unavailable: plan.kind === "refused" ? refusal(plan.reason, "pull") : "",
     };

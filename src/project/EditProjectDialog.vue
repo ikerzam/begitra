@@ -1,6 +1,8 @@
 <script setup lang="ts">
-// "Edit project…": the name; for a folder project, its folder's own repositories,
-// which its scans keep and no edit moves or removes; the members added by hand in their order
+// "Edit project…": the name; how often the project fetches in the background
+// (`FetchIntervalField`); for a folder project, its folder's own repositories
+// (`OwnMembersList`), which its scans keep and no edit moves or removes; the members added by
+// hand in their order
 // (`EditMembersList`: moved with their buttons or Ctrl ↑ and Ctrl ↓, removed with their button
 // or Delete); "Add repositories…" from the index; the ones the edit takes out of Begitra (they
 // belong to no other project), named before Save; and "Delete project…", which asks in its own
@@ -13,17 +15,19 @@ import { useI18n } from "vue-i18n";
 import Button from "@/components/Button.vue";
 import Dialog from "@/components/Dialog.vue";
 import Input from "@/components/Input.vue";
-import { useDiscoveryFormat } from "@/discovery/useDiscoveryFormat";
 import { sameFolder } from "@/shell/format";
 import { formatShortcut } from "@/shortcuts/platform";
 import { shortcutRegistry } from "@/shortcuts/registry";
+import { useBackgroundFetchStore } from "@/stores/backgroundFetch";
 import { useIndexStore } from "@/stores/index";
 import { useProjectDialogsStore } from "@/stores/projectDialogs";
 import { resolveMembers, useProjectsStore } from "@/stores/projects";
 
 import AddRepositoriesDialog from "./AddRepositoriesDialog.vue";
 import EditMembersList from "./EditMembersList.vue";
+import FetchIntervalField from "./FetchIntervalField.vue";
 import LeavingList from "./LeavingList.vue";
+import OwnMembersList from "./OwnMembersList.vue";
 
 const props = defineProps<{ id: number }>();
 
@@ -31,28 +35,23 @@ const { t } = useI18n();
 const projects = useProjectsStore();
 const index = useIndexStore();
 const dialogs = useProjectDialogsStore();
-const format = useDiscoveryFormat();
+const background = useBackgroundFetchStore();
 
 const project = computed(() => projects.find(props.id) ?? null);
 const handOf = () =>
   (project.value?.members ?? []).filter((m) => m.origin === "hand").map((m) => m.path);
 const name = ref(project.value?.name ?? "");
+const interval = ref(background.intervalOf(props.id));
 /** The members added by hand, as edited. */
 const paths = ref<string[]>(handOf());
 const adding = ref(false);
 const saving = ref(false);
 
-const own = computed(() =>
-  resolveMembers(
-    {
-      folder: project.value?.folder ?? null,
-      members: (project.value?.members ?? []).filter((member) => member.origin === "folder"),
-    },
-    index.entries,
-    index.read,
-    false,
-  ),
-);
+/** The project as a folder project, for its own repositories; null for a list project. */
+const folderProject = computed(() => {
+  const current = project.value;
+  return current && current.folder !== null ? { ...current, folder: current.folder } : null;
+});
 const members = computed(() =>
   resolveMembers(
     { folder: null, members: paths.value.map((path) => ({ path, origin: "hand" as const })) },
@@ -77,7 +76,12 @@ const leaving = computed(() => {
 const trimmed = computed(() => name.value.trim());
 const nameValid = computed(() => trimmed.value.length > 0 && trimmed.value.length <= 100);
 const reordered = computed(() => paths.value.join("\n") !== handOf().join("\n"));
-const changed = computed(() => trimmed.value !== project.value?.name || reordered.value);
+const changed = computed(
+  () =>
+    trimmed.value !== project.value?.name ||
+    reordered.value ||
+    interval.value !== background.intervalOf(props.id),
+);
 /** The keys that move and remove a row, as this platform writes them ("Ctrl ↑", "⌘↑", "⌫"). */
 const moveKeys = computed(() => {
   const platform = shortcutRegistry().platform;
@@ -117,6 +121,9 @@ async function save(): Promise<void> {
       return;
     }
     if (reordered.value && !(await projects.setMembers(current.id, paths.value))) return;
+    if (interval.value !== background.intervalOf(current.id)) {
+      background.setIntervalOf(current.id, interval.value);
+    }
     dialogs.close();
   } finally {
     saving.value = false;
@@ -144,36 +151,8 @@ async function save(): Promise<void> {
         data-testid="edit-project-name"
       />
     </label>
-    <template v-if="project.folder !== null">
-      <div class="flex items-center gap-2 text-md">
-        <span class="text-fg-secondary">{{ t("project.editDialog.found") }}</span>
-        <span class="truncate font-mono text-mono-sm text-fg-muted">
-          {{ format.displayPath(project.folder) }}
-        </span>
-      </div>
-      <ul
-        class="own flex flex-col overflow-y-auto rounded-md border border-line"
-        :aria-label="t('project.editDialog.found')"
-        data-testid="edit-project-own"
-      >
-        <li
-          v-for="member in own"
-          :key="member.path"
-          class="flex h-panel-header shrink-0 items-center gap-2 border-b border-line px-3 text-md last:border-b-0"
-        >
-          <span class="truncate" :class="member.missing ? 'text-fg-muted' : 'text-fg'">
-            {{ member.name }}
-          </span>
-          <span v-if="member.missing" class="text-sm text-warn">
-            {{ t("project.editDialog.missing") }}
-          </span>
-        </li>
-        <li v-if="own.length === 0" class="px-3 py-2 text-sm text-fg-muted">
-          {{ t("project.editDialog.noneFound") }}
-        </li>
-      </ul>
-      <p class="text-sm text-fg-muted">{{ t("project.editDialog.foundHint") }}</p>
-    </template>
+    <FetchIntervalField v-model="interval" />
+    <OwnMembersList v-if="folderProject" :project="folderProject" />
     <div class="flex items-center gap-2 text-md">
       <span class="text-fg-secondary">
         {{
@@ -223,9 +202,5 @@ async function save(): Promise<void> {
 /* A form field's label takes 88px, 12px before its field. */
 .form-row {
   grid-template-columns: 88px minmax(0, 1fr);
-}
-/* Six rows, then the folder's own list scrolls, so Save stays in the window. */
-.own {
-  max-height: 194px;
 }
 </style>

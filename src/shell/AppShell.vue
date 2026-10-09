@@ -30,6 +30,7 @@ import PickerOverlay from "@/picker/PickerOverlay.vue";
 import { shortHash } from "@/shell/format";
 import { isOverlayTarget, outsideOverlays, shortcutRegistry } from "@/shortcuts/registry";
 import { installShortcuts, useShortcut } from "@/shortcuts/useShortcut";
+import { useBackgroundFetchStore } from "@/stores/backgroundFetch";
 import { useIndexStore } from "@/stores/index";
 import { useOperationsStore } from "@/stores/operations";
 import { useRemotesStore } from "@/stores/remotes";
@@ -225,6 +226,9 @@ function onEscape(event: KeyboardEvent): void {
 }
 
 let uninstall: (() => void) | undefined;
+// The open project's fetch in the background runs while the shell does.
+const backgroundFetch = useBackgroundFetchStore();
+let stopBackgroundFetch: (() => void) | undefined;
 const onResize = () => shell.setWindowWidth(window.innerWidth);
 // The window coming back (focused, or shown again) reads the review's notes again: an agent
 // may have resolved or written some meanwhile.
@@ -240,11 +244,13 @@ onMounted(() => {
   window.addEventListener("keydown", onEscape);
   window.addEventListener("focus", onFocus);
   document.addEventListener("visibilitychange", onVisibility);
+  stopBackgroundFetch = backgroundFetch.begin();
   void launch();
 });
 
 onBeforeUnmount(() => {
   uninstall?.();
+  stopBackgroundFetch?.();
   window.removeEventListener("resize", onResize);
   window.removeEventListener("keydown", onEscape);
   window.removeEventListener("focus", onFocus);

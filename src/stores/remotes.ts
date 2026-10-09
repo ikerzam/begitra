@@ -19,8 +19,9 @@ import { arm } from "@/motion/motion";
 import { isDivergedPull } from "@/remotes/gitWords";
 import { baseName, sameFolder, shellWord, shortHash } from "@/shell/format";
 
+import { useBackgroundFetchStore } from "./backgroundFetch";
 import { useBulkStore } from "./bulk";
-import { useOperationsStore } from "./operations";
+import { useOperationsStore, type NetworkCommand } from "./operations";
 import { useRepoStore } from "./repo";
 import { useSequencerStore } from "./sequencer";
 import { useSettingsStore } from "./settings";
@@ -231,19 +232,61 @@ export const useRemotesStore = defineStore("remotes", () => {
   }
 
   /**
-   * Runs a streamed network command: the progress lines become the operation's detail, the
-   * result page is kept for the caller, and the terminal message settles the promise.
+   * Waits for the fetch in the background running on `root`'s repository, if one runs: two git
+   * processes would race for its locks. The status bar says so at once, and Escape cancels the
+   * wait and that fetch. False when the wait was cancelled, or another repository opened
+   * meanwhile.
    */
-  function network(
+  async function afterBackground(root: string, command: NetworkCommand): Promise<boolean> {
+    const background = useBackgroundFetchStore();
+    const pending = background.idle(root);
+    if (!pending) return true;
+    const opId = newOpId("network-wait");
+    operations.start(opId, "operations.waitingForBackgroundFetch", undefined, {
+      cancellable: true,
+      cancels: command,
+    });
+    let cancelled = false;
+    inFlight.value = {
+      opId,
+      handle: {
+        opId,
+        done: pending,
+        cancel: async () => {
+          cancelled = true;
+          await background.cancel(root);
+        },
+      },
+    };
+    try {
+      await pending;
+    } finally {
+      operations.finish(opId);
+      if (inFlight.value?.opId === opId) inFlight.value = null;
+    }
+    return !cancelled && repo.repo?.root === root;
+  }
+
+  /**
+   * Runs a streamed network command once the repository's fetch in the background, if one
+   * runs, has ended: the progress lines become the operation's detail, the result page is kept
+   * for the caller, and the terminal message settles the promise.
+   */
+  async function network(
+    command: NetworkCommand,
     label: string,
     params: Record<string, string>,
     start: (root: string, onEvent: (event: NetworkEvent) => void, opId: string) => StreamHandle,
     explain?: (error: AppError) => Explained | null,
   ): Promise<NetworkEvent | null> {
     const root = repo.repo?.root;
-    if (!root || refusedWhileBusy()) return Promise.resolve(null);
+    if (!root || refusedWhileBusy()) return null;
+    // Without a fetch in the background there, the command starts at once, in this call.
+    if (useBackgroundFetchStore().idle(root) && !(await afterBackground(root, command))) {
+      return null;
+    }
     const opId = newOpId("network");
-    operations.start(opId, label, undefined, { params, cancellable: true });
+    operations.start(opId, label, undefined, { params, cancellable: true, cancels: command });
     let last: NetworkEvent | null = null;
     const handle = start(
       root,
@@ -337,6 +380,7 @@ export const useRemotesStore = defineStore("remotes", () => {
   async function fetch(remote: string | null, prune: boolean): Promise<boolean> {
     const root = repo.repo?.root;
     const result = await network(
+      "fetch",
       prune ? "operations.fetchingPrune" : "operations.fetching",
       { remote: remote ?? "" },
       (root, onEvent, opId) => ipc.fetch(root, remote, prune, onEvent, opId),
@@ -344,6 +388,8 @@ export const useRemotesStore = defineStore("remotes", () => {
     // A fetch that failed or was cancelled may have moved some remote branches already.
     void repo.refreshRefs();
     if (!result) return false;
+    // A fetch by hand that worked signed in: the fetch in the background goes on there.
+    if (root) useBackgroundFetchStore().resume(root);
     toasts.push({
       kind: "success",
       message: "",
@@ -378,6 +424,7 @@ export const useRemotesStore = defineStore("remotes", () => {
           }
         : null;
     const result = await network(
+      "pull",
       request.rebase ? "operations.pullingRebase" : "operations.pulling",
       {
         branch,
@@ -419,13 +466,17 @@ export const useRemotesStore = defineStore("remotes", () => {
   async function pushTag(tag: string, remote: string): Promise<boolean> {
     if (refusedWhileBusy()) return false;
     dismiss();
-    const result = await network("operations.pushingTag", { tag, remote }, (root, onEvent, opId) =>
-      ipc.push(
-        root,
-        { remote, branch: null, tag, delete: false, setUpstream: false, forceWithLease: false },
-        onEvent,
-        opId,
-      ),
+    const result = await network(
+      "push",
+      "operations.pushingTag",
+      { tag, remote },
+      (root, onEvent, opId) =>
+        ipc.push(
+          root,
+          { remote, branch: null, tag, delete: false, setUpstream: false, forceWithLease: false },
+          onEvent,
+          opId,
+        ),
     );
     if (!result) return false;
     toasts.push({
@@ -451,6 +502,7 @@ export const useRemotesStore = defineStore("remotes", () => {
     dismiss();
     const name = target.branch ?? target.tag ?? "";
     const result = await network(
+      "push",
       "operations.deletingOnRemote",
       { name, remote: target.remote },
       (root, onEvent, opId) =>
@@ -552,6 +604,7 @@ export const useRemotesStore = defineStore("remotes", () => {
       };
     };
     const result = await network(
+      "push",
       "operations.pushing",
       { branch, remote },
       (root, onEvent, opId) => ipc.push(root, request, onEvent, opId),
