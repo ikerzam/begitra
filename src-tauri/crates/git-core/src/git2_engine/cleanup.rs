@@ -129,29 +129,13 @@ pub(super) fn cleanup_candidates(
     let repo = GitEngine::repo(engine);
     let (root, common_dir) = (repo.root.clone(), repo.common_dir.clone());
     let worktrees = worktrees::list(engine, cancel)?;
-    let refs = listed_refs(&root, cancel)?;
+    let refs = listed_refs(&root, true, cancel)?;
     let locals: Vec<(&str, &Listed)> = refs
         .iter()
         .filter(|listed| listed.symref.is_empty())
         .filter_map(|listed| Some((listed.name.strip_prefix("refs/heads/")?, listed)))
         .collect();
-    let local = |name: &str| {
-        locals
-            .iter()
-            .find(|(short, _)| *short == name)
-            .map(|(_, l)| *l)
-    };
-    // The local branch named like the one origin/HEAD points at, else main, else master; never
-    // guessed from what a worktree has checked out, which would take a feature for the main line.
-    let origin_head = refs
-        .iter()
-        .find(|listed| listed.name == "refs/remotes/origin/HEAD")
-        .and_then(|head| head.symref.strip_prefix("refs/remotes/origin/"));
-    let Some((main, main_ref)) = origin_head
-        .into_iter()
-        .chain(["main", "master"])
-        .find_map(|name| local(name).map(|listed| (name, listed)))
-    else {
+    let Some((main, main_ref)) = main_of(&refs) else {
         return Ok(CleanupCandidates {
             main: None,
             candidates: Vec::new(),
@@ -293,16 +277,48 @@ pub(super) fn cleanup_candidates(
     })
 }
 
+/// The main branch among `refs` as git lists them: the local branch named like the one
+/// origin/HEAD points at, else main, else master, never a symbolic ref; never guessed from what
+/// a worktree has checked out, which would take a feature for the main line.
+fn main_of(refs: &[Listed]) -> Option<(&str, &Listed)> {
+    let local = |name: &str| {
+        refs.iter().find(|listed| {
+            listed.symref.is_empty() && listed.name.strip_prefix("refs/heads/") == Some(name)
+        })
+    };
+    let origin_head = refs
+        .iter()
+        .find(|listed| listed.name == "refs/remotes/origin/HEAD")
+        .and_then(|head| head.symref.strip_prefix("refs/remotes/origin/"));
+    origin_head
+        .into_iter()
+        .chain(["main", "master"])
+        .find_map(|name| local(name).map(|listed| (name, listed)))
+}
+
+/// The main branch (see [`main_of`]) by its short name, and the full name of the upstream git
+/// reads for it, as git lists them; `None` when there is no main branch or git reads no
+/// upstream for it.
+pub(super) fn main_branch(root: &Path, cancel: &Cancel) -> GitResult<Option<(String, String)>> {
+    let refs = listed_refs(root, false, cancel)?;
+    Ok(main_of(&refs)
+        .filter(|(_, listed)| !listed.upstream.is_empty())
+        .map(|(name, listed)| (name.to_owned(), listed.upstream.clone())))
+}
+
 /// The local and remote-tracking refs with their tips and upstreams, as git lists them: one
 /// process outside the repository's lock, where libgit2 reads each upstream from a fresh copy
-/// of the configuration and grows with the square of the tracking branches.
-fn listed_refs(root: &Path, cancel: &Cancel) -> GitResult<Vec<Listed>> {
-    let args = [
-        "for-each-ref",
-        "--format=%(refname)%00%(objectname)%00%(upstream)%00%(upstream:remotename)%00%(symref)%00%(committerdate:unix)",
-        "refs/heads/",
-        "refs/remotes/",
-    ];
+/// of the configuration and grows with the square of the tracking branches. `dated` adds each
+/// tip's committer date, for which git reads every tip's commit: a ref whose commit is missing
+/// then fails the listing, and git for Windows 2.54 hangs after that failure when the ref is
+/// read through a symbolic one (`origin/HEAD`), so a listing that needs no date asks for none.
+fn listed_refs(root: &Path, dated: bool, cancel: &Cancel) -> GitResult<Vec<Listed>> {
+    let format = if dated {
+        "--format=%(refname)%00%(objectname)%00%(upstream)%00%(upstream:remotename)%00%(symref)%00%(committerdate:unix)"
+    } else {
+        "--format=%(refname)%00%(objectname)%00%(upstream)%00%(upstream:remotename)%00%(symref)"
+    };
+    let args = ["for-each-ref", format, "refs/heads/", "refs/remotes/"];
     let exit = judged(&args, run_git_cancellable(root, &args, cancel)?)?;
     Ok(String::from_utf8_lossy(&exit.stdout)
         .lines()

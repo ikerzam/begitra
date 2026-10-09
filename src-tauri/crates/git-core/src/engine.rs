@@ -13,7 +13,7 @@ use crate::types::{
     PushRequest, Ref, Remote, Repo, ResetMode, SelectionTarget, SequencerAction, Side, StashPush,
     StatusEntry, StatusOptions, SwitchTarget, WalkOptions, WalkScope, Worktree, WorktreeAdd,
 };
-use crate::types::{BranchToDelete, CleanupCandidates, DeleteOutcome, FastForward};
+use crate::types::{BranchToDelete, CleanupCandidates, DeleteOutcome, FastForward, MainForward};
 use crate::types::{IgnoreOutcome, IgnorePlace, IgnoreRule};
 
 /// Cooperative cancellation flag checked by long operations between units of work.
@@ -379,6 +379,14 @@ pub trait GitEngine: Send + Sync {
     /// git runs. In a shallow clone whose history stops before the commit both share, the
     /// answer is diverged, as git's own `merge --ff-only` refuses there.
     fn branch_fast_forward(&self, name: &str, cancel: &Cancel) -> GitResult<FastForward>;
+
+    /// Moves the main branch to its upstream as [`GitEngine::branch_fast_forward`] moves a
+    /// branch, the answer naming the upstream it went to. The main branch is the one
+    /// [`GitEngine::cleanup_candidates`] compares with: the local branch named like the one
+    /// `origin/HEAD` points at, else `main`, else `master`, by the exact names git lists. `None`,
+    /// with nothing moved, when there is no such branch, it has no upstream, or its upstream is
+    /// not there (pruned, never fetched).
+    fn main_fast_forward(&self, cancel: &Cancel) -> GitResult<Option<MainForward>>;
 
     /// What the repository is in the middle of, from its state files.
     fn operation_state(&self) -> GitResult<OperationState>;

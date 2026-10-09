@@ -48,7 +48,7 @@ use crate::types::{
     ResetMode, SelectionTarget, SequencerAction, Side, StashPush, StatusEntry, StatusOptions,
     SwitchTarget, WalkOptions, WalkScope, Worktree, WorktreeAdd,
 };
-use crate::types::{BranchToDelete, CleanupCandidates, DeleteOutcome, FastForward};
+use crate::types::{BranchToDelete, CleanupCandidates, DeleteOutcome, FastForward, MainForward};
 use crate::types::{IgnoreOutcome, IgnorePlace, IgnoreRule};
 
 /// A repository opened with libgit2.
@@ -594,6 +594,10 @@ impl GitEngine for Git2Engine {
 
     fn branch_fast_forward(&self, name: &str, cancel: &Cancel) -> GitResult<FastForward> {
         branches::branch_fast_forward(self, name, cancel)
+    }
+
+    fn main_fast_forward(&self, cancel: &Cancel) -> GitResult<Option<MainForward>> {
+        branches::main_fast_forward(self, cancel)
     }
 
     fn operation_state(&self) -> GitResult<OperationState> {

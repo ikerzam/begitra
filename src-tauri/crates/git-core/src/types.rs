@@ -969,6 +969,18 @@ pub enum FastForward {
     },
 }
 
+/// The main branch's fast-forward: which branch, toward which upstream, and what it did.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MainForward {
+    /// The main branch's short name (`main`).
+    pub branch: String,
+    /// Its upstream's short name (`origin/main`, or a local branch's name).
+    pub upstream: String,
+    /// What the fast-forward did.
+    pub outcome: FastForward,
+}
+
 /// How an operation that may stop on conflicts ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]

@@ -14,7 +14,9 @@ use super::{cleanup, refs, sequencer, worktrees, Git2Engine};
 use crate::cli::{run_git_env, CliExit, WRITE_ENV};
 use crate::engine::{Cancel, GitEngine};
 use crate::error::{GitError, GitResult};
-use crate::types::{FastForward, MergeMode, Outcome, OutcomeKind, ResetMode, SwitchTarget};
+use crate::types::{
+    FastForward, MainForward, MergeMode, Outcome, OutcomeKind, ResetMode, SwitchTarget,
+};
 
 /// Runs `git <args>` in the root with the write environment.
 fn git(engine: &Git2Engine, args: &[&str], cancel: &Cancel) -> GitResult<CliExit> {
@@ -166,9 +168,15 @@ pub(super) fn set_upstream(
 /// in quotes.
 const FETCH_REFUSED: &str = "refusing to fetch into branch ";
 
-/// What the reads before git found: an answer, or the move git is to make.
+/// What the reads before git found: no upstream to go to, an answer, or the move git is to make.
 enum Plan {
-    Answer(FastForward),
+    /// The configuration names no upstream (`None`), or one that is not there or that git reads
+    /// otherwise.
+    Unreachable(Option<String>),
+    Answer {
+        outcome: FastForward,
+        upstream: String,
+    },
     Move {
         tip: Oid,
         upstream: String,
@@ -177,22 +185,71 @@ enum Plan {
     },
 }
 
-/// See [`GitEngine::branch_fast_forward`]. The reads come first, with libgit2: the branch, by its
-/// full name (a symbolic one, an alias of another branch, is refused, since git would move the
-/// branch it names); its upstream, by the refs listing's rule; one walk that counts the commits
-/// each side lacks, which answers up to date and diverged; and the worktrees that have it checked
-/// out, since git refuses only the current one before 2.35. Then git moves it, its own checks
-/// under its own lock, and the branch is read again. git runs no maintenance, writes no
-/// commit-graph and fetches no bundle on the way; its refusals, in the write environment's `C`
-/// locale, are a worktree that checked the branch out meanwhile (a rebase or a bisect that holds
-/// it detached included, from git 2.35) or commits made meanwhile. git fetches the commit counted,
-/// by its hash, so a tag named like the upstream is never the one taken.
+/// What a fast-forward did, and the upstream it went to by its full name.
+struct Forwarded {
+    outcome: FastForward,
+    upstream: String,
+}
+
+/// See [`GitEngine::branch_fast_forward`].
 #[tracing::instrument(level = "debug", skip_all, fields(name))]
 pub(super) fn branch_fast_forward(
     engine: &Git2Engine,
     name: &str,
     cancel: &Cancel,
 ) -> GitResult<FastForward> {
+    match forward(engine, name, None, cancel)? {
+        Ok(forwarded) => Ok(forwarded.outcome),
+        Err(None) => Err(GitError::Git(format!("{name} has no upstream"))),
+        Err(Some(upstream)) => Err(GitError::RefNotFound(upstream)),
+    }
+}
+
+/// See [`GitEngine::main_fast_forward`]. The main branch and the upstream git reads for it come
+/// from git's listing, the cleanup's rule; the move, and the upstream named in the answer, are
+/// the branch fast-forward's, which goes nowhere when libgit2 reads another upstream, since this
+/// write follows a fetch with nobody choosing the upstream.
+#[tracing::instrument(level = "debug", skip_all)]
+pub(super) fn main_fast_forward(
+    engine: &Git2Engine,
+    cancel: &Cancel,
+) -> GitResult<Option<MainForward>> {
+    let Some((branch, upstream)) = cleanup::main_branch(&GitEngine::repo(engine).root, cancel)?
+    else {
+        return Ok(None);
+    };
+    Ok(forward(engine, &branch, Some(&upstream), cancel)?
+        .ok()
+        .map(|forwarded| MainForward {
+            upstream: refs::upstream_short_name(&forwarded.upstream).to_owned(),
+            branch,
+            outcome: forwarded.outcome,
+        }))
+}
+
+/// Moves the local branch `name` to its upstream when that is a fast-forward, and answers what it
+/// did with the upstream it went to; when there is none to go to, the upstream the configuration
+/// names and the repository lacks (or whose commit it lacks), or `None` when it names none. With
+/// `git_upstream`, the one git reads, an upstream libgit2 reads otherwise is none to go to: git
+/// reads configuration libgit2 does not (`GIT_CONFIG_GLOBAL`, `includeIf "hasconfig:…"`, `-c`),
+/// and libgit2 a file git for Windows does not (`%PROGRAMDATA%\Git\config`). The reads come
+/// first, with
+/// libgit2: the branch, by its full name (a symbolic one, an alias of another branch, is
+/// refused, since git would move the branch it names); its upstream, by the refs listing's rule;
+/// one walk that counts the commits each side lacks, which answers up to date and diverged; and
+/// the worktrees that have it checked out, since git refuses only the current one before 2.35.
+/// Then git moves it, its own checks under its own lock, and the branch is read again. git runs
+/// no maintenance, writes no commit-graph and fetches no bundle on the way; its refusals, in the
+/// write environment's `C` locale, are a worktree that checked the branch out meanwhile (a rebase
+/// or a bisect that holds it detached included, from git 2.35) or commits made meanwhile. git
+/// fetches the commit counted, by its hash, so a tag named like the upstream is never the one
+/// taken.
+fn forward(
+    engine: &Git2Engine,
+    name: &str,
+    git_upstream: Option<&str>,
+    cancel: &Cancel,
+) -> GitResult<Result<Forwarded, Option<String>>> {
     let full = format!("refs/heads/{name}");
     let plan = engine.with_repo(|repo| {
         let branch = match repo.find_reference(&full) {
@@ -208,27 +265,49 @@ pub(super) fn branch_fast_forward(
             )));
         }
         let tip = commit_of(&branch, name)?;
-        let upstream = refs::upstreams(repo, cancel)?
-            .remove(&full)
-            .ok_or_else(|| GitError::Git(format!("{name} has no upstream")))?;
-        let upstream_tip = match repo.find_reference(&upstream) {
-            Ok(reference) => commit_of(&reference, &upstream)?,
+        let Some(upstream) = refs::upstreams(repo, cancel)?.remove(&full) else {
+            return Ok(Plan::Unreachable(None));
+        };
+        if git_upstream.is_some_and(|git_upstream| git_upstream != upstream) {
+            return Ok(Plan::Unreachable(Some(upstream)));
+        }
+        let reference = match repo.find_reference(&upstream) {
+            Ok(reference) => reference,
             Err(error) if error.code() == ErrorCode::NotFound => {
-                return Err(GitError::RefNotFound(upstream));
+                return Ok(Plan::Unreachable(Some(upstream)));
             }
             Err(error) => return Err(error.into()),
         };
+        let upstream_tip = match reference.peel_to_commit() {
+            Ok(commit) => commit.id(),
+            // A ref whose commit is missing is gone, as git and the refs listing show it.
+            Err(error) if error.code() == ErrorCode::NotFound => {
+                return Ok(Plan::Unreachable(Some(upstream)));
+            }
+            Err(error) => {
+                return Err(GitError::Git(format!(
+                    "{upstream} is not a commit ({})",
+                    error.message()
+                )));
+            }
+        };
         let (gained, own) = repo.graph_ahead_behind(upstream_tip, tip)?;
+        let answer = |outcome| {
+            Ok(Plan::Answer {
+                outcome,
+                upstream: upstream.clone(),
+            })
+        };
         if own > 0 {
-            return Ok(Plan::Answer(FastForward::Diverged));
+            return answer(FastForward::Diverged);
         }
         if gained == 0 {
-            return Ok(Plan::Answer(FastForward::UpToDate));
+            return answer(FastForward::UpToDate);
         }
         if let Some(folder) = holder(repo, name, cancel)? {
-            return Ok(Plan::Answer(FastForward::Held {
+            return answer(FastForward::Held {
                 worktree: folder.to_string_lossy().into_owned(),
-            }));
+            });
         }
         Ok(Plan::Move {
             tip,
@@ -238,7 +317,8 @@ pub(super) fn branch_fast_forward(
         })
     })?;
     let (tip, upstream, upstream_tip, gained) = match plan {
-        Plan::Answer(answer) => return Ok(answer),
+        Plan::Unreachable(missing) => return Ok(Err(missing)),
+        Plan::Answer { outcome, upstream } => return Ok(Ok(Forwarded { outcome, upstream })),
         Plan::Move {
             tip,
             upstream,
@@ -267,15 +347,16 @@ pub(super) fn branch_fast_forward(
     ];
     let exit = run_git_env(&GitEngine::repo(engine).root, &args, &env, cancel)?;
     if exit.status != Some(0) {
-        if let Some(worktree) = refusing_worktree(&exit.stderr) {
-            return Ok(FastForward::Held { worktree });
-        }
-        if rejected_as_non_fast_forward(&exit.stderr) {
-            return Ok(FastForward::Diverged);
-        }
-        return Err(exit.into_failure(&args));
+        let outcome = if let Some(worktree) = refusing_worktree(&exit.stderr) {
+            FastForward::Held { worktree }
+        } else if rejected_as_non_fast_forward(&exit.stderr) {
+            FastForward::Diverged
+        } else {
+            return Err(exit.into_failure(&args));
+        };
+        return Ok(Ok(Forwarded { outcome, upstream }));
     }
-    engine.with_repo(|repo| {
+    let outcome = engine.with_repo(|repo| {
         let now = commit_of(&repo.find_reference(&full)?, name)?;
         if now == tip {
             return Ok(FastForward::UpToDate);
@@ -290,7 +371,8 @@ pub(super) fn branch_fast_forward(
             to: now.to_string(),
             commits: u32::try_from(commits).unwrap_or(u32::MAX),
         })
-    })
+    })?;
+    Ok(Ok(Forwarded { outcome, upstream }))
 }
 
 /// The worktree that holds the branch `name`: one that has it checked out, or one where a
