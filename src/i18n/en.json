@@ -272,7 +272,8 @@
     "lookingUp": "Looking up {name}",
     "pushingTag": "Pushing {tag} to {remote}",
     "deletingOnRemote": "Deleting {name} on {remote}",
-    "bringingBack": "Bringing back discarded changes"
+    "bringingBack": "Bringing back discarded changes",
+    "fastForwarding": "Fast-forwarding branch"
   },
   "home": {
     "title": "Projects",
@@ -1080,7 +1081,14 @@
     "tagDeleted": "Deleted tag {name}",
     "tagDeletedWas": "Deleted tag {name}; it pointed at {hash}",
     "menuTag": "Tag actions",
-    "menuRemote": "Remote branch actions"
+    "menuRemote": "Remote branch actions",
+    "fastForward": "Fast-forward to {upstream}",
+    "ownCommits": "{n} commit of its own | {n} commits of its own",
+    "heldIn": "in {folder}",
+    "fastForwarded": "Moved {branch} forward {n} commit to {upstream} | Moved {branch} forward {n} commits to {upstream}",
+    "fastForwardUpToDate": "{branch} is up to date with {upstream}",
+    "fastForwardDiverged": "{branch} has commits {upstream} lacks, so it cannot be fast-forwarded",
+    "fastForwardHeld": "{branch} is checked out in {folder}: pull it there"
   },
   "cleanup": {
     "title": "Clean up branches",

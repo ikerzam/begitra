@@ -742,6 +742,20 @@ export const DeleteOutcomeSchema = v.object({
 });
 export type DeleteOutcome = v.InferOutput<typeof DeleteOutcomeSchema>;
 
+/** What a fast-forward of a branch that is not checked out did. */
+export const FastForwardSchema = v.variant("kind", [
+  v.object({
+    kind: v.literal("moved"),
+    from: v.string(),
+    to: v.string(),
+    commits: v.number(),
+  }),
+  v.object({ kind: v.literal("up-to-date") }),
+  v.object({ kind: v.literal("diverged") }),
+  v.object({ kind: v.literal("held"), worktree: v.string() }),
+]);
+export type FastForward = v.InferOutput<typeof FastForwardSchema>;
+
 /** How an operation that may stop on conflicts ended. */
 export const OutcomeSchema = v.object({
   kind: OutcomeKindSchema,
@@ -1184,6 +1198,7 @@ export const commandArgs = {
   }),
   tag_delete: v.object({ repo: path, name: refName, opId }),
   set_upstream: v.object({ repo: path, branch: refName, upstream: v.nullable(refName), opId }),
+  branch_fast_forward: v.object({ repo: path, name: refName, opId }),
   operation_state: v.object({ repo: path, opId }),
   conflicts: v.object({ repo: path, opId }),
   mark_resolved: v.object({ repo: path, paths: repoPaths, opId }),

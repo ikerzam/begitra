@@ -1,7 +1,7 @@
 // The branch, tag and history writes as the menus and the palette reach them: checkout,
 // create, rename, delete, merge, rebase, reset, the undo of HEAD's commit and its redo,
-// cherry-pick, revert, tag and the upstream, each through the bridge with its status bar
-// label; the prompts the layout shows
+// cherry-pick, revert, tag, the upstream and the fast-forward of a branch that is not checked
+// out, each through the bridge with its status bar label; the prompts the layout shows
 // before the ones that ask something (a name, a mode, a confirmation); the outcomes: a stop on
 // conflicts hands over to the sequencer and the changes screen, a success refreshes the refs
 // and lists the history again on the new HEAD, git's refusal becomes an error toast with its
@@ -732,11 +732,54 @@ export const useBranchesStore = defineStore("branches", () => {
     return done === true;
   }
 
+  /**
+   * Moves the branch `name`, which is not checked out, to its upstream's commit when that is a
+   * fast-forward; the toast says how it went, and the refs and the history follow a move.
+   */
+  async function fastForward(name: string, upstream: string): Promise<void> {
+    dismiss();
+    const outcome = await write("operations.fastForwarding", (root, opId) =>
+      ipc.branchFastForward(root, name, opId),
+    );
+    if (outcome === null) return;
+    const params = { branch: name, upstream };
+    switch (outcome.kind) {
+      case "moved":
+        repo.reloadWalk(undefined, { arm: "branches" });
+        toasts.push({
+          kind: "success",
+          message: "",
+          key: "branches.fastForwarded",
+          params: { ...params, n: outcome.commits },
+        });
+        break;
+      case "up-to-date":
+        // The listing's counts were older than the branch.
+        void repo.refreshRefs();
+        toasts.push({ kind: "info", message: "", key: "branches.fastForwardUpToDate", params });
+        break;
+      case "diverged":
+        void repo.refreshRefs();
+        toasts.push({ kind: "info", message: "", key: "branches.fastForwardDiverged", params });
+        break;
+      case "held":
+        void repo.refreshRefs();
+        toasts.push({
+          kind: "info",
+          message: "",
+          key: "branches.fastForwardHeld",
+          params: { ...params, folder: baseName(outcome.worktree) },
+        });
+        break;
+    }
+  }
+
   return {
     prompt,
     busy,
     ask,
     dismiss,
+    fastForward,
     checkout,
     checkoutRemote,
     stashAndSwitch,

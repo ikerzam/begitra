@@ -11,8 +11,8 @@ use git_core::types::{
     BaseCommit, BlobAt, BlobContent, BranchToDelete, ChangeKind, ChangeSet, CleanupCandidate,
     CleanupCandidates, CleanupReason, CommitContext, CommitCount, CommitNode, CommitRequest,
     Comparison, ComparisonRelation, Conflict, ConflictKind, ContentFilter, DeleteOutcome, DiffLine,
-    DiffOptions, DiffTarget, Edge, Endpoint, FileChange, GitDetection, Hunk, IgnoreOutcome,
-    IgnorePlace, IgnoreRule, KeptBy, KeptReason, LineKind, MergeMode, MergePreview,
+    DiffOptions, DiffTarget, Edge, Endpoint, FastForward, FileChange, GitDetection, Hunk,
+    IgnoreOutcome, IgnorePlace, IgnoreRule, KeptBy, KeptReason, LineKind, MergeMode, MergePreview,
     MergePreviewKind, OperationSides, OperationState, OtherOperation, Outcome, OutcomeKind,
     PatchSelection, PullRequest, PushRequest, Ref, RefKind, Remote, Repo, ResetMode, SelectedHunk,
     SelectedLine, SequencerAction, Side, SideName, Signature, Span, StashPush, StatusEntry,
@@ -686,6 +686,21 @@ fn write_phase7() {
         ],
     );
     write("conflicts", &conflicts);
+    write(
+        "fast-forwards",
+        &[
+            FastForward::Moved {
+                from: "a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4".to_owned(),
+                to: "9f3e2c1a7b5d4e6f8a0b1c2d3e4f5a6b7c8d9e0f".to_owned(),
+                commits: 3,
+            },
+            FastForward::UpToDate,
+            FastForward::Diverged,
+            FastForward::Held {
+                worktree: "C:/Users/iker/code/wt-develop".to_owned(),
+            },
+        ],
+    );
     write(
         "operation-sides",
         &[

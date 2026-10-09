@@ -621,6 +621,106 @@ describe("RefMenu", () => {
   });
 });
 
+describe("Fast-forward to the upstream", () => {
+  async function menu(target: Ref) {
+    const wrapper = mountWithI18n(RefMenu, {
+      props: { target, x: 10, y: 10 },
+      attachTo: document.body,
+    });
+    await settled();
+    return wrapper;
+  }
+
+  /** `develop` three commits behind `origin/develop`, then as `extra` makes it. */
+  const behind = (extra: Partial<Ref> = {}) =>
+    ref("develop", "local-branch", { upstream: "origin/develop", ahead: 0, behind: 3, ...extra });
+
+  const listed = (develop: Ref): Ref[] => [{ ...main, worktree: "/r" }, develop, ...refs.slice(2)];
+
+  it("moves a branch behind its upstream from its menu, after Set upstream, and says so", async () => {
+    const develop = behind();
+    const calls = await open({ refs: listed(develop) });
+    const listings = of(calls, "list_refs").length;
+    const wrapper = await menu(develop);
+    const ids = wrapper
+      .findAll('[role="menuitem"]')
+      .map((entry) => entry.attributes("data-testid"));
+    expect(ids.indexOf("menu-fast-forward")).toBe(ids.indexOf("menu-upstream") + 1);
+    const entry = wrapper.get('[data-testid="menu-fast-forward"]');
+    expect(entry.text()).toBe("Fast-forward to origin/develop");
+    await entry.trigger("click");
+    await settled();
+    expect(of(calls, "branch_fast_forward").map((call) => call.args["name"])).toEqual(["develop"]);
+    const toast = useToastsStore().toasts.at(-1);
+    expect(toast).toMatchObject({
+      kind: "success",
+      key: "branches.fastForwarded",
+      params: { branch: "develop", upstream: "origin/develop", n: 3 },
+    });
+    // The refs and the history follow.
+    expect(of(calls, "list_refs").length).toBeGreaterThan(listings);
+    wrapper.unmount();
+  });
+
+  it("shows the item disabled with its reason: commits of its own, another worktree", async () => {
+    const own = behind({ ahead: 2 });
+    const calls = await open({ refs: listed(own) });
+    let wrapper = await menu(own);
+    let entry = wrapper.get('[data-testid="menu-fast-forward"]');
+    expect(entry.text()).toContain("2 commits of its own");
+    expect(entry.attributes("aria-disabled")).toBe("true");
+    await entry.trigger("click");
+    await settled();
+    expect(of(calls, "branch_fast_forward")).toHaveLength(0);
+    wrapper.unmount();
+    const held = behind({ worktree: "/wt/claude-auth" });
+    await open({ refs: listed(held) });
+    wrapper = await menu(held);
+    entry = wrapper.get('[data-testid="menu-fast-forward"]');
+    expect(entry.text()).toContain("in claude-auth");
+    expect(entry.attributes("aria-disabled")).toBe("true");
+    wrapper.unmount();
+  });
+
+  it("offers nothing on the current branch, one level with its upstream or without one", async () => {
+    for (const target of [
+      { ...main, ahead: 0, behind: 2 },
+      behind({ behind: 0 }),
+      behind({ upstream: null, ahead: null, behind: null }),
+    ]) {
+      await open({ refs: listed(target.name === "main" ? behind() : target) });
+      const wrapper = await menu(target);
+      expect(wrapper.find('[data-testid="menu-fast-forward"]').exists()).toBe(false);
+      wrapper.unmount();
+    }
+  });
+
+  it("says why git did not move it", async () => {
+    const develop = behind();
+    for (const [answer, key, extra] of [
+      [{ kind: "up-to-date" }, "branches.fastForwardUpToDate", {}],
+      [{ kind: "diverged" }, "branches.fastForwardDiverged", {}],
+      [
+        { kind: "held", worktree: "C:/wt/develop-2" },
+        "branches.fastForwardHeld",
+        { folder: "develop-2" },
+      ],
+    ] as const) {
+      const calls = await open({ refs: listed(develop), fastForward: answer });
+      const listings = of(calls, "list_refs").length;
+      await useBranchesStore().fastForward("develop", "origin/develop");
+      await settled();
+      // The counts that offered the item were stale: the refs are listed again.
+      expect(of(calls, "list_refs").length).toBeGreaterThan(listings);
+      expect(useToastsStore().toasts.at(-1)).toMatchObject({
+        kind: "info",
+        key,
+        params: { branch: "develop", upstream: "origin/develop", ...extra },
+      });
+    }
+  });
+});
+
 describe("the delete dialogs", () => {
   it("offers to delete a local branch's upstream too, unticked, and deletes both once ticked", async () => {
     const calls = await open({ refs: refs.map((entry) => ({ ...entry, isCurrent: false })) });

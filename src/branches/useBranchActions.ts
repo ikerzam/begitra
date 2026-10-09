@@ -31,6 +31,7 @@ export type BranchAction =
   | "compare"
   | "rename"
   | "setUpstream"
+  | "fastForward"
   | "push"
   | "delete"
   | "deleteTag"
@@ -166,6 +167,9 @@ export function useBranchActions() {
         break;
       case "setUpstream":
         branches.ask({ kind: "upstream", branch: ref.name, current: ref.upstream ?? null });
+        break;
+      case "fastForward":
+        if (ref.upstream) void branches.fastForward(ref.name, ref.upstream);
         break;
       case "push":
         remotes.ask({ kind: "push", branch: ref.name });

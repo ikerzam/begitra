@@ -2,8 +2,9 @@
 // The menu of a branch row or a ref badge, by the ref's kind. A local branch:
 // Checkout (↵), Create branch here…, New worktree…, Open worktree (when another worktree holds
 // it), Merge into <current>, Rebase <current> onto this, Compare with… (⇧⌘C), Rename…, Set
-// upstream…, Push (⇧⌘P), Copy branch name, Copy link and Open on <forge> (by its upstream),
-// Delete…. A remote branch: Checkout (a local branch that tracks it), create, New worktree…,
+// upstream…, Fast-forward to <upstream> (behind it, not current; disabled with its reason
+// when the branch has commits of its own or another worktree holds it), Push (⇧⌘P), Copy
+// branch name, Copy link and Open on <forge> (by its upstream), Delete…. A remote branch: Checkout (a local branch that tracks it), create, New worktree…,
 // merge, rebase, compare, Pull into <current>…, Fetch <remote>, copy, the link, Delete on
 // <remote>…. A tag: Checkout (detached), create, compare, Push tag…, copy, the link, Delete
 // tag…. The stash badge has a menu of its own (StashBadgeMenu).
@@ -12,6 +13,7 @@ import {
   Cloud,
   Copy,
   Download,
+  FastForward,
   FolderOpen,
   FolderPlus,
   GitBranch,
@@ -34,10 +36,11 @@ import type { Ref as GitRef } from "@/ipc/schemas";
 import CopyLinkItem from "@/remotes/CopyLinkItem.vue";
 import OpenLinkItem from "@/remotes/OpenLinkItem.vue";
 import { useLinks } from "@/remotes/useLinks";
-import { sameFolder } from "@/shell/format";
+import { baseName, sameFolder } from "@/shell/format";
 import { useRepoStore } from "@/stores/repo";
 import { useShortcutHint } from "@/shortcuts/useShortcut";
 
+import { fastForwardOffer } from "./fastForward";
 import type { RemoteBranch } from "./names";
 import type { BranchAction } from "./useBranchActions";
 
@@ -76,6 +79,21 @@ const heldElsewhere = computed(() => {
     root !== undefined &&
     !sameFolder(worktree, root)
   );
+});
+/** "Fast-forward to <upstream>", and the reason it cannot run when it shows disabled. */
+const fastForward = computed(() => {
+  const offer = fastForwardOffer(
+    props.target,
+    heldElsewhere.value && props.target.worktree ? baseName(props.target.worktree) : null,
+  );
+  if (!offer) return null;
+  const reason =
+    offer.kind === "own-commits"
+      ? t("branches.ownCommits", { n: offer.commits }, offer.commits)
+      : offer.kind === "held"
+        ? t("branches.heldIn", { folder: offer.folder })
+        : "";
+  return { upstream: offer.upstream, ready: offer.kind === "ready", reason };
 });
 /** The current branch cannot be merged or rebased onto itself. */
 const isCurrent = computed(() => props.target.isCurrent);
@@ -174,6 +192,15 @@ const label = computed(() =>
         :icon="Cloud"
         data-testid="menu-upstream"
         @select="emit('choose', 'setUpstream')"
+      />
+      <ContextMenuItem
+        v-if="fastForward"
+        :label="t('branches.fastForward', { upstream: fastForward.upstream })"
+        :icon="FastForward"
+        :disabled="!fastForward.ready"
+        :context="fastForward.reason"
+        data-testid="menu-fast-forward"
+        @select="emit('choose', 'fastForward')"
       />
       <ContextMenuItem
         :label="t('branches.push')"

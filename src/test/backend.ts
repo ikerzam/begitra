@@ -18,6 +18,7 @@ import type {
   Conflict,
   DiffLine,
   DiffTarget,
+  FastForward,
   FileChange,
   Hunk,
   IgnorePlace,
@@ -116,6 +117,8 @@ export interface FakeBackendOptions {
   failRecentBranches?: boolean;
   /** Holds each `recent_branches` answer until the test releases it. */
   recentGate?: WriteGate;
+  /** What `branch_fast_forward` answers; a move of three commits by default. */
+  fastForward?: FastForward;
   /** Commits a ref scope lists (the first N). Default 10. */
   refScopeCommits?: number;
   /** Every diff fails with `diff.blob_missing`. */
@@ -1406,6 +1409,15 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
         }
         case "set_window_background":
           return null;
+        case "branch_fast_forward":
+          return (
+            options.fastForward ?? {
+              kind: "moved",
+              from: fakeCommit(3).hash,
+              to: fakeCommit(0).hash,
+              commits: 3,
+            }
+          );
         case "recent_branches":
           if (options.failRecentBranches) {
             // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError

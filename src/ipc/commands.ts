@@ -9,6 +9,7 @@ import {
   AnnotationSchema,
   BlobContentSchema,
   ComparisonSchema,
+  FastForwardSchema,
   GitDetectionSchema,
   MergePreviewSchema,
   CommitContextSchema,
@@ -328,6 +329,11 @@ export function setUpstream(
   opId = newOpId("upstream"),
 ) {
   return call("set_upstream", { repo, branch, upstream, opId }, v.null());
+}
+
+/** Moves a branch that is not checked out to its upstream's commit, when that is a fast-forward. */
+export function branchFastForward(repo: string, name: string, opId = newOpId("fast-forward")) {
+  return call("branch_fast_forward", { repo, name, opId }, FastForwardSchema);
 }
 
 export function operationState(repo: string, opId = newOpId("operation")) {

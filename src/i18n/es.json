@@ -272,7 +272,8 @@
     "lookingUp": "Buscando {name}",
     "pushingTag": "Subiendo {tag} a {remote}",
     "deletingOnRemote": "Borrando {name} en {remote}",
-    "bringingBack": "Recuperando los cambios descartados"
+    "bringingBack": "Recuperando los cambios descartados",
+    "fastForwarding": "Haciendo fast-forward de la rama"
   },
   "home": {
     "title": "Proyectos",
@@ -1080,7 +1081,14 @@
     "tagDeleted": "Borrada la etiqueta {name}",
     "tagDeletedWas": "Borrada la etiqueta {name}; apuntaba a {hash}",
     "menuTag": "Acciones de la etiqueta",
-    "menuRemote": "Acciones de la rama remota"
+    "menuRemote": "Acciones de la rama remota",
+    "fastForward": "Avanzar hasta {upstream}",
+    "ownCommits": "{n} commit propio | {n} commits propios",
+    "heldIn": "en {folder}",
+    "fastForwarded": "{branch} avanzó {n} commit hasta {upstream} | {branch} avanzó {n} commits hasta {upstream}",
+    "fastForwardUpToDate": "{branch} está al día con {upstream}",
+    "fastForwardDiverged": "{branch} tiene commits que {upstream} no tiene: no se puede hacer fast-forward",
+    "fastForwardHeld": "{branch} está activa en {folder}: haz pull allí"
   },
   "cleanup": {
     "title": "Limpiar ramas",
