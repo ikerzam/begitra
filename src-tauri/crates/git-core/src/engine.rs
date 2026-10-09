@@ -13,7 +13,7 @@ use crate::types::{
     PushRequest, Ref, Remote, Repo, ResetMode, SelectionTarget, SequencerAction, Side, StashPush,
     StatusEntry, StatusOptions, SwitchTarget, WalkOptions, WalkScope, Worktree, WorktreeAdd,
 };
-use crate::types::{BranchToDelete, CleanupCandidates, DeleteOutcome};
+use crate::types::{BranchToDelete, CleanupCandidates, DeleteOutcome, FastForward};
 use crate::types::{IgnoreOutcome, IgnorePlace, IgnoreRule};
 
 /// Cooperative cancellation flag checked by long operations between units of work.
@@ -369,6 +369,16 @@ pub trait GitEngine: Send + Sync {
 
     /// Sets a branch's upstream, or unsets it with `None`.
     fn set_upstream(&self, branch: &str, upstream: Option<&str>, cancel: &Cancel) -> GitResult<()>;
+
+    /// Moves the local branch `name` to its upstream's commit when that is a fast-forward,
+    /// without checking it out: `git fetch . <upstream's commit>:refs/heads/<name>`, which
+    /// refuses anything else and writes the branch's reflog where it keeps one. A branch a
+    /// worktree has checked out, or a rebase or a bisect of it holds, is answered held, names
+    /// compared as the disk compares them; HEAD, the index and every working tree stay as they
+    /// were. A branch without an upstream, a symbolic one and a missing one are errors before
+    /// git runs. In a shallow clone whose history stops before the commit both share, the
+    /// answer is diverged, as git's own `merge --ff-only` refuses there.
+    fn branch_fast_forward(&self, name: &str, cancel: &Cancel) -> GitResult<FastForward>;
 
     /// What the repository is in the middle of, from its state files.
     fn operation_state(&self) -> GitResult<OperationState>;

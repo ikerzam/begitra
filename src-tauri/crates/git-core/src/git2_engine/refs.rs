@@ -360,7 +360,7 @@ pub(super) fn upstreams(repo: &Repository, cancel: &Cancel) -> GitResult<HashMap
     for short in branches {
         cancel.check()?;
         let remote = config_text(&config, &format!("branch.{short}.remote"))?;
-        let merge = config_text(&config, &format!("branch.{short}.merge"))?;
+        let merge = first_text(&config, &format!("branch.{short}.merge"))?;
         let (Some(remote), Some(merge)) = (remote, merge) else {
             continue;
         };
@@ -368,7 +368,7 @@ pub(super) fn upstreams(repo: &Repository, cancel: &Cancel) -> GitResult<HashMap
             continue;
         }
         let upstream = if remote == "." {
-            Some(merge)
+            local_upstream(repo, merge)
         } else {
             let found = match remotes.entry(remote) {
                 Entry::Occupied(entry) => entry.into_mut(),
@@ -400,6 +400,40 @@ pub(super) fn upstreams(repo: &Repository, cancel: &Cancel) -> GitResult<HashMap
         }
     }
     Ok(upstreams)
+}
+
+/// The first value of a key the configuration may set several times, as git takes the first
+/// `branch.<name>.merge` for the upstream; none when it is unset or not UTF-8.
+fn first_text(config: &Config, key: &str) -> GitResult<Option<String>> {
+    let mut entries = config.multivar(key, None)?;
+    match entries.next() {
+        Some(entry) => Ok(entry?.value().ok().map(str::to_owned)),
+        None => Ok(None),
+    }
+}
+
+/// The upstream a branch of the remote `.` names: its merge ref when that is a full name, else
+/// the one ref git's DWIM finds for it (`refs/<m>`, `refs/tags/<m>`, `refs/heads/<m>`,
+/// `refs/remotes/<m>`, `refs/remotes/<m>/HEAD`), as git resolves `branch.<name>.merge = main`;
+/// none when no ref, or more than one, answers to it.
+fn local_upstream(repo: &Repository, merge: String) -> Option<String> {
+    if merge.starts_with("refs/") {
+        return Some(merge);
+    }
+    let candidates = [
+        format!("refs/{merge}"),
+        format!("refs/tags/{merge}"),
+        format!("{HEADS}{merge}"),
+        format!("refs/remotes/{merge}"),
+        format!("refs/remotes/{merge}/HEAD"),
+    ];
+    let mut found = candidates
+        .into_iter()
+        .filter(|name| repo.find_reference(name).is_ok());
+    match (found.next(), found.next()) {
+        (Some(only), None) => Some(only),
+        _ => None,
+    }
 }
 
 /// A value of the configuration snapshot as text; none when it is unset or not UTF-8 (a

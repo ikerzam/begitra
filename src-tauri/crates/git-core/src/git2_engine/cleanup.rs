@@ -71,19 +71,22 @@ struct Listed {
 /// Branch names as the repository's disk compares them: with `core.ignorecase` (a
 /// case-insensitive disk, where `Feature` and `feature` are one loose ref) case is folded, so a
 /// name HEAD or a worktree spells another way still counts as the same branch.
-struct Names {
+pub(super) struct Names {
     ignore_case: bool,
 }
 
 impl Names {
     fn of(engine: &Git2Engine) -> GitResult<Self> {
-        let ignore_case = engine.with_repo(|repo| {
-            Ok(repo
-                .config()
-                .and_then(|config| config.get_bool("core.ignorecase"))
-                .unwrap_or(false))
-        })?;
-        Ok(Self { ignore_case })
+        engine.with_repo(|repo| Ok(Self::of_repo(repo)))
+    }
+
+    /// The names of `repo`'s disk.
+    pub(super) fn of_repo(repo: &git2::Repository) -> Self {
+        let ignore_case = repo
+            .config()
+            .and_then(|config| config.get_bool("core.ignorecase"))
+            .unwrap_or(false);
+        Self { ignore_case }
     }
 
     fn key<'a>(&self, name: &'a str) -> Cow<'a, str> {
@@ -94,7 +97,7 @@ impl Names {
         }
     }
 
-    fn same(&self, a: &str, b: &str) -> bool {
+    pub(super) fn same(&self, a: &str, b: &str) -> bool {
         if self.ignore_case {
             a.chars()
                 .flat_map(char::to_lowercase)
@@ -624,17 +627,34 @@ fn sweep(temp: &Path, age: Duration) {
 /// `branch_checked_out` reads them in each worktree's git directory: the branch a rebase in
 /// progress rewrites, the ones its `--update-refs` moves along, and the one a bisect started on.
 fn in_use(common_dir: &Path, worktrees: &[Worktree]) -> Vec<String> {
+    in_use_by(common_dir, worktrees)
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect()
+}
+
+/// [`in_use`]'s branches, each with the folder of the worktree that holds it.
+pub(super) fn in_use_by(common_dir: &Path, worktrees: &[Worktree]) -> Vec<(String, PathBuf)> {
+    let main = worktrees
+        .iter()
+        .find(|worktree| worktree.is_main)
+        .map(|worktree| (common_dir.to_path_buf(), worktree.path.clone()));
     let linked = worktrees
         .iter()
         .filter(|worktree| !worktree.is_main)
-        .filter_map(|worktree| worktree.name.as_deref())
-        .map(|name| common_dir.join("worktrees").join(name));
+        .filter_map(|worktree| {
+            let name = worktree.name.as_deref()?;
+            Some((
+                common_dir.join("worktrees").join(name),
+                worktree.path.clone(),
+            ))
+        });
     let mut names = Vec::new();
-    for dir in std::iter::once(common_dir.to_path_buf()).chain(linked) {
+    for (dir, folder) in main.into_iter().chain(linked) {
         for file in ["rebase-merge/head-name", "rebase-apply/head-name"] {
             if let Ok(text) = fs::read_to_string(dir.join(file)) {
                 if let Some(name) = text.trim().strip_prefix("refs/heads/") {
-                    names.push(name.to_owned());
+                    names.push((name.to_owned(), folder.clone()));
                 }
             }
         }
@@ -644,19 +664,20 @@ fn in_use(common_dir: &Path, worktrees: &[Worktree]) -> Vec<String> {
                 text.lines()
                     .step_by(3)
                     .filter_map(|line| line.strip_prefix("refs/heads/"))
-                    .map(str::to_owned),
+                    .map(|name| (name.to_owned(), folder.clone())),
             );
         }
         // The branch bisect started on, by its short name (a commit when it started detached).
         if let Ok(text) = fs::read_to_string(dir.join("BISECT_START")) {
             let start = text.trim();
             if !start.is_empty() {
-                names.push(
+                names.push((
                     start
                         .strip_prefix("refs/heads/")
                         .unwrap_or(start)
                         .to_owned(),
-                );
+                    folder.clone(),
+                ));
             }
         }
     }

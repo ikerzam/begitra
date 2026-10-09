@@ -6,13 +6,15 @@
 //! command runs). A merge, rebase, pick or revert that stops on conflicts is an [`Outcome`],
 //! not an error (see [`super::sequencer`]).
 
-use git2::RepositoryState;
+use std::path::PathBuf;
 
-use super::{sequencer, Git2Engine};
+use git2::{ErrorCode, Oid, ReferenceType, Repository, RepositoryState};
+
+use super::{cleanup, refs, sequencer, worktrees, Git2Engine};
 use crate::cli::{run_git_env, CliExit, WRITE_ENV};
 use crate::engine::{Cancel, GitEngine};
 use crate::error::{GitError, GitResult};
-use crate::types::{MergeMode, Outcome, OutcomeKind, ResetMode, SwitchTarget};
+use crate::types::{FastForward, MergeMode, Outcome, OutcomeKind, ResetMode, SwitchTarget};
 
 /// Runs `git <args>` in the root with the write environment.
 fn git(engine: &Git2Engine, args: &[&str], cancel: &Cancel) -> GitResult<CliExit> {
@@ -158,6 +160,186 @@ pub(super) fn set_upstream(
             cancel,
         ),
     }
+}
+
+/// The start of git's refusal to move a branch a worktree has checked out; the folder follows
+/// in quotes.
+const FETCH_REFUSED: &str = "refusing to fetch into branch ";
+
+/// What the reads before git found: an answer, or the move git is to make.
+enum Plan {
+    Answer(FastForward),
+    Move {
+        tip: Oid,
+        upstream: String,
+        upstream_tip: Oid,
+        gained: usize,
+    },
+}
+
+/// See [`GitEngine::branch_fast_forward`]. The reads come first, with libgit2: the branch, by its
+/// full name (a symbolic one, an alias of another branch, is refused, since git would move the
+/// branch it names); its upstream, by the refs listing's rule; one walk that counts the commits
+/// each side lacks, which answers up to date and diverged; and the worktrees that have it checked
+/// out, since git refuses only the current one before 2.35. Then git moves it, its own checks
+/// under its own lock, and the branch is read again. git runs no maintenance, writes no
+/// commit-graph and fetches no bundle on the way; its refusals, in the write environment's `C`
+/// locale, are a worktree that checked the branch out meanwhile (a rebase or a bisect that holds
+/// it detached included, from git 2.35) or commits made meanwhile. git fetches the commit counted,
+/// by its hash, so a tag named like the upstream is never the one taken.
+#[tracing::instrument(level = "debug", skip_all, fields(name))]
+pub(super) fn branch_fast_forward(
+    engine: &Git2Engine,
+    name: &str,
+    cancel: &Cancel,
+) -> GitResult<FastForward> {
+    let full = format!("refs/heads/{name}");
+    let plan = engine.with_repo(|repo| {
+        let branch = match repo.find_reference(&full) {
+            Ok(reference) => reference,
+            Err(error) if error.code() == ErrorCode::NotFound => {
+                return Err(GitError::RefNotFound(name.to_owned()));
+            }
+            Err(error) => return Err(error.into()),
+        };
+        if branch.kind() == Some(ReferenceType::Symbolic) {
+            return Err(GitError::Git(format!(
+                "{name} is a symbolic ref: moving it would move the branch it names"
+            )));
+        }
+        let tip = commit_of(&branch, name)?;
+        let upstream = refs::upstreams(repo, cancel)?
+            .remove(&full)
+            .ok_or_else(|| GitError::Git(format!("{name} has no upstream")))?;
+        let upstream_tip = match repo.find_reference(&upstream) {
+            Ok(reference) => commit_of(&reference, &upstream)?,
+            Err(error) if error.code() == ErrorCode::NotFound => {
+                return Err(GitError::RefNotFound(upstream));
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let (gained, own) = repo.graph_ahead_behind(upstream_tip, tip)?;
+        if own > 0 {
+            return Ok(Plan::Answer(FastForward::Diverged));
+        }
+        if gained == 0 {
+            return Ok(Plan::Answer(FastForward::UpToDate));
+        }
+        if let Some(folder) = holder(repo, name, cancel)? {
+            return Ok(Plan::Answer(FastForward::Held {
+                worktree: folder.to_string_lossy().into_owned(),
+            }));
+        }
+        Ok(Plan::Move {
+            tip,
+            upstream,
+            upstream_tip,
+            gained,
+        })
+    })?;
+    let (tip, upstream, upstream_tip, gained) = match plan {
+        Plan::Answer(answer) => return Ok(answer),
+        Plan::Move {
+            tip,
+            upstream,
+            upstream_tip,
+            gained,
+        } => (tip, upstream, upstream_tip, gained),
+    };
+    // The commit counted rather than the upstream's name, so no transport or upload-pack
+    // setting can refuse the fetch and git moves the branch where the count stopped; the
+    // reflog still names the upstream, as the command a user types would.
+    let refspec = format!("{upstream_tip}:{full}");
+    let action = format!("fetch . {upstream}:{full}");
+    let env = [&WRITE_ENV[..], &[("GIT_REFLOG_ACTION", action.as_str())]].concat();
+    let args = [
+        "-c",
+        "fetch.writeCommitGraph=false",
+        "-c",
+        "fetch.bundleURI=",
+        "fetch",
+        "--no-auto-gc",
+        "--no-write-fetch-head",
+        "--no-tags",
+        "--no-recurse-submodules",
+        ".",
+        refspec.as_str(),
+    ];
+    let exit = run_git_env(&GitEngine::repo(engine).root, &args, &env, cancel)?;
+    if exit.status != Some(0) {
+        if let Some(worktree) = refusing_worktree(&exit.stderr) {
+            return Ok(FastForward::Held { worktree });
+        }
+        if rejected_as_non_fast_forward(&exit.stderr) {
+            return Ok(FastForward::Diverged);
+        }
+        return Err(exit.into_failure(&args));
+    }
+    engine.with_repo(|repo| {
+        let now = commit_of(&repo.find_reference(&full)?, name)?;
+        if now == tip {
+            return Ok(FastForward::UpToDate);
+        }
+        let commits = if now == upstream_tip {
+            gained
+        } else {
+            repo.graph_ahead_behind(now, tip)?.0
+        };
+        Ok(FastForward::Moved {
+            from: tip.to_string(),
+            to: now.to_string(),
+            commits: u32::try_from(commits).unwrap_or(u32::MAX),
+        })
+    })
+}
+
+/// The worktree that holds the branch `name`: one that has it checked out, or one where a
+/// rebase or a bisect of it runs. Read here because git refuses only the current worktree's
+/// branch before 2.35, and compares names as written where a case-insensitive disk checks
+/// `develop` out as `Develop`; names compare as the disk does.
+fn holder(repo: &Repository, name: &str, cancel: &Cancel) -> GitResult<Option<PathBuf>> {
+    let names = cleanup::Names::of_repo(repo);
+    let worktrees = worktrees::collect(repo, cancel)?;
+    let checked_out = worktrees.iter().find(|worktree| {
+        !worktree.bare
+            && worktree
+                .branch
+                .as_deref()
+                .is_some_and(|branch| names.same(branch, name))
+    });
+    if let Some(worktree) = checked_out {
+        return Ok(Some(worktree.path.clone()));
+    }
+    Ok(cleanup::in_use_by(repo.commondir(), &worktrees)
+        .into_iter()
+        .find(|(branch, _)| names.same(branch, name))
+        .map(|(_, folder)| folder))
+}
+
+/// The commit a ref points at, or an error naming `what`.
+fn commit_of(reference: &git2::Reference<'_>, what: &str) -> GitResult<Oid> {
+    reference
+        .peel_to_commit()
+        .map(|commit| commit.id())
+        .map_err(|error| GitError::Git(format!("{what} is not a commit ({})", error.message())))
+}
+
+/// The folder in git's refusal to move a branch a worktree holds: the last quoted string of
+/// the line, so a folder holding a quote stays whole.
+fn refusing_worktree(stderr: &str) -> Option<String> {
+    let line = stderr.lines().find(|line| line.contains(FETCH_REFUSED))?;
+    let rest = line.split_once(" checked out at '")?.1;
+    let end = rest.rfind('\'')?;
+    rest.get(..end).map(str::to_owned)
+}
+
+/// Whether git rejected the update as not a fast-forward: its `! [rejected]` line, which ends so,
+/// rather than the words anywhere (a branch's name may hold them).
+fn rejected_as_non_fast_forward(stderr: &str) -> bool {
+    stderr.lines().any(|line| {
+        let line = line.trim();
+        line.starts_with("! [rejected]") && line.ends_with("(non-fast-forward)")
+    })
 }
 
 /// See [`GitEngine::merge`]: the kind is read from where HEAD went, not from git's words
@@ -367,4 +549,30 @@ pub(super) fn revert(engine: &Git2Engine, revs: &[String], cancel: &Cancel) -> G
     args.extend(revs.iter().map(String::as_str));
     let exit = git(engine, &args, cancel)?;
     sequencer::outcome(engine, &args, exit, OutcomeKind::Done, None, cancel)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{refusing_worktree, rejected_as_non_fast_forward};
+
+    #[test]
+    fn reads_the_folder_of_a_refusal_whole() {
+        let refusal = "fatal: refusing to fetch into branch 'refs/heads/develop' checked out at \
+                       'C:/p7 wt/it's a 'folder' ünï'";
+        assert_eq!(
+            refusing_worktree(refusal).as_deref(),
+            Some("C:/p7 wt/it's a 'folder' ünï")
+        );
+        assert_eq!(refusing_worktree("fatal: something else"), None);
+    }
+
+    #[test]
+    fn reads_a_rejection_from_its_line_only() {
+        assert!(rejected_as_non_fast_forward(
+            "From .\n ! [rejected]        origin/main -> main  (non-fast-forward)\n"
+        ));
+        assert!(!rejected_as_non_fast_forward(
+            "error: cannot lock ref 'refs/heads/x(non-fast-forward)'"
+        ));
+    }
 }

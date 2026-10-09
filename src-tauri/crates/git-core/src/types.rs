@@ -943,6 +943,32 @@ pub enum ResetMode {
     Hard,
 }
 
+/// What a fast-forward of a branch that is not checked out did.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", tag = "kind")]
+pub enum FastForward {
+    /// The branch moved to its upstream's commit.
+    Moved {
+        /// The branch's commit before.
+        from: String,
+        /// Its commit now, the upstream's.
+        to: String,
+        /// How many commits the branch gained.
+        commits: u32,
+    },
+    /// The branch already is at its upstream's commit.
+    UpToDate,
+    /// The branch has commits its upstream lacks, whether or not it lacks some of the
+    /// upstream's: moving it to the upstream would drop them, so it is not a fast-forward.
+    Diverged,
+    /// A worktree has the branch checked out, or a rebase or a bisect of it runs there: its
+    /// files would no longer match its HEAD.
+    Held {
+        /// That worktree's folder.
+        worktree: String,
+    },
+}
+
 /// How an operation that may stop on conflicts ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
