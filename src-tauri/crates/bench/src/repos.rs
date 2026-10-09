@@ -333,6 +333,72 @@ pub fn ensure_tracked_branches(count: usize) -> Result<PathBuf, Error> {
     Ok(path)
 }
 
+/// A repository of one commit with a long HEAD reflog for the recent branches, made by
+/// [`ensure_long_reflog`].
+pub fn synthetic_reflog() -> PathBuf {
+    repos_dir().join("synthetic-reflog")
+}
+
+/// Makes sure [`synthetic_reflog`] exists and returns it: one empty commit on `main`, and a HEAD
+/// reflog of `lines` lines, about 200 bytes each, where every eightieth is a switch away from a
+/// detached HEAD (a hash of its own each time, which names no branch) and the others are
+/// commits. The recent branches then read the most the read takes: its whole window of the file,
+/// and a lookup for every switch up to its limit, none of which finds a branch. Built in a
+/// sibling folder and renamed once complete.
+pub fn ensure_long_reflog(lines: usize) -> Result<PathBuf, Error> {
+    let path = synthetic_reflog();
+    if is_repository(&path) {
+        return Ok(path);
+    }
+    let building = repos_dir().join("synthetic-reflog.building");
+    let _ = std::fs::remove_dir_all(&building);
+    std::fs::create_dir_all(&building).map_err(|source| Error::Io {
+        context: format!("create {}", building.display()),
+        source,
+    })?;
+    let identity = [
+        ("GIT_AUTHOR_NAME", "bench".to_owned()),
+        ("GIT_AUTHOR_EMAIL", "bench@begitra.local".to_owned()),
+        ("GIT_AUTHOR_DATE", "2026-01-01T00:00:00Z".to_owned()),
+        ("GIT_COMMITTER_NAME", "bench".to_owned()),
+        ("GIT_COMMITTER_EMAIL", "bench@begitra.local".to_owned()),
+        ("GIT_COMMITTER_DATE", "2026-01-01T00:00:00Z".to_owned()),
+    ];
+    git(
+        &building,
+        &["init", "--quiet", "--initial-branch=main"],
+        &[],
+    )?;
+    // Plumbing, so no hook or signing of the user's configuration runs.
+    let tree = git(&building, &["write-tree"], &[])?;
+    let head = git(&building, &["commit-tree", &tree, "-m", "first"], &identity)?;
+    git(&building, &["update-ref", "refs/heads/main", &head], &[])?;
+    let mut reflog = String::with_capacity(lines * 200);
+    for line in 0..lines {
+        let time = 1_767_225_600 + line;
+        let message = if line % 80 == 0 {
+            format!("checkout: moving from {line:040x} to main")
+        } else {
+            format!(
+                "commit: bench change {line} of the long reflog, a subject of an ordinary length"
+            )
+        };
+        reflog.push_str(&format!(
+            "{head} {head} bench <bench@begitra.local> {time} +0000\t{message}\n"
+        ));
+    }
+    let file = building.join(".git").join("logs").join("HEAD");
+    std::fs::write(&file, reflog).map_err(|source| Error::Io {
+        context: format!("write {}", file.display()),
+        source,
+    })?;
+    std::fs::rename(&building, &path).map_err(|source| Error::Io {
+        context: format!("rename {} to {}", building.display(), path.display()),
+        source,
+    })?;
+    Ok(path)
+}
+
 /// Whether `path` is a git working tree with at least one commit.
 pub fn is_repository(path: &Path) -> bool {
     git2::Repository::open(path)

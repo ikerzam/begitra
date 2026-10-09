@@ -192,6 +192,14 @@ pub trait GitEngine: Send + Sync {
     /// repository does not have as a commit; cancellation stops git.
     fn refs_containing(&self, commit: &str, cancel: &Cancel) -> GitResult<Vec<String>>;
 
+    /// The local branches HEAD left most recently, newest first, at most `limit`: the `<a>` of
+    /// each `checkout: moving from <a> to <b>` entry of HEAD's reflog, which `git switch` and
+    /// `git checkout` write and `@{-N}` counts, kept once and only while it is a local branch,
+    /// HEAD's own branch left out, from the newest 500 switches; a line git skips as corrupt is
+    /// skipped. A linked worktree reads its own HEAD's reflog; none when HEAD has no reflog or it
+    /// cannot be read, and the read writes nothing.
+    fn recent_branches(&self, limit: usize) -> GitResult<Vec<String>>;
+
     /// What merging `b` into `a` would do, through `git merge-tree` for the diverged case:
     /// nothing the user can see changes (git may store the merged result as unreferenced
     /// objects). Cancellation stops the child process and what it started.

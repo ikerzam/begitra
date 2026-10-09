@@ -17,6 +17,7 @@ mod filter;
 mod ignore;
 pub mod index_snapshot;
 pub mod patch;
+mod recent;
 mod refs;
 mod remotes;
 mod sequencer;
@@ -438,6 +439,10 @@ impl GitEngine for Git2Engine {
 
     fn refs_containing(&self, commit: &str, cancel: &Cancel) -> GitResult<Vec<String>> {
         contains::refs_containing(self, commit, cancel)
+    }
+
+    fn recent_branches(&self, limit: usize) -> GitResult<Vec<String>> {
+        recent::recent_branches(self, limit)
     }
 
     fn compare(&self, a: &str, b: &str, cancel: &Cancel) -> GitResult<Comparison> {

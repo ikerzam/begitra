@@ -250,6 +250,28 @@ fn refs(c: &mut Criterion) {
     group.finish();
 }
 
+/// The recent branches, read after each refs listing: the benchmark repositories' own HEAD
+/// reflogs, and one of 100,000 lines whose window holds a switch from a detached HEAD every
+/// eightieth line, the most lines the read parses and names it looks up.
+fn recent_branches(c: &mut Criterion) {
+    let mut group = c.benchmark_group("recent_branches");
+    let mut targets: Vec<(String, PathBuf)> = present()
+        .into_iter()
+        .map(|target| (target.name.to_owned(), target.path))
+        .collect();
+    match repos::ensure_long_reflog(100_000) {
+        Ok(path) => targets.push(("synthetic-reflog".to_owned(), path)),
+        Err(error) => eprintln!("synthetic-reflog: {error}"),
+    }
+    for (name, path) in targets {
+        let engine = engine(&path);
+        group.bench_with_input(BenchmarkId::from_parameter(&name), &engine, |b, e| {
+            b.iter(|| e.recent_branches(5).expect("recent branches"));
+        });
+    }
+    group.finish();
+}
+
 fn walk_first_page(c: &mut Criterion) {
     let mut group = c.benchmark_group("walk_first_page");
     group.sample_size(10);
@@ -1332,6 +1354,7 @@ criterion_group!(
     benches,
     open,
     refs,
+    recent_branches,
     cleanup_candidates,
     walk_first_page,
     walk_first_page_date_topo,
