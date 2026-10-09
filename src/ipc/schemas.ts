@@ -1071,6 +1071,7 @@ export const commandArgs = {
   close_repository: v.object({ root: path }),
   list_refs: v.object({ repo: path, opId }),
   recent_branches: v.object({ repo: path, opId }),
+  set_window_background: v.object({ background: v.pipe(v.string(), v.regex(/^#[0-9a-f]{6}$/i)) }),
   status: v.object({ repo: path, options: StatusOptionsSchema, opId }),
   merge_base: v.object({ repo: path, a: v.string(), b: v.string(), opId }),
   refs_containing: v.object({

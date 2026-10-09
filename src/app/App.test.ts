@@ -10,13 +10,20 @@ import { mountWithI18n } from "@/test/mount";
 import App from "./App.vue";
 
 const stored: Record<string, unknown> = {};
+/** The store refuses to delete a key, as a file another process holds would. */
+let refuseDelete = false;
 vi.mock("@tauri-apps/plugin-store", () => ({
-  load: () => Promise.resolve(memoryStorage(stored)),
+  load: () => {
+    const storage = memoryStorage(stored);
+    if (refuseDelete) storage.delete = () => Promise.reject(new Error("the file is locked"));
+    return Promise.resolve(storage);
+  },
 }));
 
 beforeEach(() => {
   setActivePinia(createPinia());
   for (const key of Object.keys(stored)) delete stored[key];
+  refuseDelete = false;
 });
 
 afterEach(() => {
@@ -24,6 +31,51 @@ afterEach(() => {
 });
 
 describe("App", () => {
+  it("keeps the start-up screen until the settings are read, then shows the shell in its theme", async () => {
+    stored["theme"] = "light";
+    mockIPC((cmd) => (cmd === "list_repositories" || cmd === "projects" ? [] : null));
+    delete document.documentElement.dataset["theme"];
+    const screen = document.createElement("div");
+    screen.className = "boot";
+    document.body.append(screen);
+    const wrapper = mountWithI18n(App, { global: { plugins: [createPinia()] } });
+    // Nothing of the app's own over the window's background yet, and no default theme.
+    expect(screen.isConnected).toBe(true);
+    expect(document.documentElement.dataset["theme"]).toBeUndefined();
+    expect(wrapper.get('[data-testid="app-root"]').classes()).not.toContain("bg-app");
+    await flushPromises();
+    expect(document.documentElement.dataset["theme"]).toBe("light");
+    expect(wrapper.get('[data-testid="app-root"]').classes()).toContain("bg-app");
+    expect(wrapper.find('[data-testid="app-shell"]').exists()).toBe(true);
+    expect(screen.isConnected).toBe(false);
+    wrapper.unmount();
+    delete document.documentElement.dataset["theme"];
+  });
+
+  it("opens no menu on a right click until the shell is there", async () => {
+    mockIPC((cmd) => (cmd === "list_repositories" || cmd === "projects" ? [] : null));
+    const wrapper = mountWithI18n(App, { global: { plugins: [createPinia()] } });
+    const click = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    document.body.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(true);
+    await flushPromises();
+    wrapper.unmount();
+  });
+
+  it("keeps the settings it read when a write that tidies them fails", async () => {
+    // An earlier version's key, which the read retires with a delete the store refuses.
+    stored["theme"] = "light";
+    stored["layoutMode"] = "graph";
+    refuseDelete = true;
+    mockIPC((cmd) => (cmd === "list_repositories" || cmd === "projects" ? [] : null));
+    const wrapper = mountWithI18n(App, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    expect(document.documentElement.dataset["theme"]).toBe("light");
+    expect(wrapper.find('[data-testid="app-shell"]').exists()).toBe(true);
+    wrapper.unmount();
+    delete document.documentElement.dataset["theme"];
+  });
+
   it("loads the settings and renders the home with the index error when nothing answers", async () => {
     mockIPC(() => {
       throw new Error("no backend here");

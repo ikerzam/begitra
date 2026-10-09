@@ -78,6 +78,19 @@ export function applyFonts(settings: FontSettings): void {
   }
 }
 
+/**
+ * Loads the design's interface and code faces, which a page fetches only once text asks for them,
+ * so the shell's first frame is set in them rather than in the fallback; outside a browser with
+ * a font set (the tests) there is nothing to load.
+ */
+export function loadFonts(): Promise<unknown> {
+  if (typeof document === "undefined" || !("fonts" in document)) return Promise.resolve();
+  return Promise.allSettled([
+    document.fonts.load('400 1em "Geist Variable"'),
+    document.fonts.load('400 1em "Geist Mono Variable"'),
+  ]);
+}
+
 /** Keeps the document root's fonts in step with the settings. */
 export function useFonts(): void {
   const settings = useSettingsStore();

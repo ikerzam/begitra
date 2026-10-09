@@ -3,9 +3,12 @@ import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defineComponent, h, nextTick } from "vue";
 
-import { memoryStorage, useSettingsStore } from "@/stores/settings";
+import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 
-import { applyTheme, brightnessOf, resolveTheme, useCodeTheme, useTheme } from "./useTheme";
+import { memoryStorage, useSettingsStore } from "@/stores/settings";
+import { fakeBackend, settled } from "@/test/backend";
+
+import { applyTheme, brightnessOf, hexOf, resolveTheme, useCodeTheme, useTheme } from "./useTheme";
 
 /** A `matchMedia` whose light query answers `light`, with its listeners exposed. */
 function fakeMatchMedia(light: boolean) {
@@ -53,6 +56,17 @@ describe("useTheme", () => {
     expect(resolveTheme("system")).toBe("dark");
     expect(applyTheme("light")).toBe("light");
     expect(document.documentElement.dataset["theme"]).toBe("light");
+  });
+
+  it("applies no theme until the settings are read", async () => {
+    setActivePinia(createPinia());
+    delete document.documentElement.dataset["theme"];
+    const wrapper = mount(Host);
+    expect(document.documentElement.dataset["theme"]).toBeUndefined();
+    await useSettingsStore().init(memoryStorage({ theme: "light" }), "windows");
+    await nextTick();
+    expect(document.documentElement.dataset["theme"]).toBe("light");
+    wrapper.unmount();
   });
 
   it("writes the setting on the document root and follows its changes", async () => {
@@ -107,5 +121,65 @@ describe("useTheme", () => {
     expect(document.documentElement.dataset["theme"]).toBe("light");
     wrapper.unmount();
     expect(media.listeners.size).toBe(0);
+  });
+
+  it("reads a computed colour as six hexadecimal digits, and nothing else", () => {
+    expect(hexOf("rgb(0, 0, 0)")).toBe("#000000");
+    expect(hexOf("rgb(253, 246, 227)")).toBe("#fdf6e3");
+    expect(hexOf("rgba(1, 2, 3, 1)")).toBe("#010203");
+    for (const color of [
+      "rgba(0, 0, 0, 0)",
+      "rgba(0, 0, 0, 0.5)",
+      "transparent",
+      "",
+      "rgb(256, 0, 0)",
+    ]) {
+      expect(hexOf(color)).toBeNull();
+    }
+  });
+
+  describe("the window's background", () => {
+    let tokens: HTMLStyleElement;
+
+    beforeEach(() => {
+      tokens = document.createElement("style");
+      // As the built stylesheet writes them, as short as they go; the body's background spelled
+      // out, since jsdom resolves no var() in a computed colour.
+      tokens.textContent =
+        'body { background-color: #000; } :root[data-theme="light"] body { background-color: #fff; }';
+      document.head.append(tokens);
+    });
+
+    afterEach(() => {
+      tokens.remove();
+      clearMocks();
+    });
+
+    const handed = (calls: { cmd: string; args: Record<string, unknown> }[]) =>
+      calls
+        .filter((call) => call.cmd === "set_window_background")
+        .map((call) => call.args["background"]);
+
+    it("is the background of each theme applied", async () => {
+      const calls = fakeBackend();
+      applyTheme("light");
+      applyTheme("dark");
+      await settled();
+      expect(handed(calls)).toEqual(["#ffffff", "#000000"]);
+    });
+
+    it("is not handed over when it reads as no colour, and a refusal changes nothing", async () => {
+      const calls = fakeBackend();
+      tokens.remove();
+      applyTheme("light");
+      await settled();
+      expect(handed(calls)).toEqual([]);
+      document.head.append(tokens);
+      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
+      mockIPC(() => Promise.reject({ code: "ipc.invalid_argument", message: "Invalid argument" }));
+      expect(applyTheme("light")).toBe("light");
+      await settled();
+      expect(document.documentElement.dataset["theme"]).toBe("light");
+    });
   });
 });

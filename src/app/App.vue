@@ -1,34 +1,22 @@
 <script setup lang="ts">
-// Root: loads the settings (falling back to memory outside Tauri), applies the locale, the
-// theme and the fonts, then renders the shell; the tooltip host serves every screen.
-
-import { onMounted, ref } from "vue";
+// Root: applies the theme and the fonts of the settings and renders the shell once they are
+// read (`useStartUp`); the tooltip host serves every screen. Until then the root paints nothing,
+// so the page's start-up screen shows on the window's own background.
 
 import TooltipHost from "@/components/TooltipHost.vue";
-import { setLocale } from "@/i18n";
 import AppShell from "@/shell/AppShell.vue";
 import { useFonts } from "@/shell/useFonts";
 import { useTheme } from "@/shell/useTheme";
-import { memoryStorage, tauriStorage, useSettingsStore } from "@/stores/settings";
 
-const settings = useSettingsStore();
-const ready = ref(false);
+import { useStartUp } from "./useStartUp";
+
+const ready = useStartUp();
 useTheme();
 useFonts();
-
-onMounted(async () => {
-  try {
-    await settings.init(await tauriStorage());
-  } catch {
-    await settings.init(memoryStorage());
-  }
-  setLocale(settings.values.locale);
-  ready.value = true;
-});
 </script>
 
 <template>
-  <div class="h-full bg-app text-fg" data-testid="app-root">
+  <div class="h-full text-fg" :class="{ 'bg-app': ready }" data-testid="app-root">
     <AppShell v-if="ready" />
     <TooltipHost />
   </div>

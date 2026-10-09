@@ -15,6 +15,7 @@ pub mod ops;
 pub mod reveal;
 pub mod state;
 pub mod watcher;
+pub mod window;
 
 use tauri::Manager;
 
@@ -125,7 +126,9 @@ pub fn run() {
         .manage(AppState::default())
         .setup(move |app| {
             let state = app.state::<AppState>().inner().clone();
+            // The log first, so a window that cannot be built leaves its reason there.
             attach_log(app, &state, log_slot.as_ref());
+            window::create_main_window(app)?;
             open_index(app, &state);
             open_discards(app, &state);
             spawn_walk_eviction(state);
@@ -142,6 +145,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::system::ping,
             commands::system::app_info,
+            window::set_window_background,
             commands::system::cancel_operation,
             commands::system::debug_emit_repo_changed,
             commands::external::open_external,

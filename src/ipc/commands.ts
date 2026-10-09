@@ -142,6 +142,11 @@ export function recentBranches(repo: string, opId = newOpId("recent")) {
   return call("recent_branches", { repo, opId }, RecentBranchesSchema);
 }
 
+/** Gives the window the theme's background now and for the next start (`#rrggbb`). */
+export function setWindowBackground(background: string) {
+  return call("set_window_background", { background }, v.null());
+}
+
 /** The merge base, the counts of commits only on each side and the relation of two revisions. */
 export function compare(repo: string, a: string, b: string, opId = newOpId("compare")) {
   return call("compare", { repo, a, b, opId }, ComparisonSchema);

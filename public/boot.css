@@ -1,0 +1,28 @@
+/* The start-up screen, until the app has read its settings and removes it: the app icon on the
+   window's own background, which the window has from its first frame in the colour of the theme
+   applied last. A file of its own rather than a style in the page, so the page adds nothing
+   inline for the content security policy to hash. */
+.boot {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.boot svg {
+  width: 96px;
+  height: 96px;
+}
+
+/* Until the app applies its theme the page paints nothing of its own, so the window's background
+   shows through: no colour scheme, whose dark one would give the page's canvas the webview's dark
+   base, and no body background, which would be the dark theme's. More specific than the tokens'
+   `:root` and outside the app's layers, so both win. */
+html:not([data-theme]) {
+  color-scheme: normal;
+}
+
+html:not([data-theme]) body {
+  background: transparent;
+}

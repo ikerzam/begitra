@@ -1404,6 +1404,8 @@ export function fakeBackend(options: FakeBackendOptions = {}): Call[] {
             });
           return options.writeGate ? options.writeGate.hold(cmd, deleteThem) : deleteThem();
         }
+        case "set_window_background":
+          return null;
         case "recent_branches":
           if (options.failRecentBranches) {
             // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- serialised AppError
